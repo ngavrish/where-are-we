@@ -1,0 +1,408 @@
+{
+  "schema": "where-are-we/1",
+  "repo": "/Users/boberit/work/where-are-we/docs/examples/react-app",
+  "stated": {},
+  "layers": {
+    "features": "Gherkin features: none found",
+    "steps": "step definitions the features bind to: none found",
+    "page_objects": "classes that own selectors and page actions: none found",
+    "driver": "browser/session driver: waits, screenshots: none found",
+    "environment": "hooks and per-scenario setup: none found"
+  },
+  "public_api": {},
+  "feature_links": {},
+  "data_files": [],
+  "testids": {
+    "suite": [],
+    "product": [
+      "root"
+    ]
+  },
+  "helpers": {},
+  "reporting": {},
+  "hooks": {},
+  "quarantine": {},
+  "product": {
+    "routes": [],
+    "storage_keys": [],
+    "api_paths": [
+      "/api/v1"
+    ]
+  },
+  "locators": {},
+  "timings": {},
+  "behave_config": {},
+  "coverage_docs": {},
+  "env_setup": {},
+  "backend": {
+    "endpoints": [],
+    "tables": [],
+    "seed_scripts": []
+  },
+  "api_tests": [],
+  "conventions": {},
+  "scenario_history": {},
+  "dir_readmes": {},
+  "duplicates": {},
+  "near_duplicates": [],
+  "call_graph": {},
+  "artefacts": {},
+  "unused_steps": {},
+  "unused_api": {},
+  "debts": {},
+  "git_history": {
+    "README.md": [
+      "2026-08-19 Claude Code: Offer the repository the documentation it lacks",
+      "2026-08-19 Claude Code: A README that reads like the tool works",
+      "2026-08-19 Claude Code: Fedora and RHEL, from the same origin and the same key",
+      "2026-08-19 Claude Code: A GitHub Action, a pre-commit hook, an image, and installs p",
+      "2026-08-19 Claude Code: One line to install on Debian, and a package for those who w"
+    ],
+    "src/where_are_we/mapper.py": [
+      "2026-08-19 Claude Code: Offer the repository the documentation it lacks",
+      "2026-08-19 Claude Code: Two sections claimed the same name, and the brief died on it",
+      "2026-08-19 Claude Code: Ship as a deb and a brew formula, not only a wheel",
+      "2026-08-19 Claude Code: Locks, status codes, outbound calls, pod runtime, complexity",
+      "2026-08-19 Claude Code: Indexes, generated code, types, per-service environment and "
+    ],
+    ".github/workflows/packages.yml": [
+      "2026-08-19 Claude Code: Fedora and RHEL, from the same origin and the same key",
+      "2026-08-19 Claude Code: A GitHub Action, a pre-commit hook, an image, and installs p",
+      "2026-08-19 Claude Code: One line to install on Debian, and a package for those who w",
+      "2026-08-19 Claude Code: Ship as a deb and a brew formula, not only a wheel"
+    ],
+    "CHANGELOG.md": [
+      "2026-08-19 Claude Code: Locks, status codes, outbound calls, pod runtime, complexity",
+      "2026-08-19 Claude Code: Version 0.2.0",
+      "2026-08-19 Claude Code: One pass over the tree, a brief you can size, and a diff to "
+    ],
+    "pyproject.toml": [
+      "2026-08-19 Claude Code: Locks, status codes, outbound calls, pod runtime, complexity",
+      "2026-08-19 Claude Code: Version 0.2.0",
+      "2026-08-19 Claude Code: where are we: index a codebase into a map an agent can read"
+    ],
+    "src/where_are_we/__init__.py": [
+      "2026-08-19 Claude Code: Locks, status codes, outbound calls, pod runtime, complexity",
+      "2026-08-19 Claude Code: Version 0.2.0",
+      "2026-08-19 Claude Code: where are we: index a codebase into a map an agent can read"
+    ],
+    "src/where_are_we/readmes.py": [
+      "2026-08-19 Claude Code: Offer the repository the documentation it lacks",
+      "2026-08-19 Claude Code: where are we: index a codebase into a map an agent can read"
+    ],
+    "packaging/install.sh": [
+      "2026-08-19 Claude Code: Fedora and RHEL, from the same origin and the same key",
+      "2026-08-19 Claude Code: One line to install on Debian, and a package for those who w"
+    ],
+    "packaging/index.html": [
+      "2026-08-19 Claude Code: One line to install on Debian, and a package for those who w",
+      "2026-08-19 Claude Code: Ship as a deb and a brew formula, not only a wheel"
+    ],
+    "tests/test_smoke.py": [
+      "2026-08-19 Claude Code: Two sections claimed the same name, and the brief died on it",
+      "2026-08-19 Claude Code: One pass over the tree, a brief you can size, and a diff to "
+    ],
+    ".github/workflows/release.yml": [
+      "2026-08-19 Claude Code: Publish with an API token from repository secrets",
+      "2026-08-19 Claude Code: One pass over the tree, a brief you can size, and a diff to "
+    ],
+    ".github/workflows/ci.yml": [
+      "2026-08-19 Claude Code: One pass over the tree, a brief you can size, and a diff to ",
+      "2026-08-19 Claude Code: A stable contract, an ignore file, and a CI that proves the "
+    ],
+    ".pre-commit-hooks.yaml": [
+      "2026-08-19 Claude Code: A GitHub Action, a pre-commit hook, an image, and installs p"
+    ],
+    "Dockerfile": [
+      "2026-08-19 Claude Code: A GitHub Action, a pre-commit hook, an image, and installs p"
+    ],
+    "action.yml": [
+      "2026-08-19 Claude Code: A GitHub Action, a pre-commit hook, an image, and installs p"
+    ],
+    ".github/workflows/brew.yml": [
+      "2026-08-19 Claude Code: Ship as a deb and a brew formula, not only a wheel"
+    ],
+    "packaging/apt-key.asc": [
+      "2026-08-19 Claude Code: Ship as a deb and a brew formula, not only a wheel"
+    ],
+    ".github/ISSUE_TEMPLATE/framework.md": [
+      "2026-08-19 Claude Code: A README that says who it is for and what it supports"
+    ],
+    "CONTRIBUTING.md": [
+      "2026-08-19 Claude Code: A README that says who it is for and what it supports"
+    ],
+    "SCHEMA.md": [
+      "2026-08-19 Claude Code: A stable contract, an ignore file, and a CI that proves the "
+    ],
+    ".gitignore": [
+      "2026-08-19 Claude Code: where are we: index a codebase into a map an agent can read"
+    ],
+    "LICENSE": [
+      "2026-08-19 Claude Code: where are we: index a codebase into a map an agent can read"
+    ]
+  },
+  "ticket_links": {},
+  "dependencies": {
+    "package.json": []
+  },
+  "ci": {},
+  "required_env": [],
+  "auth": {},
+  "concurrency": {
+    "shared_state": [],
+    "serial_tags": [],
+    "notes": []
+  },
+  "failure_signatures": {},
+  "safe_data": {},
+  "slow_steps": {},
+  "tag_meaning": {},
+  "fragile_locators": {},
+  "testid_owners": {
+    "root": "App.tsx"
+  },
+  "rules_corpus": [],
+  "ui_strings": [],
+  "infrastructure": {},
+  "schemas": {},
+  "owners": {},
+  "env_differences": {},
+  "past_runs": [],
+  "visual_baselines": [],
+  "feature_style": {},
+  "pytest_tests": {},
+  "fixtures": {},
+  "markers": [],
+  "js_tests": {},
+  "test_config": {
+    "package.json": [
+      "{\"name\":\"app\",\"scripts\":{\"dev\":\"vite\",\"test\":\"vitest\"}}"
+    ]
+  },
+  "other_suites": {},
+  "contracts": {
+    "openapi": [],
+    "graphql": [],
+    "migrations": [],
+    "mocks": [],
+    "feature_flags": [],
+    "i18n": [],
+    "images": [],
+    "secret_paths": []
+  },
+  "contract_details": {
+    "endpoints": [],
+    "graphql": [],
+    "migration_tables": [],
+    "i18n_keys": [],
+    "flags": []
+  },
+  "languages": {
+    "TypeScript": 2
+  },
+  "entry": {
+    "package.json scripts": [
+      [
+        "dev",
+        "vite"
+      ],
+      [
+        "test",
+        "vitest"
+      ]
+    ]
+  },
+  "exports": {
+    "src/api.ts": [
+      "BASE_URL",
+      "getUser"
+    ],
+    "src/App.tsx": [
+      "App"
+    ]
+  },
+  "routes_served": [],
+  "models": {},
+  "import_graph": {},
+  "workspaces": [],
+  "messaging": {},
+  "grpc": {},
+  "schedules": {},
+  "kubernetes": {},
+  "iac": {},
+  "cache_keys": [],
+  "permissions": {},
+  "observability": {
+    "metrics": [],
+    "log_fields": [],
+    "spans": []
+  },
+  "error_types": {},
+  "cli_commands": {},
+  "frontend": {
+    "components": [
+      "App (App.tsx)"
+    ],
+    "stores": [],
+    "hooks": []
+  },
+  "adrs": [],
+  "coverage_reports": {},
+  "hotspots": [
+    "src/api.ts (0 KB)",
+    "src/App.tsx (0 KB)"
+  ],
+  "dependency_licenses": {
+    "package.json": []
+  },
+  "call_graph_files": {},
+  "data_flow": {},
+  "blame_owners": {
+    "README.md": [
+      "Claude Code (13)",
+      "Dockerfile (1)"
+    ],
+    "src/where_are_we/mapper.py": [
+      "Claude Code (11)",
+      "LICENSE (1)"
+    ],
+    "src/where_are_we/readmes.py": [
+      "Claude Code (1)",
+      "LICENSE (1)"
+    ],
+    "pyproject.toml": [
+      "Claude Code (2)",
+      "LICENSE (1)"
+    ],
+    "src/where_are_we/__init__.py": [
+      "Claude Code (2)",
+      "LICENSE (1)"
+    ],
+    ".github/workflows/packages.yml": [
+      "Claude Code (4)"
+    ],
+    "packaging/install.sh": [
+      "Claude Code (2)"
+    ],
+    ".pre-commit-hooks.yaml": [
+      "Claude Code (1)"
+    ],
+    "action.yml": [
+      "Dockerfile (1)"
+    ],
+    "packaging/index.html": [
+      "Claude Code (2)"
+    ],
+    "tests/test_smoke.py": [
+      "Claude Code (2)"
+    ],
+    ".github/workflows/brew.yml": [
+      "Claude Code (1)"
+    ],
+    "packaging/apt-key.asc": [
+      "Claude Code (1)"
+    ],
+    "CHANGELOG.md": [
+      "Claude Code (3)"
+    ],
+    ".github/ISSUE_TEMPLATE/framework.md": [
+      "Claude Code (1)"
+    ],
+    "CONTRIBUTING.md": [
+      "Claude Code (1)"
+    ],
+    ".github/workflows/release.yml": [
+      "Claude Code (2)"
+    ],
+    ".github/workflows/ci.yml": [
+      "Claude Code (2)"
+    ],
+    "SCHEMA.md": [
+      "Claude Code (1)"
+    ]
+  },
+  "coverage_by_file": {},
+  "deprecations": {},
+  "api_versions": [],
+  "doc_drift": [],
+  "more_suites": {},
+  "data_stack": {
+    "dbt_models": [],
+    "airflow_dags": {},
+    "spark_jobs": [],
+    "notebooks": []
+  },
+  "build_systems": {},
+  "stores": {},
+  "obs_config": {},
+  "perf_suites": {},
+  "factories": {},
+  "db_constraints": {},
+  "generated": {},
+  "types_declared": {},
+  "env_by_service": {},
+  "client_policies": {},
+  "transactions": {},
+  "logging_config": {},
+  "templates": {},
+  "license_headers": {},
+  "locked": {},
+  "status_codes": {},
+  "outbound": {},
+  "k8s_runtime": {},
+  "assets": {},
+  "topic_schemas": {},
+  "flag_uses": {},
+  "time_assumptions": {},
+  "complexity": [],
+  "clones": {},
+  "loc": {
+    "TypeScript": 3
+  },
+  "comment_lines": {
+    "TypeScript": 0
+  },
+  "dead_files": [
+    "src/api.ts"
+  ],
+  "cycles": [],
+  "sdks": {},
+  "quality_tools": {},
+  "releases": [
+    "v0.3.0 2026-08-19",
+    "v0.2.0 2026-08-19",
+    "v0.1.0 2026-08-19"
+  ],
+  "changelog_entries": [],
+  "docs_site": {},
+  "env_parity": {
+    "in_ci_only": [],
+    "in_example_only": []
+  },
+  "test_ratio": {
+    "code_files": 3,
+    "test_files": 0,
+    "share": "0%"
+  },
+  "binaries_routes": {},
+  "ci_tags": {},
+  "entry_points": {},
+  "docs": {},
+  "module_docs": {},
+  "tags": {},
+  "environment": {},
+  "symbols": {},
+  "steps": {},
+  "features": {},
+  "page_objects": [],
+  "drivers": [],
+  "behave_environment_files": [],
+  "scripts": [],
+  "counts": {
+    "step_modules": 0,
+    "steps": 0,
+    "features": 0,
+    "scenarios": 0
+  },
+  "fingerprint": "55b48427c97751124cf83d0dd4272c683119ab12:1787140298"
+}

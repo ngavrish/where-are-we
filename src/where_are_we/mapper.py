@@ -138,6 +138,63 @@ _FILE_CACHE: dict[str, str] = {}
 _WALK_CACHE: dict[tuple, list] = {}
 
 
+
+_TS_PARSERS: dict = {}
+
+
+def _tree_sitter(lang: str):
+    """A real parser where one is installed, and None where it is not.
+
+    Regexes get TypeScript exports and Go signatures right often enough to be
+    useful and wrong often enough to be annoying: a commented-out export counts,
+    a multi-line signature does not. tree-sitter fixes both, and is optional
+    because a tool with no dependencies is a tool people run without thinking.
+
+        pip install "where-are-we[precise]"
+    """
+    if lang in _TS_PARSERS:
+        return _TS_PARSERS[lang]
+    parser = None
+    try:
+        from tree_sitter_languages import get_parser  # type: ignore
+        parser = get_parser(lang)
+    except Exception:  # noqa: BLE001 — absent, or built for another platform
+        parser = None
+    _TS_PARSERS[lang] = parser
+    return parser
+
+
+def _ts_symbols(path: str, lang: str) -> list:
+    """Top-level declarations, from a parse tree rather than a pattern."""
+    parser = _tree_sitter(lang)
+    if parser is None:
+        return []
+    try:
+        tree = parser.parse(_slurp(path).encode())
+    except Exception:  # noqa: BLE001
+        return []
+    wanted = {"function_declaration", "class_declaration", "method_definition",
+              "interface_declaration", "type_alias_declaration", "enum_declaration",
+              "lexical_declaration", "type_declaration", "func_declaration"}
+    out = []
+
+    def walk(node, exported=False):
+        if node.type == "export_statement":
+            exported = True
+        if node.type in wanted:
+            for child in node.children:
+                if child.type in ("identifier", "type_identifier", "property_identifier"):
+                    name = child.text.decode(errors="replace")
+                    if exported or lang == "go":
+                        out.append(name)
+                    break
+        for child in node.children:
+            walk(child, exported)
+
+    walk(tree.root_node)
+    return sorted(set(out))[:40]
+
+
 def _slurp(path: str, limit: int = 400000) -> str:
     """Read a file once per run. The sections each used to walk and re-read the
     tree for themselves — a hundred sections over a hundred-thousand-file

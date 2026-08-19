@@ -13,6 +13,11 @@ classifiers = [
 ]
 dependencies = []
 
+[project.optional-dependencies]
+# Optional on purpose: regexes carry the tool everywhere, and a real parser
+# sharpens the two languages where they are weakest.
+precise = ["tree-sitter-languages>=1.10", "tree-sitter>=0.21,<0.22"]
+
 [project.scripts]
 where-are-we = "where_are_we.mapper:main"
 wawe-readmes = "where_are_we.readmes:main"
