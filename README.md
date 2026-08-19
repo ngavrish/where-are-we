@@ -18,7 +18,7 @@
 
 ```bash
 pip install where-are-we                    # any platform
-brew install ngavrish/tap/where-are-we      # macOS
+brew tap ngavrish/tap && brew install where-are-we    # macOS
 ```
 
 <details><summary>Ubuntu and Debian, via apt</summary>
