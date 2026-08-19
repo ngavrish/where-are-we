@@ -195,6 +195,10 @@ where-are-we --repo . --install-hook agent   # SessionStart, before the first tu
 --init               write a starter .framework-map.json
 --install-hook git|agent
 --force              rebuild even when nothing moved
+--only "routes,data model"   keep only these sections in the brief
+--skip "coverage,history"    drop these
+--max-lines N        cap the brief; the full map is untouched
+--diff               what changed since the map already in --out
 --quiet              no summary line
 ```
 

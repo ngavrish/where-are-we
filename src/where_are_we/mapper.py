@@ -46,6 +46,28 @@ def _step_texts(path: str) -> list[str]:
     return out
 
 
+
+_FILE_CACHE: dict[str, str] = {}
+_WALK_CACHE: dict[tuple, list] = {}
+
+
+def _slurp(path: str, limit: int = 400000) -> str:
+    """Read a file once per run. The sections each used to walk and re-read the
+    tree for themselves — a hundred sections over a hundred-thousand-file
+    repository is a hundred passes over the same disk for the same bytes."""
+    hit = _FILE_CACHE.get(path)
+    if hit is not None:
+        return hit
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            body = fh.read(limit)
+    except OSError:
+        body = ""
+    if len(_FILE_CACHE) < 20000:
+        _FILE_CACHE[path] = body
+    return body
+
+
 _IGNORE_CACHE: dict[str, list] = {}
 MAX_FILES = int(os.getenv("WAWE_MAX_FILES", "40000"))
 
@@ -84,6 +106,9 @@ def _ignored(rel: str, pats: list) -> bool:
 
 
 def _walk(root: str, want: str) -> list[str]:
+    key = (root, want)
+    if key in _WALK_CACHE:
+        return _WALK_CACHE[key]
     hits = []
     base_repo = os.getenv("AGENT_REPO", root)
     pats = _ignores(base_repo)
@@ -99,8 +124,10 @@ def _walk(root: str, want: str) -> list[str]:
                 continue
             hits.append(full)
             if len(hits) >= MAX_FILES:
-                return sorted(hits)
-    return sorted(hits)
+                _WALK_CACHE[key] = sorted(hits)
+                return _WALK_CACHE[key]
+    _WALK_CACHE[key] = sorted(hits)
+    return _WALK_CACHE[key]
 
 
 
@@ -1613,11 +1640,7 @@ def build(repo: str) -> dict:
 
     # ---- the rest of what a codebase is ---------------------------------
     def _read(rel: str, limit: int = 200000) -> str:
-        try:
-            return open(os.path.join(repo, rel), encoding="utf-8",
-                        errors="replace").read(limit)
-        except OSError:
-            return ""
+        return _slurp(os.path.join(repo, rel), limit)
 
     code_files = []
     for base, dirs, files in os.walk(repo):
@@ -2630,6 +2653,15 @@ def main() -> int:
                     help="wire the map into something that already runs: git "
                          "hooks (post-checkout, post-merge, post-commit), or a "
                          "SessionStart hook for an agent harness")
+    ap.add_argument("--only", default="",
+                    help="comma separated section titles (substring match) to keep "
+                         "in the brief — everything else is left in the full map")
+    ap.add_argument("--skip", default="",
+                    help="comma separated section titles to drop from the brief")
+    ap.add_argument("--max-lines", type=int, default=0,
+                    help="cap the brief at this many lines; the map itself is untouched")
+    ap.add_argument("--diff", action="store_true",
+                    help="print what changed since the map already in --out, and exit")
     ap.add_argument("--force", action="store_true",
                     help="rebuild even when the existing map still matches the "
                          "repository (by default a map is built when it is missing "
@@ -2677,6 +2709,35 @@ def main() -> int:
                       f"-> {out_dir}/framework_map.md")
             return 0
 
+    if args.diff:
+        try:
+            with open(existing, encoding="utf-8") as fh:
+                prev = json.load(fh)
+        except (OSError, ValueError):
+            print("no previous map in " + out_dir)
+            return 1
+        now = build(repo)
+        changed = []
+        for key in sorted((set(prev) | set(now)) - {"fingerprint", "repo"}):
+            a, b = prev.get(key), now.get(key)
+            if a == b:
+                continue
+            if isinstance(a, dict) and isinstance(b, dict):
+                added = sorted(set(b) - set(a))[:8]
+                gone = sorted(set(a) - set(b))[:8]
+                bits = []
+                if added:
+                    bits.append("+ " + ", ".join(str(x) for x in added))
+                if gone:
+                    bits.append("- " + ", ".join(str(x) for x in gone))
+                changed.append(f"{key}: " + ("; ".join(bits) if bits else "contents changed"))
+            elif isinstance(a, list) and isinstance(b, list):
+                changed.append(f"{key}: {len(a)} → {len(b)}")
+            else:
+                changed.append(f"{key}: {str(a)[:40]} → {str(b)[:40]}")
+        print("\n".join(changed[:60]) or "nothing changed")
+        return 0
+
     m = build(repo)
     m["fingerprint"] = stamp_now
     if args.init:
@@ -2687,13 +2748,32 @@ def main() -> int:
         json.dump(m, fh, indent=2)
     with open(os.path.join(out_dir, "framework_map.md"), "w", encoding="utf-8") as fh:
         fh.write(digest(m))
+    text = brief(m)
+    if args.only or args.skip:
+        keep = [x.strip().lower() for x in args.only.split(",") if x.strip()]
+        drop = [x.strip().lower() for x in args.skip.split(",") if x.strip()]
+        out_lines, current_ok = [], True
+        for line in text.splitlines():
+            if line.startswith("## "):
+                title = line[3:].lower()
+                current_ok = (not keep or any(k in title for k in keep)) \
+                    and not any(d in title for d in drop)
+            elif line.startswith("# "):
+                current_ok = True
+            if current_ok:
+                out_lines.append(line)
+        text = "\n".join(out_lines) + "\n"
+    if args.max_lines and text.count("\n") > args.max_lines:
+        cut = text.splitlines()[:args.max_lines]
+        text = "\n".join(cut) + f"\n\n… trimmed to {args.max_lines} lines; " \
+               "the full map is beside this file\n"
     with open(os.path.join(out_dir, "framework_map_brief.md"), "w", encoding="utf-8") as fh:
-        fh.write(brief(m))
+        fh.write(text)
     if args.agent_file:
         # Between markers, because these files are shared: whatever a human or
         # another tool put there is not this tool's to delete.
         start, end = "<!-- where-are-we:start -->", "<!-- where-are-we:end -->"
-        block = f"{start}\n{brief(m)}{end}\n"
+        block = f"{start}\n{text}{end}\n"
         try:
             with open(args.agent_file, encoding="utf-8") as fh:
                 cur = fh.read()

@@ -17,7 +17,10 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - name: install
-        run: pip install .
+        run: pip install . pytest
+      - name: tests
+        run: pytest tests -q
+
       - name: map itself
         run: where-are-we --repo . --out /tmp/map && test -s /tmp/map/framework_map_brief.md
       - name: map a polyglot fixture
