@@ -22,7 +22,7 @@ brew tap ngavrish/tap && brew install where-are-we    # macOS
 ```
 
 ```bash
-curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh   # Debian, Ubuntu
+curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh   # Debian, Ubuntu, Fedora, RHEL
 ```
 
 <details><summary>What that script does, if you would rather do it yourself</summary>

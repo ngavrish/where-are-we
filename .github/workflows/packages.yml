@@ -71,8 +71,70 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
+  rpm:
+    runs-on: ubuntu-latest
+    container: fedora:41
+    steps:
+      - uses: actions/checkout@v4
+      - name: build the rpm
+        run: |
+          dnf install -y -q rpm-build python3 >/dev/null
+          V=$(python3 -c "import re;print(re.search(r'version = \"([^\"]+)\"', open('pyproject.toml').read()).group(1))")
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS} pkg/usr/lib/where-are-we/where_are_we pkg/usr/bin
+          cp src/where_are_we/*.py pkg/usr/lib/where-are-we/where_are_we/
+          for cmd in where-are-we:mapper wawe-readmes:readmes; do
+            name=${cmd%%:*}; mod=${cmd##*:}
+            printf '#!/bin/sh\nexec python3 -c '"'"'import sys; sys.path.insert(0, "/usr/lib/where-are-we"); from where_are_we.%s import main; sys.exit(main())'"'"' "$@"\n' "$mod" > pkg/usr/bin/$name
+            chmod 755 pkg/usr/bin/$name
+          done
+          cat > ~/rpmbuild/SPECS/where-are-we.spec <<SPEC
+          Name:           where-are-we
+          Version:        $V
+          Release:        1
+          Summary:        Index a codebase into a map an agent can read
+          License:        MIT
+          URL:            https://github.com/ngavrish/where-are-we
+          BuildArch:      noarch
+          Requires:       python3 >= 3.10
+          %description
+          Answers "where are we?" for a repository: layers, entry points, routes,
+          data model, contracts, tests and the state of the code itself, derived
+          from the tree in seconds with no model involved.
+          %install
+          mkdir -p %{buildroot}
+          cp -a $PWD/pkg/* %{buildroot}/
+          %files
+          /usr/bin/where-are-we
+          /usr/bin/wawe-readmes
+          /usr/lib/where-are-we
+          %changelog
+          SPEC
+          rpmbuild -bb ~/rpmbuild/SPECS/where-are-we.spec
+          cp ~/rpmbuild/RPMS/noarch/*.rpm .
+
+      - name: install it as a user would, and map with it
+        run: |
+          dnf install -y -q ./where-are-we-*.rpm
+          mkdir -p /tmp/probe/steps
+          printf 'from behave import step\n@step("a user exists")\ndef f(c):\n    pass\n' > /tmp/probe/steps/a.py
+          where-are-we --repo /tmp/probe --out /tmp/map
+          grep -q "step" /tmp/map/framework_map_brief.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: "*.rpm"
+
+      - name: attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          dnf install -y -q gh
+          gh release upload ${{ github.ref_name }} where-are-we-*.rpm --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   apt-repo:
-    needs: deb
+    needs: [deb, rpm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -82,6 +144,10 @@ jobs:
         with:
           name: deb
           path: incoming
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpm
+          path: incoming-rpm
 
       - name: build a signed apt repository
         run: |
@@ -110,6 +176,23 @@ jobs:
           cp ../packaging/apt-key.asc .
           cp ../packaging/index.html . 2>/dev/null || true
           cp ../packaging/install.sh . && chmod +x install.sh
+          # The same Pages host carries a yum repository: one origin, both
+          # package managers, one key.
+          sudo apt-get install -y -qq createrepo-c
+          mkdir -p rpm
+          cp ../incoming-rpm/*.rpm rpm/
+          createrepo_c rpm >/dev/null
+          gpg --batch --yes --default-key ${{ secrets.APT_GPG_KEY_ID }} \
+              --detach-sign --armor rpm/repodata/repomd.xml
+          cat > where-are-we.repo <<REPO
+          [where-are-we]
+          name=where-are-we
+          baseurl=https://ngavrish.github.io/where-are-we/rpm
+          enabled=1
+          gpgcheck=0
+          repo_gpgcheck=1
+          gpgkey=https://ngavrish.github.io/where-are-we/apt-key.asc
+          REPO
 
       - name: publish to Pages branch
         run: |

@@ -9,6 +9,17 @@
 set -eu
 
 REPO_URL="https://ngavrish.github.io/where-are-we"
+
+# Fedora, RHEL and their relatives take the same repository through dnf.
+if command -v dnf >/dev/null 2>&1 || command -v yum >/dev/null 2>&1; then
+  PM=$(command -v dnf || command -v yum)
+  if [ "$(id -u)" = 0 ]; then SUDO=""; else SUDO="sudo"; fi
+  $SUDO curl -fsSL "$REPO_URL/where-are-we.repo" -o /etc/yum.repos.d/where-are-we.repo
+  $SUDO rpm --import "$REPO_URL/apt-key.asc"
+  $SUDO "$PM" install -y where-are-we
+  where-are-we --help | head -3
+  exit 0
+fi
 KEYRING="/usr/share/keyrings/where-are-we.gpg"
 LIST="/etc/apt/sources.list.d/where-are-we.list"
 
