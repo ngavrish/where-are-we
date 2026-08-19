@@ -1,33 +1,53 @@
 <div align="center">
 
-# where-are-we
+<br>
 
-**The first question in an unfamiliar repository — answered in seconds, without a model.**
+# where are we
 
-*Any codebase · any language · any agent*
+### The first question in an unfamiliar repository.<br>Answered in seconds, without a model.
 
-[![PyPI](https://img.shields.io/pypi/v/where-are-we?color=black)](https://pypi.org/project/where-are-we/)
-[![CI](https://github.com/ngavrish/where-are-we/actions/workflows/ci.yml/badge.svg)](https://github.com/ngavrish/where-are-we/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-black.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-black.svg)](https://www.python.org)
-[![Dependencies](https://img.shields.io/badge/dependencies-none-black.svg)](pyproject.toml)
+<br>
+
+[![PyPI](https://img.shields.io/pypi/v/where-are-we?style=for-the-badge&color=111111&labelColor=111111&logo=pypi&logoColor=white)](https://pypi.org/project/where-are-we/)
+[![CI](https://img.shields.io/github/actions/workflow/status/ngavrish/where-are-we/ci.yml?style=for-the-badge&color=111111&labelColor=111111&label=ci)](https://github.com/ngavrish/where-are-we/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-111111?style=for-the-badge&labelColor=111111)](LICENSE)
+[![Dependencies](https://img.shields.io/badge/dependencies-none-111111?style=for-the-badge&labelColor=111111)](pyproject.toml)
+
+**any codebase · any language · any agent**
+
+<br>
 
 </div>
 
----
+```console
+$ where-are-we --repo . --agent-file AGENTS.md
+
+framework map: 66 step modules, 1446 steps, 182 features, 1889 scenarios -> .wawe/framework_map.md
+```
+
+Your next agent session opens already knowing where it is.
+
+<br>
+
+## Install
 
 ```bash
-pip install where-are-we                    # any platform
+pip install where-are-we                              # anywhere
 brew tap ngavrish/tap && brew install where-are-we    # macOS
+curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh   # Debian · Ubuntu · Fedora · RHEL
 ```
+
+<details>
+<summary><b>Without installing anything</b></summary>
 
 ```bash
-curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh   # Debian, Ubuntu, Fedora, RHEL
+docker run --rm -v "$PWD:/work" -v "$PWD/.wawe:/out" ghcr.io/ngavrish/where-are-we
 ```
 
-<details><summary>What that script does, if you would rather do it yourself</summary>
+</details>
 
-It adds the signed repository so `apt upgrade` keeps the tool current:
+<details>
+<summary><b>Doing the Linux repository by hand</b></summary>
 
 ```bash
 curl -fsSL https://ngavrish.github.io/where-are-we/apt-key.asc \
@@ -37,146 +57,185 @@ echo "deb [signed-by=/usr/share/keyrings/where-are-we.gpg] https://ngavrish.gith
 sudo apt-get update && sudo apt-get install where-are-we
 ```
 
-Or take the package alone, without a repository:
-
-```bash
-curl -fsSLO https://github.com/ngavrish/where-are-we/releases/latest/download/where-are-we_all.deb
-sudo dpkg -i where-are-we_all.deb
-```
+Or the package alone: [`where-are-we_all.deb`](https://github.com/ngavrish/where-are-we/releases/latest/download/where-are-we_all.deb) · `where-are-we-*.rpm`
 
 </details>
 
-```bash
-where-are-we --repo . --agent-file AGENTS.md
-```
+<br>
 
-That is the whole setup. The next agent session opens already knowing where it
-is.
+## The problem
 
-## Who this is for
+An agent opening a repository it has never seen spends its first forty tool
+calls on questions that have the same answer every time:
 
-**You run agents on a codebase.** Every session opens with the same forty tool
-calls: where do the tests live, what may a step call, how is a scenario
-launched, which environment variables must be set, what does the product
-expose. At a minute a turn that is half an hour of your budget, per session, for
-answers that never change between sessions and need no model to produce.
+> *Where do the tests live? What may a step call? How is a scenario launched?
+> Which environment variables must be set? What does the product expose?*
 
-**You maintain a pipeline that fans out.** Seven branches means seven copies of
-that half hour, in parallel, every run. This was built when three runs in a row
-died at their deadline with the branches still reading.
+At a minute a turn that is **half an hour, per session**, for answers no model is
+needed to produce. Seven parallel branches means seven copies of it, every run.
 
-**Someone new is joining.** The same map is the onboarding document, and it
-cannot go stale: it is rebuilt from the checkout, not written by hand.
+This walks the tree instead, and writes the answers where the agent will read
+them.
 
-**You inherited a repository nobody can explain.** Point it at the thing and
-read what comes out — routes, data model, queues, schedules, dead code, who has
-been touching what.
+<br>
+
+## Who it is for
+
+|  | |
+|---|---|
+| **You run agents on a codebase** | The brief goes in the prompt. The session starts at turn one, not turn forty. |
+| **You maintain a pipeline that fans out** | Every branch gets the same map, built once, for free. |
+| **Someone new is joining** | The onboarding document that cannot go stale — it is derived, not written. |
+| **You inherited something nobody can explain** | Point it at the thing: routes, data model, queues, dead code, who has been touching what. |
+
+<br>
 
 ## What you get
 
-| file | what it is | typical size |
-|---|---|---|
-| `framework_map_brief.md` | the digest to put in a prompt | 40–85 KB, sizeable with `--only` / `--max-lines` |
-| `framework_map.md` | the full map: every step phrase, every scenario with its line number | ~135 KB |
-| `framework_map.json` | the same as data — versioned contract, see [SCHEMA.md](SCHEMA.md) | — |
+| file | what it is |
+|---|---|
+| **`framework_map_brief.md`** | the digest for a prompt — sizeable with `--only`, `--skip`, `--max-lines` |
+| **`framework_map.md`** | the full map: every step phrase, every scenario with its line number |
+| **`framework_map.json`** | the same as data — a versioned contract, see [SCHEMA.md](SCHEMA.md) |
 
 `--agent-file` writes the brief between markers into `AGENTS.md`, `CLAUDE.md`,
-`.cursorrules`, `.github/copilot-instructions.md` — anything else in the file
+`.cursorrules`, `.github/copilot-instructions.md`. Anything else in the file
 survives.
+
+<br>
 
 ## What it reads
 
 <table>
-<tr><td width="50%" valign="top">
+<tr>
+<td width="33%" valign="top">
 
-### Any codebase
+#### The code
 
-- languages, by file count
-- entry points, `make` targets, npm scripts, container `CMD`
-- HTTP routes it serves — Flask, FastAPI, Django, Express, Go, Spring, Rails
-- data model — SQLAlchemy, Django, Prisma, TypeORM
-- public surface of every module
-- cross-file call graph, and how top-level packages depend on each other
-- queues, topics, subjects — Kafka, RabbitMQ, SQS, pub/sub
-- gRPC services and methods, from `.proto`
-- scheduled work — cron, Celery beat, Airflow, CronJobs
-- Kubernetes, Helm, Terraform
-- cache keys, permissions, roles
-- metrics, spans, log fields
-- error types, CLI commands, frontend components, stores and hooks
-- monorepo layout
+languages and lines · entry points ·
+`make` targets · npm scripts ·
+container `CMD` · HTTP routes it
+serves · status codes it returns ·
+data model · public surface of
+every module · cross-file call
+graph · package dependency graph
+and its cycles · files nothing
+imports · the functions carrying
+the complexity · blocks that
+appear twice · monorepo layout
 
-</td><td width="50%" valign="top">
+</td>
+<td width="33%" valign="top">
 
-### Contracts and decay
+#### What it runs on
 
-- OpenAPI parsed to method and path
-- GraphQL to its types
-- migrations to the tables and columns they create
-- mock servers, feature flags, locale keys
-- pinned image tags, secret paths (paths only, never values)
-- ADRs, coverage reports, largest files, declared licenses
-- deprecations, API versions, documentation that points at files
-  that are not there
-- git history, and who has been touching what
+queues, topics, subjects · gRPC
+services · scheduled work ·
+Kubernetes probes, resources,
+replicas · Terraform, Pulumi,
+Ansible · cache keys · permissions
+and roles · metrics, spans, log
+fields · error types · retries,
+timeouts, breakers, rate limits ·
+transactions and idempotency ·
+third-party services it calls ·
+what is actually installed
 
-### A test suite, if there is one
+</td>
+<td width="33%" valign="top">
 
-- layers, entry points, what a step may call — with signatures
-- every scenario with its line number, every step phrase
-- hooks, locators, timeouts, fixtures, tags and what they mean
-- which modules and page objects serve each feature
-- **overlapping step phrases**, so a new one is not written when one exists
-- **phrases no feature uses**, dead page-object methods, admitted TODOs
-- quarantined scenarios, and — from past junit — the slow ones
+#### Contracts and decay
+
+OpenAPI to method and path ·
+GraphQL types · migrations to
+tables and columns · mocks ·
+feature flags and where they are
+branched on · locale keys · pinned
+images · secret paths, never
+values · ADRs · coverage ·
+deprecations · docs pointing at
+files that are gone · git history ·
+who has been touching what
+
+</td>
+</tr>
+</table>
+
+#### And a test suite, if there is one
+
+Layers and entry points · what a step may call, with signatures · every scenario
+with its line number · hooks, locators, timeouts, fixtures · tags and what they
+mean · which modules and page objects serve each feature · **step phrases that
+overlap**, so a new one is not written when one exists · **phrases no feature
+uses** · dead page-object methods · quarantined scenarios · and, from past
+junit, the slow ones.
+
+<br>
+
+## Supported
+
+<table>
+<tr><td><b>Test runners</b></td><td>
+
+behave · pytest · jest · vitest · playwright · cypress · robot · JUnit · TestNG ·
+Cucumber-JVM · cucumber-js · cucumber-ruby · rspec · go test · xUnit · NUnit ·
+SpecFlow · PHPUnit · Behat · Rust · XCTest · ExUnit · Flutter · Spock ·
+clojure.test · hspec · busted · Foundry · karate · gauge · k6 · gatling ·
+JMeter · Locust · Espresso · Detox
+
+</td></tr>
+<tr><td><b>Languages</b></td><td>
+
+Python · TypeScript · JavaScript · Go · Java · Kotlin · Scala · Ruby · Rust ·
+C# · PHP · Swift · C/C++ · Elixir · Erlang · Dart · Groovy · Clojure · Haskell ·
+Lua · Perl · R · Julia · Objective-C · F# · VB.NET · Solidity · Shell · SQL
+
+</td></tr>
+<tr><td><b>Web</b></td><td>
+
+Flask · FastAPI · Django · Express · Nest · Go net/http · chi · Spring · Rails ·
+React · Vue · Svelte · Angular · Storybook
+
+</td></tr>
+<tr><td><b>Infrastructure</b></td><td>
+
+Docker · Compose · Kubernetes · Helm · Terraform · CloudFormation · Pulumi ·
+Bicep · Ansible · Chef · Puppet · GitHub Actions · GitLab CI · Jenkins ·
+CircleCI · Azure Pipelines · Travis · Buildkite · Drone
+
+</td></tr>
+<tr><td><b>Data</b></td><td>
+
+PostgreSQL and friends · MongoDB · Elasticsearch · DynamoDB · Cassandra ·
+ClickHouse · Kafka · RabbitMQ · SQS · NATS · Pulsar · MQTT · dbt · Airflow ·
+Spark · notebooks
 
 </td></tr>
 </table>
 
-## Supported
-
-**Test runners** — behave · pytest · jest · vitest · playwright · cypress ·
-robot · JUnit · TestNG · Cucumber-JVM (Java, Kotlin, Scala) · cucumber-js
-(TypeScript, JavaScript) · cucumber-ruby · rspec · go test · xUnit · NUnit ·
-SpecFlow · PHPUnit · Behat · Rust · XCTest · karate · gauge · k6 · gatling
-
-**Languages** — Python · TypeScript · JavaScript · Go · Java · Kotlin · Scala ·
-Ruby · Rust · C# · PHP · Swift · C/C++ · Shell · SQL · Protobuf · Elixir ·
-Erlang · Dart · Groovy · Clojure · Haskell · Lua · Perl · R · Julia ·
-Objective-C · F# · VB.NET · Solidity
-
-**More test runners** — ExUnit · Flutter · Spock · clojure.test · hspec ·
-busted · Perl Test · Foundry · Julia · Espresso · XCUITest · Detox
-
-**Frontend** — React · Vue · Svelte · Angular · Storybook
-
-**Data** — dbt · Airflow · Spark · notebooks
-
-**Contracts** — OpenAPI · GraphQL · AsyncAPI · JSON Schema · Avro · Thrift ·
-SOAP/WSDL · tRPC · Pact
-
-**Web frameworks** — Flask · FastAPI · Django · Express · Nest · Go net/http and
-chi · Spring · Rails
-
-**Infrastructure** — Docker · Compose · Kubernetes · Helm · Terraform ·
-CloudFormation · Pulumi · Bicep · Ansible · Chef · Puppet
-
-**CI** — GitHub Actions · GitLab CI · Jenkins · CircleCI · Azure Pipelines ·
-Travis · Buildkite · Drone · Bitbucket
-
-**Build** — Make · Gradle · Maven · Bazel · sbt · CMake · Rake · npm/pnpm workspaces
-
-**Datastores and brokers** — PostgreSQL and friends · MongoDB · Elasticsearch ·
-DynamoDB · Cassandra · ClickHouse · Kafka · RabbitMQ · SQS · NATS · Pulsar · MQTT
-
-**Observability and policy** — Prometheus rules · Grafana dashboards ·
-OpenTelemetry · OPA/Rego · LaunchDarkly · Unleash
-
-**Load testing** — JMeter · Locust · Artillery · k6 · gatling
-
 Detection is by shape, not by directory name: a page object is a class that owns
 selectors — wherever it lives, whatever the team calls it. Point it at a
 repository before you know what is in it.
+
+<br>
+
+## In CI, and in other people's repositories
+
+```yaml
+- uses: ngavrish/where-are-we@v1
+  with:
+    agent-file: AGENTS.md
+    comment: "true"          # post the summary on the pull request
+```
+
+```yaml
+# .pre-commit-config.yaml
+- repo: https://github.com/ngavrish/where-are-we
+  rev: v0.3.0
+  hooks: [{id: where-are-we}]
+```
+
+<br>
 
 ## When the repository knows better
 
@@ -197,17 +256,11 @@ where-are-we --repo . --init      # a starter manifest, from what was detected
 }
 ```
 
-`.framework-map.json` at the root, or the same block fenced as
-` ```framework-map ` in `README.md`.
+`.framework-map.json` at the root, or the same block fenced as ` ```framework-map `
+in `README.md`. Directories can explain themselves too — `wawe-readmes` writes
+one into every content directory that lacks it, derived from what is in it.
 
-Directories can explain themselves too:
-
-```bash
-wawe-readmes --repo .   # a README in every content directory that lacks one,
-                        # derived from what is in it, one TODO line for a human
-```
-
-The map reads them back.
+<br>
 
 ## Keeping it current
 
@@ -215,16 +268,19 @@ The commit and the newest file in the tree are recorded with the map, so running
 it on every checkout costs a stat walk and nothing else.
 
 ```bash
-where-are-we --repo . --install-hook git     # post-checkout, post-merge, post-commit
-where-are-we --repo . --install-hook agent   # SessionStart, before the first turn
-where-are-we --repo . --diff                 # what changed since the last map
+where-are-we --install-hook git     # post-checkout, post-merge, post-commit
+where-are-we --install-hook agent   # SessionStart, before the first turn
+where-are-we --diff                 # what changed since the last map
 ```
+
+<br>
 
 ## Options
 
 ```
 --repo PATH                  the repository to index
 --product PATH,…             source roots of the application under test
+--also PATH,…                other repositories to fold into the same map
 --out DIR                    where the three files land
 --agent-file FILE            also write the brief into AGENTS.md / CLAUDE.md / …
 --only "routes,data model"   keep only these sections in the brief
@@ -233,34 +289,18 @@ where-are-we --repo . --diff                 # what changed since the last map
 --diff                       what changed since the map already in --out
 --init                       write a starter .framework-map.json
 --install-hook git|agent     wire it into something that already runs
+--watch SECONDS              rebuild whenever the tree moves
+--html                       also write framework_map.html
 --rules PATH                 a corpus of rules to list by name
---runs-api URL               a runs database, to carry what earlier runs concluded
 --force                      rebuild even when nothing moved
 --quiet                      no summary line
 ```
 
-`.wawe-ignore` (falling back to `.gitignore`) keeps build output out;
-`WAWE_MAX_FILES` bounds the walk.
+`.wawe.toml` holds any of these as defaults. `.wawe-ignore` (falling back to
+`.gitignore`) keeps build output out. Anything shaped like a credential is
+redacted before it reaches a file.
 
-## In CI, and in other people's repositories
-
-```yaml
-- uses: ngavrish/where-are-we@v1
-  with:
-    agent-file: AGENTS.md
-    comment: "true"        # post the summary on the pull request
-```
-
-```yaml
-# .pre-commit-config.yaml
-- repo: https://github.com/ngavrish/where-are-we
-  rev: v0.3.0
-  hooks: [{id: where-are-we}]
-```
-
-```bash
-docker run --rm -v "$PWD:/work" -v "$PWD/.wawe:/out" ghcr.io/ngavrish/where-are-we
-```
+<br>
 
 ## As a library
 
@@ -271,6 +311,8 @@ m = build("/path/to/repo")
 print(m["counts"], len(m["routes_served"]))
 open("AGENTS.md", "w").write(brief(m))
 ```
+
+<br>
 
 ## Why it exists
 
@@ -283,12 +325,18 @@ three runs died at their deadline with the branches still reading.
 Nothing about it turned out to be specific to that pipeline, that agent, or that
 language.
 
+<br>
+
 ## Contributing
 
-Issues and pull requests welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
-Changes are expected to keep the JSON contract in [SCHEMA.md](SCHEMA.md) and to
-come with a case in `tests/` built from a real directory.
+Issues and pull requests welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). A
+change keeps the JSON contract in [SCHEMA.md](SCHEMA.md) and comes with a case
+in `tests/` built from a real directory.
 
-## License
+<br>
 
-MIT
+<div align="center">
+
+**MIT** · built for agents, useful to people
+
+</div>
