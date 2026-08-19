@@ -17,7 +17,23 @@
 ---
 
 ```bash
-pip install where-are-we
+pip install where-are-we                    # any platform
+brew install ngavrish/tap/where-are-we      # macOS
+```
+
+<details><summary>Ubuntu and Debian, via apt</summary>
+
+```bash
+curl -fsSL https://ngavrish.github.io/where-are-we/apt-key.asc \
+  | sudo gpg --dearmor -o /usr/share/keyrings/where-are-we.gpg
+echo "deb [signed-by=/usr/share/keyrings/where-are-we.gpg] https://ngavrish.github.io/where-are-we stable main" \
+  | sudo tee /etc/apt/sources.list.d/where-are-we.list
+sudo apt-get update && sudo apt-get install where-are-we
+```
+
+</details>
+
+```bash
 where-are-we --repo . --agent-file AGENTS.md
 ```
 

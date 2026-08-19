@@ -2451,6 +2451,150 @@ def build(repo: str) -> dict:
             clones[places[0]] = places[1:6]
     clones = dict(list(clones.items())[:20])
 
+    # Lines, not just files: a hundred shell scripts and a hundred thousand lines
+    # of TypeScript are not the same repository.
+    loc: dict[str, int] = {}
+    comments: dict[str, int] = {}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            lang = LANG.get(os.path.splitext(fn)[1]) or ext_langs.get(os.path.splitext(fn)[1])
+            if not lang:
+                continue
+            body = _slurp(os.path.join(base, fn), 300000)
+            lines_ = body.splitlines()
+            loc[lang] = loc.get(lang, 0) + len(lines_)
+            comments[lang] = comments.get(lang, 0) + sum(
+                1 for l in lines_ if l.strip().startswith(("#", "//", "/*", "*", "--")))
+    loc = dict(sorted(loc.items(), key=lambda kv: -kv[1])[:15])
+
+    # Files nothing imports: candidates for deletion, and a warning against
+    # imitating them.
+    referenced = set()
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel))
+        for name in re.findall(r"(?:from|import|require\(|include)\s*[\"\']?([\w./-]+)", body):
+            referenced.add(os.path.basename(name).split(".")[0])
+    dead_files = []
+    for rel in code_files:
+        if not rel.endswith((".py", ".ts", ".js", ".go")):
+            continue
+        stem = os.path.splitext(os.path.basename(rel))[0]
+        if stem in ("__init__", "main", "index", "conftest", "setup"):
+            continue
+        if stem not in referenced and "test" not in rel.lower():
+            dead_files.append(rel)
+    dead_files = sorted(dead_files)[:40]
+
+    # Cycles between top-level packages: the thing that makes a refactor hurt.
+    cycles = []
+    for a, deps in (import_graph or {}).items():
+        for b in deps:
+            if a in (import_graph.get(b) or []) and f"{b} ↔ {a}" not in cycles:
+                cycles.append(f"{a} ↔ {b}")
+    cycles = cycles[:20]
+
+    # Which third-party services the code actually talks to.
+    sdks: dict[str, list] = {}
+    SDK_HINTS = {
+        "aws": r"\bboto3|aws-sdk|AWS\.|amazonaws", "gcp": r"google\.cloud|googleapis",
+        "azure": r"azure\.\w+|Azure\.", "stripe": r"\bstripe\b",
+        "twilio": r"\btwilio\b", "sendgrid": r"\bsendgrid\b",
+        "datadog": r"\bdatadog|ddtrace", "sentry": r"\bsentry\b",
+        "segment": r"\bsegment\b|analytics\.track", "slack": r"slack_sdk|slack-sdk|hooks\.slack",
+        "github": r"PyGithub|@octokit|api\.github\.com", "jira": r"\bjira\b",
+        "openai": r"\bopenai\b", "anthropic": r"\banthropic\b",
+        "kubernetes": r"kubernetes\.client|client-go", "redis": r"\bredis\b",
+        "postgres": r"psycopg|pgx|node-postgres", "snowflake": r"\bsnowflake\b",
+        "databricks": r"\bdatabricks\b", "salesforce": r"\bsalesforce|simple_salesforce",
+    }
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel), 60000)
+        if not body:
+            continue
+        for name, pat in SDK_HINTS.items():
+            if re.search(pat, body, re.I):
+                sdks.setdefault(name, []).append(os.path.basename(rel))
+    sdks = {k: sorted(set(v))[:8] for k, v in sorted(sdks.items(), key=lambda kv: -len(kv[1]))[:20]}
+
+    # The tools that police this repository, and what they enforce.
+    quality_tools = {}
+    for name in ("ruff.toml", ".ruff.toml", "setup.cfg", ".flake8", ".eslintrc",
+                 ".eslintrc.json", ".eslintrc.js", "eslint.config.js", ".prettierrc",
+                 ".editorconfig", ".pre-commit-config.yaml", "mypy.ini", ".golangci.yml",
+                 "rubocop.yml", ".rubocop.yml", "pyproject.toml"):
+        fp = os.path.join(repo, name)
+        if not os.path.exists(fp):
+            continue
+        body = _slurp(fp, 20000)
+        rules = re.findall(r"^\s*(?:select|extend-select|rules?|plugins?|repos?|"
+                           r"enable|linters)\s*[:=]\s*(.{0,120})", body, re.M)[:6]
+        hooks = re.findall(r"^\s*-\s*id:\s*([\w.-]+)", body, re.M)[:12]
+        if rules or hooks:
+            quality_tools[name] = [x.strip() for x in (rules + hooks)][:12]
+    if os.path.isdir(os.path.join(repo, ".husky")):
+        quality_tools[".husky"] = sorted(os.listdir(os.path.join(repo, ".husky")))[:8]
+
+    # Release history: the tags and what the changelog says about them.
+    releases = []
+    try:
+        import subprocess
+        out = subprocess.run(["git", "-C", repo, "for-each-ref", "--sort=-creatordate",
+                              "--format=%(refname:short) %(creatordate:short)",
+                              "refs/tags", "--count=25"],
+                             capture_output=True, text=True, timeout=30).stdout
+        releases = [l.strip() for l in out.splitlines() if l.strip()][:25]
+    except Exception:  # noqa: BLE001
+        pass
+    changelog_entries = []
+    for name in ("CHANGELOG.md", "CHANGES.md", "HISTORY.md"):
+        fp = os.path.join(repo, name)
+        if os.path.exists(fp):
+            changelog_entries = re.findall(r"^#{1,3}\s*\[?v?([\d.]+)\]?\s*(?:-|—|\()?\s*([\d-]{0,10})",
+                                           _slurp(fp, 60000), re.M)[:20]
+            break
+
+    # The documentation site, where there is one.
+    docs_site = {}
+    for name in ("mkdocs.yml", "docusaurus.config.js", "docusaurus.config.ts",
+                 "sphinx/conf.py", "docs/conf.py", "book.toml"):
+        fp = os.path.join(repo, name)
+        if os.path.exists(fp):
+            body = _slurp(fp, 20000)
+            docs_site[name] = re.findall(r"^\s*-\s*([\w /.-]+):\s*[\w/.-]+\.md|title:\s*(.+)",
+                                         body, re.M)[:15]
+            docs_site[name] = [a or b for a, b in docs_site[name]][:15]
+
+    # Environment parity: what CI sets that the example file never mentions.
+    ci_env, example_env = set(), set()
+    for path, _meta in (ci or {}).items():
+        body = _slurp(os.path.join(repo, path))
+        ci_env.update(re.findall(r"^\s*([A-Z][A-Z0-9_]{2,}):\s", body, re.M))
+        ci_env.update(re.findall(r"secrets\.([A-Z][A-Z0-9_]{2,})", body))
+    for name in (".env.example", ".env.sample", ".env.template", "tests/.envrc", ".envrc"):
+        fp = os.path.join(repo, name)
+        if os.path.exists(fp):
+            example_env.update(re.findall(r"^\s*(?:export\s+)?([A-Z][A-Z0-9_]{2,})=",
+                                          _slurp(fp), re.M))
+    env_parity = {"in_ci_only": sorted(ci_env - example_env)[:30],
+                  "in_example_only": sorted(example_env - ci_env)[:30]}
+
+    # How much of this is tests.
+    test_files = [r for r in code_files
+                  if "test" in r.lower() or "spec" in r.lower() or r.endswith(".feature")]
+    ratio = {"code_files": len(code_files), "test_files": len(test_files),
+             "share": f"{len(test_files) * 100 // max(len(code_files), 1)}%"}
+
+    # Which binary serves which routes, where a repository has more than one.
+    binaries_routes = {}
+    for rel in code_files:
+        if os.path.basename(rel) not in ("main.go", "main.py", "app.py", "index.ts"):
+            continue
+        pkg_dir = os.path.dirname(rel)
+        mine = [r for r in (routes_served or []) if pkg_dir and pkg_dir.split(os.sep)[-1] in r]
+        binaries_routes[rel] = mine[:12] or ["(routes not attributable by directory)"]
+    binaries_routes = dict(list(binaries_routes.items())[:10])
+
     tags: dict[str, int] = {}
     for f in features.values():
         for t in f["tags"]:
@@ -2580,6 +2724,18 @@ def build(repo: str) -> dict:
         "time_assumptions": time_assumptions,
         "complexity": complexity,
         "clones": clones,
+        "loc": loc,
+        "comment_lines": comments,
+        "dead_files": dead_files,
+        "cycles": cycles,
+        "sdks": sdks,
+        "quality_tools": quality_tools,
+        "releases": releases,
+        "changelog_entries": changelog_entries,
+        "docs_site": docs_site,
+        "env_parity": env_parity,
+        "test_ratio": ratio,
+        "binaries_routes": binaries_routes,
         "ci_tags": ci_tags,
         "entry_points": entry_points,
         "docs": docs,
@@ -2856,6 +3012,38 @@ def brief(m: dict) -> str:
     cl = m.get("clones") or {}
     _sect("Blocks that appear more than once",
           [f"- `{k}` ≈ " + ", ".join(v[:3]) for k, v in list(cl.items())[:12]])
+
+    lo = m.get("loc") or {}
+    _sect("Lines of code", ["- " + ", ".join(f"{k}: {v:,}" for k, v in list(lo.items())[:10])] if lo else [])
+    tr = m.get("test_ratio") or {}
+    _sect("How much of this is tests",
+          [f"- {tr.get('test_files')} test files of {tr.get('code_files')} ({tr.get('share')})"] if tr else [])
+    dfl = m.get("dead_files") or []
+    _sect("Files nothing imports", ["- " + ", ".join(f"`{x}`" for x in dfl[:20])] if dfl else [])
+    cy = m.get("cycles") or []
+    _sect("Circular dependencies", [f"- {x}" for x in cy[:12]])
+    sd = m.get("sdks") or {}
+    _sect("Third-party services this code talks to",
+          [f"- **{k}** — {', '.join(v[:5])}" for k, v in list(sd.items())[:15]])
+    qt = m.get("quality_tools") or {}
+    _sect("What polices this repository",
+          [f"- `{k}`: " + ", ".join(str(x)[:50] for x in v[:8]) for k, v in list(qt.items())[:10]])
+    rl = m.get("releases") or []
+    _sect("Releases", ["- " + ", ".join(rl[:12])] if rl else [])
+    ce = m.get("changelog_entries") or []
+    _sect("Changelog",
+          ["- " + ", ".join(f"{a}{' (' + b + ')' if b else ''}" for a, b in ce[:12])] if ce else [])
+    dsi = m.get("docs_site") or {}
+    _sect("Documentation site",
+          [f"- `{k}`: " + ", ".join(str(x)[:40] for x in v[:8]) for k, v in dsi.items()])
+    ep = m.get("env_parity") or {}
+    _sect("Environment parity",
+          ([f"- set in CI only: " + ", ".join(ep["in_ci_only"][:15])] if ep.get("in_ci_only") else [])
+          + ([f"- in the example only: " + ", ".join(ep["in_example_only"][:15])]
+             if ep.get("in_example_only") else []))
+    br = m.get("binaries_routes") or {}
+    _sect("Which binary serves what",
+          [f"- `{k}`: " + ", ".join(v[:6]) for k, v in list(br.items())[:8]])
 
     lines += ["## How this suite is built", ""]
     for k, v in (m.get("layers") or {}).items():

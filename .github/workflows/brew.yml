@@ -1,0 +1,39 @@
+name: brew
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: read the released sdist from PyPI
+        id: src
+        run: |
+          V=$(curl -fsSL https://pypi.org/pypi/where-are-we/json | python3 -c "import sys,json;print(json.load(sys.stdin)['info']['version'])")
+          URL=$(curl -fsSL https://pypi.org/pypi/where-are-we/$V/json | python3 -c "import sys,json;print([u['url'] for u in json.load(sys.stdin)['urls'] if u['packagetype']=='sdist'][0])")
+          SHA=$(curl -fsSL https://pypi.org/pypi/where-are-we/$V/json | python3 -c "import sys,json;print([u['digests']['sha256'] for u in json.load(sys.stdin)['urls'] if u['packagetype']=='sdist'][0])")
+          echo "version=$V" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: update the tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          git clone https://x-access-token:$GH_TOKEN@github.com/ngavrish/homebrew-tap.git tap
+          cd tap
+          python3 - <<PY
+          import re
+          p = "Formula/where-are-we.rb"
+          s = open(p).read()
+          s = re.sub(r'url "[^"]*"', 'url "${{ steps.src.outputs.url }}"', s)
+          s = re.sub(r'sha256 "[^"]*"', 'sha256 "${{ steps.src.outputs.sha }}"', s)
+          open(p, "w").write(s)
+          PY
+          git config user.name "where-are-we release"
+          git config user.email apt@where-are-we.dev
+          git commit -aqm "where-are-we ${{ steps.src.outputs.version }}" || exit 0
+          git push -q

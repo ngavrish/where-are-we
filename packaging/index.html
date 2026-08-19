@@ -1,0 +1,14 @@
+<!doctype html><meta charset=utf-8><title>where-are-we · apt</title>
+<style>body{max-width:44rem;margin:4rem auto;padding:0 1rem;font:15px/1.7 ui-sans-serif,system-ui,sans-serif}
+pre{background:#f5f5f5;padding:1rem;border-radius:6px;overflow-x:auto}
+@media(prefers-color-scheme:dark){body{background:#111;color:#eee}pre{background:#1c1c1c}}</style>
+<h1>where-are-we · apt repository</h1>
+<pre>curl -fsSL https://ngavrish.github.io/where-are-we/apt-key.asc \
+  | sudo gpg --dearmor -o /usr/share/keyrings/where-are-we.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/where-are-we.gpg] \
+https://ngavrish.github.io/where-are-we stable main" \
+  | sudo tee /etc/apt/sources.list.d/where-are-we.list
+
+sudo apt-get update &amp;&amp; sudo apt-get install where-are-we</pre>
+<p>Source: <a href="https://github.com/ngavrish/where-are-we">github.com/ngavrish/where-are-we</a></p>

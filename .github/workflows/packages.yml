@@ -1,0 +1,120 @@
+name: packages
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: version
+        id: v
+        run: echo "version=$(python -c "import re;print(re.search(r'version = \"([^\"]+)\"', open('pyproject.toml').read()).group(1))")" >> $GITHUB_OUTPUT
+
+      - name: build the deb
+        run: |
+          V=${{ steps.v.outputs.version }}
+          ROOT=$(mktemp -d)
+          install -Dm644 src/where_are_we/mapper.py  $ROOT/usr/lib/where-are-we/where_are_we/mapper.py
+          install -Dm644 src/where_are_we/readmes.py $ROOT/usr/lib/where-are-we/where_are_we/readmes.py
+          install -Dm644 src/where_are_we/__init__.py $ROOT/usr/lib/where-are-we/where_are_we/__init__.py
+          install -Dm644 LICENSE $ROOT/usr/share/doc/where-are-we/copyright
+          mkdir -p $ROOT/usr/bin $ROOT/DEBIAN
+          cat > $ROOT/usr/bin/where-are-we <<'SH'
+          #!/bin/sh
+          exec python3 -c 'import sys; sys.path.insert(0, "/usr/lib/where-are-we"); from where_are_we.mapper import main; sys.exit(main())' "$@"
+          SH
+          cat > $ROOT/usr/bin/wawe-readmes <<'SH'
+          #!/bin/sh
+          exec python3 -c 'import sys; sys.path.insert(0, "/usr/lib/where-are-we"); from where_are_we.readmes import main; sys.exit(main())' "$@"
+          SH
+          chmod 755 $ROOT/usr/bin/where-are-we $ROOT/usr/bin/wawe-readmes
+          cat > $ROOT/DEBIAN/control <<CTRL
+          Package: where-are-we
+          Version: $V
+          Section: devel
+          Priority: optional
+          Architecture: all
+          Depends: python3 (>= 3.10)
+          Maintainer: BoberIT <apt@where-are-we.dev>
+          Description: Index a codebase into a map an agent can read
+           Answers "where are we?" for a repository: layers, entry points, routes,
+           data model, contracts, tests and the state of the code itself — derived
+           from the tree in seconds, with no model involved.
+          CTRL
+          dpkg-deb --build --root-owner-group $ROOT where-are-we_${V}_all.deb
+          dpkg-deb -I where-are-we_${V}_all.deb | head -12
+
+      - name: smoke test the deb
+        run: |
+          sudo dpkg -i where-are-we_*.deb
+          where-are-we --repo . --out /tmp/map --quiet
+          test -s /tmp/map/framework_map_brief.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb
+          path: "*.deb"
+
+      - name: attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: gh release upload ${{ github.ref_name }} where-are-we_*.deb --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  apt-repo:
+    needs: deb
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+          path: incoming
+
+      - name: build a signed apt repository
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev gnupg
+          echo "${{ secrets.APT_GPG_PRIVATE_KEY }}" | gpg --batch --import
+          mkdir -p repo/pool/main repo/dists/stable/main/binary-all
+          cp incoming/*.deb repo/pool/main/
+          cd repo
+          dpkg-scanpackages --arch all pool/ > dists/stable/main/binary-all/Packages
+          gzip -9fk dists/stable/main/binary-all/Packages
+          cat > dists/stable/Release <<REL
+          Origin: where-are-we
+          Label: where-are-we
+          Suite: stable
+          Codename: stable
+          Architectures: all
+          Components: main
+          Description: where-are-we packages
+          Date: $(date -Ru)
+          REL
+          apt-ftparchive release dists/stable >> dists/stable/Release
+          gpg --batch --yes --default-key ${{ secrets.APT_GPG_KEY_ID }} \
+              --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --default-key ${{ secrets.APT_GPG_KEY_ID }} \
+              -abs -o dists/stable/Release.gpg dists/stable/Release
+          cp ../packaging/apt-key.asc .
+          cp ../packaging/index.html . 2>/dev/null || true
+
+      - name: publish to Pages branch
+        run: |
+          git config user.name "where-are-we release"
+          git config user.email apt@where-are-we.dev
+          git checkout --orphan gh-pages
+          git rm -rq --cached . || true
+          find . -maxdepth 1 ! -name repo ! -name .git ! -name . -exec rm -rf {} +
+          mv repo/* . && rmdir repo
+          git add -A && git commit -qm "apt repository for ${{ github.ref_name }}"
+          git push -qf origin gh-pages
