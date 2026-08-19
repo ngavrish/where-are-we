@@ -189,6 +189,7 @@ where-are-we --diff                 # what changed since the last map
 --out DIR                    where the three files land
 --agent-file FILE            also write the brief into AGENTS.md, CLAUDE.md, …
 --docs [write]               offer the repository the documentation it lacks
+--for author|coder           author gets the whole vocabulary; coder gets the rest
 --only "routes,data model"   keep only these sections in the brief
 --skip "coverage,history"    drop these
 --max-lines N                cap the brief; the full map is untouched

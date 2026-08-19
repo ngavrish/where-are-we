@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1
+
+- `--for author|coder`. The vocabulary is what a scenario is written in, so the
+  author writing scenarios gets all of it (64k tokens here) and the coder
+  changing what it runs against does not (30k) — that context is worth more to
+  them as room to work than as fourteen hundred phrases.
+- The vocabulary is no longer capped by default: whole-map arithmetic favours
+  carrying it, since one turn spent grepping for a phrase re-reads the entire
+  context twice.
+
 ## 0.4.0
 
 - The brief carries the vocabulary, not a count of it. It used to say "this

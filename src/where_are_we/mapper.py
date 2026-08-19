@@ -3540,7 +3540,12 @@ def brief(m: dict) -> str:
         vocab["page object methods"] = api_methods
 
     if vocab:
-        cap = int(os.getenv("WAWE_VOCAB", "700"))
+        # No cap by default. The arithmetic is not close: the whole vocabulary is
+        # about forty thousand tokens, read from cache on every turn after the
+        # first, while a single turn spent grepping for a phrase re-reads the
+        # entire context to ask the question and again to receive the answer.
+        # Truncating this to save context is saving the cheap thing.
+        cap = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
         total = sum(len(v) for v in vocab.values())
         lines += ["", f"## What you can already write with ({total})", "",
                   "The vocabulary this suite already has. Write from these; adding a "
@@ -3552,6 +3557,7 @@ def brief(m: dict) -> str:
             lines += [f"- {x}" for x in items[:share]]
             if len(items) > share:
                 lines.append(f"- … {len(items) - share} more in framework_map.md")
+
             lines.append("")
 
     lines += ["", "## Step modules, largest first", ""]
@@ -3774,6 +3780,12 @@ def main() -> int:
                     help="wire the map into something that already runs: git "
                          "hooks (post-checkout, post-merge, post-commit), or a "
                          "SessionStart hook for an agent harness")
+    ap.add_argument("--for", dest="audience", default="",
+                    choices=["author", "coder"],
+                    help="who the brief is for: author writes scenarios and needs the "
+                         "vocabulary in full; coder edits the code behind them and needs "
+                         "the layers, the public API and the overlaps, not fourteen "
+                         "hundred phrases in its context window")
     ap.add_argument("--only", default="",
                     help="comma separated section titles (substring match) to keep "
                          "in the brief — everything else is left in the full map")
@@ -3946,6 +3958,18 @@ def main() -> int:
     with open(os.path.join(out_dir, "framework_map.md"), "w", encoding="utf-8") as fh:
         fh.write(digest(m))
     text = brief(m)
+    if args.audience == "coder":
+        # The vocabulary is what a scenario is written in; a coder is changing
+        # what it runs against. Forty thousand tokens of phrases in that context
+        # is forty thousand tokens not available for the work.
+        kept, dropping = [], False
+        for line in text.splitlines():
+            if line.startswith("## "):
+                dropping = line.startswith("## What you can already write with")
+            if not dropping:
+                kept.append(line)
+        text = "\n".join(kept) + "\n"
+
     if args.only or args.skip:
         keep = [x.strip().lower() for x in args.only.split(",") if x.strip()]
         drop = [x.strip().lower() for x in args.skip.split(",") if x.strip()]
