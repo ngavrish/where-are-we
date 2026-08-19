@@ -112,13 +112,38 @@ robot · JUnit · TestNG · Cucumber-JVM (Java, Kotlin, Scala) · cucumber-js
 SpecFlow · PHPUnit · Behat · Rust · XCTest · karate · gauge · k6 · gatling
 
 **Languages** — Python · TypeScript · JavaScript · Go · Java · Kotlin · Scala ·
-Ruby · Rust · C# · PHP · Swift · C/C++ · Shell · SQL · Protobuf
+Ruby · Rust · C# · PHP · Swift · C/C++ · Shell · SQL · Protobuf · Elixir ·
+Erlang · Dart · Groovy · Clojure · Haskell · Lua · Perl · R · Julia ·
+Objective-C · F# · VB.NET · Solidity
+
+**More test runners** — ExUnit · Flutter · Spock · clojure.test · hspec ·
+busted · Perl Test · Foundry · Julia · Espresso · XCUITest · Detox
+
+**Frontend** — React · Vue · Svelte · Angular · Storybook
+
+**Data** — dbt · Airflow · Spark · notebooks
+
+**Contracts** — OpenAPI · GraphQL · AsyncAPI · JSON Schema · Avro · Thrift ·
+SOAP/WSDL · tRPC · Pact
 
 **Web frameworks** — Flask · FastAPI · Django · Express · Nest · Go net/http and
 chi · Spring · Rails
 
-**Infrastructure** — Docker · Compose · Kubernetes · Helm · Terraform · GitHub
-Actions · GitLab CI
+**Infrastructure** — Docker · Compose · Kubernetes · Helm · Terraform ·
+CloudFormation · Pulumi · Bicep · Ansible · Chef · Puppet
+
+**CI** — GitHub Actions · GitLab CI · Jenkins · CircleCI · Azure Pipelines ·
+Travis · Buildkite · Drone · Bitbucket
+
+**Build** — Make · Gradle · Maven · Bazel · sbt · CMake · Rake · npm/pnpm workspaces
+
+**Datastores and brokers** — PostgreSQL and friends · MongoDB · Elasticsearch ·
+DynamoDB · Cassandra · ClickHouse · Kafka · RabbitMQ · SQS · NATS · Pulsar · MQTT
+
+**Observability and policy** — Prometheus rules · Grafana dashboards ·
+OpenTelemetry · OPA/Rego · LaunchDarkly · Unleash
+
+**Load testing** — JMeter · Locust · Artillery · k6 · gatling
 
 Detection is by shape, not by directory name: a page object is a class that owns
 selectors — wherever it lives, whatever the team calls it. Point it at a

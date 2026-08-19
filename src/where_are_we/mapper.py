@@ -24,8 +24,40 @@ STEP_DECORATORS = {"step", "given", "when", "then"}
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
+
+_PARSE_CACHE_FILE = ".wawe-cache.json"
+_PARSE_CACHE: dict = {}
+
+
+def _load_parse_cache(out_dir: str) -> None:
+    """Parsed step phrases, keyed by path and mtime, kept between runs.
+
+    Walking the tree is cheap; parsing every module is not, and a repository
+    where three files changed does not need the other nine hundred re-parsed."""
+    global _PARSE_CACHE
+    try:
+        with open(os.path.join(out_dir, _PARSE_CACHE_FILE), encoding="utf-8") as fh:
+            _PARSE_CACHE = json.load(fh)
+    except (OSError, ValueError):
+        _PARSE_CACHE = {}
+
+
+def _save_parse_cache(out_dir: str) -> None:
+    try:
+        with open(os.path.join(out_dir, _PARSE_CACHE_FILE), "w", encoding="utf-8") as fh:
+            json.dump(_PARSE_CACHE, fh)
+    except OSError:
+        pass
+
+
 def _step_texts(path: str) -> list[str]:
     """The step phrases a steps module declares, from its decorators."""
+    try:
+        key = f"{path}:{int(os.path.getmtime(path))}"
+    except OSError:
+        key = ""
+    if key and key in _PARSE_CACHE:
+        return _PARSE_CACHE[key]
     out: list[str] = []
     try:
         tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
@@ -43,8 +75,63 @@ def _step_texts(path: str) -> list[str]:
             arg = dec.args[0]
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                 out.append(arg.value)
+    if key:
+        _PARSE_CACHE[key] = out
     return out
 
+
+
+
+def _config(repo: str) -> dict:
+    """Defaults from `.wawe.toml`, so a project states its own invocation once.
+
+    Read with tomllib where it exists and by hand where it does not: this tool
+    has no dependencies and is not about to grow one for six keys.
+    """
+    path = os.path.join(repo, ".wawe.toml")
+    if not os.path.exists(path):
+        return {}
+    try:
+        body = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return {}
+    try:
+        import tomllib
+        data = tomllib.loads(body)
+        return data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
+    except Exception:  # noqa: BLE001 — python 3.10, or a file with a typo in it
+        out = {}
+        for line in body.splitlines():
+            m2 = re.match(r'\s*([\w-]+)\s*=\s*(.+)', line)
+            if not m2:
+                continue
+            key, raw = m2.group(1), m2.group(2).strip()
+            if raw.startswith("["):
+                out[key] = [x.strip().strip('"\'') for x in raw.strip("[]").split(",") if x.strip()]
+            else:
+                out[key] = raw.strip('"\'')
+        return out
+
+
+_SECRET_SHAPES = re.compile(
+    r"(?:AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}"
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"
+    r"|pypi-[A-Za-z0-9_-]{40,}|[A-Za-z0-9+/]{40,}={0,2})")
+
+
+def redact(value):
+    """Never carry a credential into the map.
+
+    The map is written into files that get committed and pasted into prompts, so
+    anything that looks like a key is replaced by its shape. Paths to secrets are
+    useful and kept; the secrets themselves are not."""
+    if isinstance(value, str):
+        return _SECRET_SHAPES.sub("[redacted]", value)
+    if isinstance(value, list):
+        return [redact(v) for v in value]
+    if isinstance(value, dict):
+        return {k: redact(v) for k, v in value.items()}
+    return value
 
 
 _FILE_CACHE: dict[str, str] = {}
@@ -1646,9 +1733,16 @@ def build(repo: str) -> dict:
     for base, dirs, files in os.walk(repo):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for fn in files:
+            # Extensionless names count: a Jenkinsfile is the CI, a Rakefile is
+            # the build, and neither ends in anything.
             if fn.endswith((".py", ".ts", ".tsx", ".js", ".go", ".java", ".kt",
                             ".rb", ".rs", ".cs", ".yaml", ".yml", ".tf", ".proto",
-                            ".xml", ".json", ".md", ".sh", ".sql")):
+                            ".xml", ".json", ".md", ".sh", ".sql", ".ex", ".exs",
+                            ".dart", ".sol", ".vue", ".svelte", ".rego", ".jmx",
+                            ".bicep", ".pp", ".avsc", ".thrift", ".wsdl", ".ipynb")) \
+                    or fn in ("Jenkinsfile", "Makefile", "Dockerfile", "Rakefile",
+                              "BUILD", "BUILD.bazel", "WORKSPACE", "CMakeLists.txt",
+                              "pom.xml", "build.sbt", "Gemfile", "Procfile"):
                 code_files.append(os.path.relpath(os.path.join(base, fn), repo))
 
     messaging, grpc_services, schedules = {}, {}, {}
@@ -1861,6 +1955,232 @@ def build(repo: str) -> dict:
                 doc_drift.append(f"{rel} → {ref}")
     doc_drift = sorted(set(doc_drift))[:25]
 
+    # ---- everything else a repository might be written in ---------------
+    # Each ecosystem is asked the same questions the rest were: where the cases
+    # live, what is declared, what binds a name to code. Regexes, because the
+    # alternative is a parser per language and a dependency per parser.
+    ext_langs = {".ex": "Elixir", ".exs": "Elixir", ".erl": "Erlang",
+                 ".dart": "Dart", ".groovy": "Groovy", ".clj": "Clojure",
+                 ".hs": "Haskell", ".lua": "Lua", ".pl": "Perl", ".r": "R",
+                 ".jl": "Julia", ".m": "Objective-C", ".fs": "F#",
+                 ".vb": "VB.NET", ".sol": "Solidity", ".vue": "Vue",
+                 ".svelte": "Svelte", ".ipynb": "Notebook"}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            lang = ext_langs.get(os.path.splitext(fn)[1])
+            if lang:
+                languages[lang] = languages.get(lang, 0) + 1
+
+    more_suites: dict[str, dict] = {}
+
+    def _collect(ext: str, pattern: str, label: str, group: int = 1) -> None:
+        found = {}
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            body = _slurp(p2)
+            hits = [h if isinstance(h, str) else h[group - 1]
+                    for h in re.findall(pattern, body)][:20]
+            if hits:
+                found[rel] = sorted(set(hits))[:20]
+        if found:
+            more_suites[label] = dict(list(found.items())[:25])
+
+    _collect(".exs", r"\btest\s+[\"\']([^\"\']{3,80})", "exunit")
+    _collect(".dart", r"\b(?:test|testWidgets)\(\s*[\"\']([^\"\']{3,80})", "flutter")
+    _collect(".groovy", r"\bvoid\s+[\"\']?([\w ]{3,60})[\"\']?\s*\(\)\s*\{", "spock")
+    _collect(".clj", r"\(deftest\s+([\w-]{3,60})", "clojure.test")
+    _collect(".hs", r"\b(?:it|describe)\s+[\"\']([^\"\']{3,80})", "hspec")
+    _collect(".lua", r"\b(?:it|describe)\s*\(\s*[\"\']([^\"\']{3,80})", "busted")
+    _collect(".pl", r"\b(?:ok|is|subtest)\s*\(?\s*[\"\']([^\"\']{3,80})", "perl-test")
+    _collect(".sol", r"\bfunction\s+(test\w+)\s*\(", "foundry")
+    _collect(".jl", r"@testset\s+[\"\']([^\"\']{3,80})", "julia")
+    _collect(".m", r"^-\s*\(void\)\s*(test\w+)", "xcunit-objc")
+    _collect(".java", r"@(?:Test|RunWith\(AndroidJUnit4)[^\n]*\n\s*public\s+void\s+(\w+)",
+             "espresso")
+    _collect(".js", r"\b(?:element|device)\.\w+\([^)]*\).*?\b(?:it|describe)\(\s*[\"\']([^\"\']{3,60})",
+             "detox")
+
+    # Frontend beyond React.
+    for ext, label in ((".vue", "vue"), (".svelte", "svelte")):
+        comps = {}
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            body = _slurp(p2)
+            comps[rel] = re.findall(r"(?:export\s+default\s*\{|<script[^>]*>)", body)[:1] and \
+                [os.path.splitext(os.path.basename(rel))[0]] or []
+        comps = {k: v for k, v in comps.items() if v}
+        if comps:
+            frontend.setdefault("components", [])
+            frontend["components"] += [f"{v[0]} ({label})" for v in comps.values()][:40]
+    angular = {}
+    for p2 in _walk(repo, ".ts"):
+        rel = os.path.relpath(p2, repo)
+        body = _slurp(p2)
+        decs = re.findall(r"@(Component|Injectable|NgModule|Directive)\(", body)
+        if decs:
+            angular[rel] = sorted(set(decs))
+    if angular:
+        frontend["angular"] = [f"{os.path.basename(k)}: {', '.join(v)}"
+                               for k, v in list(angular.items())[:20]]
+    stories = [os.path.relpath(p2, repo) for ext in (".stories.tsx", ".stories.ts", ".stories.js")
+               for p2 in _walk(repo, ext)][:30]
+    if stories:
+        frontend["storybook"] = stories
+
+    # Data engineering.
+    data_stack = {"dbt_models": [], "airflow_dags": {}, "spark_jobs": [], "notebooks": []}
+    for p2 in _walk(repo, ".sql"):
+        rel = os.path.relpath(p2, repo)
+        if "/models/" in "/" + rel or "dbt" in rel.lower():
+            data_stack["dbt_models"].append(rel)
+    for p2 in _walk(repo, ".py"):
+        rel = os.path.relpath(p2, repo)
+        body = _slurp(p2)
+        if "DAG(" in body or "@dag" in body:
+            tasks = re.findall(r"(?:task_id\s*=\s*[\"\']([\w.-]+)|@task\s*\n\s*def\s+(\w+))", body)
+            data_stack["airflow_dags"][rel] = sorted({a or b for a, b in tasks})[:15]
+        if re.search(r"SparkSession|spark\.read|pyspark", body):
+            data_stack["spark_jobs"].append(rel)
+    data_stack["notebooks"] = [os.path.relpath(p2, repo) for p2 in _walk(repo, ".ipynb")][:25]
+    data_stack = {k: (v[:25] if isinstance(v, list) else dict(list(v.items())[:15]))
+                  for k, v in data_stack.items()}
+
+    # Contracts beyond OpenAPI.
+    for rel in code_files:
+        low = rel.lower()
+        if low.endswith((".avsc", ".avro")):
+            contracts.setdefault("avro", []).append(rel)
+        elif low.endswith(".thrift"):
+            contracts.setdefault("thrift", []).append(rel)
+        elif low.endswith(".wsdl") or low.endswith(".xsd"):
+            contracts.setdefault("soap", []).append(rel)
+        elif "asyncapi" in low:
+            contracts.setdefault("asyncapi", []).append(rel)
+        elif "pact" in low and low.endswith(".json"):
+            contracts.setdefault("pact", []).append(rel)
+        elif low.endswith(".schema.json") or "json-schema" in low:
+            contracts.setdefault("json_schema", []).append(rel)
+        elif "trpc" in low:
+            contracts.setdefault("trpc", []).append(rel)
+    contracts = {k: sorted(set(v))[:25] for k, v in contracts.items()}
+
+    # Infrastructure beyond Terraform.
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel))
+        low = rel.lower()
+        if low.endswith((".yaml", ".yml")) and re.search(r"AWSTemplateFormatVersion|Resources:", body):
+            iac.setdefault(rel, []).extend(
+                [("cloudformation", x) for x in re.findall(r"^\s{2,4}(\w+):\s*$", body, re.M)[:10]])
+        elif "pulumi" in low or re.search(r"\bpulumi\b", body[:2000], re.I):
+            iac.setdefault(rel, []).append(("pulumi", os.path.basename(rel)))
+        elif low.endswith(".bicep"):
+            iac.setdefault(rel, []).extend(
+                [("bicep", x) for x in re.findall(r"^resource\s+(\w+)", body, re.M)[:10]])
+        elif re.search(r"^\s*-\s*(?:hosts|name):", body, re.M) and low.endswith((".yml", ".yaml")) \
+                and re.search(r"\btasks:|\bansible", body, re.I):
+            iac.setdefault(rel, []).extend(
+                [("ansible", x) for x in re.findall(r"^\s*-\s*name:\s*(.+)$", body, re.M)[:10]])
+        elif low.endswith(".rb") and ("/recipes/" in "/" + low or "cookbook" in low):
+            iac.setdefault(rel, []).append(("chef", os.path.basename(rel)))
+        elif low.endswith(".pp"):
+            iac.setdefault(rel, []).append(("puppet", os.path.basename(rel)))
+    iac = {k: v[:12] for k, v in list(iac.items())[:25]}
+
+    # CI beyond GitHub and GitLab.
+    for rel in code_files:
+        base_name = os.path.basename(rel)
+        body = _slurp(os.path.join(repo, rel))
+        if base_name == "Jenkinsfile":
+            ci[rel] = {"jobs": re.findall(r"stage\s*\(\s*[\"\']([^\"\']+)", body)[:12],
+                       "runs": re.findall(r"sh\s+[\"\']([^\"\']{3,60})", body)[:6]}
+        elif "circleci" in rel.lower() and base_name.endswith((".yml", ".yaml")):
+            ci[rel] = {"jobs": re.findall(r"^\s{2}([\w-]+):\s*$", body, re.M)[:12],
+                       "runs": re.findall(r"command:\s*(.{3,60})", body)[:6]}
+        elif base_name in ("azure-pipelines.yml", ".travis.yml", "bitbucket-pipelines.yml") \
+                or "buildkite" in rel.lower() or "drone" in rel.lower():
+            ci[rel] = {"jobs": re.findall(r"^\s*-?\s*(?:job|label|name):\s*(.+)$", body, re.M)[:12],
+                       "runs": re.findall(r"^\s*-?\s*(?:script|command):\s*(.+)$", body, re.M)[:6]}
+    ci = dict(list(ci.items())[:15])
+
+    # Build systems and their module graphs.
+    build_systems = {}
+    for rel in code_files:
+        base_name = os.path.basename(rel)
+        body = _slurp(os.path.join(repo, rel))
+        if base_name in ("build.gradle", "build.gradle.kts", "settings.gradle",
+                         "settings.gradle.kts"):
+            build_systems.setdefault("gradle", []).append(
+                f"{rel}: " + ", ".join(re.findall(r"include\s*[\('\"]+([\w:.-]+)", body)[:10]))
+        elif base_name == "pom.xml":
+            build_systems.setdefault("maven", []).append(
+                f"{rel}: " + ", ".join(re.findall(r"<module>([^<]+)</module>", body)[:10]))
+        elif base_name in ("BUILD", "BUILD.bazel", "WORKSPACE"):
+            build_systems.setdefault("bazel", []).append(rel)
+        elif base_name == "build.sbt":
+            build_systems.setdefault("sbt", []).append(rel)
+        elif base_name == "CMakeLists.txt":
+            build_systems.setdefault("cmake", []).append(
+                f"{rel}: " + ", ".join(re.findall(r"add_(?:executable|library)\(\s*(\w+)", body)[:8]))
+        elif base_name == "Rakefile":
+            build_systems.setdefault("rake", []).append(
+                f"{rel}: " + ", ".join(re.findall(r"task\s+:?(\w+)", body)[:10]))
+    build_systems = {k: v[:15] for k, v in build_systems.items()}
+
+    # Datastores and brokers beyond SQL and Kafka.
+    stores = {}
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel))
+        if not body:
+            continue
+        for kw, pat in (("mongodb", r"(?:db|database)\.(\w{3,40})\.(?:find|insert|update|aggregate)"),
+                        ("elasticsearch", r"(?:index|indices)\W{1,4}[\"\']([\w.-]{3,40})[\"\']"),
+                        ("dynamodb", r"TableName\W{1,4}[\"\']([\w.-]{3,40})[\"\']"),
+                        ("cassandra", r"(?:KEYSPACE|keyspace)\W{1,4}[\"\']?([\w.-]{3,40})"),
+                        ("clickhouse", r"clickhouse[^\n]{0,40}?[\"\']([\w.-]{3,40})[\"\']"),
+                        ("nats", r"(?:nats|subject)\.(?:publish|subscribe)\(\s*[\"\']([\w.>*-]{3,40})"),
+                        ("pulsar", r"(?:persistent|non-persistent)://([\w./-]{3,60})"),
+                        ("mqtt", r"(?:publish|subscribe)\(\s*[\"\']([\w/+#-]{3,40})")):
+            hits = re.findall(pat, body)[:8]
+            if hits:
+                stores.setdefault(kw, set()).update(hits)
+    stores = {k: sorted(v)[:20] for k, v in stores.items()}
+
+    # Observability configuration and policy.
+    obs_config = {}
+    for rel in code_files:
+        low = rel.lower()
+        body = _slurp(os.path.join(repo, rel))
+        if low.endswith((".yml", ".yaml")) and re.search(r"^groups:|alert:", body, re.M):
+            obs_config.setdefault("prometheus_rules", []).append(
+                f"{rel}: " + ", ".join(re.findall(r"alert:\s*(\w+)", body)[:8]))
+        elif low.endswith(".json") and '"panels"' in body[:4000]:
+            obs_config.setdefault("grafana_dashboards", []).append(rel)
+        elif "otel" in low or "opentelemetry" in low:
+            obs_config.setdefault("otel", []).append(rel)
+        elif low.endswith(".rego"):
+            obs_config.setdefault("opa_policies", []).append(
+                f"{rel}: " + ", ".join(re.findall(r"^(\w+)\s*(?:\[|:=|=)", body, re.M)[:8]))
+        elif "launchdarkly" in low or "unleash" in low:
+            obs_config.setdefault("flag_platform", []).append(rel)
+    obs_config = {k: v[:15] for k, v in obs_config.items()}
+
+    # Load and contract testing, and the factories that make test data.
+    perf_suites, factories = {}, {}
+    for rel in code_files:
+        low = rel.lower()
+        body = _slurp(os.path.join(repo, rel))
+        if low.endswith(".jmx"):
+            perf_suites.setdefault("jmeter", []).append(rel)
+        elif re.search(r"from\s+locust|class\s+\w+\(HttpUser\)", body):
+            perf_suites.setdefault("locust", []).append(rel)
+        elif "artillery" in low and low.endswith((".yml", ".yaml")):
+            perf_suites.setdefault("artillery", []).append(rel)
+        if re.search(r"factory_boy|class\s+\w+Factory\(|FactoryBot\.define", body):
+            factories[rel] = re.findall(r"class\s+(\w+Factory)|factory\s+:(\w+)", body)[:10]
+    perf_suites = {k: v[:12] for k, v in perf_suites.items()}
+    factories = {k: [a or b for a, b in v] for k, v in list(factories.items())[:20]}
+
     tags: dict[str, int] = {}
     for f in features.values():
         for t in f["tags"]:
@@ -1964,6 +2284,13 @@ def build(repo: str) -> dict:
         "deprecations": deprecations,
         "api_versions": sorted(api_versions)[:10],
         "doc_drift": doc_drift,
+        "more_suites": more_suites,
+        "data_stack": data_stack,
+        "build_systems": build_systems,
+        "stores": stores,
+        "obs_config": obs_config,
+        "perf_suites": perf_suites,
+        "factories": factories,
         "ci_tags": ci_tags,
         "entry_points": entry_points,
         "docs": docs,
@@ -2154,6 +2481,33 @@ def brief(m: dict) -> str:
     dd = m.get("doc_drift") or []
     _sect("Documentation pointing at things that are not there",
           [f"- {x}" for x in dd[:15]])
+
+    mss = m.get("more_suites") or {}
+    _sect("More test suites",
+          [f"- **{k}** — {len(v)} files: " + ", ".join(os.path.basename(x) for x in list(v)[:4])
+           for k, v in mss.items()])
+    ds = m.get("data_stack") or {}
+    _sect("Data engineering",
+          ([f"- dbt models: {len(ds['dbt_models'])}"] if ds.get("dbt_models") else [])
+          + ([f"- Airflow: " + ", ".join(f"`{os.path.basename(k)}` ({len(v)} tasks)"
+                                        for k, v in list(ds["airflow_dags"].items())[:6])]
+             if ds.get("airflow_dags") else [])
+          + ([f"- Spark jobs: {len(ds['spark_jobs'])}"] if ds.get("spark_jobs") else [])
+          + ([f"- notebooks: {len(ds['notebooks'])}"] if ds.get("notebooks") else []))
+    bs = m.get("build_systems") or {}
+    _sect("Build systems", [f"- **{k}**: " + "; ".join(v[:4]) for k, v in bs.items()])
+    st = m.get("stores") or {}
+    _sect("Datastores and brokers", [f"- {k}: " + ", ".join(v[:12]) for k, v in st.items()])
+    oc = m.get("obs_config") or {}
+    _sect("Observability and policy configuration",
+          [f"- {k}: " + ", ".join(str(x)[:70] for x in v[:5]) for k, v in oc.items()])
+    ps = m.get("perf_suites") or {}
+    _sect("Load testing", [f"- {k}: " + ", ".join(os.path.basename(x) for x in v[:8])
+                           for k, v in ps.items()])
+    fac = m.get("factories") or {}
+    _sect("Test data factories",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(x for x in v[:8] if x)
+           for k, v in list(fac.items())[:10]])
 
     lines += ["## How this suite is built", ""]
     for k, v in (m.get("layers") or {}).items():
@@ -2662,6 +3016,12 @@ def main() -> int:
                     help="cap the brief at this many lines; the map itself is untouched")
     ap.add_argument("--diff", action="store_true",
                     help="print what changed since the map already in --out, and exit")
+    ap.add_argument("--also", default="",
+                    help="other repositories to fold into the same map, comma separated")
+    ap.add_argument("--watch", type=int, default=0, metavar="SECONDS",
+                    help="rebuild whenever the tree moves, checking every SECONDS")
+    ap.add_argument("--html", action="store_true",
+                    help="also write framework_map.html — the brief, readable in a browser")
     ap.add_argument("--force", action="store_true",
                     help="rebuild even when the existing map still matches the "
                          "repository (by default a map is built when it is missing "
@@ -2673,6 +3033,21 @@ def main() -> int:
     # how the pipeline passes them; the flags simply set them first, so the
     # script is usable by hand on any repository without knowing that.
     os.environ["AGENT_REPO"] = repo = os.path.abspath(args.repo)
+    # A project states its own invocation once, in .wawe.toml; the flags win.
+    conf = _config(repo)
+    if not args.product and conf.get("product"):
+        args.product = ",".join(conf["product"]) if isinstance(conf["product"], list) \
+            else conf["product"]
+    if args.out in (".", os.getenv("RUN_DIR", ".")) and conf.get("out"):
+        args.out = conf["out"]
+    if not args.agent_file and conf.get("agent_file"):
+        args.agent_file = conf["agent_file"]
+    if not args.only and conf.get("only"):
+        args.only = ",".join(conf["only"]) if isinstance(conf["only"], list) else conf["only"]
+    if not args.skip and conf.get("skip"):
+        args.skip = ",".join(conf["skip"]) if isinstance(conf["skip"], list) else conf["skip"]
+    if not args.max_lines and conf.get("max_lines"):
+        args.max_lines = int(conf["max_lines"])
     if args.product:
         os.environ["PRODUCT_SRC"] = args.product
     if args.rules:
@@ -2688,6 +3063,27 @@ def main() -> int:
     # Build when there is no map, or when the repository has moved since the one
     # that is there was built. Otherwise the map on disk is the map that would
     # be built, and a second walk of the tree buys nothing.
+    if args.watch:
+        import time as _t
+        last = ""
+        print(f"watching {repo}, every {args.watch}s — Ctrl-C to stop")
+        while True:
+            now_fp = _fingerprint(repo)
+            if now_fp != last:
+                last = now_fp
+                m2 = build(repo)
+                m2["fingerprint"] = now_fp
+                os.makedirs(out_dir, exist_ok=True)
+                with open(os.path.join(out_dir, "framework_map.json"), "w",
+                          encoding="utf-8") as fh:
+                    json.dump(redact(m2), fh, indent=2)
+                with open(os.path.join(out_dir, "framework_map_brief.md"), "w",
+                          encoding="utf-8") as fh:
+                    fh.write(brief(m2))
+                c2 = m2["counts"]
+                print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
+            _t.sleep(args.watch)
+
     if args.install_hook:
         print(install_hook(repo, args.install_hook, args.product, args.out,
                            args.agent_file))
@@ -2738,7 +3134,22 @@ def main() -> int:
         print("\n".join(changed[:60]) or "nothing changed")
         return 0
 
+    # More than one repository, one map: a service and its client, or a monorepo
+    # split across checkouts, are one system to whoever has to work on them.
+    repos = [repo] + [os.path.abspath(x) for x in
+                      (args.also.split(",") if args.also else []) if x]
     m = build(repo)
+    if len(repos) > 1:
+        m["also"] = {}
+        for extra in repos[1:]:
+            if not os.path.isdir(extra):
+                continue
+            os.environ["AGENT_REPO"] = extra
+            _WALK_CACHE.clear()
+            _IGNORE_CACHE.clear()
+            m["also"][os.path.basename(extra)] = build(extra)
+        os.environ["AGENT_REPO"] = repo
+    m = redact(m)
     m["fingerprint"] = stamp_now
     if args.init:
         print(init_manifest(repo, m))
@@ -2769,6 +3180,30 @@ def main() -> int:
                "the full map is beside this file\n"
     with open(os.path.join(out_dir, "framework_map_brief.md"), "w", encoding="utf-8") as fh:
         fh.write(text)
+    if args.html:
+        # Deliberately one file with no assets: it gets opened from a terminal,
+        # not served.
+        body_html = []
+        for line in text.splitlines():
+            if line.startswith("## "):
+                body_html.append(f"<h2>{line[3:]}</h2>")
+            elif line.startswith("# "):
+                body_html.append(f"<h1>{line[2:]}</h1>")
+            elif line.startswith("- "):
+                body_html.append(f"<li>{line[2:]}</li>")
+            elif line.strip():
+                body_html.append(f"<p>{line}</p>")
+        html = ("<!doctype html><meta charset=utf-8><title>where are we</title>"
+                "<style>body{max-width:60rem;margin:3rem auto;padding:0 1rem;"
+                "font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#111}"
+                "h1{font-size:1.7rem}h2{font-size:1.05rem;margin-top:2.2rem;"
+                "border-bottom:1px solid #ddd;padding-bottom:.3rem}"
+                "li{margin:.15rem 0}code{background:#f4f4f4;padding:0 .2em;border-radius:3px}"
+                "@media(prefers-color-scheme:dark){body{background:#111;color:#eee}"
+                "h2{border-color:#333}code{background:#222}}</style>"
+                + "\n".join(body_html))
+        with open(os.path.join(out_dir, "framework_map.html"), "w", encoding="utf-8") as fh:
+            fh.write(html)
     if args.agent_file:
         # Between markers, because these files are shared: whatever a human or
         # another tool put there is not this tool's to delete.
