@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0
+
+- Every remaining ecosystem: Elixir, Dart, Groovy, Clojure, Haskell, Lua, Perl,
+  Julia, Objective-C, Solidity; Vue, Svelte, Angular, Storybook; dbt, Airflow,
+  Spark, notebooks; AsyncAPI, JSON Schema, Avro, Thrift, SOAP, tRPC, Pact;
+  CloudFormation, Pulumi, Bicep, Ansible, Chef, Puppet; Jenkins, CircleCI, Azure
+  Pipelines, Travis, Buildkite, Drone; Gradle, Maven, Bazel, sbt, CMake, Rake;
+  MongoDB, Elasticsearch, DynamoDB, Cassandra, ClickHouse, NATS, Pulsar, MQTT;
+  Prometheus rules, Grafana dashboards, OpenTelemetry, OPA, flag platforms;
+  JMeter, Locust, Artillery; test data factories.
+- Indexes and constraints, generated code, declared types, environment per
+  service, retries/timeouts/breakers/limits, transactions and idempotency,
+  logging levels, contribution templates, license headers.
+- `.wawe.toml` for defaults, `--also` to fold several repositories into one map,
+  `--watch`, `--html`, `--only`, `--skip`, `--max-lines`, `--diff`.
+- A parse cache that survives between runs, and redaction of anything shaped
+  like a credential before it reaches a file.
+
 ## 0.1.0
 
 First release.
