@@ -97,3 +97,13 @@ def test_cli_skips_an_unchanged_map(tmp_path):
     second = subprocess.run(cmd, capture_output=True, text=True)
     assert "framework map:" in first.stdout
     assert "unchanged since it was built" in second.stdout
+
+
+def test_brief_survives_a_section_of_the_wrong_shape():
+    """A section is data, not a promise. An older map or a future shape must
+    degrade to "not shown" rather than take the whole brief down — which is
+    exactly what a name collision between two sections did."""
+    m = mapper.build(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    m["schemas"] = ["not", "a", "dict"]
+    m["languages"] = None
+    assert "# Framework map" in mapper.brief(m)
