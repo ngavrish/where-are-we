@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: install
+        run: pip install .
+      - name: map itself
+        run: where-are-we --repo . --out /tmp/map && test -s /tmp/map/framework_map_brief.md
+      - name: map a polyglot fixture
+        run: |
+          mkdir -p /tmp/fx/steps /tmp/fx/migrations
+          printf 'from behave import step\n@step("a user exists")\ndef f(c):\n    pass\n' > /tmp/fx/steps/a.py
+          printf 'Given("a logged in user", async function () {});\n' > /tmp/fx/steps.ts
+          printf 'func TestFoo(t *testing.T) {}\n' > /tmp/fx/main_test.go
+          printf 'CREATE TABLE users (id int, email text);\n' > /tmp/fx/migrations/V1__init.sql
+          where-are-we --repo /tmp/fx --out /tmp/fxmap
+          grep -q "cucumber-js" /tmp/fxmap/framework_map_brief.md
+          grep -q "users" /tmp/fxmap/framework_map_brief.md
+      - name: manifest and hooks
+        run: |
+          where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
+          git -C /tmp/fx init -q && where-are-we --repo /tmp/fx --install-hook git
+          test -x /tmp/fx/.git/hooks/post-checkout
+      - name: idempotent
+        run: |
+          where-are-we --repo . --out /tmp/map | tee /tmp/first
+          where-are-we --repo . --out /tmp/map | grep -q "unchanged since it was built"

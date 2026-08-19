@@ -46,14 +46,60 @@ def _step_texts(path: str) -> list[str]:
     return out
 
 
+_IGNORE_CACHE: dict[str, list] = {}
+MAX_FILES = int(os.getenv("WAWE_MAX_FILES", "40000"))
+
+
+def _ignores(root: str) -> list:
+    """Patterns from `.wawe-ignore`, one per line, fnmatch against the relative
+    path. A hundred-thousand-file monorepo does not want its build output read,
+    and saying so once beats waiting for it every time."""
+    if root in _IGNORE_CACHE:
+        return _IGNORE_CACHE[root]
+    pats = []
+    for name in (".wawe-ignore", ".gitignore"):
+        fp = os.path.join(root, name)
+        if not os.path.exists(fp):
+            continue
+        try:
+            for line in open(fp, encoding="utf-8", errors="replace"):
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    pats.append(line.rstrip("/"))
+        except OSError:
+            continue
+        if name == ".wawe-ignore":
+            break
+    _IGNORE_CACHE[root] = pats
+    return pats
+
+
+def _ignored(rel: str, pats: list) -> bool:
+    import fnmatch
+    for p in pats:
+        if fnmatch.fnmatch(rel, p) or fnmatch.fnmatch(rel, p + "/*") \
+                or fnmatch.fnmatch(os.path.basename(rel), p):
+            return True
+    return False
+
+
 def _walk(root: str, want: str) -> list[str]:
     hits = []
+    base_repo = os.getenv("AGENT_REPO", root)
+    pats = _ignores(base_repo)
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs
                    if d not in {".git", ".venv", "node_modules", "__pycache__", ".runs"}]
         for f in files:
-            if f.endswith(want):
-                hits.append(os.path.join(base, f))
+            if not f.endswith(want):
+                continue
+            full = os.path.join(base, f)
+            rel = os.path.relpath(full, base_repo)
+            if pats and _ignored(rel, pats):
+                continue
+            hits.append(full)
+            if len(hits) >= MAX_FILES:
+                return sorted(hits)
     return sorted(hits)
 
 
@@ -1680,6 +1726,118 @@ def build(repo: str) -> dict:
     frontend = {k: (sorted(set(v))[:30] if isinstance(v, list) else v)
                 for k, v in frontend.items()}
 
+    # Function-level call graph across files: who calls what, beyond imports.
+    func_calls: dict[str, list] = {}
+    defined_at: dict[str, str] = {}
+    for rel in code_files:
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(_read(rel))
+        except (SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                defined_at.setdefault(node.name, rel)
+    for rel in code_files:
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(_read(rel))
+        except (SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            targets = set()
+            for c in ast.walk(node):
+                if isinstance(c, ast.Call):
+                    name = getattr(c.func, "id", "") or getattr(c.func, "attr", "")
+                    home = defined_at.get(name)
+                    if home and home != rel:
+                        targets.add(f"{name} ({os.path.basename(home)})")
+            if targets:
+                func_calls[f"{os.path.basename(rel)}:{node.name}"] = sorted(targets)[:8]
+    func_calls = dict(sorted(func_calls.items(), key=lambda kv: -len(kv[1]))[:60])
+
+    # Data flow: which handler touches which table, by co-occurrence in a file.
+    data_flow = {}
+    for rel in code_files:
+        body = _read(rel)
+        if not body:
+            continue
+        eps = re.findall(r"[\"\'`](/[\w/{}.:-]{2,60})[\"\'`]", body)[:20]
+        tbls = re.findall(r"\b(?:FROM|INTO|UPDATE|JOIN)\s+([a-z_][\w.]{2,40})", body, re.I)[:20]
+        if eps and tbls:
+            data_flow[rel] = {"paths": sorted(set(eps))[:8], "tables": sorted(set(tbls))[:8]}
+    data_flow = dict(list(data_flow.items())[:25])
+
+    # Who owns a file, by who last touched it most.
+    blame_owners = {}
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["git", "-C", repo, "log", "--since=365.days", "--name-only",
+             "--pretty=format:%an"], capture_output=True, text=True, timeout=90).stdout
+        who = None
+        counts: dict[str, dict] = {}
+        for line in out.splitlines():
+            if not line.strip():
+                continue
+            if "/" not in line and "." not in line.split()[-1][-6:]:
+                who = line.strip()
+            elif who:
+                counts.setdefault(line.strip(), {})
+                counts[line.strip()][who] = counts[line.strip()].get(who, 0) + 1
+        for f, people in list(counts.items()):
+            top = sorted(people.items(), key=lambda kv: -kv[1])[:2]
+            if top:
+                blame_owners[f] = [f"{n} ({c})" for n, c in top]
+    except Exception:  # noqa: BLE001
+        pass
+    blame_owners = dict(sorted(blame_owners.items(),
+                               key=lambda kv: -len(kv[1]))[:40])
+
+    # Coverage per file, where a report survives.
+    coverage_by_file = {}
+    for rel in code_files:
+        if os.path.basename(rel) not in ("coverage.xml", "lcov.info", "coverage-summary.json"):
+            continue
+        body = _read(rel, 400000)
+        for fn2, rate in re.findall(r'filename="([^"]+)"[^>]*line-rate="([\d.]+)"', body)[:200]:
+            coverage_by_file[fn2] = f"{float(rate) * 100:.0f}%"
+        for fn2, hit, found in re.findall(r"SF:(.+)\nFNF:\d+\nFNH:\d+\n(?:.*\n)*?LH:(\d+)\nLF:(\d+)",
+                                          body)[:200]:
+            if int(found):
+                coverage_by_file[fn2] = f"{int(hit) * 100 // int(found)}%"
+    coverage_by_file = dict(list(coverage_by_file.items())[:60])
+
+    # Deprecations and API versions the code announces.
+    deprecations = {}
+    api_versions = set()
+    for rel in code_files:
+        body = _read(rel)
+        if not body:
+            continue
+        dep = re.findall(r".*\b(?:@deprecated|DeprecationWarning|Deprecated|@Deprecated)\b.*",
+                         body)[:4]
+        if dep:
+            deprecations[rel] = [d.strip()[:120] for d in dep]
+        api_versions.update(re.findall(r"/(v\d+(?:\.\d+)?)/", body)[:10])
+    deprecations = dict(list(deprecations.items())[:20])
+
+    # Documentation that talks about things the code no longer has.
+    doc_drift = []
+    known = set(defined_at) | {os.path.basename(x) for x in code_files}
+    for rel in code_files:
+        if not rel.endswith(".md"):
+            continue
+        body = _read(rel, 100000)
+        for ref in set(re.findall(r"`([\w./-]{4,60}\.(?:py|ts|js|go|sh))`", body)):
+            if not os.path.exists(os.path.join(repo, ref)) and os.path.basename(ref) not in known:
+                doc_drift.append(f"{rel} → {ref}")
+    doc_drift = sorted(set(doc_drift))[:25]
+
     tags: dict[str, int] = {}
     for f in features.values():
         for t in f["tags"]:
@@ -1688,6 +1846,7 @@ def build(repo: str) -> dict:
     stated = _manifest(repo)
 
     return {
+        "schema": "where-are-we/1",
         "repo": repo,
         "stated": stated,
         "layers": {
@@ -1775,6 +1934,13 @@ def build(repo: str) -> dict:
         "coverage_reports": coverage,
         "hotspots": hotspots,
         "dependency_licenses": dep_licenses,
+        "call_graph_files": func_calls,
+        "data_flow": data_flow,
+        "blame_owners": blame_owners,
+        "coverage_by_file": coverage_by_file,
+        "deprecations": deprecations,
+        "api_versions": sorted(api_versions)[:10],
+        "doc_drift": doc_drift,
         "ci_tags": ci_tags,
         "entry_points": entry_points,
         "docs": docs,
@@ -1943,6 +2109,28 @@ def brief(m: dict) -> str:
     _sect("Largest files", ["- " + ", ".join(hp[:12])] if hp else [])
     dl = m.get("dependency_licenses") or {}
     _sect("Declared licenses", [f"- `{k}`: " + ", ".join(v[:6]) for k, v in list(dl.items())[:6] if v])
+
+    fc = m.get("call_graph_files") or {}
+    _sect("Who calls whom, across files",
+          [f"- `{k}` → " + ", ".join(v[:6]) for k, v in list(fc.items())[:20]])
+    df = m.get("data_flow") or {}
+    _sect("Which code touches which table",
+          [f"- `{os.path.basename(k)}`: {', '.join(v['paths'][:4])} ↔ {', '.join(v['tables'][:5])}"
+           for k, v in list(df.items())[:15]])
+    bo = m.get("blame_owners") or {}
+    _sect("Who has been touching what (last year)",
+          [f"- `{k}` — {', '.join(v)}" for k, v in list(bo.items())[:15]])
+    cbf = m.get("coverage_by_file") or {}
+    _sect("Coverage by file",
+          [f"- `{k}` — {v}" for k, v in list(cbf.items())[:20]])
+    dep2 = m.get("deprecations") or {}
+    _sect("Deprecations",
+          [f"- `{os.path.basename(k)}`: " + " | ".join(v[:2]) for k, v in list(dep2.items())[:12]])
+    av = m.get("api_versions") or []
+    _sect("API versions in use", ["- " + ", ".join(av)] if av else [])
+    dd = m.get("doc_drift") or []
+    _sect("Documentation pointing at things that are not there",
+          [f"- {x}" for x in dd[:15]])
 
     lines += ["## How this suite is built", ""]
     for k, v in (m.get("layers") or {}).items():
