@@ -1,6 +1,6 @@
 [project]
 name = "where-are-we"
-version = "0.2.0"
+version = "0.3.0"
 description = "Answer 'where are we?' for a codebase: index a test suite and the product it tests into a map an agent can read instead of grepping."
 readme = "README.md"
 requires-python = ">=3.10"

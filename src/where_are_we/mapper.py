@@ -2305,6 +2305,152 @@ def build(repo: str) -> dict:
             license_headers[key] = license_headers.get(key, 0) + 1
     license_headers = dict(sorted(license_headers.items(), key=lambda kv: -kv[1])[:10])
 
+    # Lock files: what is actually installed, as opposed to what a manifest
+    # would accept.
+    locked = {}
+    for name in ("poetry.lock", "uv.lock", "yarn.lock", "pnpm-lock.yaml",
+                 "package-lock.json", "go.sum", "Cargo.lock", "composer.lock",
+                 "Gemfile.lock"):
+        fp = os.path.join(repo, name)
+        if not os.path.exists(fp):
+            continue
+        body = _slurp(fp, 300000)
+        pins = re.findall(r'name\s*=\s*"([\w.-]+)"\s*\nversion\s*=\s*"([\w.+-]+)"', body)
+        pins += re.findall(r'^\s{4}"?([\w@/.-]+)"?:\s*\n\s+version\s+"([\w.+-]+)"', body, re.M)
+        pins += re.findall(r'^([\w./-]+)\s+v([\w.+-]+)', body, re.M)
+        locked[name] = [f"{a}=={b}" for a, b in pins[:60]] or [f"{body.count(chr(10))} lines"]
+    locked = {k: v[:40] for k, v in locked.items()}
+
+    # Which status codes a route can answer with.
+    status_codes: dict[str, list] = {}
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel))
+        if not body:
+            continue
+        codes = re.findall(r"(?:status_code\s*=\s*|status\(|WriteHeader\(|HttpStatus\.|"
+                           r"res\.status\(|abort\()\s*(\d{3})", body)[:20]
+        codes += re.findall(r"\b(?:return|raise)[^\n]{0,40}?\b(\d{3})\b[^\n]{0,20}(?:Error|Response)",
+                            body)[:10]
+        codes = [c for c in codes if c.startswith(("2", "3", "4", "5"))]
+        if codes:
+            status_codes[rel] = sorted(set(codes))[:12]
+    status_codes = dict(sorted(status_codes.items(), key=lambda kv: -len(kv[1]))[:25])
+
+    # Calls out to other services: the URLs of things this codebase does not own.
+    outbound = {}
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel))
+        if not body:
+            continue
+        urls = re.findall(r"[\"\'`](https?://(?!localhost|127\.0\.0\.1)[\w.:%-]+)(?:/[\w./{}-]*)?[\"\'`]",
+                          body)[:12]
+        hosts = re.findall(r"(?:host|HOST|BASE_URL|_URL)\W{1,4}[\"\']([\w.-]+\.[a-z]{2,})", body)[:8]
+        both = sorted(set(urls + hosts))
+        if both:
+            outbound[rel] = both[:10]
+    outbound = dict(sorted(outbound.items(), key=lambda kv: -len(kv[1]))[:25])
+
+    # Kubernetes beyond kinds: what keeps a pod alive and what it is allowed.
+    k8s_runtime = {}
+    for rel in (k8s or {}):
+        body = _slurp(os.path.join(repo, rel))
+        if not body:
+            continue
+        k8s_runtime[rel] = {
+            "probes": re.findall(r"(livenessProbe|readinessProbe|startupProbe)", body)[:6],
+            "resources": re.findall(r"(?:cpu|memory):\s*[\"\']?([\w.]+)", body)[:8],
+            "replicas": re.findall(r"replicas:\s*(\d+)", body)[:4],
+            "images": re.findall(r"image:\s*([\w./:-]+)", body)[:6],
+        }
+    k8s_runtime = {k: v for k, v in list(k8s_runtime.items())[:15] if any(v.values())}
+
+    # Assets: what ships that is not code.
+    assets: dict[str, int] = {}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            ext = os.path.splitext(fn)[1].lower()
+            if ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
+                       ".woff", ".woff2", ".ttf", ".otf", ".mp4", ".webm", ".mp3",
+                       ".pdf", ".onnx", ".pt", ".pkl", ".h5", ".parquet"):
+                assets[ext] = assets.get(ext, 0) + 1
+    assets = dict(sorted(assets.items(), key=lambda kv: -kv[1])[:15])
+
+    # Which schema belongs to which topic, where the code says both in one place.
+    topic_schemas = {}
+    for rel, topics in (messaging or {}).items():
+        body = _slurp(os.path.join(repo, rel))
+        schemas = re.findall(r"[\"\']([\w./-]+\.(?:avsc|json|proto))[\"\']", body)[:6]
+        if schemas and topics:
+            topic_schemas[rel] = {"topics": topics[:6], "schemas": sorted(set(schemas))[:6]}
+    topic_schemas = dict(list(topic_schemas.items())[:15])
+
+    # Where a flag is actually branched on, not merely defined.
+    flag_uses: dict[str, list] = {}
+    known_flags = set((contract_details or {}).get("flags") or [])
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel))
+        if not body:
+            continue
+        hits = re.findall(r"(?:is_enabled|isEnabled|feature_?flag|variation|getFlag|flags?\.)"
+                          r"\W{0,4}[\"\']([\w._-]{3,50})[\"\']", body)[:10]
+        hits += [f for f in known_flags if f in body][:5]
+        if hits:
+            flag_uses[rel] = sorted(set(hits))[:10]
+    flag_uses = dict(list(flag_uses.items())[:20])
+
+    # Assumptions about time: a suite that ignores them fails at midnight.
+    time_assumptions: dict[str, list] = {}
+    for rel in code_files:
+        body = _slurp(os.path.join(repo, rel))
+        if not body:
+            continue
+        hits = re.findall(r".*\b(?:timezone|tzinfo|ZoneInfo|pytz|UTC|America/\w+|Europe/\w+"
+                          r"|Locale\.|toLocale\w+|strftime|dayjs\.tz)\b.*", body)[:4]
+        if hits:
+            time_assumptions[rel] = [h.strip()[:110] for h in hits]
+    time_assumptions = dict(list(time_assumptions.items())[:20])
+
+    # Size and shape of functions: where the complexity actually sits.
+    complexity = []
+    for rel in code_files:
+        if not rel.endswith(".py"):
+            continue
+        try:
+            tree = ast.parse(_slurp(os.path.join(repo, rel)))
+        except (SyntaxError, ValueError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            branches = sum(isinstance(x, (ast.If, ast.For, ast.While, ast.Try,
+                                          ast.BoolOp, ast.ExceptHandler))
+                           for x in ast.walk(node))
+            length = (getattr(node, "end_lineno", node.lineno) or node.lineno) - node.lineno
+            if branches >= 8 or length >= 80:
+                complexity.append(f"{os.path.basename(rel)}:{node.name} "
+                                  f"({length} lines, {branches} branches)")
+    complexity = sorted(complexity, key=lambda x: -int(re.search(r"\((\d+) lines", x).group(1)))[:25]
+
+    # Blocks of code that appear more than once, by their shape.
+    clones: dict[str, list] = {}
+    seen_blocks: dict[str, list] = {}
+    for rel in code_files:
+        if not rel.endswith((".py", ".ts", ".js", ".go", ".java")):
+            continue
+        lines_ = [l.strip() for l in _slurp(os.path.join(repo, rel)).splitlines()
+                  if l.strip() and not l.strip().startswith(("#", "//", "*"))]
+        for i in range(0, max(0, len(lines_) - 8), 4):
+            block = "\n".join(lines_[i:i + 8])
+            if len(block) < 120:
+                continue
+            key = str(hash(block))
+            seen_blocks.setdefault(key, []).append(f"{rel}:{i}")
+    for key, places in seen_blocks.items():
+        if len(places) > 1:
+            clones[places[0]] = places[1:6]
+    clones = dict(list(clones.items())[:20])
+
     tags: dict[str, int] = {}
     for f in features.values():
         for t in f["tags"]:
@@ -2424,6 +2570,16 @@ def build(repo: str) -> dict:
         "logging_config": logging_config,
         "templates": templates,
         "license_headers": license_headers,
+        "locked": locked,
+        "status_codes": status_codes,
+        "outbound": outbound,
+        "k8s_runtime": k8s_runtime,
+        "assets": assets,
+        "topic_schemas": topic_schemas,
+        "flag_uses": flag_uses,
+        "time_assumptions": time_assumptions,
+        "complexity": complexity,
+        "clones": clones,
         "ci_tags": ci_tags,
         "entry_points": entry_points,
         "docs": docs,
@@ -2667,6 +2823,39 @@ def brief(m: dict) -> str:
           [f"- `{k}`: " + ", ".join(str(x)[:60] for x in v[:8]) for k, v in tpl.items() if v])
     lh = m.get("license_headers") or {}
     _sect("License headers", ["- " + ", ".join(f"{k} ({n})" for k, n in lh.items())] if lh else [])
+
+    lk = m.get("locked") or {}
+    _sect("What is actually installed",
+          [f"- `{k}`: " + ", ".join(v[:12]) for k, v in lk.items()])
+    scd = m.get("status_codes") or {}
+    _sect("Status codes the code returns",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(v[:10]) for k, v in list(scd.items())[:12]])
+    ob = m.get("outbound") or {}
+    _sect("Services this code calls",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(v[:6]) for k, v in list(ob.items())[:12]])
+    kr = m.get("k8s_runtime") or {}
+    _sect("How pods are kept alive",
+          [f"- `{os.path.basename(k)}` — probes: {', '.join(v['probes'][:3]) or 'none'}"
+           f" · resources: {', '.join(v['resources'][:4]) or 'unset'}"
+           f" · replicas: {', '.join(v['replicas'][:2]) or '—'}"
+           for k, v in list(kr.items())[:10]])
+    ast_ = m.get("assets") or {}
+    _sect("Assets", ["- " + ", ".join(f"{k} ({n})" for k, n in ast_.items())] if ast_ else [])
+    ts2 = m.get("topic_schemas") or {}
+    _sect("Which schema belongs to which topic",
+          [f"- `{os.path.basename(k)}`: {', '.join(v['topics'][:4])} ↔ {', '.join(v['schemas'][:4])}"
+           for k, v in list(ts2.items())[:10]])
+    fu = m.get("flag_uses") or {}
+    _sect("Where flags are branched on",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(v[:8]) for k, v in list(fu.items())[:12]])
+    ta = m.get("time_assumptions") or {}
+    _sect("Assumptions about time and locale",
+          [f"- `{os.path.basename(k)}`: " + " | ".join(v[:2]) for k, v in list(ta.items())[:10]])
+    cx = m.get("complexity") or []
+    _sect("The functions that carry the complexity", [f"- {x}" for x in cx[:15]])
+    cl = m.get("clones") or {}
+    _sect("Blocks that appear more than once",
+          [f"- `{k}` ≈ " + ", ".join(v[:3]) for k, v in list(cl.items())[:12]])
 
     lines += ["## How this suite is built", ""]
     for k, v in (m.get("layers") or {}).items():

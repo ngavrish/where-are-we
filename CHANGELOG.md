@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- Lock files (what is actually installed), the status codes each file returns,
+  the services this code calls out to, Kubernetes probes, resources and
+  replicas, the asset inventory, which schema belongs to which topic, where
+  feature flags are branched on, assumptions about time and locale, the
+  functions carrying the complexity, and blocks of code that appear more than
+  once.
+
 ## 0.2.0
 
 - Every remaining ecosystem: Elixir, Dart, Groovy, Clojure, Haskell, Lua, Perl,
