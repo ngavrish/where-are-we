@@ -71,6 +71,16 @@ it exposes, and how its parts depend on each other.
 - the public surface of each module
 - how the top-level packages depend on each other
 - monorepo layout, where there is one
+- queues, topics and subjects — Kafka, RabbitMQ, SQS, pub/sub
+- gRPC services and their methods, from `.proto`
+- scheduled work — cron, Celery beat, Airflow, Kubernetes CronJobs
+- Kubernetes and Helm manifests, and Terraform resources
+- cache keys, permissions and roles
+- metrics, spans and log fields
+- the error types the code defines
+- command-line commands — click, argparse, cobra
+- frontend components, stores and hooks
+- architecture decision records, coverage reports, largest files, declared licenses
 
 **Shape of a test suite**
 

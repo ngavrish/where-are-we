@@ -1565,6 +1565,121 @@ def build(repo: str) -> dict:
         if os.path.exists(os.path.join(repo, name)):
             workspaces.append(name)
 
+    # ---- the rest of what a codebase is ---------------------------------
+    def _read(rel: str, limit: int = 200000) -> str:
+        try:
+            return open(os.path.join(repo, rel), encoding="utf-8",
+                        errors="replace").read(limit)
+        except OSError:
+            return ""
+
+    code_files = []
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            if fn.endswith((".py", ".ts", ".tsx", ".js", ".go", ".java", ".kt",
+                            ".rb", ".rs", ".cs", ".yaml", ".yml", ".tf", ".proto",
+                            ".xml", ".json", ".md", ".sh", ".sql")):
+                code_files.append(os.path.relpath(os.path.join(base, fn), repo))
+
+    messaging, grpc_services, schedules = {}, {}, {}
+    k8s, iac, cache_keys = {}, {}, []
+    permissions, observability, error_types = {}, {"metrics": [], "log_fields": [], "spans": []}, {}
+    cli_commands, frontend = {}, {"components": [], "stores": [], "hooks": []}
+    adrs, coverage, hotspots, dep_licenses = [], {}, [], {}
+
+    for rel in code_files:
+        body = _read(rel)
+        if not body:
+            continue
+        base_name = os.path.basename(rel)
+        low = rel.lower()
+
+        topics = re.findall(r"(?:topic|queue|exchange|subject|channel)\W{1,4}[\"\']([\w.\-/]{3,60})[\"\']",
+                            body, re.I)[:10]
+        if topics:
+            messaging.setdefault(rel, [])
+            messaging[rel] = sorted(set(messaging[rel] + topics))[:12]
+
+        if rel.endswith(".proto"):
+            for svc, block in re.findall(r"service\s+(\w+)\s*\{([^}]*)\}", body):
+                grpc_services[svc] = re.findall(r"rpc\s+(\w+)", block)[:20]
+
+        cron = re.findall(r"[\"\']?((?:[\d*/,\-]+\s+){4}[\d*/,\-]+)[\"\']?", body)[:6]
+        dag = re.findall(r"(?:DAG|schedule_interval|@daily|@hourly|CronJob|crontab)\W{0,4}([\w@*/ ,\-:]{3,40})",
+                         body)[:6]
+        if cron or dag:
+            schedules[rel] = sorted(set(cron + dag))[:8]
+
+        if rel.endswith((".yaml", ".yml")) and re.search(r"^kind:\s*\w+", body, re.M):
+            kinds = re.findall(r"^kind:\s*(\w+)", body, re.M)
+            names = re.findall(r"^\s{2}name:\s*([\w.-]+)", body, re.M)
+            k8s[rel] = {"kinds": sorted(set(kinds))[:8], "names": sorted(set(names))[:8]}
+
+        if rel.endswith(".tf"):
+            iac[rel] = re.findall(r'^resource\s+"([\w.-]+)"\s+"([\w.-]+)"', body, re.M)[:15]
+
+        cache_keys += re.findall(r"(?:redis|cache)\w*\.(?:get|set|setex|hset|expire)\(\s*[\"\'`f]{0,2}([\w:{}.\-]{3,50})",
+                                 body, re.I)[:10]
+
+        perms = re.findall(r"(?:@(?:requires?|has_perm|roles?|scope|authorize)\w*\(\s*[\"\']([^\"\']{2,40})"
+                           r"|PERMISSION\w*\s*=\s*[\"\']([^\"\']{2,40}))", body)
+        perms = [a or b for a, b in perms][:10]
+        if perms:
+            permissions[rel] = sorted(set(perms))[:12]
+
+        observability["metrics"] += re.findall(r"(?:Counter|Gauge|Histogram|Summary|metrics?\.\w+)\(\s*[\"\']([\w.:_-]{3,60})",
+                                               body)[:8]
+        observability["spans"] += re.findall(r"(?:start_span|start_as_current_span|tracer\.\w+)\(\s*[\"\']([\w.:_-]{3,60})",
+                                             body)[:8]
+        observability["log_fields"] += re.findall(r"log\w*\.(?:info|warn|error|debug)\([^)]*?[\"\'](\w{3,30})[\"\']\s*:",
+                                                  body)[:8]
+
+        for exc in re.findall(r"class\s+(\w*(?:Error|Exception)\w*)\s*[\(:]", body)[:10]:
+            error_types.setdefault(exc, os.path.basename(rel))
+
+        cmds = re.findall(r"@(?:click|app|cli)\.command\(\s*(?:[\"\']([^\"\']+)[\"\'])?", body)[:10]
+        cmds += re.findall(r"add_parser\(\s*[\"\']([^\"\']+)", body)[:10]
+        cmds += re.findall(r"Use:\s*[\"\']([\w -]+)", body)[:10]
+        cmds = [c for c in cmds if c]
+        if cmds:
+            cli_commands[rel] = sorted(set(cmds))[:12]
+
+        if rel.endswith((".tsx", ".jsx")):
+            comp = re.findall(r"(?:export\s+(?:default\s+)?(?:function|const)\s+)([A-Z]\w+)", body)[:10]
+            frontend["components"] += [f"{c} ({base_name})" for c in comp]
+        if re.search(r"create(?:Store|Slice)|configureStore|zustand|useReducer", body):
+            frontend["stores"].append(rel)
+        frontend["hooks"] += re.findall(r"export\s+(?:default\s+)?(?:function|const)\s+(use[A-Z]\w+)", body)[:10]
+
+        if "/adr" in "/" + low or re.match(r"^\d{3,4}-", base_name):
+            if rel.endswith(".md"):
+                title = next((l.strip("# ").strip() for l in body.splitlines() if l.startswith("#")), base_name)
+                adrs.append(f"{rel} — {title[:90]}")
+
+        if base_name in ("coverage.xml", "lcov.info", "coverage-summary.json"):
+            pct = re.findall(r'line-rate="([\d.]+)"|"pct"\s*:\s*([\d.]+)|LF:(\d+)', body)[:3]
+            coverage[rel] = [next(x for x in t if x) for t in pct] if pct else ["present"]
+
+        if base_name in ("package.json", "requirements.txt", "go.mod", "Cargo.toml", "pom.xml"):
+            dep_licenses[rel] = re.findall(r"[\"\']?license[\"\']?\s*[:=]\s*[\"\']?([\w.\-+ ]{2,30})",
+                                           body, re.I)[:8]
+
+    for rel in code_files:
+        try:
+            size = os.path.getsize(os.path.join(repo, rel))
+        except OSError:
+            continue
+        if rel.endswith((".py", ".ts", ".tsx", ".js", ".go", ".java", ".rb", ".cs")):
+            hotspots.append((rel, size))
+    hotspots = [f"{r} ({s // 1024} KB)" for r, s in
+                sorted(hotspots, key=lambda kv: -kv[1])[:20]]
+
+    observability = {k: sorted(set(v))[:30] for k, v in observability.items()}
+    cache_keys = sorted(set(cache_keys))[:30]
+    frontend = {k: (sorted(set(v))[:30] if isinstance(v, list) else v)
+                for k, v in frontend.items()}
+
     tags: dict[str, int] = {}
     for f in features.values():
         for t in f["tags"]:
@@ -1645,6 +1760,21 @@ def build(repo: str) -> dict:
         "models": models,
         "import_graph": import_graph,
         "workspaces": workspaces,
+        "messaging": messaging,
+        "grpc": grpc_services,
+        "schedules": schedules,
+        "kubernetes": k8s,
+        "iac": iac,
+        "cache_keys": cache_keys,
+        "permissions": permissions,
+        "observability": observability,
+        "error_types": error_types,
+        "cli_commands": cli_commands,
+        "frontend": frontend,
+        "adrs": adrs,
+        "coverage_reports": coverage,
+        "hotspots": hotspots,
+        "dependency_licenses": dep_licenses,
         "ci_tags": ci_tags,
         "entry_points": entry_points,
         "docs": docs,
@@ -1772,6 +1902,48 @@ def brief(m: dict) -> str:
         for top, deps in ig.items():
             lines.append(f"- `{top}` → " + ", ".join(deps))
         lines.append("")
+    def _sect(title: str, rows: list) -> None:
+        if rows:
+            lines.extend(["## " + title, ""] + rows + [""])
+
+    ms = m.get("messaging") or {}
+    _sect("Queues, topics and subjects",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(v[:10]) for k, v in list(ms.items())[:12]])
+    gr = m.get("grpc") or {}
+    _sect("gRPC services", [f"- `{k}`: " + ", ".join(v[:12]) for k, v in list(gr.items())[:12]])
+    sch = m.get("schedules") or {}
+    _sect("Scheduled work",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(v[:6]) for k, v in list(sch.items())[:12]])
+    kb = m.get("kubernetes") or {}
+    _sect("Kubernetes and Helm",
+          [f"- `{k}` — {', '.join(v['kinds'][:6])}: {', '.join(v['names'][:6])}"
+           for k, v in list(kb.items())[:12]])
+    ic = m.get("iac") or {}
+    _sect("Infrastructure as code",
+          [f"- `{k}`: " + ", ".join(f"{a}.{b}" for a, b in v[:10]) for k, v in list(ic.items())[:10]])
+    ck = m.get("cache_keys") or []
+    _sect("Cache keys", ["- " + ", ".join(f"`{x}`" for x in ck[:25])] if ck else [])
+    pm = m.get("permissions") or {}
+    _sect("Permissions and roles",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(v[:10]) for k, v in list(pm.items())[:12]])
+    ob = m.get("observability") or {}
+    _sect("Observability", [f"- {k}: " + ", ".join(v[:15]) for k, v in ob.items() if v])
+    et = m.get("error_types") or {}
+    _sect("Error types", ["- " + ", ".join(f"`{k}` ({v})" for k, v in list(et.items())[:20])] if et else [])
+    cc = m.get("cli_commands") or {}
+    _sect("Command line",
+          [f"- `{os.path.basename(k)}`: " + ", ".join(v[:12]) for k, v in list(cc.items())[:10]])
+    fe = m.get("frontend") or {}
+    _sect("Frontend", [f"- {k}: " + ", ".join(str(x) for x in v[:15]) for k, v in fe.items() if v])
+    ad = m.get("adrs") or []
+    _sect("Architecture decisions", [f"- {x}" for x in ad[:15]])
+    cov = m.get("coverage_reports") or {}
+    _sect("Coverage reports", [f"- `{k}`: " + ", ".join(v) for k, v in list(cov.items())[:6]])
+    hp = m.get("hotspots") or []
+    _sect("Largest files", ["- " + ", ".join(hp[:12])] if hp else [])
+    dl = m.get("dependency_licenses") or {}
+    _sect("Declared licenses", [f"- `{k}`: " + ", ".join(v[:6]) for k, v in list(dl.items())[:6] if v])
+
     lines += ["## How this suite is built", ""]
     for k, v in (m.get("layers") or {}).items():
         lines.append(f"- **{k}** — {v}")
