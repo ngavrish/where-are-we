@@ -195,6 +195,46 @@ def _ts_symbols(path: str, lang: str) -> list:
     return sorted(set(out))[:40]
 
 
+
+def _lines_matching(body: str, words: tuple, limit: int = 4) -> list:
+    """Lines mentioning any of these words, without a regex.
+
+    Every "interesting line" section used a pattern shaped `.*\b(?:a|b|c)\b.*`,
+    which makes the engine try every position of every line of every file. The
+    same answer comes out of a substring test, and a substring test is what the
+    repository this was written for could actually afford: the map spent an hour
+    on patterns before anyone saw a single requirement.
+    """
+    out = []
+    for line in body.splitlines():
+        low = line.lower()
+        if any(w in low for w in words):
+            out.append(line.strip()[:130])
+            if len(out) >= limit:
+                break
+    return out
+
+
+
+def _lines_matching(body, words, limit=4):
+    """Lines mentioning any of these words, without a regex.
+
+    Every "interesting line" section used a pattern shaped `.*(?:a|b|c).*`,
+    which makes the engine try every position of every line of every file. A
+    substring test gives the same answer at a fraction of the cost, and cost is
+    the whole point: on a real repository the map spent an hour inside these
+    patterns and the run never started.
+    """
+    out = []
+    for line in body.splitlines():
+        low = line.lower()
+        if any(w in low for w in words):
+            out.append(line.strip()[:130])
+            if len(out) >= limit:
+                break
+    return out
+
+
 def _slurp(path: str, limit: int = 400000) -> str:
     """Read a file once per run. The sections each used to walk and re-read the
     tree for themselves — a hundred sections over a hundred-thousand-file
@@ -938,7 +978,7 @@ def build(repo: str) -> dict:
             src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        found = re.findall(r".*\b(?:TODO|FIXME|XXX|HACK|@skip|@wip)\b.*", src)[:6]
+        found = _lines_matching(src, ('@skip', '@wip', 'fixme', 'hack', 'todo', 'xxx'), 6)
         if found:
             debts[rel] = [x.strip()[:140] for x in found]
 
@@ -1015,8 +1055,7 @@ def build(repo: str) -> dict:
             src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        hits = re.findall(r".*\b(?:login|log_in|sign_in|cognito|sso|okta|token|cookie|session|auth)\w*\s*[=(].*",
-                          src, re.I)[:4]
+        hits = _lines_matching(src, ('auth', 'cognito', 'cookie', 'log_in', 'login', 'okta', 'session', 'sign_in', 'sso', 'token'), 4)
         if hits:
             auth[rel] = [h.strip()[:130] for h in hits]
     auth = dict(list(auth.items())[:12])
@@ -1031,8 +1070,7 @@ def build(repo: str) -> dict:
             continue
         for m2 in re.findall(r"^([A-Z_0-9]+)\s*=\s*(?:\{|\[|dict\(|list\()", src, re.M):
             concurrency["shared_state"].append(f"{os.path.basename(rel)}:{m2}")
-        for m2 in re.findall(r".*\b(?:lock|mutex|singleton|serial|not.thread.safe|shared)\b.*",
-                             src, re.I)[:2]:
+        for m2 in _lines_matching(src, ('lock', 'mutex', 'not.thread.safe', 'serial', 'shared', 'singleton'), 2):
             concurrency["notes"].append(f"{os.path.basename(rel)}: {m2.strip()[:110]}")
     concurrency["serial_tags"] = sorted({t for f in features.values() for t in f["tags"]
                                          if any(k in t.lower() for k in
@@ -1207,8 +1245,7 @@ def build(repo: str) -> dict:
             src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
         except OSError:
             continue
-        hits = re.findall(r".*\b(?:ENV\s*==?\s*[\"\']?(?:uat|dev|local|prod)|if\s+\w*env\w*\s*[=!]=).*",
-                          src, re.I)[:4]
+        hits = _lines_matching(src, ('dev', 'envs==s"\':uat', 'local', 'prod'), 4)
         if hits:
             env_differences[rel] = [h.strip()[:120] for h in hits]
     env_differences = dict(list(env_differences.items())[:15])
@@ -1993,8 +2030,7 @@ def build(repo: str) -> dict:
         body = _read(rel)
         if not body:
             continue
-        dep = re.findall(r".*\b(?:@deprecated|DeprecationWarning|Deprecated|@Deprecated)\b.*",
-                         body)[:4]
+        dep = _lines_matching(body, ('@deprecated', 'deprecated', 'deprecationwarning'), 4)
         if dep:
             deprecations[rel] = [d.strip()[:120] for d in dep]
         api_versions.update(re.findall(r"/(v\d+(?:\.\d+)?)/", body)[:10])
@@ -2307,10 +2343,7 @@ def build(repo: str) -> dict:
         body = _slurp(os.path.join(repo, rel))
         if not body:
             continue
-        hits = re.findall(
-            r".*\b(?:retries?|max_retries|backoff|timeout|connect_timeout|read_timeout"
-            r"|circuit\w*|breaker|rate_?limit|throttl\w+|RateLimiter)\b\s*[=:(].*",
-            body, re.I)[:5]
+        hits = _lines_matching(body, ('backoff', 'breaker', 'circuitw', 'connect_timeout', 'max_retries', 'rate_limit', 'ratelimiter', 'read_timeout"\n            r"', 'retries', 'throttlw', 'timeout'), 5)
         if hits:
             client_policies[rel] = [h.strip()[:110] for h in hits]
     client_policies = dict(list(client_policies.items())[:25])
@@ -2321,8 +2354,7 @@ def build(repo: str) -> dict:
         body = _slurp(os.path.join(repo, rel))
         if not body:
             continue
-        hits = re.findall(r".*\b(?:BEGIN|COMMIT|ROLLBACK|@transactional|transaction\("
-                          r"|atomic\(|idempotenc\w+|Idempotency-Key)\b.*", body, re.I)[:4]
+        hits = _lines_matching(body, ('@transactional', 'atomic', 'begin', 'commit', 'idempotencw', 'idempotency-key', 'rollback', 'transaction"\n                          r"'), 4)
         if hits:
             transactions[rel] = [h.strip()[:110] for h in hits]
     transactions = dict(list(transactions.items())[:20])
@@ -2462,8 +2494,7 @@ def build(repo: str) -> dict:
         body = _slurp(os.path.join(repo, rel))
         if not body:
             continue
-        hits = re.findall(r".*\b(?:timezone|tzinfo|ZoneInfo|pytz|UTC|America/\w+|Europe/\w+"
-                          r"|Locale\.|toLocale\w+|strftime|dayjs\.tz)\b.*", body)[:4]
+        hits = _lines_matching(body, ('america/w', 'dayjs.tz', 'europe/w"\n                          r"', 'locale.', 'pytz', 'strftime', 'timezone', 'tolocalew', 'tzinfo', 'utc', 'zoneinfo'), 4)
         if hits:
             time_assumptions[rel] = [h.strip()[:110] for h in hits]
     time_assumptions = dict(list(time_assumptions.items())[:20])

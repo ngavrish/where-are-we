@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- An hour to nine seconds. The "interesting line" sections matched with patterns
+  shaped `.*(?:a|b|c).*`, which makes the engine try every position of every
+  line of every file; a substring test gives the same answer. On the repository
+  this was written for the map had been running for an hour and the run it was
+  meant to help never started.
+
 ## 0.3.0
 
 - Lock files (what is actually installed), the status codes each file returns,
