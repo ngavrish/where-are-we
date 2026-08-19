@@ -3509,6 +3509,51 @@ def brief(m: dict) -> str:
         lines += ["", "## Environment the suite reads (name — where it is set)", ""]
         for name, files in list(env.items())[:40]:
             lines.append(f"- `{name}` — " + ", ".join(f"`{f}`" for f in files[:3]))
+    # The vocabulary a test author already has, whatever the framework calls it:
+    # behave phrases, cucumber glue in any language, Robot keywords, pytest
+    # fixtures, the page objects' public methods. The brief used to say "this
+    # module declares 211 steps" and leave the 211 in a file beside it — so the
+    # agents writing scenarios spent a hundred and forty-nine turns grepping for
+    # a vocabulary they were entitled to be handed. An author needs the words,
+    # not the word count.
+    vocab: dict[str, list] = {}
+    phrases = sorted({t for texts in (m.get("steps") or {}).values() for t in texts})
+    if phrases:
+        vocab["step phrases"] = phrases
+    for kind, files in (m.get("other_suites") or {}).items():
+        glue, cases = [], []
+        for entry in files.values():
+            if isinstance(entry, dict):
+                glue += entry.get("step_glue") or entry.get("keywords") or []
+                cases += entry.get("tests") or []
+            elif isinstance(entry, list):
+                cases += entry
+        if glue:
+            vocab[f"{kind} glue"] = sorted(set(glue))
+        elif cases:
+            vocab[f"{kind} cases"] = sorted(set(cases))
+    fixtures = sorted({f for fs in (m.get("fixtures") or {}).values() for f in fs})
+    if fixtures:
+        vocab["pytest fixtures"] = fixtures
+    api_methods = sorted({x for v in (m.get("public_api") or {}).values() for x in v})
+    if api_methods:
+        vocab["page object methods"] = api_methods
+
+    if vocab:
+        cap = int(os.getenv("WAWE_VOCAB", "700"))
+        total = sum(len(v) for v in vocab.values())
+        lines += ["", f"## What you can already write with ({total})", "",
+                  "The vocabulary this suite already has. Write from these; adding a "
+                  "new one is a last resort, and the overlaps above say which ones "
+                  "already say the same thing.", ""]
+        share = max(1, cap // max(len(vocab), 1))
+        for name, items in vocab.items():
+            lines.append(f"**{name}** ({len(items)})")
+            lines += [f"- {x}" for x in items[:share]]
+            if len(items) > share:
+                lines.append(f"- … {len(items) - share} more in framework_map.md")
+            lines.append("")
+
     lines += ["", "## Step modules, largest first", ""]
     for path, texts in sorted(m["steps"].items(), key=lambda kv: -len(kv[1]))[:40]:
         sym = (_as_dict(m.get("symbols"))).get(path, {})

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0
+
+- The brief carries the vocabulary, not a count of it. It used to say "this
+  module declares 211 steps" and leave the 211 in a file beside it, so the
+  agents writing scenarios spent a hundred and forty-nine turns grepping for
+  words they were entitled to be handed. Now: behave phrases, cucumber glue in
+  any language, Robot keywords, pytest fixtures and page-object methods, in one
+  section, capped by WAWE_VOCAB (700 by default) with the rest in the full map.
+
 ## 0.3.1
 
 - An hour to nine seconds. The "interesting line" sections matched with patterns
