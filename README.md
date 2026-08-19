@@ -2,7 +2,9 @@
 
 # where-are-we
 
-**The first question in an unfamiliar repository — answered in two seconds, without a model.**
+**The first question in an unfamiliar repository — answered in seconds, without a model.**
+
+*Any codebase. Any language. Any agent.*
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-black.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-black.svg)](https://www.python.org)
@@ -52,10 +54,25 @@ The map is written between markers. Whatever else lives in that file survives.
 
 ## What it finds
 
+Whatever the repository is. A service, a library, a monorepo, a test suite — it
+is read the same way: what it is made of, where it starts, what it serves, what
+it exposes, and how its parts depend on each other.
+
+
 <table>
 <tr><td width="50%" valign="top">
 
-**Shape**
+**Any codebase**
+
+- languages, by file count
+- where execution starts: entry points, `make` targets, npm scripts, container `CMD`
+- the HTTP routes it serves — Flask, FastAPI, Django, Express, Go, Spring, Rails
+- its data model — SQLAlchemy, Django, Prisma, TypeORM
+- the public surface of each module
+- how the top-level packages depend on each other
+- monorepo layout, where there is one
+
+**Shape of a test suite**
 
 - how the suite is layered, and where each layer lives
 - how a scenario is launched, from the runner scripts' own usage headers

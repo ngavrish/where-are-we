@@ -1390,6 +1390,181 @@ def build(repo: str) -> dict:
         if tg2:
             ci_tags[path] = sorted(set(tg2))[:12]
 
+    # ---- the codebase itself, test suite or not -------------------------
+    # Everything above assumes the repository exists to test something. Most do
+    # not. What follows is true of any codebase and is what a newcomer — or an
+    # agent on its first turn — asks before anything else.
+    LANG = {".py": "Python", ".ts": "TypeScript", ".tsx": "TypeScript",
+            ".js": "JavaScript", ".jsx": "JavaScript", ".go": "Go",
+            ".java": "Java", ".kt": "Kotlin", ".scala": "Scala", ".rb": "Ruby",
+            ".rs": "Rust", ".cs": "C#", ".php": "PHP", ".swift": "Swift",
+            ".c": "C", ".h": "C", ".cpp": "C++", ".hpp": "C++", ".sh": "Shell",
+            ".sql": "SQL", ".proto": "Protobuf", ".md": "Markdown"}
+    languages: dict[str, int] = {}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            lang = LANG.get(os.path.splitext(fn)[1])
+            if lang:
+                languages[lang] = languages.get(lang, 0) + 1
+    languages = dict(sorted(languages.items(), key=lambda kv: -kv[1]))
+
+    # Where execution starts, by every convention that says so.
+    entry = {}
+    for rel in ("main.py", "app.py", "manage.py", "__main__.py", "index.ts",
+                "index.js", "src/index.ts", "src/main.ts", "main.go", "cmd",
+                "Makefile", "package.json", "Cargo.toml", "go.mod", "Dockerfile"):
+        fp = os.path.join(repo, rel)
+        if not os.path.exists(fp):
+            continue
+        if rel == "package.json":
+            try:
+                pkg = json.load(open(fp, encoding="utf-8", errors="replace"))
+                entry["package.json scripts"] = list((pkg.get("scripts") or {}).items())[:15]
+            except (OSError, ValueError):
+                pass
+        elif rel == "Makefile":
+            try:
+                body = open(fp, encoding="utf-8", errors="replace").read()
+            except OSError:
+                body = ""
+            entry["make targets"] = re.findall(r"^([a-zA-Z][\w.-]*):(?!=)", body, re.M)[:20]
+        elif rel == "Dockerfile":
+            try:
+                body = open(fp, encoding="utf-8", errors="replace").read()
+            except OSError:
+                body = ""
+            cmds = re.findall(r"^(?:CMD|ENTRYPOINT)\s+(.+)$", body, re.M)[:4]
+            if cmds:
+                entry["container starts with"] = cmds
+        else:
+            entry[rel] = ["present"]
+    for p2 in _walk(repo, ".go"):
+        rel = os.path.relpath(p2, repo)
+        if os.path.basename(p2) == "main.go":
+            entry.setdefault("go binaries", []).append(rel)
+    entry = {k: v[:15] if isinstance(v, list) else v for k, v in entry.items()}
+
+    # The public surface of the code itself: what other code may call.
+    exports: dict[str, list] = {}
+    for p2 in _walk(repo, ".py"):
+        rel = os.path.relpath(p2, repo)
+        if "/test" in "/" + rel or "/steps/" in "/" + rel:
+            continue
+        try:
+            tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
+        except (OSError, SyntaxError):
+            continue
+        names = [n.name for n in tree.body
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                 and not n.name.startswith("_")]
+        if names:
+            exports[rel] = names[:20]
+    for ext in (".ts", ".tsx", ".js"):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            if any(k in "/" + rel for k in ("node_modules", "/dist/", ".spec.", ".test.")):
+                continue
+            try:
+                body = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            names = re.findall(r"export\s+(?:default\s+)?(?:async\s+)?"
+                               r"(?:function|class|const|interface|type)\s+(\w+)", body)
+            if names:
+                exports[rel] = names[:20]
+    for p2 in _walk(repo, ".go"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        names = re.findall(r"^func\s+(?:\([^)]*\)\s*)?([A-Z]\w+)", body, re.M)
+        names += re.findall(r"^type\s+([A-Z]\w+)", body, re.M)
+        if names:
+            exports[rel] = sorted(set(names))[:20]
+    exports = dict(sorted(exports.items(), key=lambda kv: -len(kv[1]))[:60])
+
+    # HTTP surface: the routes this codebase serves, in whatever framework.
+    routes_served = []
+    for p2 in _walk(repo, ".py") + _walk(repo, ".ts") + _walk(repo, ".js") \
+            + _walk(repo, ".go") + _walk(repo, ".java") + _walk(repo, ".rb"):
+        rel = os.path.relpath(p2, repo)
+        if any(k in "/" + rel for k in ("node_modules", "/dist/")):
+            continue
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for m2 in re.findall(r"@(?:app|router|blueprint|bp)\.(get|post|put|patch|delete)\(\s*[\"\']([^\"\']+)",
+                             body, re.I):
+            routes_served.append(f"{m2[0].upper()} {m2[1]}  ({os.path.basename(rel)})")
+        for m2 in re.findall(r"(?:app|router)\.(get|post|put|patch|delete)\(\s*[\"\'`]([^\"\'`]+)",
+                             body):
+            routes_served.append(f"{m2[0].upper()} {m2[1]}  ({os.path.basename(rel)})")
+        for m2 in re.findall(r"(?:HandleFunc|Handle)\(\s*[\"\']([^\"\']+)", body):
+            routes_served.append(f"{m2}  ({os.path.basename(rel)})")
+        for m2 in re.findall(r"@(?:Get|Post|Put|Patch|Delete|RequestMapping)\w*\(\s*[\"\']([^\"\']+)",
+                             body):
+            routes_served.append(f"{m2}  ({os.path.basename(rel)})")
+        for m2 in re.findall(r"^\s*(get|post|put|patch|delete)\s+[\"\']([^\"\']+)", body, re.M):
+            routes_served.append(f"{m2[0].upper()} {m2[1]}  ({os.path.basename(rel)})")
+    routes_served = sorted(set(routes_served))[:80]
+
+    # The data model, in whatever ORM.
+    models = {}
+    for p2 in _walk(repo, ".py"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for cls in re.findall(r"class\s+(\w+)\s*\((?:[\w.]*(?:Base|Model|Document)[\w.]*)\)", body):
+            fields = re.findall(r"^\s{4}(\w+)\s*[:=]\s*(?:Column|models\.|Field|mapped_column)", body, re.M)
+            models[f"{cls} ({os.path.basename(rel)})"] = sorted(set(fields))[:15]
+    for p2 in _walk(repo, ".prisma"):
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for name, fields in re.findall(r"model\s+(\w+)\s*\{([^}]*)\}", body):
+            models[f"{name} (prisma)"] = re.findall(r"^\s*(\w+)\s+\w", fields, re.M)[:15]
+    models = dict(list(models.items())[:30])
+
+    # How the top-level packages depend on each other.
+    import_graph: dict[str, set] = {}
+    tops = {d for d in os.listdir(repo)
+            if os.path.isdir(os.path.join(repo, d)) and d not in SKIP_DIRS}
+    for p2 in _walk(repo, ".py") + _walk(repo, ".ts") + _walk(repo, ".js"):
+        rel = os.path.relpath(p2, repo)
+        top = rel.split(os.sep)[0]
+        if top not in tops:
+            continue
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for mod in re.findall(r"(?:^from\s+([\w.]+)|^import\s+([\w.]+)|from\s+[\"\']([^\"\']+))",
+                              body, re.M):
+            name = (mod[0] or mod[1] or mod[2]).lstrip("./").split(".")[0].split("/")[0]
+            if name in tops and name != top:
+                import_graph.setdefault(top, set()).add(name)
+    import_graph = {k: sorted(v)[:10] for k, v in sorted(import_graph.items())[:25]}
+
+    # Monorepo layout, if this is one.
+    workspaces = []
+    pkg_json = os.path.join(repo, "package.json")
+    if os.path.exists(pkg_json):
+        try:
+            pkg = json.load(open(pkg_json, encoding="utf-8", errors="replace"))
+            ws = pkg.get("workspaces")
+            workspaces = (ws.get("packages") if isinstance(ws, dict) else ws) or []
+        except (OSError, ValueError):
+            pass
+    for name in ("pnpm-workspace.yaml", "lerna.json", "turbo.json", "go.work", "Cargo.toml"):
+        if os.path.exists(os.path.join(repo, name)):
+            workspaces.append(name)
+
     tags: dict[str, int] = {}
     for f in features.values():
         for t in f["tags"]:
@@ -1463,6 +1638,13 @@ def build(repo: str) -> dict:
         "other_suites": other_suites,
         "contracts": contracts,
         "contract_details": contract_details,
+        "languages": languages,
+        "entry": entry,
+        "exports": exports,
+        "routes_served": routes_served,
+        "models": models,
+        "import_graph": import_graph,
+        "workspaces": workspaces,
         "ci_tags": ci_tags,
         "entry_points": entry_points,
         "docs": docs,
@@ -1549,6 +1731,46 @@ def brief(m: dict) -> str:
             lines.append(f"- `{cmd}` — {what}")
         if st.get("notes"):
             lines.append(f"- {st['notes']}")
+        lines.append("")
+    lg = m.get("languages") or {}
+    if lg:
+        lines += ["## What this codebase is made of", "",
+                  ", ".join(f"{k} ({n})" for k, n in list(lg.items())[:10]), ""]
+    en = m.get("entry") or {}
+    if en:
+        lines += ["## Where it starts", ""]
+        for k, v in list(en.items())[:10]:
+            if k == "package.json scripts":
+                lines.append("- npm scripts: " + ", ".join(f"`{a}` → {b[:40]}" for a, b in v[:8]))
+            elif isinstance(v, list):
+                lines.append(f"- {k}: " + ", ".join(str(x)[:60] for x in v[:8]))
+        lines.append("")
+    ws = m.get("workspaces") or []
+    if ws:
+        lines += ["## Monorepo layout", "", ", ".join(f"`{x}`" for x in ws[:12]), ""]
+    rs = m.get("routes_served") or []
+    if rs:
+        lines += [f"## HTTP routes this codebase serves ({len(rs)})", ""]
+        for r in rs[:30]:
+            lines.append(f"- {r}")
+        lines.append("")
+    md2 = m.get("models") or {}
+    if md2:
+        lines += ["## Data model", ""]
+        for name, fields in list(md2.items())[:15]:
+            lines.append(f"- `{name}`: " + ", ".join(fields[:12]))
+        lines.append("")
+    ex = m.get("exports") or {}
+    if ex:
+        lines += ["## Public surface of the code", ""]
+        for rel, names in list(ex.items())[:20]:
+            lines.append(f"- `{rel}`: " + ", ".join(names[:10]))
+        lines.append("")
+    ig = m.get("import_graph") or {}
+    if ig:
+        lines += ["## How the top-level packages depend on each other", ""]
+        for top, deps in ig.items():
+            lines.append(f"- `{top}` → " + ", ".join(deps))
         lines.append("")
     lines += ["## How this suite is built", ""]
     for k, v in (m.get("layers") or {}).items():
