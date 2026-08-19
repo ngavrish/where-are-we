@@ -21,7 +21,13 @@ pip install where-are-we                    # any platform
 brew tap ngavrish/tap && brew install where-are-we    # macOS
 ```
 
-<details><summary>Ubuntu and Debian, via apt</summary>
+```bash
+curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh   # Debian, Ubuntu
+```
+
+<details><summary>What that script does, if you would rather do it yourself</summary>
+
+It adds the signed repository so `apt upgrade` keeps the tool current:
 
 ```bash
 curl -fsSL https://ngavrish.github.io/where-are-we/apt-key.asc \
@@ -29,6 +35,13 @@ curl -fsSL https://ngavrish.github.io/where-are-we/apt-key.asc \
 echo "deb [signed-by=/usr/share/keyrings/where-are-we.gpg] https://ngavrish.github.io/where-are-we stable main" \
   | sudo tee /etc/apt/sources.list.d/where-are-we.list
 sudo apt-get update && sudo apt-get install where-are-we
+```
+
+Or take the package alone, without a repository:
+
+```bash
+curl -fsSLO https://github.com/ngavrish/where-are-we/releases/latest/download/where-are-we_all.deb
+sudo dpkg -i where-are-we_all.deb
 ```
 
 </details>

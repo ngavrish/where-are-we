@@ -3,6 +3,12 @@
 pre{background:#f5f5f5;padding:1rem;border-radius:6px;overflow-x:auto}
 @media(prefers-color-scheme:dark){body{background:#111;color:#eee}pre{background:#1c1c1c}}</style>
 <h1>where-are-we · apt repository</h1>
+<p>One line, with upgrades:</p>
+<pre>curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh</pre>
+<p>Or a single package, no repository:</p>
+<pre>curl -fsSLO https://github.com/ngavrish/where-are-we/releases/latest/download/where-are-we_all.deb
+sudo dpkg -i where-are-we_all.deb</pre>
+<p>Or by hand:</p>
 <pre>curl -fsSL https://ngavrish.github.io/where-are-we/apt-key.asc \
   | sudo gpg --dearmor -o /usr/share/keyrings/where-are-we.gpg
 
