@@ -1,0 +1,62 @@
+name: where-are-we
+description: Index a codebase into a map an agent can read instead of grepping
+branding:
+  icon: map
+  color: gray-dark
+
+inputs:
+  repo:
+    description: repository to index
+    default: "."
+  product:
+    description: source roots of the application under test, comma separated
+    default: ""
+  out:
+    description: where the map is written
+    default: ".wawe"
+  agent-file:
+    description: also write the brief into this file (AGENTS.md, CLAUDE.md, …)
+    default: ""
+  comment:
+    description: post the summary as a pull request comment
+    default: "false"
+
+outputs:
+  brief:
+    description: path of the brief
+    value: ${{ steps.run.outputs.brief }}
+  summary:
+    description: one-line summary of what was found
+    value: ${{ steps.run.outputs.summary }}
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: pip install --quiet "where-are-we>=0.3"
+
+    - id: run
+      shell: bash
+      run: |
+        ARGS="--repo ${{ inputs.repo }} --out ${{ inputs.out }}"
+        [ -n "${{ inputs.product }}" ] && ARGS="$ARGS --product ${{ inputs.product }}"
+        [ -n "${{ inputs.agent-file }}" ] && ARGS="$ARGS --agent-file ${{ inputs.agent-file }}"
+        SUMMARY=$(where-are-we $ARGS)
+        echo "brief=${{ inputs.out }}/framework_map_brief.md" >> $GITHUB_OUTPUT
+        echo "summary=$SUMMARY" >> $GITHUB_OUTPUT
+        {
+          echo "## where are we"
+          echo
+          echo "$SUMMARY"
+          echo
+          sed -n '/^## /,$p' "${{ inputs.out }}/framework_map_brief.md" | head -60
+        } >> $GITHUB_STEP_SUMMARY
+
+    - if: inputs.comment == 'true' && github.event_name == 'pull_request'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        { echo "**where are we** — ${{ steps.run.outputs.summary }}"; echo;
+          head -40 "${{ inputs.out }}/framework_map_brief.md"; } > /tmp/body.md
+        gh pr comment ${{ github.event.number }} --body-file /tmp/body.md

@@ -242,6 +242,26 @@ where-are-we --repo . --diff                 # what changed since the last map
 `.wawe-ignore` (falling back to `.gitignore`) keeps build output out;
 `WAWE_MAX_FILES` bounds the walk.
 
+## In CI, and in other people's repositories
+
+```yaml
+- uses: ngavrish/where-are-we@v1
+  with:
+    agent-file: AGENTS.md
+    comment: "true"        # post the summary on the pull request
+```
+
+```yaml
+# .pre-commit-config.yaml
+- repo: https://github.com/ngavrish/where-are-we
+  rev: v0.3.0
+  hooks: [{id: where-are-we}]
+```
+
+```bash
+docker run --rm -v "$PWD:/work" -v "$PWD/.wawe:/out" ghcr.io/ngavrish/where-are-we
+```
+
 ## As a library
 
 ```python

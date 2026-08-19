@@ -1,0 +1,8 @@
+- id: where-are-we
+  name: keep the codebase map current
+  description: Rebuild the map when the tree has moved, so an agent never reads a stale one
+  entry: where-are-we
+  args: ["--repo", ".", "--out", ".wawe", "--quiet"]
+  language: python
+  pass_filenames: false
+  always_run: true

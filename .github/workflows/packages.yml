@@ -121,3 +121,44 @@ jobs:
           mv repo/* . && rmdir repo
           git add -A && git commit -qm "apt repository for ${{ github.ref_name }}"
           git push -qf origin gh-pages
+
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/ngavrish/where-are-we:latest
+            ghcr.io/ngavrish/where-are-we:${{ github.ref_name }}
+
+  install-matrix:
+    needs: deb
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["debian:12", "ubuntu:24.04"]
+    container: ${{ matrix.image }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: deb
+      - name: install the package as a user would
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq ./where-are-we_*.deb
+          mkdir -p /tmp/probe/steps
+          printf 'from behave import step\n@step("a user exists")\ndef f(c):\n    pass\n' > /tmp/probe/steps/a.py
+          where-are-we --repo /tmp/probe --out /tmp/map
+          grep -q "step" /tmp/map/framework_map_brief.md
