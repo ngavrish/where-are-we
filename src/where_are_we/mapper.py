@@ -3463,6 +3463,90 @@ def init_manifest(repo: str, m: dict) -> str:
 
 
 
+
+def propose_docs(repo: str, m: dict, apply: bool = False) -> list:
+    """Offer the repository the documentation it is missing.
+
+    A map handed to an agent is a good turn; a repository that explains itself
+    is a better one, because the explanation survives the run and a person can
+    correct it. So: a README in every content directory that has none, a
+    manifest stating the vocabulary autodetection had to guess, an agent file
+    carrying the brief, and an architecture page assembled from what was found.
+
+    Nothing is invented — every line comes from the tree — and nothing is
+    overwritten. Without `apply` this only says what it would write, because a
+    tool that edits a repository it was asked to read is a tool nobody runs
+    twice.
+    """
+    from . import readmes as _readmes  # local: the CLI may be run as a script
+
+    planned = []
+
+    for base, dirs, _files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        target = os.path.join(base, "README.md")
+        if os.path.exists(target):
+            continue
+        text = _readmes.describe(base)
+        if not text:
+            continue
+        planned.append((os.path.relpath(target, repo), text,
+                        "explains what this directory holds"))
+
+    manifest = os.path.join(repo, ".framework-map.json")
+    if not os.path.exists(manifest):
+        planned.append((".framework-map.json",
+                        json.dumps({
+                            "name": os.path.basename(os.path.abspath(repo)),
+                            "purpose": "TODO: one sentence on what this repository is.",
+                            "layers": dict(m.get("layers") or {}),
+                            "product_src": _product_roots(),
+                            "conventions": ["TODO: the rules a newcomer must not break."],
+                        }, indent=2, ensure_ascii=False) + "\n",
+                        "lets this repository state its own vocabulary, which then "
+                        "wins over anything guessed"))
+
+    agent_file = os.path.join(repo, "AGENTS.md")
+    if not os.path.exists(agent_file):
+        planned.append(("AGENTS.md",
+                        "<!-- where-are-we:start -->\n" + brief(m) + "<!-- where-are-we:end -->\n",
+                        "the brief, where every agent harness already looks"))
+
+    arch = os.path.join(repo, "docs", "ARCHITECTURE.md")
+    if not os.path.exists(arch):
+        parts = ["# Architecture", "",
+                 "Assembled from the tree by `where-are-we`. Correct it freely: "
+                 "the sections below are derived, the sentences are yours.", ""]
+        if m.get("languages"):
+            parts += ["## Made of", "",
+                      ", ".join(f"{k} ({v})" for k, v in list(m["languages"].items())[:10]), ""]
+        if m.get("layers"):
+            parts += ["## Layers", ""] + [f"- **{k}** — {v}" for k, v in m["layers"].items()] + [""]
+        if m.get("entry"):
+            parts += ["## Entry points", ""] + \
+                [f"- {k}: {', '.join(str(x)[:60] for x in v[:6])}"
+                 for k, v in list(m["entry"].items())[:8]] + [""]
+        if m.get("routes_served"):
+            parts += ["## HTTP surface", ""] + [f"- {r}" for r in m["routes_served"][:30]] + [""]
+        if m.get("models"):
+            parts += ["## Data model", ""] + \
+                [f"- `{k}`: {', '.join(v[:10])}" for k, v in list(m["models"].items())[:15]] + [""]
+        if m.get("import_graph"):
+            parts += ["## How the packages depend on each other", ""] + \
+                [f"- `{k}` → {', '.join(v)}" for k, v in m["import_graph"].items()] + [""]
+        planned.append(("docs/ARCHITECTURE.md", "\n".join(parts),
+                        "one page a person can read before touching anything"))
+
+    if apply:
+        for rel, text, _why in planned:
+            path = os.path.join(repo, rel)
+            os.makedirs(os.path.dirname(path) or repo, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+
+    return planned
+
+
 def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) -> str:
     """Wire the map into something that already runs, so nobody has to remember it.
 
@@ -3568,6 +3652,11 @@ def main() -> int:
                     help="print what changed since the map already in --out, and exit")
     ap.add_argument("--also", default="",
                     help="other repositories to fold into the same map, comma separated")
+    ap.add_argument("--docs", nargs="?", const="plan", choices=["plan", "write"],
+                    help="offer the repository the documentation it lacks — a README in "
+                         "every content directory, a manifest, an agent file and an "
+                         "architecture page. Without an argument it only says what it "
+                         "would write; 'write' creates them, and never overwrites")
     ap.add_argument("--watch", type=int, default=0, metavar="SECONDS",
                     help="rebuild whenever the tree moves, checking every SECONDS")
     ap.add_argument("--html", action="store_true",
@@ -3613,6 +3702,20 @@ def main() -> int:
     # Build when there is no map, or when the repository has moved since the one
     # that is there was built. Otherwise the map on disk is the map that would
     # be built, and a second walk of the tree buys nothing.
+    if args.docs:
+        m2 = build(repo)
+        planned = propose_docs(repo, m2, apply=(args.docs == "write"))
+        if not planned:
+            print("nothing to add: every directory already explains itself")
+            return 0
+        verb = "wrote" if args.docs == "write" else "would write"
+        for rel, text, why in planned:
+            print(f"{verb} {rel} ({len(text.splitlines())} lines) — {why}")
+        if args.docs != "write":
+            print(f"\n{len(planned)} files. Run with --docs write to create them; "
+                  "existing files are never touched.")
+        return 0
+
     if args.watch:
         import time as _t
         last = ""

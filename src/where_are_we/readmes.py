@@ -13,6 +13,8 @@ A human can then correct the one sentence at the top, which is the sentence
 worth a human's time.
 """
 
+from __future__ import annotations
+
 import ast
 import os
 import re

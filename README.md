@@ -262,6 +262,25 @@ one into every content directory that lacks it, derived from what is in it.
 
 <br>
 
+## Leaving the repository better than you found it
+
+```console
+$ where-are-we --docs
+
+would write steps/README.md (12 lines) — explains what this directory holds
+would write .framework-map.json (15 lines) — lets this repository state its own vocabulary
+would write AGENTS.md (50 lines) — the brief, where every agent harness already looks
+would write docs/ARCHITECTURE.md (15 lines) — one page a person can read before touching anything
+
+4 files. Run with --docs write to create them; existing files are never touched.
+```
+
+A map handed to an agent helps that session. A repository that explains itself
+helps every session, and a person can correct it. Every line is derived from the
+tree, nothing is overwritten, and by default it only says what it would do.
+
+<br>
+
 ## Keeping it current
 
 The commit and the newest file in the tree are recorded with the map, so running
@@ -287,6 +306,7 @@ where-are-we --diff                 # what changed since the last map
 --skip "coverage,history"    drop these
 --max-lines N                cap the brief; the full map is untouched
 --diff                       what changed since the map already in --out
+--docs [write]               offer the repository the documentation it lacks
 --init                       write a starter .framework-map.json
 --install-hook git|agent     wire it into something that already runs
 --watch SECONDS              rebuild whenever the tree moves
