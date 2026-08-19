@@ -60,6 +60,33 @@ def _walk(root: str, want: str) -> list[str]:
 
 
 
+
+def _fingerprint(repo: str) -> str:
+    """What the map was built from: the commit, and the newest file in the tree.
+
+    A map is only worth rebuilding when the thing it describes has moved. The
+    commit catches every committed change; the newest mtime catches the working
+    tree, which is where a run's own edits live."""
+    head = ""
+    try:
+        import subprocess
+        head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=15).stdout.strip()
+    except Exception:  # noqa: BLE001 — a repository without git still gets a map
+        pass
+    newest = 0.0
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            if not fn.endswith((".py", ".feature", ".sh", ".ts", ".js", ".json", ".md")):
+                continue
+            try:
+                newest = max(newest, os.path.getmtime(os.path.join(base, fn)))
+            except OSError:
+                continue
+    return f"{head}:{int(newest)}"
+
+
 def _manifest(repo: str) -> dict:
     """What the repository says about itself.
 
@@ -1926,6 +1953,68 @@ def init_manifest(repo: str, m: dict) -> str:
     return f"wrote {path}"
 
 
+
+def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) -> str:
+    """Wire the map into something that already runs, so nobody has to remember it.
+
+    git: post-checkout, post-merge and post-commit — the three moments the tree
+    becomes something other than what the map describes. The command is the
+    cheap one: it exits immediately when the repository has not moved.
+
+    agent: a SessionStart hook for Claude Code, and the same command works as a
+    task in any other harness — it writes the brief into the agent file, so the
+    first turn of a session already knows where it is.
+    """
+    cmd = ["where-are-we", "--repo", repo]
+    if product:
+        cmd += ["--product", product]
+    if out:
+        cmd += ["--out", out]
+    if agent_file:
+        cmd += ["--agent-file", agent_file]
+    line = " ".join(cmd) + " --quiet || true"
+
+    if kind == "git":
+        hooks = os.path.join(repo, ".git", "hooks")
+        if not os.path.isdir(hooks):
+            return f"{hooks} does not exist — is {repo} a git repository?"
+        written = []
+        for name in ("post-checkout", "post-merge", "post-commit"):
+            path = os.path.join(hooks, name)
+            body = ""
+            if os.path.exists(path):
+                try:
+                    body = open(path, encoding="utf-8", errors="replace").read()
+                except OSError:
+                    body = ""
+                if "where-are-we" in body:
+                    continue
+            if not body.strip():
+                body = "#!/bin/sh\n"
+            body = body.rstrip("\n") + f"\n\n# keep the map in step with the tree\n{line}\n"
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            os.chmod(path, 0o755)
+            written.append(name)
+        return "installed: " + ", ".join(written) if written else "already installed"
+
+    settings = os.path.expanduser("~/.claude/settings.json")
+    try:
+        with open(settings, encoding="utf-8") as fh:
+            conf = json.load(fh)
+    except (OSError, ValueError):
+        conf = {}
+    entries = conf.setdefault("hooks", {}).setdefault("SessionStart", [])
+    if any("where-are-we" in h.get("command", "")
+           for e in entries for h in e.get("hooks", [])):
+        return "already installed in ~/.claude/settings.json"
+    entries.append({"hooks": [{"type": "command", "command": line}]})
+    os.makedirs(os.path.dirname(settings), exist_ok=True)
+    with open(settings, "w", encoding="utf-8") as fh:
+        json.dump(conf, fh, indent=2)
+    return f"installed in {settings} (SessionStart)"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="framework_map",
@@ -1955,6 +2044,14 @@ def main() -> int:
                     help="also write the brief into a file an agent reads on its own: "
                          "AGENTS.md, CLAUDE.md, .cursorrules, .github/copilot-instructions.md — "
                          "the map is written between markers, so anything else in the file survives")
+    ap.add_argument("--install-hook", choices=["git", "agent"], default="",
+                    help="wire the map into something that already runs: git "
+                         "hooks (post-checkout, post-merge, post-commit), or a "
+                         "SessionStart hook for an agent harness")
+    ap.add_argument("--force", action="store_true",
+                    help="rebuild even when the existing map still matches the "
+                         "repository (by default a map is built when it is missing "
+                         "or the repository has moved, and skipped otherwise)")
     ap.add_argument("--quiet", action="store_true", help="no summary line")
     args = ap.parse_args()
 
@@ -1974,7 +2071,32 @@ def main() -> int:
         print(f"framework_map: {repo} is not a directory", file=sys.stderr)
         return 2
 
+    # Build when there is no map, or when the repository has moved since the one
+    # that is there was built. Otherwise the map on disk is the map that would
+    # be built, and a second walk of the tree buys nothing.
+    if args.install_hook:
+        print(install_hook(repo, args.install_hook, args.product, args.out,
+                           args.agent_file))
+        return 0
+
+    stamp_now = _fingerprint(repo)
+    existing = os.path.join(out_dir, "framework_map.json")
+    if not args.force and not args.init and os.path.exists(existing):
+        try:
+            with open(existing, encoding="utf-8") as fh:
+                prev = json.load(fh)
+        except (OSError, ValueError):
+            prev = {}
+        if prev.get("fingerprint") == stamp_now:
+            if not args.quiet:
+                c = (prev.get("counts") or {})
+                print(f"framework map: unchanged since it was built "
+                      f"({c.get('steps', 0)} steps, {c.get('scenarios', 0)} scenarios) "
+                      f"-> {out_dir}/framework_map.md")
+            return 0
+
     m = build(repo)
+    m["fingerprint"] = stamp_now
     if args.init:
         print(init_manifest(repo, m))
         return 0

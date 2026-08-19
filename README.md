@@ -84,6 +84,18 @@ Directories can explain themselves too — `wawe-readmes` writes a README into
 every content directory that lacks one, derived from what is in it, leaving one
 TODO line for the sentence a human should write. The map reads them back.
 
+## Keeping it current
+
+By default the map is built when it is missing or when the repository has moved
+since the last one — the commit and the newest file in the tree are recorded
+with it — and skipped otherwise, so running it on every checkout costs nothing.
+`--force` rebuilds regardless.
+
+```bash
+where-are-we --repo . --install-hook git     # post-checkout, post-merge, post-commit
+where-are-we --repo . --install-hook agent   # SessionStart hook for an agent harness
+```
+
 ## Why it exists
 
 It was built for an agentic QA pipeline whose branches each spent their first
