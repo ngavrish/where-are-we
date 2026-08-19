@@ -1,0 +1,25 @@
+[project]
+name = "where-are-we"
+version = "0.1.0"
+description = "Answer 'where are we?' for a codebase: index a test suite and the product it tests into a map an agent can read instead of grepping."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "BoberIT"}]
+keywords = ["testing", "agents", "codebase-map", "behave", "pytest", "cucumber"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = []
+
+[project.scripts]
+where-are-we = "where_are_we.mapper:main"
+wawe-readmes = "where_are_we.readmes:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/where_are_we"]

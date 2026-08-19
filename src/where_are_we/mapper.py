@@ -1,0 +1,2017 @@
+"""A map of the test framework, built from the checkout, for agents to read
+instead of rediscovering it.
+
+Every implementer session used to open with the same half hour: grep for where
+the steps live, which page object owns the portal, how the driver is built, what
+`environment.py` does, which scripts run a scenario. Forty tool calls at roughly
+a minute each, in every branch, every run — and the answers are identical for
+all of them and derivable without a model.
+
+So they are derived here, deterministically, in a second or two, at the start of
+the run and against this run's own checkout (the suite changes; a map from
+yesterday would be a lie). The result goes to the run directory as JSON and as a
+short Markdown digest the agents are pointed at.
+"""
+
+import argparse
+import ast
+import json
+import os
+import re
+import sys
+
+STEP_DECORATORS = {"step", "given", "when", "then"}
+SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
+
+
+def _step_texts(path: str) -> list[str]:
+    """The step phrases a steps module declares, from its decorators."""
+    out: list[str] = []
+    try:
+        tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+    except (OSError, SyntaxError):
+        return out
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for dec in node.decorator_list:
+            if not isinstance(dec, ast.Call) or not dec.args:
+                continue
+            name = getattr(dec.func, "id", "") or getattr(dec.func, "attr", "")
+            if name.lower() not in STEP_DECORATORS:
+                continue
+            arg = dec.args[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                out.append(arg.value)
+    return out
+
+
+def _walk(root: str, want: str) -> list[str]:
+    hits = []
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs
+                   if d not in {".git", ".venv", "node_modules", "__pycache__", ".runs"}]
+        for f in files:
+            if f.endswith(want):
+                hits.append(os.path.join(base, f))
+    return sorted(hits)
+
+
+
+
+
+def _manifest(repo: str) -> dict:
+    """What the repository says about itself.
+
+    Autodetection gets the shape of a suite right and its vocabulary wrong: it
+    can see that a directory holds classes full of selectors, not that the team
+    calls them portal_ui and treats them as the only place a selector may live.
+    So a repository may state it, in `.framework-map.json` at its root or in a
+    fenced ```framework-map block in its README, and whatever it states wins
+    over what was guessed.
+
+    Keys, all optional:
+      name, purpose        - what this suite is, in one line each
+      layers               - {layer: sentence} describing the local vocabulary
+      product_src          - paths to the application under test
+      conventions          - list of sentences a newcomer must know
+      entry_points         - {command: what it runs}
+      notes                - anything else worth carrying into every agent
+    """
+    path = os.path.join(repo, ".framework-map.json")
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                return json.load(fh) or {}
+        except (OSError, ValueError):
+            return {}
+    for name in ("README.md", "readme.md", "docs/README.md"):
+        fp = os.path.join(repo, name)
+        if not os.path.exists(fp):
+            continue
+        try:
+            body = open(fp, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        m = re.search(r"```framework-map\s*(.+?)```", body, re.S)
+        if m:
+            try:
+                return json.loads(m.group(1)) or {}
+            except ValueError:
+                return {}
+    return {}
+
+
+def _product_roots() -> list:
+    """Where the product under test is checked out. Given by PRODUCT_SRC (colon
+    or comma separated); otherwise the siblings of the test repo are tried, so a
+    suite that sits next to its application still gets routes, storage keys and
+    test ids without being told."""
+    repo0 = os.getenv("AGENT_REPO", "/work")
+    stated = (_manifest(repo0).get("product_src") or [])
+    if isinstance(stated, str):
+        stated = [stated]
+    if stated:
+        return [x for x in stated if x]
+    raw = os.getenv("PRODUCT_SRC", "")
+    if raw:
+        return [x for x in re.split(r"[:,]", raw) if x]
+    repo = os.getenv("AGENT_REPO", "/work")
+    out = []
+    for parent in (os.path.dirname(os.path.abspath(repo)), "/checkout"):
+        if not os.path.isdir(parent):
+            continue
+        for name in sorted(os.listdir(parent))[:40]:
+            cand = os.path.join(parent, name, "src")
+            if os.path.isdir(cand):
+                out.append(cand)
+    return out[:6]
+
+
+def _layer_line(paths: list, what: str) -> str:
+    """One line describing a layer by what was actually found in this repo,
+    rather than by the names one particular suite happens to use."""
+    if not paths:
+        return f"{what}: none found"
+    dirs = sorted({os.path.dirname(p) or "." for p in paths})
+    where = ", ".join(dirs[:3]) + (f" (+{len(dirs)-3} more)" if len(dirs) > 3 else "")
+    return f"{what} — {len(paths)} files under {where}"
+
+
+def build(repo: str) -> dict:
+    steps: dict[str, list[str]] = {}
+    for p in _walk(repo, ".py"):
+        rel = os.path.relpath(p, repo)
+        if "/steps/" not in "/" + rel:
+            continue
+        texts = _step_texts(p)
+        if texts:
+            steps[rel] = texts
+
+    features: dict[str, dict] = {}
+    for p in _walk(repo, ".feature"):
+        rel = os.path.relpath(p, repo)
+        try:
+            body = open(p, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        scenarios = []
+        for i, line in enumerate(body.splitlines(), 1):
+            m = re.match(r"\s*Scenario(?: Outline)?:\s*(.+)$", line)
+            if m:
+                scenarios.append({"line": i, "name": m.group(1).strip()})
+        features[rel] = {
+            # With line numbers, because the scoped runner takes them and a
+            # branch that has to grep the feature for a line number has learnt
+            # nothing from having this map.
+            "scenarios": scenarios,
+            "tags": sorted(set(re.findall(r"@([\w.-]+)", body))),
+        }
+
+    # A page object is a class that owns selectors: found by shape, so this
+    # works on a suite that calls the layer "pages", "po" or nothing at all.
+    page_objects = []
+    for p2 in _walk(repo, ".py"):
+        rel = os.path.relpath(p2, repo)
+        if "/steps/" in "/" + rel:
+            continue
+        try:
+            src = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        looks_like_page = (
+            os.path.basename(p2).lower().endswith(("page.py", "_page.py"))
+            or "/pages/" in "/" + rel.lower() or "/page_objects/" in "/" + rel.lower()
+            or "/portal_ui/" in "/" + rel.lower()
+            or len(re.findall(r"(?:XPATH|SELECTOR|LOCATOR|CSS|data-testid|By\.)", src)) >= 3)
+        if looks_like_page and "class " in src:
+            page_objects.append(rel)
+    page_objects = sorted(page_objects)
+    drivers = [os.path.relpath(p, repo) for p in _walk(repo, ".py")
+               if "driver" in os.path.basename(p).lower()]
+    envs = [os.path.relpath(p, repo) for p in _walk(repo, "environment.py")]
+    scripts = [os.path.relpath(p, repo) for p in _walk(repo, ".sh")
+               if "/scripts/" in "/" + os.path.relpath(p, repo)]
+
+    # The environment the suite reads, and where each name is set. Branches
+    # grepped .envrc, environment.py and the shell for IFP_PORTAL_BASE_URL,
+    # IFP_ENV_BRANCH and the ports before they could run anything at all.
+    env_names: dict[str, list[str]] = {}
+    for p in _walk(repo, ".envrc") + _walk(repo, "environment.py") + _walk(repo, ".sh"):
+        rel = os.path.relpath(p, repo)
+        try:
+            body = open(p, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for name in set(re.findall(r"\b([A-Z][A-Z0-9]{1,}_[A-Z0-9_]{2,}|ENV|HEADLESS)\b", body)):
+            env_names.setdefault(name, [])
+            if rel not in env_names[name]:
+                env_names[name].append(rel)
+
+    # Module-level constants and public functions of the step modules: the other
+    # thing branches grepped for, one module at a time.
+    symbols: dict[str, dict] = {}
+    for rel in steps:
+        try:
+            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
+                                  errors="replace").read())
+        except (OSError, SyntaxError):
+            continue
+        consts, funcs = [], []
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for t in node.targets:
+                    if isinstance(t, ast.Name) and t.id.isupper():
+                        consts.append(t.id)
+            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if not node.name.startswith("__"):
+                    funcs.append(node.name)
+        if consts or funcs:
+            symbols[rel] = {"constants": sorted(consts), "functions": sorted(funcs)}
+
+    def _public_api(rel: str) -> list[str]:
+        """The surface a step is allowed to call, with signatures. Without it an
+        agent either greps the class or invents a method that does not exist."""
+        try:
+            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
+                                  errors="replace").read())
+        except (OSError, SyntaxError):
+            return []
+        out = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                for sub in node.body:
+                    if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                            and not sub.name.startswith("_"):
+                        args = [a.arg for a in sub.args.args if a.arg != "self"]
+                        out.append(f"{node.name}.{sub.name}({', '.join(args)})")
+        return sorted(out)
+
+    api = {rel: _public_api(rel) for rel in page_objects + drivers}
+    api = {k: v for k, v in api.items() if v}
+
+    # How a scenario is launched here, from the scripts' own usage headers.
+    entry_points = {}
+    for rel in scripts:
+        try:
+            head = open(os.path.join(repo, rel), encoding="utf-8",
+                        errors="replace").read(2000)
+        except OSError:
+            continue
+        usage = [ln.lstrip("# ").rstrip() for ln in head.splitlines()[:24]
+                 if ln.startswith("#") and ("usage" in ln.lower() or ".sh " in ln)]
+        if usage:
+            entry_points[rel] = usage[:4]
+
+    # The suite's own prose. Docs and module docstrings are the only place some
+    # conventions are written down, and rediscovering a convention by reading
+    # code is exactly the half hour this map exists to remove.
+    docs = {}
+    for rel in [os.path.relpath(p, repo) for p in _walk(repo, ".md")]:
+        if "/docs/" not in "/" + rel and not rel.lower().startswith("readme"):
+            continue
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8",
+                        errors="replace").read()
+        except OSError:
+            continue
+        docs[rel] = {"headings": re.findall(r"^#{1,3}\s+(.+)$", body, re.M)[:30],
+                     "bytes": len(body)}
+
+    module_docs = {}
+    for rel in list(steps) + page_objects + drivers + envs:
+        try:
+            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
+                                  errors="replace").read())
+            d = ast.get_docstring(tree)
+        except (OSError, SyntaxError):
+            continue
+        if d:
+            module_docs[rel] = d.strip().split("\n\n")[0][:400]
+
+    # 1. Which step modules a feature's phrases resolve to, and which page
+    #    objects those modules touch. The question every new step starts with.
+    phrase_owner = {}
+    for rel, texts in steps.items():
+        for t in texts:
+            phrase_owner.setdefault(re.sub(r"\{[^}]*\}", "", t).strip().lower(), rel)
+    feature_links: dict[str, dict] = {}
+    for rel in features:
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        mods = set()
+        for line in body.splitlines():
+            m = re.match(r"\s*(?:Given|When|Then|And|But)\s+(.+)$", line)
+            if not m:
+                continue
+            phrase = re.sub(r'"[^"]*"', "", m.group(1)).strip().lower()
+            for known, owner in phrase_owner.items():
+                if known and known[:40] and known[:40] in phrase:
+                    mods.add(owner)
+                    break
+        pages = set()
+        for mod in mods:
+            try:
+                src = open(os.path.join(repo, mod), encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for po in page_objects:
+                name = os.path.basename(po)[:-3]
+                if name != "__init__" and name in src:
+                    pages.add(po)
+        feature_links[rel] = {"step_modules": sorted(mods), "page_objects": sorted(pages)}
+
+    # 2. Test data: what the suite reads that is not code.
+    data_files = [os.path.relpath(p, repo) for p in
+                  _walk(repo, ".json") + _walk(repo, ".csv") + _walk(repo, ".yaml")
+                  if any(k in "/" + os.path.relpath(p, repo)
+                         for k in ("/data/", "/fixtures/", "/testdata/", "/snapshots/"))]
+
+    # 3. The selectors the suite drives, and the ones the product exposes.
+    testids: dict[str, list[str]] = {"suite": [], "product": []}
+    for po in page_objects + list(steps):
+        try:
+            src = open(os.path.join(repo, po), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        testids["suite"] += re.findall(r"data-testid=[\"\']([\w:.-]+)", src)
+    for root in _product_roots():
+        if not os.path.isdir(root):
+            continue
+        for p2 in _walk(root, ".tsx") + _walk(root, ".ts"):
+            try:
+                src = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            testids["product"] += re.findall(r"data-testid=[\"\'{]{1,2}([\w:.-]+)", src)
+        break
+    testids = {k: sorted(set(v))[:400] for k, v in testids.items()}
+
+    # 4. Helpers outside steps and page objects: the shared toolbox.
+    helpers = {}
+    for p2 in _walk(repo, ".py"):
+        rel = os.path.relpath(p2, repo)
+        if "/steps/" in "/" + rel or "/portal_ui/" in "/" + rel or rel in steps:
+            continue
+        if not ("/Base/" in "/" + rel or "util" in rel.lower() or "helper" in rel.lower()
+                or "client" in rel.lower() or "api" in rel.lower()):
+            continue
+        api2 = _public_api(rel)
+        if api2:
+            helpers[rel] = api2[:20]
+
+    # 5. Reporting: where results and artefacts land.
+    reporting = {}
+    for rel in list(steps) + envs + scripts:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for kw in ("allure", "REPORT_PORTAL", "reportportal", "junit", "screenshot",
+                   "video", "trace"):
+            if kw.lower() in src.lower():
+                reporting.setdefault(kw, [])
+                if rel not in reporting[kw]:
+                    reporting[kw].append(rel)
+    reporting = {k: v[:4] for k, v in reporting.items()}
+
+    # 6. behave hooks, by what they actually do.
+    hooks = {}
+    for rel in envs:
+        try:
+            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
+                                  errors="replace").read())
+        except (OSError, SyntaxError):
+            continue
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                    and node.name.startswith(("before_", "after_")):
+                doc = (ast.get_docstring(node) or "").strip().split("\n")[0]
+                calls = sorted({c.func.attr for c in ast.walk(node)
+                                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
+                hooks[f"{rel}:{node.name}"] = {"doc": doc[:200], "calls": calls[:12]}
+
+    # 7. Quarantine and known flakiness, from the tags the suite already uses.
+    quarantine = {}
+    for rel, f in features.items():
+        marked = [t for t in f["tags"]
+                  if any(k in t.lower() for k in ("skip", "wip", "flaky", "quarantine",
+                                                  "known", "broken", "disabled"))]
+        if marked:
+            quarantine[rel] = marked
+
+    # 8. The product side a test asserts against: routes and storage keys.
+    product = {"routes": [], "storage_keys": [], "api_paths": []}
+    for src_root in _product_roots():
+        if not os.path.isdir(src_root):
+            continue
+        for p2 in _walk(src_root, ".tsx") + _walk(src_root, ".ts"):
+            try:
+                src = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            product["routes"] += re.findall(r"path=[\"\']([/][\w/:-]*)", src)
+            product["storage_keys"] += re.findall(r"localStorage\.(?:get|set|remove)Item\(\s*[\"\'`]([\w.:-]+)", src)
+            product["storage_keys"] += re.findall(r"[\"\'`]([a-z][\w-]{2,}-[\w.-]+)[\"\'`]", src)
+            product["api_paths"] += re.findall(r"[\"\'`](/api/v\d[\w/{}-]*)", src)
+    product = {k: sorted(set(v))[:120] for k, v in product.items()}
+
+    # Locators the page objects actually drive, and the timing constants that
+    # decide how long anything waits. Both are grepped constantly and neither
+    # can be guessed.
+    locators: dict[str, list[str]] = {}
+    timings: dict[str, list[str]] = {}
+    for rel in page_objects + list(steps) + drivers:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        loc = re.findall(r"^([A-Z_0-9]*(?:XPATH|SELECTOR|LOCATOR|CSS)[A-Z_0-9]*)\s*=\s*(.+)$",
+                         src, re.M)
+        if loc:
+            locators[rel] = [f"{k} = {v.strip()[:90]}" for k, v in loc[:25]]
+        tim = re.findall(r"^([A-Z_0-9]*(?:TIMEOUT|SETTLE|WAIT|RETRY|BUDGET|DEADLINE|POLL)[A-Z_0-9]*)\s*=\s*(.+)$",
+                         src, re.M)
+        if tim:
+            timings[rel] = [f"{k} = {v.strip()[:60]}" for k, v in tim[:25]]
+
+    # behave's own configuration: defaults nobody states out loud.
+    behave_cfg = {}
+    for name in ("behave.ini", "setup.cfg", "tox.ini", "pytest.ini", ".behaverc"):
+        fp = os.path.join(repo, name)
+        if os.path.exists(fp):
+            try:
+                behave_cfg[name] = open(fp, encoding="utf-8", errors="replace").read()[:2000]
+            except OSError:
+                continue
+
+    # The suite's coverage document: ticket -> scenarios, maintained by hand and
+    # the only place the traceability lives.
+    coverage_docs = {}
+    for p2 in _walk(repo, ".md"):
+        rel = os.path.relpath(p2, repo)
+        if "coverage" not in rel.lower():
+            continue
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        coverage_docs[rel] = {
+            "tickets": sorted(set(re.findall(r"\b(APF-\d+)\b", body)))[:120],
+            "headings": re.findall(r"^#{1,3}\s+(.+)$", body, re.M)[:40],
+        }
+
+    # How the environment is brought up and proven ready.
+    env_setup = {}
+    for rel in scripts:
+        base = os.path.basename(rel)
+        if not any(k in base for k in ("preflight", "portal_rebuild", "start", "health",
+                                       "reset_env", "watchdog")):
+            continue
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        env_setup[rel] = {
+            "flags": sorted(set(re.findall(r"--[a-z][a-z0-9-]+", src)))[:20],
+            "urls": sorted(set(re.findall(r"https?://[\w.:%-]+", src)))[:12],
+            "ports": sorted(set(re.findall(r":(\d{4,5})\b", src)))[:12],
+        }
+
+    # The backend a test can call directly, and the data it seeds.
+    backend = {"endpoints": [], "tables": [], "seed_scripts": []}
+    for rel in list(steps) + list(helpers if "helpers" in dir() else []):
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        backend["endpoints"] += re.findall(r"[\"\'`](/api/v\d[\w/{}.-]*)", src)
+        backend["tables"] += re.findall(r"\bFROM\s+([a-z_][\w.]*)", src, re.I)
+    backend["seed_scripts"] = [r for r in scripts
+                               if any(k in os.path.basename(r)
+                                      for k in ("seed", "fixture", "snapshot", "data"))][:12]
+    backend = {k: (sorted(set(v))[:40] if isinstance(v, list) else v)
+               for k, v in backend.items()}
+
+    # The API-level suite, which is not the UI suite and has its own entry point.
+    api_tests = [os.path.relpath(p2, repo) for p2 in _walk(repo, ".feature")
+                 if "/api" in "/" + os.path.relpath(p2, repo).lower()][:40]
+
+    # Repository conventions, from the tests repo itself.
+    conventions = {}
+    for name in ("CONTRIBUTING.md", "README.md", "AGENTS.md", "CLAUDE.md"):
+        fp = os.path.join(repo, name)
+        if os.path.exists(fp):
+            try:
+                conventions[name] = open(fp, encoding="utf-8", errors="replace").read()[:1500]
+            except OSError:
+                continue
+
+    # What past runs measured: how long each scenario takes and how often it
+    # failed. The suite writes junit on every scoped run, and nobody has ever
+    # read it back — so every branch guesses at cost and stability instead of
+    # knowing which scenario is a twenty-minute one.
+    history: dict[str, dict] = {}
+    for root in ("/runs", "/tmp"):
+        if not os.path.isdir(root):
+            continue
+        for base, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if not d.startswith(".")][:200]
+            for fn in files:
+                if not fn.endswith(".xml"):
+                    continue
+                try:
+                    body = open(os.path.join(base, fn), encoding="utf-8",
+                                errors="replace").read(400000)
+                except OSError:
+                    continue
+                for name, secs in re.findall(
+                        r'<testcase[^>]*name="([^"]+)"[^>]*time="([\d.]+)"', body):
+                    h = history.setdefault(name, {"runs": 0, "total_s": 0.0, "failed": 0})
+                    h["runs"] += 1
+                    h["total_s"] += float(secs)
+                for name in re.findall(
+                        r'<testcase[^>]*name="([^"]+)"[^>]*>\s*<(?:failure|error)', body):
+                    history.setdefault(name, {"runs": 0, "total_s": 0.0, "failed": 0})
+                    history[name]["failed"] += 1
+    history = {k: {"runs": v["runs"], "avg_s": round(v["total_s"] / max(v["runs"], 1)),
+                   "failed": v["failed"]}
+               for k, v in sorted(history.items(),
+                                  key=lambda kv: -kv[1]["total_s"])[:120]}
+
+    # A README in a directory is that directory explaining itself, which beats
+    # anything inferred from the files in it. Every one of them is carried.
+    dir_readmes = {}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs
+                   if d not in {".git", ".venv", "node_modules", "__pycache__", ".runs"}]
+        for fn in files:
+            if fn.lower() not in ("readme.md", "readme.rst", "readme.txt"):
+                continue
+            rel = os.path.relpath(os.path.join(base, fn), repo)
+            try:
+                body = open(os.path.join(base, fn), encoding="utf-8",
+                            errors="replace").read()
+            except OSError:
+                continue
+            first = next((ln.strip() for ln in body.splitlines()
+                          if ln.strip() and not ln.startswith("#")), "")
+            dir_readmes[os.path.dirname(rel) or "."] = {
+                "path": rel,
+                "summary": first[:300],
+                "headings": re.findall(r"^#{1,3}\s+(.+)$", body, re.M)[:12],
+            }
+
+    # ---- the state of the suite itself, not just its shape ----------------
+    # Duplicates: two modules declaring the same phrase, or phrases that differ
+    # only by their placeholders and wording. This is why a branch writes a step
+    # that already exists, three modules away.
+    def _norm(t: str) -> str:
+        t = re.sub(r"\{[^}]*\}", "{}", t.lower())
+        t = re.sub(r"[\"\']", "", t)
+        return re.sub(r"\s+", " ", t).strip()
+
+    by_norm: dict[str, list] = {}
+    for rel, texts in steps.items():
+        for t in texts:
+            by_norm.setdefault(_norm(t), []).append((rel, t))
+    duplicates = {k: v for k, v in by_norm.items()
+                  if len({r for r, _ in v}) > 1 or len(v) > 1}
+
+    # Exact collisions are rare — behave refuses to start on an ambiguous step,
+    # so the suite cannot hold two identical phrases. The costly duplicates are
+    # the near ones: "select targeting value {x}" beside "choose the targeting
+    # value {x}" in another module. Those are found by comparing word sets, and
+    # they are the reason a branch writes a step that already exists.
+    STOP = {"the", "a", "an", "is", "are", "to", "of", "in", "on", "for", "and", "{}"}
+
+    def _tokens(t: str) -> frozenset:
+        # Placeholders count: "…data" and "…data {summary}" ask for different
+        # things, and calling them duplicates sends an agent to reuse a step
+        # that checks less than the scenario needs. So the arity travels with
+        # the word set rather than being normalised away.
+        words = frozenset(w for w in re.findall(r"[a-z]+", _norm(t)) if w not in STOP)
+        return words | {f"__args{t.count('{')}"}
+
+    items = [(rel, t, _tokens(t)) for rel, texts in steps.items() for t in texts]
+    items = [x for x in items if len(x[2]) >= 3]
+    buckets: dict[str, list] = {}
+    for rel, t, toks in items:
+        for w in sorted(toks)[:3]:          # index by rarest-ish words, bounded work
+            buckets.setdefault(w, []).append((rel, t, toks))
+    near: list[dict] = []
+    seen_pairs = set()
+    for _, group in buckets.items():
+        if len(group) > 400:
+            continue
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                a, b = group[i], group[j]
+                if a[0] == b[0] and a[1] == b[1]:
+                    continue
+                key = tuple(sorted((a[1], b[1])))
+                if key in seen_pairs:
+                    continue
+                inter = len(a[2] & b[2])
+                union = len(a[2] | b[2])
+                if union and inter / union >= 0.8:
+                    seen_pairs.add(key)
+                    if a[1] == b[1] and a[0] == b[0]:
+                        continue
+                    near.append({"a": a[1], "a_in": a[0], "b": b[1], "b_in": b[0],
+                                 "similarity": round(inter / union, 2)})
+    near_duplicates = sorted(near, key=lambda d: -d["similarity"])[:80]
+
+    # Which helper or page-object method each step function actually calls: the
+    # graph an agent otherwise rebuilds by reading a module top to bottom.
+    call_graph: dict[str, list] = {}
+    for rel in steps:
+        try:
+            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
+                                  errors="replace").read())
+        except (OSError, SyntaxError):
+            continue
+        for node in tree.body:
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            calls = sorted({c.func.attr for c in ast.walk(node)
+                            if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
+            if calls:
+                call_graph[f"{os.path.basename(rel)}:{node.name}"] = calls[:12]
+    call_graph = dict(list(call_graph.items())[:120])
+
+    # What a finished run leaves behind, and where.
+    artefacts = {}
+    for rel in list(steps) + envs + scripts + drivers:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for m2 in re.findall(r"[\"\']([\w./-]*(?:report|screenshot|junit|allure|video|trace|log)[\w./-]*)[\"\']",
+                             src, re.I):
+            if "/" in m2 or m2.endswith((".xml", ".json", ".html", ".png", ".log")):
+                artefacts.setdefault(m2, [])
+                if rel not in artefacts[m2]:
+                    artefacts[m2].append(rel)
+    artefacts = {k: v[:3] for k, v in list(artefacts.items())[:40]}
+
+    # Unused: a phrase no feature ever says, and a public page-object method
+    # nothing calls. Both are dead weight an agent reads and imitates.
+    feature_text = ""
+    for rel in features:
+        try:
+            feature_text += open(os.path.join(repo, rel), encoding="utf-8",
+                                 errors="replace").read().lower()
+        except OSError:
+            continue
+    unused_steps = {}
+    for rel, texts in steps.items():
+        dead = [t for t in texts
+                if re.sub(r"\{[^}]*\}", "", t).strip().lower()[:35] not in feature_text]
+        if dead:
+            unused_steps[rel] = dead[:20]
+
+    suite_src = feature_text
+    for rel in list(steps) + page_objects + drivers:
+        try:
+            suite_src += open(os.path.join(repo, rel), encoding="utf-8",
+                              errors="replace").read()
+        except OSError:
+            continue
+    unused_api = {}
+    for rel, methods in api.items():
+        dead = [m for m in methods
+                if suite_src.count("." + m.split(".", 1)[1].split("(")[0]) <= 1]
+        if dead:
+            unused_api[rel] = dead[:20]
+
+    # Debts the suite already admits to.
+    debts = {}
+    for rel in list(steps) + page_objects + list(features) + drivers + envs:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        found = re.findall(r".*\b(?:TODO|FIXME|XXX|HACK|@skip|@wip)\b.*", src)[:6]
+        if found:
+            debts[rel] = [x.strip()[:140] for x in found]
+
+    # Who changed what, and which ticket brought which scenario.
+    git_history, ticket_links = {}, {}
+    try:
+        import subprocess
+        log = subprocess.run(
+            ["git", "-C", repo, "log", "--since=90.days", "--name-only",
+             "--pretty=format:%H|%an|%ad|%s", "--date=short"],
+            capture_output=True, text=True, timeout=60).stdout
+        cur = None
+        for line in log.splitlines():
+            if "|" in line and len(line.split("|")) >= 4:
+                h, who, when, subj = line.split("|", 3)
+                cur = {"who": who, "when": when, "subject": subj}
+                for t in re.findall(r"\b([A-Z]{2,6}-\d+)\b", subj):
+                    ticket_links.setdefault(t, {"subject": subj, "files": []})
+                    cur["ticket"] = t
+            elif line.strip() and cur:
+                git_history.setdefault(line.strip(), []).append(
+                    f"{cur['when']} {cur['who']}: {cur['subject'][:60]}")
+                if cur.get("ticket"):
+                    ticket_links[cur["ticket"]]["files"].append(line.strip())
+    except Exception:  # noqa: BLE001 — a map without history is still a map
+        pass
+    git_history = {k: v[:5] for k, v in
+                   sorted(git_history.items(), key=lambda kv: -len(kv[1]))[:40]}
+    ticket_links = {k: {"subject": v["subject"], "files": sorted(set(v["files"]))[:8]}
+                    for k, v in list(ticket_links.items())[:40]}
+
+    # What the suite runs on, and how CI runs it.
+    deps = {}
+    for name in ("requirements.txt", "pyproject.toml", "uv.lock", "Pipfile", "package.json"):
+        fp = os.path.join(repo, name)
+        if os.path.exists(fp):
+            try:
+                body = open(fp, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            deps[name] = sorted(set(re.findall(
+                r"^\s*[\"\']?([A-Za-z][\w.-]+)[\"\']?\s*[=><~^]{1,2}\s*[\"\']?([\d][\w.+-]*)",
+                body, re.M)))[:40]
+    ci = {}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        rel = os.path.relpath(base, repo)
+        if not any(k in rel for k in (".github", ".gitlab", "ci", "pipelines")):
+            continue
+        for fn in files:
+            if not fn.endswith((".yml", ".yaml")):
+                continue
+            try:
+                body = open(os.path.join(base, fn), encoding="utf-8",
+                            errors="replace").read()
+            except OSError:
+                continue
+            ci[os.path.join(rel, fn)] = {
+                "jobs": re.findall(r"^\s{0,4}([a-z][\w-]*):\s*$", body, re.M)[:12],
+                "runs": re.findall(r"(?:behave|pytest|run_[\w]+\.sh)[^\n]{0,60}", body)[:6],
+            }
+
+    # Required environment, without values: what must be set for anything to run.
+    required_env = sorted({n for n, files in env_names.items()
+                           if any(f.endswith(".envrc") for f in files)})[:60]
+
+    # How a test gets in: the login path, the tokens, whatever stands in for a
+    # human at the SSO screen. A branch that has to work this out reads three
+    # modules before its first click.
+    helpers_paths = list((helpers or {}).keys())
+    auth = {}
+    for rel in list(steps) + envs + page_objects + drivers + helpers_paths:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        hits = re.findall(r".*\b(?:login|log_in|sign_in|cognito|sso|okta|token|cookie|session|auth)\w*\s*[=(].*",
+                          src, re.I)[:4]
+        if hits:
+            auth[rel] = [h.strip()[:130] for h in hits]
+    auth = dict(list(auth.items())[:12])
+
+    # What must not run at the same time as something else. Shared fixtures,
+    # singletons, ports, files and the scenarios that say so themselves.
+    concurrency = {"shared_state": [], "serial_tags": [], "notes": []}
+    for rel in list(steps) + envs + page_objects:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for m2 in re.findall(r"^([A-Z_0-9]+)\s*=\s*(?:\{|\[|dict\(|list\()", src, re.M):
+            concurrency["shared_state"].append(f"{os.path.basename(rel)}:{m2}")
+        for m2 in re.findall(r".*\b(?:lock|mutex|singleton|serial|not.thread.safe|shared)\b.*",
+                             src, re.I)[:2]:
+            concurrency["notes"].append(f"{os.path.basename(rel)}: {m2.strip()[:110]}")
+    concurrency["serial_tags"] = sorted({t for f in features.values() for t in f["tags"]
+                                         if any(k in t.lower() for k in
+                                                ("serial", "isolated", "nonparallel", "single"))})
+    concurrency = {k: (v[:20] if isinstance(v, list) else v) for k, v in concurrency.items()}
+
+    # Failure signatures the suite already knows how to read.
+    failure_signatures = {}
+    for rel in list(steps) + page_objects + drivers + envs:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for msg in re.findall(r"(?:assert[^,\n]*,\s*|raise \w+\(\s*)f?[\"\']([^\"\']{25,140})",
+                              src)[:6]:
+            failure_signatures.setdefault(msg.strip(), []).append(os.path.basename(rel))
+    failure_signatures = {k: sorted(set(v))[:3]
+                          for k, v in list(failure_signatures.items())[:60]}
+
+    # The values a test may safely use, taken from the data the suite ships.
+    safe_data = {}
+    for rel in data_files[:40]:
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read(20000)
+        except OSError:
+            continue
+        ids = re.findall(r"[\"\'](?:id|productId|lineItemId|o1_?product)[\"\']\s*:\s*[\"\']?(\w{3,})",
+                         body, re.I)[:20]
+        if ids:
+            safe_data[rel] = sorted(set(ids))[:20]
+    for rel in list(features)[:60]:
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        nums = re.findall(r"\b(\d{4,7})\b", body)
+        if nums:
+            safe_data.setdefault("used in features", [])
+            safe_data["used in features"] = sorted(set(safe_data["used in features"] + nums))[:40]
+
+    # Which steps are slow, not just which scenarios: from the same junit the
+    # history came from, matched back to the phrases that own the time.
+    slow_steps = {}
+    for name, meta in list(history.items())[:120]:
+        for rel, texts in steps.items():
+            for t in texts:
+                key = re.sub(r"\{[^}]*\}", "", t).strip()[:30].lower()
+                if key and key in name.lower():
+                    cur = slow_steps.setdefault(t, {"avg_s": 0, "seen": 0,
+                                                    "module": os.path.basename(rel)})
+                    cur["avg_s"] = max(cur["avg_s"], meta["avg_s"])
+                    cur["seen"] += 1
+    slow_steps = dict(sorted(slow_steps.items(), key=lambda kv: -kv[1]["avg_s"])[:30])
+
+    # What the tags mean, where anyone wrote it down.
+    tag_meaning = {}
+    for rel, meta in (docs or {}).items():
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for tag, sense in re.findall(r"[`@](\w[\w.-]{2,})[`]?\s*[—:-]\s*([^\n]{10,120})", body)[:40]:
+            tag_meaning.setdefault(tag, sense.strip())
+
+    # Locators the suite itself marks as fragile or dead.
+    fragile = {}
+    for rel, items in locators.items():
+        flagged = [x for x in items
+                   if re.search(r"(?:deprecated|fragile|flaky|legacy|fallback|old)", x, re.I)]
+        if flagged:
+            fragile[rel] = flagged[:8]
+
+    # Which product component owns which test id.
+    testid_owners = {}
+    for root in _product_roots():
+        if not os.path.isdir(root):
+            continue
+        for p2 in _walk(root, ".tsx"):
+            try:
+                src = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            for tid in set(re.findall(r"data-testid=[\"\'{]{1,2}([\w:.-]+)", src)):
+                testid_owners.setdefault(tid, os.path.basename(p2))
+    testid_owners = dict(list(testid_owners.items())[:200])
+
+    # The rules corpus the agents are held to, by name.
+    rules_corpus = []
+    for root in (os.getenv("RULES_REPO", "/rules"), os.path.join(repo, ".cursor", "rules")):
+        if not os.path.isdir(root):
+            continue
+        for base, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            rules_corpus += [os.path.splitext(f)[0] for f in files if f.endswith(".mdc")]
+    rules_corpus = sorted(set(rules_corpus))[:200]
+
+    # Interface strings the assertions depend on.
+    ui_strings = []
+    for root in _product_roots():
+        if not os.path.isdir(root):
+            continue
+        for p2 in (_walk(root, ".tsx") + _walk(root, ".ts"))[:400]:
+            try:
+                src = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            ui_strings += re.findall(r">\s*([A-Z][A-Za-z ]{4,40})\s*<", src)
+    ui_strings = sorted(set(ui_strings))[:150]
+
+    # The infrastructure the suite talks to: compose files, service names, the
+    # ports and health endpoints that decide whether anything can run at all.
+    infra = {}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            if not re.match(r"(docker-)?compose.*\.ya?ml$|Dockerfile.*", fn):
+                continue
+            rel = os.path.relpath(os.path.join(base, fn), repo)
+            try:
+                body = open(os.path.join(base, fn), encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            infra[rel] = {
+                "services": re.findall(r"^\s{2}([a-z][\w-]*):\s*$", body, re.M)[:20],
+                "ports": sorted(set(re.findall(r"(\d{2,5}):(?:\d{2,5})", body)))[:15],
+                "health": re.findall(r"(?:healthcheck|test:)\s*(.{0,80})", body)[:4],
+            }
+    for rel in scripts:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        health = re.findall(r"https?://[\w.:%-]*/(?:health|healthz|health_check|ping)[\w/]*", src)
+        if health:
+            infra.setdefault("health endpoints", {"services": [], "ports": [], "health": []})
+            infra["health endpoints"]["health"] = sorted(set(
+                infra["health endpoints"]["health"] + health))[:12]
+
+    # Columns, not just table names: what a data test is allowed to assert on.
+    schemas = {}
+    for rel in list(steps) + [r for r in _walk(repo, ".sql")]:
+        rel = os.path.relpath(rel, repo) if os.path.isabs(rel) else rel
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for tbl, cols in re.findall(r"SELECT\s+(.{5,300}?)\s+FROM\s+([a-z_][\w.]*)",
+                                    src, re.I | re.S)[:20]:
+            name = cols.strip()
+            fields = [c.strip().split()[-1] for c in tbl.split(",")][:12]
+            schemas.setdefault(name, set()).update(f for f in fields if re.match(r"^\w+$", f))
+    schemas = {k: sorted(v)[:20] for k, v in list(schemas.items())[:25]}
+
+    # Who owns what, where the repository says so.
+    owners = {}
+    for name in ("CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"):
+        fp = os.path.join(repo, name)
+        if os.path.exists(fp):
+            try:
+                for line in open(fp, encoding="utf-8", errors="replace"):
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        parts = line.split()
+                        owners[parts[0]] = parts[1:][:4]
+            except OSError:
+                pass
+
+    # How the environments differ, from the branches the code takes on ENV.
+    env_differences = {}
+    for rel in list(steps) + envs + scripts:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        hits = re.findall(r".*\b(?:ENV\s*==?\s*[\"\']?(?:uat|dev|local|prod)|if\s+\w*env\w*\s*[=!]=).*",
+                          src, re.I)[:4]
+        if hits:
+            env_differences[rel] = [h.strip()[:120] for h in hits]
+    env_differences = dict(list(env_differences.items())[:15])
+
+    # What past runs of this pipeline already found in this product.
+    past_bugs = []
+    try:
+        import urllib.request as _u
+        base_url = os.getenv("RUNS_API_READ", "")
+        if base_url:
+            with _u.urlopen(f"{base_url}/r/runs?limit=40", timeout=10) as resp:
+                for row in json.loads(resp.read().decode() or "[]"):
+                    if row.get("verdict"):
+                        past_bugs.append({"run": row.get("id"), "ticket": row.get("ticket"),
+                                          "verdict": row.get("verdict"),
+                                          "summary": (row.get("summary") or "")[:160]})
+    except Exception:  # noqa: BLE001 — the map is built with or without history
+        pass
+    past_bugs = past_bugs[:20]
+
+    # Visual baselines a comparison could use.
+    baselines = [os.path.relpath(p2, repo) for p2 in
+                 _walk(repo, ".png") + _walk(repo, ".jpg")
+                 if any(k in "/" + os.path.relpath(p2, repo).lower()
+                        for k in ("baseline", "expected", "golden", "snapshot"))][:40]
+
+    # How a feature file is written here, by example.
+    feature_style = {}
+    for rel in list(features)[:1]:
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        feature_style = {
+            "sample": rel,
+            "first_scenario": "\n".join(body.splitlines()[:40])[:1200],
+            "uses_outlines": "Scenario Outline" in body,
+            "example_headers": re.findall(r"^\s*\|(.+)\|\s*$", body, re.M)[:3],
+        }
+
+    # Not every suite is behave. A pytest suite keeps its cases in functions and
+    # its shared setup in fixtures; a JS suite keeps them in describe/it blocks.
+    # Both are indexed the same way, so this script is worth running on a
+    # repository that has never heard of Gherkin.
+    pytest_tests: dict[str, list] = {}
+    fixtures: dict[str, list] = {}
+    markers: list = []
+    for p2 in _walk(repo, ".py"):
+        rel = os.path.relpath(p2, repo)
+        base = os.path.basename(p2)
+        if not (base.startswith("test_") or base.endswith("_test.py") or base == "conftest.py"):
+            continue
+        try:
+            tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
+        except (OSError, SyntaxError):
+            continue
+        cases, fixs = [], []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            decs = []
+            for d in node.decorator_list:
+                f = d.func if isinstance(d, ast.Call) else d
+                decs.append(getattr(f, "attr", "") or getattr(f, "id", ""))
+            if node.name.startswith("test"):
+                cases.append(node.name + (f" [{', '.join(decs)}]" if decs else ""))
+                markers += [x for x in decs if x not in ("parametrize", "fixture")]
+            elif "fixture" in decs:
+                fixs.append(node.name)
+        if cases:
+            pytest_tests[rel] = cases[:30]
+        if fixs:
+            fixtures[rel] = fixs[:30]
+
+    js_tests: dict[str, list] = {}
+    for ext in (".spec.ts", ".spec.js", ".test.ts", ".test.js"):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            try:
+                body = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            names = re.findall(r"(?:describe|it|test)\s*\(\s*[\"\'`]([^\"\'`]{3,80})", body)
+            if names:
+                js_tests[rel] = names[:25]
+
+    test_config = {}
+    for name in ("pytest.ini", "pyproject.toml", "playwright.config.ts",
+                 "jest.config.js", "package.json"):
+        fp = os.path.join(repo, name)
+        if not os.path.exists(fp):
+            continue
+        try:
+            body = open(fp, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        hits = [ln.strip() for ln in body.splitlines()
+                if re.search(r"(?:testpaths|markers|addopts|testDir|testMatch|scripts|timeout)", ln)][:8]
+        if hits:
+            test_config[name] = hits
+
+    # The rest of the runners a repository might use. Each one is read for the
+    # same three things: where its cases live, what they are called, and what
+    # its shared setup is — so this script is worth running before anyone has
+    # said which framework the suite uses.
+    other_suites: dict[str, dict] = {}
+
+    cypress = {}
+    for ext in (".cy.ts", ".cy.js", ".e2e.ts", ".e2e.js"):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            try:
+                body = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            cypress[rel] = re.findall(r"(?:describe|it|context)\s*\(\s*[\"\'`]([^\"\'`]{3,80})",
+                                      body)[:20]
+    if cypress:
+        other_suites["cypress"] = dict(list(cypress.items())[:30])
+
+    robot = {}
+    for p2 in _walk(repo, ".robot"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        cases = re.findall(r"^(\S.+)$", body.split("*** Test Cases ***")[-1], re.M)[:20] \
+            if "*** Test Cases ***" in body else []
+        kws = re.findall(r"^(\S.+)$", body.split("*** Keywords ***")[-1], re.M)[:20] \
+            if "*** Keywords ***" in body else []
+        robot[rel] = {"tests": [c.strip() for c in cases][:15],
+                      "keywords": [k.strip() for k in kws][:15]}
+    if robot:
+        other_suites["robot"] = dict(list(robot.items())[:20])
+
+    jvm = {}
+    for ext in (".java", ".kt"):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            try:
+                body = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            cases = re.findall(r"@(?:Test|ParameterizedTest)[^\n]*\n\s*(?:public\s+)?\w[\w<>\[\] ]*\s+(\w+)\s*\(",
+                               body)
+            glue = re.findall(r"@(?:Given|When|Then|And)\s*\(\s*[\"\']([^\"\']{5,90})", body)
+            if cases or glue:
+                jvm[rel] = {"tests": cases[:20], "step_glue": glue[:20]}
+
+    # Cucumber outside Python: the glue is the same idea in every language —
+    # a phrase bound to a function — and a .feature file does not say which
+    # language implements it, so all of them are read.
+    for ext in (".scala",):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            try:
+                body = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            cases = re.findall(r'(?:test|it|should)\s*\(\s*[\"\']([^\"\']{3,90})', body)
+            glue = re.findall(r'(?:Given|When|Then|And)\s*\(\s*[\"\']([^\"\']{5,90})', body)
+            if cases or glue:
+                jvm[rel] = {"tests": cases[:20], "step_glue": glue[:20]}
+    if jvm:
+        other_suites["jvm"] = dict(list(jvm.items())[:40])
+
+    # cucumber-js and friends: step glue written in TypeScript or JavaScript.
+    cucumber_js = {}
+    for ext in (".ts", ".js", ".tsx", ".mjs"):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            if any(k in "/" + rel.lower() for k in ("node_modules", "/dist/", "/build/")):
+                continue
+            try:
+                body = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            glue = re.findall(
+                r"\b(?:Given|When|Then|defineStep)\s*\(\s*(?:/([^/]{5,90})/|[\"\'`]([^\"\'`]{5,90}))",
+                body)
+            phrases = [a or b for a, b in glue]
+            if phrases:
+                cucumber_js[rel] = phrases[:25]
+    if cucumber_js:
+        other_suites["cucumber-js"] = dict(list(cucumber_js.items())[:40])
+
+    go_tests = {}
+    for p2 in _walk(repo, "_test.go"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        go_tests[rel] = re.findall(r"^func\s+(Test\w+|Benchmark\w+|Fuzz\w+)\s*\(", body, re.M)[:25]
+    if go_tests:
+        other_suites["go"] = dict(list(go_tests.items())[:30])
+
+    rspec = {}
+    for p2 in _walk(repo, "_spec.rb"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        rspec[rel] = re.findall(r"(?:describe|context|it)\s+[\"\']([^\"\']{3,80})", body)[:20]
+    if rspec:
+        other_suites["rspec"] = dict(list(rspec.items())[:30])
+
+    # The remaining runners. Same three questions each: where the cases live,
+    # what they are called, what binds a phrase to code.
+    dotnet = {}
+    for ext in (".cs",):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            try:
+                body = open(p2, encoding="utf-8", errors="replace").read()
+            except OSError:
+                continue
+            cases = re.findall(r"\[(?:Fact|Theory|Test|TestMethod)\][\s\S]{0,200}?\b(\w+)\s*\(", body)[:20]
+            glue = re.findall(r"\[(?:Given|When|Then)\(@?[\"\']([^\"\']{5,90})", body)[:20]
+            if cases or glue:
+                dotnet[rel] = {"tests": cases, "step_glue": glue}
+    if dotnet:
+        other_suites["dotnet"] = dict(list(dotnet.items())[:30])
+
+    php = {}
+    for p2 in _walk(repo, ".php"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        cases = re.findall(r"function\s+(test\w+)\s*\(", body)[:20]
+        glue = re.findall(r"@(?:Given|When|Then)\s+(.{5,90})", body)[:20]
+        if cases or glue:
+            php[rel] = {"tests": cases, "step_glue": [g.strip() for g in glue]}
+    if php:
+        other_suites["php"] = dict(list(php.items())[:30])
+
+    rust = {}
+    for p2 in _walk(repo, ".rs"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        cases = re.findall(r"#\[(?:test|tokio::test)\]\s*(?:async\s+)?fn\s+(\w+)", body)[:20]
+        if cases:
+            rust[rel] = cases
+    if rust:
+        other_suites["rust"] = dict(list(rust.items())[:30])
+
+    swift = {}
+    for p2 in _walk(repo, ".swift"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        cases = re.findall(r"func\s+(test\w+)\s*\(", body)[:20]
+        if cases:
+            swift[rel] = cases
+    if swift:
+        other_suites["swift"] = dict(list(swift.items())[:30])
+
+    ruby_cucumber = {}
+    for p2 in _walk(repo, ".rb"):
+        rel = os.path.relpath(p2, repo)
+        try:
+            body = open(p2, encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        glue = re.findall(r"^(?:Given|When|Then)\s*[(/]\s*[\"\'/]?([^\"\'/\n]{5,90})", body, re.M)[:20]
+        if glue:
+            ruby_cucumber[rel] = glue
+    if ruby_cucumber:
+        other_suites["cucumber-ruby"] = dict(list(ruby_cucumber.items())[:30])
+
+    declarative = {}
+    for ext, kind in ((".feature", "karate"), (".spec", "gauge"), (".yaml", "k6/gatling")):
+        for p2 in _walk(repo, ext):
+            rel = os.path.relpath(p2, repo)
+            low = rel.lower()
+            if kind == "karate" and "karate" not in low:
+                continue
+            if kind == "gauge" and "/specs/" not in "/" + low:
+                continue
+            if kind.startswith("k6") and not any(k in low for k in ("k6", "gatling", "perf", "load")):
+                continue
+            declarative.setdefault(kind, []).append(rel)
+    for kind, files in declarative.items():
+        other_suites[kind] = {f: [] for f in files[:20]}
+
+    # Contracts, schemas and the machinery around them.
+    contracts = {"openapi": [], "graphql": [], "migrations": [], "mocks": [],
+                 "feature_flags": [], "i18n": [], "images": [], "secret_paths": []}
+    for base, dirs, files in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fn in files:
+            rel = os.path.relpath(os.path.join(base, fn), repo)
+            low = rel.lower()
+            full = os.path.join(base, fn)
+            if fn.endswith((".yaml", ".yml", ".json")) and any(
+                    k in low for k in ("openapi", "swagger", "api-spec")):
+                contracts["openapi"].append(rel)
+            elif fn.endswith((".graphql", ".gql")):
+                contracts["graphql"].append(rel)
+            elif "/migrations/" in "/" + low or re.match(r"V\d+__|^\d{3,}_", fn):
+                contracts["migrations"].append(rel)
+            elif any(k in low for k in ("wiremock", "mockserver", "/mocks/", "msw", "handlers")):
+                contracts["mocks"].append(rel)
+            elif any(k in low for k in ("feature-flag", "featureflag", "flags.")):
+                contracts["feature_flags"].append(rel)
+            elif any(k in low for k in ("/locales/", "/i18n/", "messages_", "translation")):
+                contracts["i18n"].append(rel)
+            if fn.startswith("docker-compose") or fn == "Dockerfile":
+                try:
+                    body = open(full, encoding="utf-8", errors="replace").read()
+                except OSError:
+                    continue
+                contracts["images"] += re.findall(r"(?:image|FROM)\s*:?\s*([\w./-]+:[\w.-]+)", body)[:20]
+    for rel in list(steps) + scripts + envs:
+        try:
+            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        contracts["secret_paths"] += re.findall(
+            r"(?:vault|secretsmanager|ssm|aws_secret|SecretId)\W{1,4}([\w/.-]{4,60})", src, re.I)[:10]
+    contracts = {k: sorted(set(v))[:30] for k, v in contracts.items()}
+
+    # Contracts are worth reading, not just listing: an agent asserting on an
+    # endpoint wants the endpoint, not the name of a file that mentions one.
+    contract_details = {"endpoints": [], "graphql": [], "migration_tables": [],
+                        "i18n_keys": [], "flags": []}
+    for rel in contracts.get("openapi", []):
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        if rel.endswith(".json"):
+            try:
+                doc = json.loads(body)
+                for path_, ops in (doc.get("paths") or {}).items():
+                    for method in ops:
+                        contract_details["endpoints"].append(f"{method.upper()} {path_}")
+            except ValueError:
+                pass
+        else:
+            cur = None
+            for line in body.splitlines():
+                m2 = re.match(r"^\s{2}(/[\w/{}.-]+):\s*$", line)
+                if m2:
+                    cur = m2.group(1)
+                elif cur and re.match(r"^\s{4}(get|post|put|patch|delete):", line):
+                    contract_details["endpoints"].append(
+                        f"{line.strip().rstrip(':').upper()} {cur}")
+    for rel in contracts.get("graphql", []):
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        contract_details["graphql"] += re.findall(
+            r"^\s*(?:type|input|enum|interface)\s+(\w+)", body, re.M)[:40]
+    for rel in contracts.get("migrations", []):
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for tbl, cols in re.findall(r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([\w.\"]+)\s*\(([^;]{0,600})",
+                                    body, re.I):
+            names = re.findall(r"^\s*[\"`]?(\w+)[\"`]?\s+\w", cols, re.M)[:15]
+            contract_details["migration_tables"].append(f"{tbl.strip()}({', '.join(names)})")
+    for rel in contracts.get("i18n", [])[:10]:
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read(60000)
+        except OSError:
+            continue
+        contract_details["i18n_keys"] += re.findall(r'[\"\'](\w[\w.-]{2,40})[\"\']\s*:', body)[:40]
+    for rel in contracts.get("feature_flags", [])[:10]:
+        try:
+            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read(40000)
+        except OSError:
+            continue
+        contract_details["flags"] += re.findall(r'[\"\'](\w[\w._-]{2,50})[\"\']\s*[:=]', body)[:40]
+    contract_details = {k: sorted(set(v))[:60] for k, v in contract_details.items()}
+
+    # Which tags each CI job actually runs.
+    ci_tags = {}
+    for path, meta in (ci or {}).items():
+        try:
+            body = open(os.path.join(repo, path), encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        tg2 = re.findall(r"--tags[= ]+([^\s\"\']+)", body)
+        if tg2:
+            ci_tags[path] = sorted(set(tg2))[:12]
+
+    tags: dict[str, int] = {}
+    for f in features.values():
+        for t in f["tags"]:
+            tags[t] = tags.get(t, 0) + 1
+
+    stated = _manifest(repo)
+
+    return {
+        "repo": repo,
+        "stated": stated,
+        "layers": {
+            "features": _layer_line(sorted(features), "Gherkin features"),
+            "steps": _layer_line(sorted(steps), "step definitions the features bind to"),
+            "page_objects": _layer_line(page_objects, "classes that own selectors and page actions"),
+            "driver": _layer_line(drivers, "browser/session driver: waits, screenshots"),
+            "environment": _layer_line(envs, "hooks and per-scenario setup"),
+        },
+        "public_api": api,
+        "feature_links": feature_links,
+        "data_files": data_files,
+        "testids": testids,
+        "helpers": helpers,
+        "reporting": reporting,
+        "hooks": hooks,
+        "quarantine": quarantine,
+        "product": product,
+        "locators": locators,
+        "timings": timings,
+        "behave_config": behave_cfg,
+        "coverage_docs": coverage_docs,
+        "env_setup": env_setup,
+        "backend": backend,
+        "api_tests": api_tests,
+        "conventions": conventions,
+        "scenario_history": history,
+        "dir_readmes": dir_readmes,
+        "duplicates": duplicates,
+        "near_duplicates": near_duplicates,
+        "call_graph": call_graph,
+        "artefacts": artefacts,
+        "unused_steps": unused_steps,
+        "unused_api": unused_api,
+        "debts": debts,
+        "git_history": git_history,
+        "ticket_links": ticket_links,
+        "dependencies": deps,
+        "ci": ci,
+        "required_env": required_env,
+        "auth": auth,
+        "concurrency": concurrency,
+        "failure_signatures": failure_signatures,
+        "safe_data": safe_data,
+        "slow_steps": slow_steps,
+        "tag_meaning": tag_meaning,
+        "fragile_locators": fragile,
+        "testid_owners": testid_owners,
+        "rules_corpus": rules_corpus,
+        "ui_strings": ui_strings,
+        "infrastructure": infra,
+        "schemas": schemas,
+        "owners": owners,
+        "env_differences": env_differences,
+        "past_runs": past_bugs,
+        "visual_baselines": baselines,
+        "feature_style": feature_style,
+        "pytest_tests": pytest_tests,
+        "fixtures": fixtures,
+        "markers": sorted(set(markers))[:30],
+        "js_tests": js_tests,
+        "test_config": test_config,
+        "other_suites": other_suites,
+        "contracts": contracts,
+        "contract_details": contract_details,
+        "ci_tags": ci_tags,
+        "entry_points": entry_points,
+        "docs": docs,
+        "module_docs": module_docs,
+        "tags": dict(sorted(tags.items(), key=lambda kv: -kv[1])[:60]),
+        "environment": {k: sorted(v) for k, v in sorted(env_names.items())},
+        # Anything the repository stated about itself replaces the guess.
+        **({"layers": {**{
+            "features": _layer_line(sorted(features), "Gherkin features"),
+            "steps": _layer_line(sorted(steps), "step definitions the features bind to"),
+            "page_objects": _layer_line(page_objects, "classes that own selectors and page actions"),
+            "driver": _layer_line(drivers, "browser/session driver: waits, screenshots"),
+            "environment": _layer_line(envs, "hooks and per-scenario setup"),
+        }, **stated["layers"]}} if isinstance(stated.get("layers"), dict) else {}),
+        "symbols": symbols,
+        "steps": steps,
+        "features": features,
+        "page_objects": page_objects,
+        "drivers": drivers,
+        "behave_environment_files": envs,
+        "scripts": scripts,
+        "counts": {
+            "step_modules": len(steps),
+            "steps": sum(len(v) for v in steps.values()),
+            "features": len(features),
+            "scenarios": sum(len(v["scenarios"]) for v in features.values()),
+        },
+    }
+
+
+def digest(m: dict) -> str:
+    """The Markdown an agent reads instead of grepping. Paths and phrases only —
+    anything longer would be re-read on every turn for no gain."""
+    c = m["counts"]
+    lines = [
+        "# Framework map",
+        "",
+        f"Built from `{m['repo']}` at the start of this run: "
+        f"{c['step_modules']} step modules, {c['steps']} step phrases, "
+        f"{c['features']} feature files, {c['scenarios']} scenarios.",
+        "",
+        "## Where things are",
+    ]
+    for label, key in (("Page objects", "page_objects"), ("Drivers", "drivers"),
+                       ("behave environment", "behave_environment_files"), ("Scripts", "scripts")):
+        if m[key]:
+            lines.append(f"- **{label}**: " + ", ".join(f"`{p}`" for p in m[key][:8]))
+    lines += ["", "## Step modules and what they declare", ""]
+    for path, texts in sorted(m["steps"].items()):
+        lines.append(f"### `{path}` — {len(texts)} steps")
+        for t in texts:
+            lines.append(f"- {t}")
+        lines.append("")
+    lines += ["## Feature files", ""]
+    for path, f in sorted(m["features"].items()):
+        lines.append(f"- `{path}` — {len(f['scenarios'])} scenarios"
+                     + (f", tags: {' '.join('@'+t for t in f['tags'][:10])}" if f["tags"] else ""))
+    return "\n".join(lines) + "\n"
+
+
+def brief(m: dict) -> str:
+    """The few thousand characters that go in the prompt: where things are, and
+    which module owns which area. The step phrases themselves stay in the big
+    file, which is one grep away — an agent that needs a phrase greps for it
+    instead of carrying 1400 of them through every turn."""
+    c = m["counts"]
+    lines = [
+        "# Framework map (brief)",
+        "",
+        f"{c['step_modules']} step modules / {c['steps']} step phrases, "
+        f"{c['features']} feature files / {c['scenarios']} scenarios. "
+        "Full map with every step phrase: `framework_map.md` in this run's "
+        "directory — grep that file instead of grepping the repository.",
+        "",
+    ]
+    st = m.get("stated") or {}
+    if st:
+        lines += ["## What this repository says it is", ""]
+        if st.get("name"):
+            lines.append(f"- **{st['name']}**" + (f" — {st.get('purpose','')}" if st.get("purpose") else ""))
+        for c in (st.get("conventions") or [])[:12]:
+            lines.append(f"- {c}")
+        for cmd, what in (st.get("entry_points") or {}).items():
+            lines.append(f"- `{cmd}` — {what}")
+        if st.get("notes"):
+            lines.append(f"- {st['notes']}")
+        lines.append("")
+    lines += ["## How this suite is built", ""]
+    for k, v in (m.get("layers") or {}).items():
+        lines.append(f"- **{k}** — {v}")
+    lines.append("")
+    for label, key in (("Page objects", "page_objects"), ("Drivers", "drivers"),
+                       ("behave environment", "behave_environment_files"), ("Scripts", "scripts")):
+        if m[key]:
+            lines.append(f"- **{label}**: " + ", ".join(f"`{p}`" for p in m[key][:6]))
+    ep = m.get("entry_points") or {}
+    if ep:
+        lines += ["", "## How a scenario is run", ""]
+        for path, usage in list(ep.items())[:5]:
+            lines.append(f"- `{path}`: " + "; ".join(usage))
+    api = m.get("public_api") or {}
+    if api:
+        lines += ["", "## What a step may call", ""]
+        for path, methods in api.items():
+            lines.append(f"- `{path}`: " + ", ".join(methods[:16])
+                         + (f" … +{len(methods)-16} more in the full map" if len(methods) > 16 else ""))
+    md = m.get("module_docs") or {}
+    if md:
+        lines += ["", "## What each module says it is for", ""]
+        for path, doc in list(md.items())[:20]:
+            lines.append(f"- `{path}` — {doc.splitlines()[0][:180]}")
+    dc = m.get("docs") or {}
+    if dc:
+        lines += ["", "## The suite's own documentation", ""]
+        for path, meta in list(dc.items())[:12]:
+            lines.append(f"- `{path}` — " + ", ".join(meta["headings"][:6]))
+    fl = m.get("feature_links") or {}
+    if fl:
+        lines += ["", "## Which feature is served by which modules", ""]
+        for path, link in sorted(fl.items(), key=lambda kv: -len(kv[1]["step_modules"]))[:20]:
+            if not link["step_modules"]:
+                continue
+            lines.append(f"- `{os.path.basename(path)}` → steps: "
+                         + ", ".join(os.path.basename(x) for x in link["step_modules"][:6])
+                         + (" · pages: " + ", ".join(os.path.basename(x) for x in link["page_objects"][:4])
+                            if link["page_objects"] else ""))
+    hl = m.get("helpers") or {}
+    if hl:
+        lines += ["", "## Shared helpers outside steps and page objects", ""]
+        for path, methods in list(hl.items())[:12]:
+            lines.append(f"- `{path}`: " + ", ".join(methods[:10]))
+    hk = m.get("hooks") or {}
+    if hk:
+        lines += ["", "## behave hooks and what they do", ""]
+        for name, meta in list(hk.items())[:12]:
+            lines.append(f"- `{name}` — {meta['doc'] or 'no docstring'}"
+                         + (f" · calls: {', '.join(meta['calls'][:8])}" if meta["calls"] else ""))
+    pr = m.get("product") or {}
+    if any(pr.values()):
+        lines += ["", "## The product under test", ""]
+        if pr.get("routes"):
+            lines.append("- routes: " + ", ".join(pr["routes"][:20]))
+        if pr.get("storage_keys"):
+            lines.append("- localStorage keys: " + ", ".join(pr["storage_keys"][:20]))
+        if pr.get("api_paths"):
+            lines.append("- API: " + ", ".join(pr["api_paths"][:20]))
+    ti = m.get("testids") or {}
+    if ti.get("product") or ti.get("suite"):
+        lines += ["", "## Test ids", ""]
+        if ti.get("product"):
+            lines.append(f"- product exposes {len(ti['product'])}: "
+                         + ", ".join(ti["product"][:25]) + " … (full list in the full map)")
+        if ti.get("suite"):
+            lines.append(f"- suite drives {len(ti['suite'])}: " + ", ".join(ti["suite"][:15]))
+    df = m.get("data_files") or []
+    if df:
+        lines += ["", "## Test data and fixtures", "",
+                  ", ".join(f"`{x}`" for x in df[:20])
+                  + (f" … +{len(df)-20}" if len(df) > 20 else "")]
+    rp = m.get("reporting") or {}
+    if rp:
+        lines += ["", "## Reporting and artefacts", ""]
+        for kw, files in rp.items():
+            lines.append(f"- {kw}: " + ", ".join(f"`{os.path.basename(f)}`" for f in files))
+    qz = m.get("quarantine") or {}
+    if qz:
+        lines += ["", "## Quarantined / known-unstable", ""]
+        for path, marks in list(qz.items())[:15]:
+            lines.append(f"- `{os.path.basename(path)}` — " + ", ".join("@"+x for x in marks[:6]))
+    lc = m.get("locators") or {}
+    if lc:
+        lines += ["", "## Locator constants", ""]
+        for path, items in list(lc.items())[:8]:
+            lines.append(f"- `{os.path.basename(path)}`: " + "; ".join(items[:8]))
+    tm = m.get("timings") or {}
+    if tm:
+        lines += ["", "## Timeouts, waits and budgets", ""]
+        for path, items in list(tm.items())[:10]:
+            lines.append(f"- `{os.path.basename(path)}`: " + "; ".join(items[:10]))
+    bc = m.get("behave_config") or {}
+    if bc:
+        lines += ["", "## behave configuration", ""]
+        for name, body in bc.items():
+            first = " · ".join(l.strip() for l in body.splitlines() if l.strip())[:300]
+            lines.append(f"- `{name}`: {first}")
+    cd = m.get("coverage_docs") or {}
+    if cd:
+        lines += ["", "## Coverage documents (ticket → scenarios)", ""]
+        for path, meta in list(cd.items())[:6]:
+            lines.append(f"- `{path}` — {len(meta['tickets'])} tickets: "
+                         + ", ".join(meta["tickets"][:12]))
+    es = m.get("env_setup") or {}
+    if es:
+        lines += ["", "## Bringing the environment up", ""]
+        for path, meta in list(es.items())[:8]:
+            lines.append(f"- `{os.path.basename(path)}` — flags: "
+                         + ", ".join(meta["flags"][:8])
+                         + (" · ports: " + ", ".join(meta["ports"][:6]) if meta["ports"] else ""))
+    bk = m.get("backend") or {}
+    if any(bk.values()):
+        lines += ["", "## Backend the tests touch", ""]
+        if bk.get("endpoints"):
+            lines.append("- endpoints: " + ", ".join(bk["endpoints"][:20]))
+        if bk.get("tables"):
+            lines.append("- tables queried: " + ", ".join(bk["tables"][:20]))
+        if bk.get("seed_scripts"):
+            lines.append("- seeding: " + ", ".join(f"`{os.path.basename(x)}`" for x in bk["seed_scripts"][:8]))
+    at = m.get("api_tests") or []
+    if at:
+        lines += ["", "## API-level features (not UI)", "",
+                  ", ".join(f"`{os.path.basename(x)}`" for x in at[:20])]
+    cv = m.get("conventions") or {}
+    if cv:
+        lines += ["", "## Repository conventions", ""]
+        for name, body in cv.items():
+            head = " · ".join(l.strip("# ").strip() for l in body.splitlines()
+                              if l.startswith("#"))[:240]
+            lines.append(f"- `{name}`: {head}")
+    hs = m.get("scenario_history") or {}
+    if hs:
+        lines += ["", "## What past runs measured (slowest first)", ""]
+        for name, meta in list(hs.items())[:20]:
+            lines.append(f"- {name[:90]} — ~{meta['avg_s']}s"
+                         + (f", failed {meta['failed']}×" if meta["failed"] else ""))
+    dr = m.get("dir_readmes") or {}
+    if dr:
+        lines += ["", "## What each directory says it is", ""]
+        for d, meta in sorted(dr.items())[:40]:
+            lines.append(f"- `{d}` — {meta['summary'] or ', '.join(meta['headings'][:4])}")
+    nd = m.get("near_duplicates") or []
+    if nd:
+        lines += ["", f"## Steps that overlap ({len(nd)} pairs) — check whether one already does what you need", ""]
+        for d in nd[:20]:
+            lines.append(f"- {d['similarity']}: \"{d['a'][:60]}\" (`{os.path.basename(d['a_in'])}`)"
+                         f" ≈ \"{d['b'][:60]}\" (`{os.path.basename(d['b_in'])}`)")
+    cg = m.get("call_graph") or {}
+    if cg:
+        lines += ["", "## What each step calls", ""]
+        for name, calls in list(cg.items())[:25]:
+            lines.append(f"- `{name}` → " + ", ".join(calls[:8]))
+    af = m.get("artefacts") or {}
+    if af:
+        lines += ["", "## What a run leaves behind", "",
+                  ", ".join(f"`{k}`" for k in list(af)[:25])]
+    dup = m.get("duplicates") or {}
+    if dup:
+        lines += ["", f"## Duplicate step phrases ({len(dup)} collisions) — reuse, do not re-declare", ""]
+        for norm, owners in list(dup.items())[:20]:
+            where = ", ".join(f"`{os.path.basename(r)}`" for r, _ in owners[:4])
+            lines.append(f"- \"{norm[:80]}\" — {where}")
+    us = m.get("unused_steps") or {}
+    if us:
+        total = sum(len(v) for v in us.values())
+        lines += ["", f"## Step phrases no feature uses ({total}) — dead weight, do not imitate", ""]
+        for rel, dead in list(us.items())[:10]:
+            lines.append(f"- `{os.path.basename(rel)}`: " + "; ".join(x[:60] for x in dead[:4]))
+    ua = m.get("unused_api") or {}
+    if ua:
+        lines += ["", "## Page-object methods nothing calls", ""]
+        for rel, dead in list(ua.items())[:8]:
+            lines.append(f"- `{os.path.basename(rel)}`: " + ", ".join(dead[:8]))
+    db = m.get("debts") or {}
+    if db:
+        lines += ["", f"## Admitted debts (TODO/FIXME/skip) in {len(db)} files", ""]
+        for rel, items in list(db.items())[:12]:
+            lines.append(f"- `{os.path.basename(rel)}`: " + " | ".join(items[:2]))
+    gh = m.get("git_history") or {}
+    if gh:
+        lines += ["", "## Most-changed files, last 90 days", ""]
+        for rel, entries in list(gh.items())[:12]:
+            lines.append(f"- `{rel}` — {len(entries)} commits, latest: {entries[0][:80]}")
+    tl = m.get("ticket_links") or {}
+    if tl:
+        lines += ["", "## Recent tickets and the files they touched", ""]
+        for t, meta in list(tl.items())[:12]:
+            lines.append(f"- {t}: {meta['subject'][:60]} → "
+                         + ", ".join(os.path.basename(f) for f in meta["files"][:4]))
+    dp = m.get("dependencies") or {}
+    if dp:
+        lines += ["", "## Dependencies", ""]
+        for name, pins in dp.items():
+            lines.append(f"- `{name}`: " + ", ".join(f"{a}={b}" for a, b in pins[:14]))
+    ci = m.get("ci") or {}
+    if ci:
+        lines += ["", "## CI", ""]
+        for path, meta in list(ci.items())[:6]:
+            lines.append(f"- `{path}` — jobs: {', '.join(meta['jobs'][:8])}"
+                         + (f" · runs: {meta['runs'][0][:60]}" if meta["runs"] else ""))
+    re_env = m.get("required_env") or []
+    if re_env:
+        lines += ["", "## Environment that must be set (from .envrc)", "",
+                  ", ".join(f"`{x}`" for x in re_env[:40])]
+    au = m.get("auth") or {}
+    if au:
+        lines += ["", "## How a test authenticates", ""]
+        for rel, hits in list(au.items())[:8]:
+            lines.append(f"- `{os.path.basename(rel)}`: " + " | ".join(h[:90] for h in hits[:2]))
+    cc = m.get("concurrency") or {}
+    if any(cc.values()):
+        lines += ["", "## What cannot run beside something else", ""]
+        if cc.get("serial_tags"):
+            lines.append("- tags demanding isolation: " + ", ".join("@"+t for t in cc["serial_tags"]))
+        if cc.get("shared_state"):
+            lines.append("- module-level shared state: " + ", ".join(cc["shared_state"][:12]))
+        for n in (cc.get("notes") or [])[:5]:
+            lines.append(f"- {n}")
+    fs = m.get("failure_signatures") or {}
+    if fs:
+        lines += ["", "## Failure messages this suite can produce", ""]
+        for msg, where in list(fs.items())[:15]:
+            lines.append(f"- \"{msg[:100]}\" — {', '.join(where[:2])}")
+    sd = m.get("safe_data") or {}
+    if sd:
+        lines += ["", "## Test data the suite already uses", ""]
+        for rel, ids in list(sd.items())[:8]:
+            lines.append(f"- `{os.path.basename(rel)}`: " + ", ".join(ids[:15]))
+    ss = m.get("slow_steps") or {}
+    if ss:
+        lines += ["", "## Slow steps (from past runs)", ""]
+        for phrase, meta in list(ss.items())[:12]:
+            lines.append(f"- {phrase[:70]} — up to {meta['avg_s']}s (`{meta['module']}`)")
+    tmn = m.get("tag_meaning") or {}
+    if tmn:
+        lines += ["", "## What the tags mean, where it is written down", ""]
+        for tag, sense in list(tmn.items())[:15]:
+            lines.append(f"- `@{tag}` — {sense[:110]}")
+    fr = m.get("fragile_locators") or {}
+    if fr:
+        lines += ["", "## Locators marked fragile, legacy or fallback", ""]
+        for rel, items in list(fr.items())[:8]:
+            lines.append(f"- `{os.path.basename(rel)}`: " + "; ".join(x[:80] for x in items[:4]))
+    to = m.get("testid_owners") or {}
+    if to:
+        lines += ["", f"## Which component owns which test id ({len(to)})", ""]
+        for tid, owner in list(to.items())[:25]:
+            lines.append(f"- `{tid}` — {owner}")
+    rc = m.get("rules_corpus") or []
+    if rc:
+        lines += ["", f"## The rules this work is held to ({len(rc)})", "",
+                  ", ".join(rc[:60]) + (" …" if len(rc) > 60 else "")]
+    us2 = m.get("ui_strings") or []
+    if us2:
+        lines += ["", "## Interface strings assertions can match", "",
+                  ", ".join(f"\"{x}\"" for x in us2[:40])]
+    inf = m.get("infrastructure") or {}
+    if inf:
+        lines += ["", "## Infrastructure the suite talks to", ""]
+        for rel, meta in list(inf.items())[:8]:
+            lines.append(f"- `{rel}` — services: {', '.join(meta['services'][:8])}"
+                         + (f" · ports: {', '.join(meta['ports'][:8])}" if meta["ports"] else "")
+                         + (f" · health: {meta['health'][0][:60]}" if meta["health"] else ""))
+    sc = m.get("schemas") or {}
+    if sc:
+        lines += ["", "## Tables and the columns tests read", ""]
+        for tbl, cols in list(sc.items())[:12]:
+            lines.append(f"- `{tbl}`: " + ", ".join(cols[:12]))
+    ow = m.get("owners") or {}
+    if ow:
+        lines += ["", "## Code owners", ""]
+        for path, who in list(ow.items())[:12]:
+            lines.append(f"- `{path}` — {', '.join(who)}")
+    ed = m.get("env_differences") or {}
+    if ed:
+        lines += ["", "## Where the environments differ", ""]
+        for rel, hits in list(ed.items())[:10]:
+            lines.append(f"- `{os.path.basename(rel)}`: " + " | ".join(h[:80] for h in hits[:2]))
+    pr2 = m.get("past_runs") or []
+    if pr2:
+        lines += ["", "## What earlier runs of this pipeline concluded", ""]
+        for r in pr2[:10]:
+            lines.append(f"- run {r['run']} {r['ticket']}: {r['verdict']} — {r['summary'][:100]}")
+    vb = m.get("visual_baselines") or []
+    if vb:
+        lines += ["", "## Visual baselines", "", ", ".join(f"`{x}`" for x in vb[:15])]
+    fst = m.get("feature_style") or {}
+    if fst.get("sample"):
+        lines += ["", "## How a feature file is written here", "",
+                  f"Sample: `{fst['sample']}`"
+                  + (", uses Scenario Outline" if fst.get("uses_outlines") else ""),
+                  "", "```gherkin", fst.get("first_scenario", "")[:900], "```"]
+    pt = m.get("pytest_tests") or {}
+    if pt:
+        lines += ["", f"## pytest cases ({sum(len(v) for v in pt.values())})", ""]
+        for rel, cases in list(pt.items())[:15]:
+            lines.append(f"- `{rel}`: " + ", ".join(cases[:8]))
+    fx = m.get("fixtures") or {}
+    if fx:
+        lines += ["", "## Fixtures", ""]
+        for rel, fs2 in list(fx.items())[:12]:
+            lines.append(f"- `{rel}`: " + ", ".join(fs2[:12]))
+    mk = m.get("markers") or []
+    if mk:
+        lines += ["", "## Markers in use", "", ", ".join(mk[:25])]
+    jt = m.get("js_tests") or {}
+    if jt:
+        lines += ["", f"## JavaScript/TypeScript tests ({len(jt)} files)", ""]
+        for rel, names in list(jt.items())[:12]:
+            lines.append(f"- `{rel}`: " + "; ".join(n[:60] for n in names[:5]))
+    tc = m.get("test_config") or {}
+    if tc:
+        lines += ["", "## Test configuration", ""]
+        for name, hits in tc.items():
+            lines.append(f"- `{name}`: " + " · ".join(h[:80] for h in hits[:4]))
+    os2 = m.get("other_suites") or {}
+    if os2:
+        lines += ["", "## Other test suites in this repository", ""]
+        for kind, files in os2.items():
+            n = len(files)
+            sample = list(files.items())[:3]
+            desc = "; ".join(
+                f"`{os.path.basename(f)}`: " + (
+                    ", ".join(v[:3]) if isinstance(v, list)
+                    else ", ".join((v.get("tests") or v.get("keywords") or [])[:3]))
+                for f, v in sample)
+            lines.append(f"- **{kind}** — {n} files. {desc}")
+    ct = m.get("contracts") or {}
+    if any(ct.values()):
+        lines += ["", "## Contracts, schemas and mocks", ""]
+        for k, v in ct.items():
+            if v:
+                lines.append(f"- **{k}**: " + ", ".join(f"`{x}`" for x in v[:10])
+                             + (f" … +{len(v)-10}" if len(v) > 10 else ""))
+    cdet = m.get("contract_details") or {}
+    if any(cdet.values()):
+        lines += ["", "## What those contracts actually say", ""]
+        if cdet.get("endpoints"):
+            lines.append("- endpoints: " + ", ".join(cdet["endpoints"][:25]))
+        if cdet.get("graphql"):
+            lines.append("- GraphQL types: " + ", ".join(cdet["graphql"][:25]))
+        if cdet.get("migration_tables"):
+            lines.append("- tables created by migrations: " + "; ".join(cdet["migration_tables"][:10]))
+        if cdet.get("i18n_keys"):
+            lines.append(f"- {len(cdet['i18n_keys'])} i18n keys, e.g. " + ", ".join(cdet["i18n_keys"][:12]))
+        if cdet.get("flags"):
+            lines.append("- feature flags: " + ", ".join(cdet["flags"][:15]))
+    ctg = m.get("ci_tags") or {}
+    if ctg:
+        lines += ["", "## Tags each CI job runs", ""]
+        for path, tg2 in list(ctg.items())[:8]:
+            lines.append(f"- `{path}`: " + ", ".join(tg2))
+    tg = m.get("tags") or {}
+    if tg:
+        lines += ["", "## Tags in use", "",
+                  ", ".join(f"@{t} ({n})" for t, n in list(tg.items())[:30])]
+    env = m.get("environment") or {}
+    if env:
+        lines += ["", "## Environment the suite reads (name — where it is set)", ""]
+        for name, files in list(env.items())[:40]:
+            lines.append(f"- `{name}` — " + ", ".join(f"`{f}`" for f in files[:3]))
+    lines += ["", "## Step modules, largest first", ""]
+    for path, texts in sorted(m["steps"].items(), key=lambda kv: -len(kv[1]))[:40]:
+        sym = (m.get("symbols") or {}).get(path, {})
+        extra = ""
+        if sym.get("constants"):
+            extra += " · consts: " + ", ".join(sym["constants"][:6])
+        lines.append(f"- `{path}` — {len(texts)} steps{extra}")
+    feats = sorted(m["features"].items(), key=lambda kv: -len(kv[1]["scenarios"]))[:12]
+    if feats:
+        lines += ["", "## Biggest feature files (scenario line numbers are in the full map)", ""]
+        for path, f in feats:
+            lines.append(f"- `{path}` — {len(f['scenarios'])} scenarios")
+    return "\n".join(lines) + "\n"
+
+
+def init_manifest(repo: str, m: dict) -> str:
+    """Write a starter `.framework-map.json` from what was detected.
+
+    The manifest is where a repository states what autodetection cannot know —
+    its own vocabulary and its own rules — so it has to exist before anyone can
+    fill it in. This writes the skeleton with the detected layers already in
+    place and the sentences left for a human; it never overwrites one that is
+    already there."""
+    path = os.path.join(repo, ".framework-map.json")
+    if os.path.exists(path):
+        return f"{path} exists, left alone"
+    skeleton = {
+        "name": os.path.basename(os.path.abspath(repo)),
+        "purpose": "TODO: one sentence on what this suite tests.",
+        "layers": dict(m.get("layers") or {}),
+        "product_src": _product_roots(),
+        "entry_points": {k: "TODO: what this runs"
+                         for k in list((m.get("entry_points") or {}).keys())[:6]},
+        "conventions": ["TODO: the rules a newcomer must not break."],
+        "notes": "",
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(skeleton, fh, indent=2, ensure_ascii=False)
+    return f"wrote {path}"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(
+        prog="framework_map",
+        description="Index a test framework into a map an agent can read: layers, "
+                    "entry points, public API, steps, features, fixtures, env, CI, "
+                    "duplicates, dead code and the product under test.",
+        epilog="Examples:\n"
+               "  framework_map.py --repo ~/work/my-suite --out /tmp/map\n"
+               "  framework_map.py --repo . --product ../my-app/src --out .\n"
+               "  framework_map.py --repo . --init      # write a starter .framework-map.json\n",
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--repo", default=os.getenv("AGENT_REPO", "/work"),
+                    help="the test repository to index (default: $AGENT_REPO or /work)")
+    ap.add_argument("--out", default=os.getenv("RUN_DIR", "."),
+                    help="where to write framework_map.{json,md} and the brief "
+                         "(default: $RUN_DIR or the current directory)")
+    ap.add_argument("--product", default=os.getenv("PRODUCT_SRC", ""),
+                    help="source roots of the application under test, comma separated; "
+                         "without it, siblings of the repo are tried")
+    ap.add_argument("--rules", default=os.getenv("RULES_REPO", ""),
+                    help="a corpus of rules to list by name")
+    ap.add_argument("--runs-api", default=os.getenv("RUNS_API_READ", ""),
+                    help="read endpoint of a runs database, to carry what earlier runs concluded")
+    ap.add_argument("--init", action="store_true",
+                    help="write a starter .framework-map.json into the repository and exit")
+    ap.add_argument("--agent-file", default="",
+                    help="also write the brief into a file an agent reads on its own: "
+                         "AGENTS.md, CLAUDE.md, .cursorrules, .github/copilot-instructions.md — "
+                         "the map is written between markers, so anything else in the file survives")
+    ap.add_argument("--quiet", action="store_true", help="no summary line")
+    args = ap.parse_args()
+
+    # The rest of the module reads these through the environment, which is also
+    # how the pipeline passes them; the flags simply set them first, so the
+    # script is usable by hand on any repository without knowing that.
+    os.environ["AGENT_REPO"] = repo = os.path.abspath(args.repo)
+    if args.product:
+        os.environ["PRODUCT_SRC"] = args.product
+    if args.rules:
+        os.environ["RULES_REPO"] = args.rules
+    if args.runs_api:
+        os.environ["RUNS_API_READ"] = args.runs_api
+    out_dir = args.out
+
+    if not os.path.isdir(repo):
+        print(f"framework_map: {repo} is not a directory", file=sys.stderr)
+        return 2
+
+    m = build(repo)
+    if args.init:
+        print(init_manifest(repo, m))
+        return 0
+    os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "framework_map.json"), "w", encoding="utf-8") as fh:
+        json.dump(m, fh, indent=2)
+    with open(os.path.join(out_dir, "framework_map.md"), "w", encoding="utf-8") as fh:
+        fh.write(digest(m))
+    with open(os.path.join(out_dir, "framework_map_brief.md"), "w", encoding="utf-8") as fh:
+        fh.write(brief(m))
+    if args.agent_file:
+        # Between markers, because these files are shared: whatever a human or
+        # another tool put there is not this tool's to delete.
+        start, end = "<!-- where-are-we:start -->", "<!-- where-are-we:end -->"
+        block = f"{start}\n{brief(m)}{end}\n"
+        try:
+            with open(args.agent_file, encoding="utf-8") as fh:
+                cur = fh.read()
+        except OSError:
+            cur = ""
+        if start in cur and end in cur:
+            cur = re.sub(re.escape(start) + r".*?" + re.escape(end), block.rstrip("\n"),
+                         cur, flags=re.S)
+        else:
+            cur = (cur.rstrip() + "\n\n" if cur.strip() else "") + block
+        os.makedirs(os.path.dirname(os.path.abspath(args.agent_file)), exist_ok=True)
+        with open(args.agent_file, "w", encoding="utf-8") as fh:
+            fh.write(cur)
+
+    c = m["counts"]
+    if args.quiet:
+        return 0
+    print(f"framework map: {c['step_modules']} step modules, {c['steps']} steps, "
+          f"{c['features']} features, {c['scenarios']} scenarios "
+          f"-> {out_dir}/framework_map.md")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
