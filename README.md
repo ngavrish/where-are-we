@@ -35,29 +35,39 @@ $ where-are-we --repo . --agent-file AGENTS.md --max-lines 200
 framework map: 66 step modules, 1359 steps, 179 features, 1782 scenarios -> ./framework_map.md
 ```
 
+`AGENTS.md` gets a pointer — 849 bytes, not the map:
+
 ```markdown
-# Framework map (brief)
+## The framework map
 
-66 step modules / 1359 step phrases, 179 feature files / 1782 scenarios. Full
-map with every step phrase: `framework_map.md` in this run's directory — grep
-that file instead of grepping the repository.
+`framework_map.md` (123 KB) is a generated map of this suite and the product it
+tests. It is on disk on purpose: read from it, do not carry it. Ask it before
+grepping the repository — it already knows.
 
-## Where it starts
+    where-are-we --ask "the words you need"
 
-- make targets: e2e, smoke, lint
-- container starts with: ["behave", "-D", "ENV=uat"]
+That prints only the sections that mention those words. `--sections` lists what
+is in it.
 
-## What a step may call
+It has these sections:
 
-- `pages/portal.py`: click_pay(amount), receipt(), wait_for_balance()
+- Where things are
+- What a step may call
+- Steps that overlap (14 pairs) — check whether one already does what you need
+- What past runs measured (slowest first)
+- …
+```
 
-## Steps that overlap (14 pairs) — check whether one already does what you need
+And the map answers questions instead of being read:
 
-- 0.91: "I open the portal" (`portal_steps.py`) ≈ "I go to the portal" (`nav_steps.py`)
+```console
+$ where-are-we --ask "refund settled invoice"
 
 ## What past runs measured (slowest first)
-
 - billing/refund.feature:88 Refund a settled invoice — ~252s, failed 3×
+
+## Steps that overlap (14 pairs)
+- 0.88: "the invoice is settled" (`billing_steps.py`) ≈ "an invoice has settled" (`api_steps.py`)
 ```
 
 ## Why install it
@@ -89,8 +99,36 @@ macOS, Debian, Ubuntu, Fedora, RHEL. Or `ghcr.io/ngavrish/where-are-we`.
 | `framework_map.md` | every step phrase, every scenario with its line number |
 | `framework_map.json` | the same as data, under a versioned contract |
 
-`--agent-file` writes the brief into `AGENTS.md`, `CLAUDE.md` or `.cursorrules`
-between markers. The rest of the file survives.
+`--agent-file` writes a **pointer** into `AGENTS.md`, `CLAUDE.md` or
+`.cursorrules` between markers. The rest of the file survives.
+
+### Why a pointer and not the map
+
+A prompt is re-sent in full on every turn — that is what a conversation is — so
+anything put in one is paid for on every turn of the session, read or not.
+
+Measured on a real run: the brief inlined whole was 253 KB, the agent carrying it
+took 424 turns, and the map alone came to **27.4 million tokens re-sent** — a
+quarter of everything that run consumed, and the reason a five-hour allowance
+emptied in seventy-four minutes. Trimming it to an index still cost 6k a turn for
+a document most turns never opened.
+
+| in the prompt | per turn |
+|---|---|
+| the brief, inlined | 253 KB ≈ 64k tokens |
+| an index of its sections | 27 KB ≈ 6k tokens |
+| **a pointer** | **849 B ≈ 212 tokens** |
+
+The sections are still named in the pointer, because an agent that cannot see
+that a section exists goes back to grepping the repository — which is the thing
+this was built to end. Naming them costs two hundred tokens; carrying them costs
+sixty-four thousand, every turn.
+
+| command | what it prints |
+|---|---|
+| `--pointer` | what belongs in a prompt: the path, the sections, how to ask |
+| `--ask "words"` | only the sections that mention those words, ranked |
+| `--sections` | the section headings |
 
 ## What it reads
 
