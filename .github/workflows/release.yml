@@ -41,4 +41,12 @@ jobs:
       - name: attach everything to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload ${{ github.ref_name }} dist/* where-are-we.spdx.json --clobber
+          TAG: ${{ github.ref_name }}
+        run: |
+          # A pushed tag is not a release, and nothing else creates one. This
+          # job and the deb and rpm jobs all arrive here at the same time, so
+          # whichever gets here first makes it and the rest find it made.
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --generate-notes --verify-tag \
+            || gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" dist/* where-are-we.spdx.json --clobber

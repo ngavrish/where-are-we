@@ -8,6 +8,8 @@ on:
 jobs:
   deb:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -67,13 +69,19 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           cp where-are-we_*.deb where-are-we_all.deb   # a stable name for /latest/download
-          gh release upload ${{ github.ref_name }} where-are-we_*.deb --clobber
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --generate-notes --verify-tag \
+            || gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" where-are-we_*.deb --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
 
   rpm:
     runs-on: ubuntu-latest
     container: fedora:41
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: build the rpm
@@ -129,9 +137,13 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           dnf install -y -q gh
-          gh release upload ${{ github.ref_name }} where-are-we-*.rpm --clobber
+          gh release view "$TAG" >/dev/null 2>&1 \
+            || gh release create "$TAG" --generate-notes --verify-tag \
+            || gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" where-are-we-*.rpm --clobber
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
 
   apt-repo:
     needs: [deb, rpm]
