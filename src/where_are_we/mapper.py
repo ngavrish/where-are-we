@@ -3710,9 +3710,15 @@ def propose_docs(repo: str, m: dict, apply: bool = False) -> list:
 
     agent_file = os.path.join(repo, "AGENTS.md")
     if not os.path.exists(agent_file):
+        # A pointer, not the brief. Whatever goes in this file goes in the
+        # prompt of every session in this repository, on every turn of it.
         planned.append(("AGENTS.md",
-                        "<!-- where-are-we:start -->\n" + brief(m) + "<!-- where-are-we:end -->\n",
-                        "the brief, where every agent harness already looks"))
+                        "<!-- where-are-we:start -->\n"
+                        + pointer(os.path.join(os.getenv("RUN_DIR", "."),
+                                               "framework_map.md"))
+                        + "<!-- where-are-we:end -->\n",
+                        "a pointer to the map, where every agent harness already "
+                        "looks — the map itself stays on disk"))
 
     arch = os.path.join(repo, "docs", "ARCHITECTURE.md")
     if not os.path.exists(arch):
@@ -3810,6 +3816,133 @@ def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) 
     return f"installed in {settings} (SessionStart)"
 
 
+# What may go in a prompt, in bytes. Not a preference: a prompt is re-sent in
+# full on every turn of a session, so anything put there is paid for on every
+# turn whether it is read or not. Measured on one real run — the brief inlined
+# whole, 253 KB, one agent taking 424 turns — the map alone came to 27.4 million
+# tokens re-sent, a quarter of everything that run consumed, and it emptied a
+# five-hour allowance in seventy-four minutes.
+#
+# So this project answers a prompt with a pointer and keeps the map on disk. The
+# number is small on purpose: it is a signpost, and a signpost the size of the
+# town is a town.
+POINTER_MAX = int(os.getenv("WAWE_POINTER_MAX", "4000"))
+
+
+def pointer(map_path: str, brief_path: str = "") -> str:
+    """What goes in a prompt: where the map is, what is in it, how to ask it.
+
+    The map is generated so nobody searches the repository blind. Putting the map
+    itself in the prompt fixes the blindness and creates a worse bill, because
+    the prompt is charged per turn and the map is read on a few of them. The
+    sections are named because an agent that cannot see that a section exists
+    goes back to grepping the repository — which is the thing this was built to
+    end.
+    """
+    try:
+        with open(map_path, encoding="utf-8") as fh:
+            heads = [ln[3:].strip() for ln in fh if ln.startswith("## ")]
+        size = os.path.getsize(map_path) // 1024
+    except OSError as exc:
+        return f"(no framework map: {exc})"
+
+    lines = [
+        f"## The framework map",
+        "",
+        f"`{map_path}` ({size} KB) is a generated map of this suite and the "
+        "product it tests. It is on disk on purpose: read from it, do not carry "
+        "it. Ask it before grepping the repository — it already knows.",
+        "",
+        f"    where-are-we --out {os.path.dirname(map_path) or '.'} --ask \"the words you need\"",
+        "",
+        "That prints only the sections that mention those words. "
+        f"`--sections` lists what is in it. `grep` on `{map_path}` works too; "
+        "reading the whole file does not — it lands in every message after it.",
+        "",
+        "It has these sections:",
+        "",
+    ]
+    for h in heads:
+        line = f"- {h}"
+        if sum(len(x) + 1 for x in lines) + len(line) > POINTER_MAX:
+            lines.append(f"- … and {len(heads) - (len(lines) - 8)} more; "
+                         "`--sections` lists them all")
+            break
+        lines.append(line)
+    if brief_path:
+        lines += ["", f"A shorter brief of the same thing is `{brief_path}`."]
+    return "\n".join(lines) + "\n"
+
+
+def ask(map_path: str, words: str, limit: int = 12000) -> str:
+    """The part of the map that mentions these words, and nothing else.
+
+    A map is generated so nobody has to search the repository. Then it is 253 KB,
+    and searching *it* is the same problem one size down: grep hands back matching
+    lines with no idea which section they came from, so the reader either takes
+    the lines without their meaning or opens the whole file — and opening the
+    whole file puts it into every message that follows.
+
+    So: sections, ranked by how much they mention what was asked, cut to a size
+    that answers rather than a size that has to be paid for on every later turn.
+    """
+    try:
+        with open(map_path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return f"no map at {map_path}: {exc}"
+
+    terms = [w.lower() for w in re.split(r"[\s,]+", words) if len(w) > 1]
+    if not terms:
+        return "ask what?"
+
+    blocks, head, body = [], "", []
+    for line in text.splitlines():
+        if line.startswith("#") and line.lstrip("#").startswith(" "):
+            if head or body:
+                blocks.append((head, body))
+            head, body = line, []
+        else:
+            body.append(line)
+    blocks.append((head, body))
+
+    scored = []
+    for h, b in blocks:
+        hay = (h + "\n" + "\n".join(b)).lower()
+        hits = sum(hay.count(t) for t in terms)
+        if hits:
+            # A heading that matches is worth more than a line that does: it says
+            # the whole section is about this, not that the word passed through.
+            hits += 5 * sum(t in h.lower() for t in terms)
+            scored.append((hits, h, b))
+    if not scored:
+        return (f"nothing in {map_path} mentions {words!r}. The map is generated "
+                "from the repository, so this is a real absence rather than a "
+                "search that missed.")
+
+    scored.sort(key=lambda x: -x[0])
+    out, room = [], limit
+    for hits, h, b in scored:
+        kept = [h]
+        for line in b:
+            if not line.strip():
+                continue
+            low = line.lower()
+            if any(t in low for t in terms) or line.startswith(("**", "- **")):
+                kept.append(line)
+        chunk = "\n".join(kept)
+        if len(chunk) > room:
+            chunk = chunk[:max(room, 0)]
+        if not chunk.strip():
+            continue
+        out.append(chunk)
+        room -= len(chunk)
+        if room <= 0:
+            out.append(f"\n… more matches in {map_path}; ask for something narrower")
+            break
+    return "\n\n".join(out)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="framework_map",
@@ -3874,7 +4007,34 @@ def main() -> int:
                          "repository (by default a map is built when it is missing "
                          "or the repository has moved, and skipped otherwise)")
     ap.add_argument("--quiet", action="store_true", help="no summary line")
+    ap.add_argument("--ask", default="", metavar="WORDS",
+                    help="answer from an existing map instead of building one: "
+                         "print the sections that mention these words, and nothing "
+                         "else. Reads framework_map.md under --out.")
+    ap.add_argument("--pointer", action="store_true",
+                    help="print what belongs in a prompt: where the map is, what "
+                         "sections it has, and how to ask it — never the map itself")
+    ap.add_argument("--sections", action="store_true",
+                    help="list the section headings of an existing map and exit")
     args = ap.parse_args()
+
+    # Answering from a map that already exists needs none of what follows: no
+    # repository walk, no product roots, no config. It is a read.
+    if args.sections or args.ask or args.pointer:
+        map_path = os.path.join(os.path.abspath(args.out), "framework_map.md")
+        if args.pointer:
+            print(pointer(map_path), end="")
+            return 0
+        if args.sections:
+            try:
+                with open(map_path, encoding="utf-8") as fh:
+                    print("\n".join(ln.rstrip() for ln in fh if ln.startswith("## ")))
+            except OSError as exc:
+                print(f"no map at {map_path}: {exc}", file=sys.stderr)
+                return 1
+            return 0
+        print(ask(map_path, args.ask))
+        return 0
 
     # The rest of the module reads these through the environment, which is also
     # how the pipeline passes them; the flags simply set them first, so the
