@@ -1,7 +1,7 @@
 [project]
 name = "where-are-we"
 version = "0.4.1"
-description = "Answer 'where are we?' for a codebase: index a test suite and the product it tests into a map an agent can read instead of grepping."
+description = "Stop paying your agent to grep. One tree walk writes entry points, routes, data model, step signatures, and every duplicate or dead test into AGENTS.md — or JSON for your own harness."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
