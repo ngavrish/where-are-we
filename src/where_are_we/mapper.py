@@ -2892,6 +2892,69 @@ def _as_list(value):
     return value if isinstance(value, list) else []
 
 
+# What each audience is here for.
+#
+# `--for author` used to mean "everything, plus the vocabulary", which made the
+# author brief twice the size of the coder one — 253 KB against 120 KB on a real
+# suite — and most of that extra was the product's internals: its data model, its
+# queues, its cache keys, its indexes. Somebody writing a scenario does not
+# choose their words by reading a table definition.
+#
+# So each audience keeps what it works with. Matched on a heading's opening
+# words, because the headings carry counts and names; a heading nobody claimed
+# goes to both, which is the safe way to be wrong.
+_PRODUCT_SIDE = (
+    "data model", "tables and the columns", "which code touches which table",
+    "indexes and constraints", "datastores and brokers", "queues, topics",
+    "cache keys", "permissions and roles", "error types", "http routes",
+    "http surface", "scheduled work", "api versions", "deprecations",
+    "generated code", "types declared", "public surface of the code",
+    "how the top-level packages", "how the packages depend", "monorepo layout",
+    "who calls whom", "largest files", "lines of code", "assets",
+    "logging configuration", "retries, timeouts, breakers",
+    "architecture decisions", "code owners", "dependencies",
+    "contracts, schemas and mocks", "what those contracts actually say",
+    "documentation pointing at", "who has been touching what",
+    "most-changed files", "recent tickets and the files",
+)
+_TEST_SIDE = (
+    "what you can already write with", "steps that overlap", "what a step may call",
+    "what each step calls", "step modules", "feature files", "biggest feature files",
+    "which feature is served", "how a feature file is written", "how a scenario is run",
+    "how a test authenticates", "tags in use", "tags each ci job", "what the tags mean",
+    "markers in use", "fixtures", "test data", "test ids", "which component owns which test id",
+    "locator constants", "locators marked fragile", "page-object methods nothing calls",
+    "shared helpers outside steps", "interface strings", "failure messages this suite",
+    "visual baselines", "quarantined", "slow steps", "what past runs measured",
+    "what earlier runs of this pipeline", "coverage documents", "behave configuration",
+    "behave hooks", "pytest cases", "javascript/typescript tests", "other test suites",
+    "what cannot run beside", "what a run leaves behind", "reporting and artefacts",
+    "admitted debts", "the suite's own documentation", "how this suite is built",
+    "api-level features",
+)
+
+
+def for_audience(text: str, audience: str) -> str:
+    """Drop the half of the brief this reader does not work with.
+
+    Neither list is exhaustive on purpose: a section nobody claimed is kept for
+    both, so a new section shows up rather than vanishing silently.
+    """
+    if audience not in ("author", "coder"):
+        return text
+    drop = _PRODUCT_SIDE if audience == "author" else _TEST_SIDE
+    kept, dropping = [], False
+    for line in text.splitlines():
+        if line.startswith("## "):
+            head = line[3:].strip().lower()
+            dropping = any(head.startswith(x) for x in drop)
+        elif line.startswith("# "):
+            dropping = False
+        if not dropping:
+            kept.append(line)
+    return "\n".join(kept).rstrip() + "\n"
+
+
 def brief(m: dict) -> str:
     """The few thousand characters that go in the prompt: where things are, and
     which module owns which area. The step phrases themselves stay in the big
@@ -3957,18 +4020,7 @@ def main() -> int:
         json.dump(m, fh, indent=2)
     with open(os.path.join(out_dir, "framework_map.md"), "w", encoding="utf-8") as fh:
         fh.write(digest(m))
-    text = brief(m)
-    if args.audience == "coder":
-        # The vocabulary is what a scenario is written in; a coder is changing
-        # what it runs against. Forty thousand tokens of phrases in that context
-        # is forty thousand tokens not available for the work.
-        kept, dropping = [], False
-        for line in text.splitlines():
-            if line.startswith("## "):
-                dropping = line.startswith("## What you can already write with")
-            if not dropping:
-                kept.append(line)
-        text = "\n".join(kept) + "\n"
+    text = for_audience(brief(m), args.audience)
 
     if args.only or args.skip:
         keep = [x.strip().lower() for x in args.only.split(",") if x.strip()]
