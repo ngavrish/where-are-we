@@ -46,6 +46,25 @@ TOOLS = [
         },
     },
     {
+        "name": "find",
+        "description": (
+            "Find a phrase anywhere in the indexed files, with the file and line "
+            "of every hit. This is what a grep across the repository was for: the "
+            "same files were already walked to build the map, so the answer is a "
+            "lookup rather than a search. Use it for text — a step phrase, a "
+            "scenario title, a label — and `defines` for a name."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "phrase": {"type": "string",
+                           "description": "text to find; case is ignored"},
+                "limit": {"type": "integer",
+                          "description": "how many hits to return (default 40)"},
+            },
+            "required": ["phrase"],
+        },
+    },
+    {
         "name": "sections",
         "description": "List what the map contains, by section heading.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -114,6 +133,10 @@ def serve(out_dir: str) -> int:
                 _reply(_text("\n".join(hits) if hits
                              else f"no declaration of {args.get('name')!r} in the map"),
                        ident)
+            elif name == "find":
+                hits = mapper.find_text(out_dir, str(args.get("phrase") or ""),
+                                        int(args.get("limit") or 40))
+                _reply(_text(hits), ident)
             elif name == "sections":
                 try:
                     with open(map_path, encoding="utf-8") as fh:

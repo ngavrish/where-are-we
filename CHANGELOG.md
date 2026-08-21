@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0
+
+Half of what an agent searches for is text, not a name. Watched over one run: a
+hundred and sixty-six searches by hand, of which eighty-six were names — which
+the declaration index answers — and seventy were phrases like `"second Portal
+tab"` or a label `"A 15"`, which it could not answer at all.
+
+- `find(phrase)` returns every line holding that text, with file and line. The
+  walk already opens every file; keeping the lines turns a repository-wide grep
+  into a lookup.
+- The line index lives in `framework_map.json` and never in the Markdown, so it
+  is read by the tool and cannot end up in a prompt: 1.7 MB of lines beside
+  178 KB of map.
+
 ## 0.7.0
 
 Asking the map through a shell puts the question and the whole answer into the

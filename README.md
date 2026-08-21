@@ -76,7 +76,9 @@ $ where-are-we --ask "refund settled invoice"
 where-are-we --mcp --out /path/to/the/map
 ```
 
-Three tools — `ask`, `defines`, `sections` — over JSON-RPC on stdin and stdout.
+Four tools — `ask`, `defines`, `find`, `sections` — over JSON-RPC on stdin and
+stdout. `defines` answers where a name is declared; `find` answers where a phrase
+appears, which is the other half of what a grep was for.
 The same index answering the same questions; what changes is that the question is
 an argument and the answer is a tool result, rather than a shell command and its
 output sitting in the conversation to be re-read on every turn after.

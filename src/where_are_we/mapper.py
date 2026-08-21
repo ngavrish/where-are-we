@@ -83,6 +83,57 @@ DECLARATIONS["*"] = (
 )
 
 
+# Every line of every file the walk read, so a phrase can be found without
+# searching the repository again.
+#
+# A scenario author looking for the words "second Portal tab" or a label like
+# "A 15" is asking about text, not about a name — half of one session's hundred
+# and sixty-six searches were of that kind, and an index of declarations cannot
+# answer them. The same walk already opens every file; keeping the lines costs
+# one pass and turns a repository-wide grep into a lookup.
+LINES: dict[str, list] = {}
+
+
+def index_lines(path: str, body: str) -> None:
+    """Keep this file's lines, for a phrase search that does not touch disk."""
+    LINES[path] = body.splitlines()
+
+
+def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
+    """Every line holding this phrase, with its file and line number.
+
+    Reads the lines the mapper kept. Case-insensitive, because nobody
+    remembers the case of a label they saw once.
+    """
+    phrase = (phrase or "").strip()
+    if len(phrase) < 2:
+        return "give me something longer than a character to look for"
+    try:
+        with open(os.path.join(out_dir, "framework_map.json"), encoding="utf-8") as fh:
+            doc = json.load(fh) or {}
+    except (OSError, ValueError) as exc:
+        return f"no map in {out_dir}: {exc}"
+    lines = doc.get("lines") or {}
+    if not lines:
+        return ("this map has no line index — it was built by a version that did "
+                "not keep one, or the walk found nothing")
+
+    needle = phrase.lower()
+    hits, scanned = [], 0
+    for path, rows in lines.items():
+        for number, text in enumerate(rows, 1):
+            scanned += 1
+            if needle in text.lower():
+                hits.append(f"- {path}:{number}: {text.strip()[:160]}")
+                if len(hits) >= limit:
+                    return ("\n".join(hits)
+                            + f"\n… stopped at {limit}; ask for something narrower")
+    if not hits:
+        return (f"no line holds {phrase!r}. searched {len(lines)} files, "
+                f"{scanned} lines")
+    return "\n".join(hits)
+
+
 def index_declarations(path: str, label: str = "") -> None:
     """Record every name this file declares, with the line it is declared on.
 
@@ -103,6 +154,7 @@ def index_declarations(path: str, label: str = "") -> None:
     if "\x00" in body[:2048]:
         return  # binary
     INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
+    index_lines(path, body)
     # Line by line, and the number is the loop counter.
     #
     # Computed from a match offset instead, it was wrong for one name in nine:
@@ -2862,6 +2914,10 @@ def build(repo: str) -> dict:
         "definitions": dict(sorted(DEFINITIONS.items())),
         # What was looked at, so "not found" can say where it looked.
         "indexed": dict(sorted(INDEXED.items())),
+        # And the lines themselves, so a phrase search is a lookup. Kept out of
+        # the Markdown digest on purpose: this is for the tool to read, not for
+        # anything to carry in a prompt.
+        "lines": LINES,
         "feature_links": feature_links,
         "data_files": data_files,
         "testids": testids,
