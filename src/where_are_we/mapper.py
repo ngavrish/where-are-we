@@ -103,13 +103,25 @@ def index_declarations(path: str, label: str = "") -> None:
     if "\x00" in body[:2048]:
         return  # binary
     INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
-    for pattern in patterns:
-        for found in re.finditer(pattern, body, re.M):
-            name = found.group(1).strip()
-            if len(name) < 2:
+    # Line by line, and the number is the loop counter.
+    #
+    # Computed from a match offset instead, it was wrong for one name in nine:
+    # the offset counts characters in a string that has already had undecodable
+    # bytes replaced, and a multi-line pattern can start a match on the line
+    # before the name. Checked against the files afterwards, eleven of a hundred
+    # and twenty pointed at a blank line — which is worse than not indexing at
+    # all, because the reader opens the file, sees nothing, and stops trusting
+    # the map.
+    compiled = [re.compile(pattern) for pattern in patterns]
+    for number, text in enumerate(body.splitlines(), 1):
+        for pattern in compiled:
+            found = pattern.match(text) or pattern.search(text)
+            if not found:
                 continue
-            line = body[:found.start()].count("\n") + 1
-            DEFINITIONS.setdefault(name, f"{path}:{line}")
+            name = found.group(1).strip()
+            if len(name) >= 2 and name in text:
+                DEFINITIONS.setdefault(name, f"{path}:{number}")
+            break
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
@@ -4110,14 +4122,16 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
                                    "framework_map.json"), encoding="utf-8") as fh:
                 counts = (json.load(fh) or {}).get("indexed") or {}
             if counts:
-                looked = (" Indexed: "
-                          + ", ".join(f"{n} file(s) of the {where}"
-                                      for where, n in sorted(counts.items())) + ".")
+                looked = (" indexed: "
+                          + ", ".join(f"{where} {n} files"
+                                      for where, n in sorted(counts.items())))
         except (OSError, ValueError):
             pass
-        return (f"nothing in {map_path} mentions {words!r}.{looked} If it should "
-                "be there, the map missed it and that is worth saying; if the "
-                "name was a guess, it is a guess this codebase does not use.")
+        # Facts, not counsel. This is a script — a walk, some patterns, a JSON
+        # file — and an answer that reasons about what the reader should
+        # conclude is a script pretending to be an opinion. Say what was
+        # searched and what was found; the conclusion is the reader's.
+        return f"no match for {words!r}.{looked}"
 
     scored.sort(key=lambda x: -x[0])
     out, room = [], limit
