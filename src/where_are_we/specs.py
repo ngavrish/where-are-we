@@ -36,6 +36,13 @@ from typing import Any
 # and stops before the whole project arrives.
 DEFAULT_DEPTH = int(os.getenv("WAWE_SPEC_DEPTH", "2"))
 
+# How many tickets to fetch at most. A stop, not a target: a tracker is a graph
+# and a graph will hand over a thousand tickets if asked, each one a document
+# with comments. Whatever is left out is named in the map, because a map that
+# quietly ends is worse than a small one — a small one that says so can be asked
+# to grow.
+DEFAULT_LIMIT = int(os.getenv("WAWE_SPEC_LIMIT", "60"))
+
 # Keys look like PROJ-123 in every tracker worth the name; a bare number is not
 # a key and matching one turns every "fixed 42 tests" into a fetch.
 KEY = re.compile(r"\b[A-Z][A-Z0-9_]{1,9}-\d+\b")
@@ -68,7 +75,7 @@ def links_of(ticket: dict[str, Any]) -> list[str]:
 
 
 def walk(command: str, roots: list[str], depth: int = DEFAULT_DEPTH,
-         limit: int = 60, say=None) -> dict[str, Any]:
+         limit: int = DEFAULT_LIMIT, say=None) -> dict[str, Any]:
     """Everything within `depth` hops of the roots, fetched once each.
 
     The limit is a stop, not a target: a tracker is a graph and a graph is

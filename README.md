@@ -101,6 +101,31 @@ GitHub Issues, a text file — it never finds out.
 `--ask` answers from both maps, because a question about a piece of work is as
 likely to be about what was asked for as about where the code is.
 
+## What a map leaves out, it says
+
+Both walks are bounded, because a repository and a tracker are both graphs and a
+graph will hand over everything if asked. What the bound cut is named in the map
+itself, at the top:
+
+```markdown
+## This map is incomplete
+
+- the file walk stopped at 40000 files under /work — raise WAWE_MAX_FILES or add
+  to .wawe-ignore; what is below that count is mapped and the rest is not
+```
+
+A limit that stops quietly produces a map that looks complete and is not, and the
+reader has no way to tell — which is worse than a small map, because a small map
+that says so can be asked to grow. An absence in a silent map reads as a fact
+about the codebase.
+
+| flag | bounds |
+|---|---|
+| `--spec-depth` | hops from the starting ticket (2) |
+| `--spec-limit` | tickets fetched at most (60) |
+| `WAWE_MAX_FILES` | files read from the repository (40000) |
+| `.wawe-ignore` | paths never read at all |
+
 ## Why install it
 
 - **The first forty turns stop repeating.** The answers never change between

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1
+
+A limit that stops quietly produces a map that looks complete and is not, and an
+absence in a silent map reads as a fact about the codebase.
+
+- Both walks name what they left out, at the top of the map: the tracker walk
+  already did, the file walk did not and silently stopped at 40000 files.
+- `--spec-limit` is a flag rather than a constant, beside `--spec-depth`.
+
 ## 0.5.0
 
 A codebase is not the only thing an agent gropes around in. The other is the

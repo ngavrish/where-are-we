@@ -262,6 +262,12 @@ def _slurp(path: str, limit: int = 400000) -> str:
 _IGNORE_CACHE: dict[str, list] = {}
 MAX_FILES = int(os.getenv("WAWE_MAX_FILES", "40000"))
 
+# What the walk had to leave out. A limit that stops quietly produces a map that
+# looks complete and is not, and the reader has no way to tell — which is worse
+# than a small map, because a small map that says so can be asked to grow. Named
+# in the map itself, where whoever reads it is already looking.
+TRUNCATED: list[str] = []
+
 
 def _ignores(root: str) -> list:
     """Patterns from `.wawe-ignore`, one per line, fnmatch against the relative
@@ -315,6 +321,12 @@ def _walk(root: str, want: str) -> list[str]:
                 continue
             hits.append(full)
             if len(hits) >= MAX_FILES:
+                note = (f"the file walk stopped at {MAX_FILES} files under "
+                        f"{base_repo} — raise WAWE_MAX_FILES or add to "
+                        f".wawe-ignore; what is below that count is mapped and "
+                        f"the rest is not")
+                if note not in TRUNCATED:
+                    TRUNCATED.append(note)
                 _WALK_CACHE[key] = sorted(hits)
                 return _WALK_CACHE[key]
     _WALK_CACHE[key] = sorted(hits)
@@ -2872,8 +2884,14 @@ def digest(m: dict) -> str:
         f"{c['step_modules']} step modules, {c['steps']} step phrases, "
         f"{c['features']} feature files, {c['scenarios']} scenarios.",
         "",
-        "## Where things are",
     ]
+    if TRUNCATED:
+        # Said at the top, not buried: a reader who does not know the map is
+        # partial will treat an absence as a fact about the codebase.
+        lines += ["## This map is incomplete", ""]
+        lines += [f"- {note}" for note in TRUNCATED]
+        lines += [""]
+    lines += ["## Where things are"]
     for label, key in (("Page objects", "page_objects"), ("Drivers", "drivers"),
                        ("behave environment", "behave_environment_files"), ("Scripts", "scripts")):
         if m[key]:
@@ -2977,6 +2995,10 @@ def brief(m: dict) -> str:
         "directory — grep that file instead of grepping the repository.",
         "",
     ]
+    if TRUNCATED:
+        lines += ["## This map is incomplete", ""]
+        lines += [f"- {note}" for note in TRUNCATED]
+        lines += [""]
     st = _as_dict(m.get("stated"))
     if st:
         lines += ["## What this repository says it is", ""]
@@ -4028,6 +4050,10 @@ def main() -> int:
                          "source, as with everything else here")
     ap.add_argument("--spec-depth", type=int, default=0,
                     help="how many hops from the roots to follow (default 2)")
+    ap.add_argument("--spec-limit", type=int, default=0,
+                    help="how many tickets to fetch at most (default 60). A "
+                         "tracker is a graph and a graph will happily hand over a "
+                         "thousand; whatever is left out is named in the map")
     ap.add_argument("--pointer", action="store_true",
                     help="print what belongs in a prompt: where the map is, what "
                          "sections it has, and how to ask it — never the map itself")
@@ -4047,7 +4073,8 @@ def main() -> int:
         roots = [k.strip() for k in args.specs.split(",") if k.strip()]
         say = None if args.quiet else (lambda line: print(line, flush=True))
         spec = specs.walk(args.spec_cmd, roots,
-                          depth=args.spec_depth or specs.DEFAULT_DEPTH, say=say)
+                          depth=args.spec_depth or specs.DEFAULT_DEPTH,
+                          limit=args.spec_limit or specs.DEFAULT_LIMIT, say=say)
         with open(os.path.join(out_dir, "spec_map.json"), "w", encoding="utf-8") as fh:
             json.dump(spec, fh, indent=2, ensure_ascii=False)
         with open(os.path.join(out_dir, "spec_map.md"), "w", encoding="utf-8") as fh:
