@@ -4495,6 +4495,13 @@ def main() -> int:
             _IGNORE_CACHE.clear()
             m["also"][os.path.basename(extra)] = build(extra)
         os.environ["AGENT_REPO"] = repo
+        # The name index is a copy taken when the first root finished; the line
+        # index is the live dict. So a second root's lines were searchable and
+        # its names were not, and a question about a name defined in it came
+        # back "nothing in the map defines this" — the one answer that sends a
+        # reader off to grep with confidence.
+        m["definitions"] = dict(sorted(DEFINITIONS.items()))
+        m["indexed"] = dict(sorted(INDEXED.items()))
     m = redact(m)
     m["fingerprint"] = stamp_now
     if args.init:
