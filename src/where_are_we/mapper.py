@@ -28,6 +28,88 @@ except ImportError:  # run as a plain file, with no package around it
     import specs  # type: ignore[no-redef]
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
+
+# Every name this walk has seen, and the file and line it was defined on.
+# Filled as files are parsed, written into the map, and searched first by --ask:
+# a question about a name is a question about where it is.
+DEFINITIONS: dict[str, str] = {}
+
+# What was actually indexed, so an answer of "not found" can say what it looked
+# at. The first version said "this is a real absence rather than a search that
+# missed" about a constant sitting on line 31 of the product — because the
+# product's language was not indexed at all. A map that overstates its reach is
+# worse than a small one: it turns "I did not look" into "it is not there", and
+# the reader stops looking too.
+INDEXED: dict[str, int] = {}
+
+# How a declaration looks, per language. Names are what people ask about — a
+# constant, a function, a class, a step, a scenario — and every one of them is a
+# line in a file. Adding a language is a row here, not a new code path.
+DECLARATIONS = {
+    ".ts": (
+        r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)",
+        r"^\s*(?:export\s+)?(?:default\s+)?class\s+([A-Za-z_$][\w$]*)",
+        r"^\s*(?:export\s+)?(?:declare\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)",
+        r"^\s*(?:export\s+)?(?:type|interface)\s+([A-Za-z_$][\w$]*)",
+        r"^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)",
+    ),
+    ".py": (
+        r"^\s*(?:async\s+)?def\s+([A-Za-z_][\w]*)",
+        r"^\s*class\s+([A-Za-z_][\w]*)",
+        r"^([A-Z][A-Z0-9_]{2,})\s*=",
+    ),
+    ".feature": (
+        r"^\s*(?:Scenario(?: Outline)?|Feature):\s*(.+?)\s*$",
+    ),
+}
+for _alias in (".tsx", ".js", ".jsx", ".mjs", ".cjs"):
+    DECLARATIONS[_alias] = DECLARATIONS[".ts"]
+for _alias in (".pyi",):
+    DECLARATIONS[_alias] = DECLARATIONS[".py"]
+
+# Everything else. A file whose language nobody wrote a row for is still full of
+# names somebody will ask about, and answering "not indexed" for it is the same
+# failure one level down. These patterns are the shapes almost every language
+# agrees on, applied to any text file: a declaration keyword, a name, and the
+# line it is on. Cheap, occasionally over-broad, and never silent.
+DECLARATIONS["*"] = (
+    r"^\s*(?:public|private|protected|internal|static|final|abstract|open|"
+    r"export|pub|declare)?\s*"
+    r"(?:function|func|def|fun|class|struct|interface|trait|enum|type|record|"
+    r"module|package|const|val|var|let)\s+([A-Za-z_$][\w$]*)",
+    r"^([A-Z][A-Z0-9_]{2,})\s*[:=]",
+    r"^\s*(?:CREATE|create)\s+(?:TABLE|VIEW|INDEX|FUNCTION|PROCEDURE)\s+"
+    r"(?:IF NOT EXISTS\s+)?[`\"']?([A-Za-z_][\w.]*)",
+)
+
+
+def index_declarations(path: str, label: str = "") -> None:
+    """Record every name this file declares, with the line it is declared on.
+
+    Called for the suite and for the product alike. Without it the map could say
+    which module a step lived in and nothing at all about the code under test —
+    so an agent asking where a constant was defined was told it did not exist,
+    and spent forty turns grepping for something the map had never looked for.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    patterns = DECLARATIONS.get(ext) or DECLARATIONS["*"]
+    try:
+        if os.path.getsize(path) > 2 * 1024 * 1024:
+            return  # a generated bundle is names nobody asks about, by the ton
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+    except OSError:
+        return
+    if "\x00" in body[:2048]:
+        return  # binary
+    INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
+    for pattern in patterns:
+        for found in re.finditer(pattern, body, re.M):
+            name = found.group(1).strip()
+            if len(name) < 2:
+                continue
+            line = body[:found.start()].count("\n") + 1
+            DEFINITIONS.setdefault(name, f"{path}:{line}")
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
@@ -82,6 +164,16 @@ def _step_texts(path: str) -> list[str]:
             arg = dec.args[0]
             if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                 out.append(arg.value)
+                # Where it is, not only that it exists.
+                #
+                # An agent that has been told a phrase exists still has to find
+                # it, and finds it the only way it can: grep. Watched over one
+                # run, a scenario author ran forty searches by hand against
+                # three questions to the map — because the map answered "this
+                # step is in that module" and grep answers "line 214". Same
+                # question, and only one of the two answers ends the search.
+                DEFINITIONS.setdefault(arg.value, f"{path}:{node.lineno}")
+                DEFINITIONS.setdefault(f"def {node.name}", f"{path}:{node.lineno}")
     if key:
         _PARSE_CACHE[key] = out
     return out
@@ -548,6 +640,10 @@ def build(repo: str) -> dict:
                             and not sub.name.startswith("_"):
                         args = [a.arg for a in sub.args.args if a.arg != "self"]
                         out.append(f"{node.name}.{sub.name}({', '.join(args)})")
+                        DEFINITIONS.setdefault(
+                            f"{node.name}.{sub.name}",
+                            f"{rel}:{sub.lineno}")
+                DEFINITIONS.setdefault(f"class {node.name}", f"{rel}:{node.lineno}")
         return sorted(out)
 
     api = {rel: _public_api(rel) for rel in page_objects + drivers}
@@ -707,9 +803,13 @@ def build(repo: str) -> dict:
 
     # 8. The product side a test asserts against: routes and storage keys.
     product = {"routes": [], "storage_keys": [], "api_paths": []}
+    # Everything under the product roots, not the two extensions somebody
+    # happened to need first. A name is a name whatever it is written in.
     for src_root in _product_roots():
         if not os.path.isdir(src_root):
             continue
+        for p3 in _walk(src_root, ""):
+            index_declarations(p3, "product")
         for p2 in _walk(src_root, ".tsx") + _walk(src_root, ".ts"):
             try:
                 src = open(p2, encoding="utf-8", errors="replace").read()
@@ -719,6 +819,27 @@ def build(repo: str) -> dict:
             product["storage_keys"] += re.findall(r"localStorage\.(?:get|set|remove)Item\(\s*[\"\'`]([\w.:-]+)", src)
             product["storage_keys"] += re.findall(r"[\"\'`]([a-z][\w-]{2,}-[\w.-]+)[\"\'`]", src)
             product["api_paths"] += re.findall(r"[\"\'`](/api/v\d[\w/{}-]*)", src)
+            # What the product declares, and the line it declares it on.
+            #
+            # Only routes, storage keys and API paths were indexed here, so a
+            # question about anything else in the product — a constant, a
+            # function, a type — came back "nothing in the map mentions this",
+            # which is worse than silence: it says the absence is real. Watched
+            # on one run, an agent asked the map three times about a constant
+            # that is on line 31 of a file two directories away, was told it did
+            # not exist, and spent the next forty turns grepping. It was right
+            # to.
+            _rel = os.path.relpath(p2, src_root)
+            for pattern in (
+                r"^\s*export\s+(?:default\s+)?const\s+([A-Za-z_$][\w$]*)",
+                r"^\s*export\s+(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)",
+                r"^\s*export\s+(?:default\s+)?class\s+([A-Za-z_$][\w$]*)",
+                r"^\s*export\s+(?:type|interface)\s+([A-Za-z_$][\w$]*)",
+                r"^\s*(?:export\s+)?enum\s+([A-Za-z_$][\w$]*)",
+            ):
+                for m2 in re.finditer(pattern, src, re.M):
+                    line = src[:m2.start()].count("\n") + 1
+                    DEFINITIONS.setdefault(m2.group(1), f"{p2}:{line}")
     product = {k: sorted(set(v))[:120] for k, v in product.items()}
 
     # Locators the page objects actually drive, and the timing constants that
@@ -726,6 +847,8 @@ def build(repo: str) -> dict:
     # can be guessed.
     locators: dict[str, list[str]] = {}
     timings: dict[str, list[str]] = {}
+    for _p in _walk(repo, ""):
+        index_declarations(_p, "suite")
     for rel in page_objects + list(steps) + drivers:
         try:
             src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
@@ -2721,6 +2844,12 @@ def build(repo: str) -> dict:
             "environment": _layer_line(envs, "hooks and per-scenario setup"),
         },
         "public_api": api,
+        # name -> file:line, for everything this walk defined. A question about a
+        # name is a question about where it is, and an answer without the line
+        # sends the reader to grep for it anyway.
+        "definitions": dict(sorted(DEFINITIONS.items())),
+        # What was looked at, so "not found" can say where it looked.
+        "indexed": dict(sorted(INDEXED.items())),
         "feature_links": feature_links,
         "data_files": data_files,
         "testids": testids,
@@ -3903,6 +4032,28 @@ def pointer(map_path: str, brief_path: str = "") -> str:
     return "\n".join(lines) + "\n"
 
 
+def _definitions_for(map_path: str, terms: list[str]) -> list[str]:
+    """Exact places, from the map's own index of what was defined where.
+
+    Answered before any prose, because this is the question actually being
+    asked. A scenario author looking for `def ad_product_shows` wants a file and
+    a line; told which module it lives in, they grep the module. Over one run
+    that was forty hand searches against three questions to the map.
+    """
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            defs = (json.load(fh) or {}).get("definitions") or {}
+    except (OSError, ValueError):
+        return []
+    hits = []
+    for name, where in defs.items():
+        low = name.lower()
+        if all(t in low for t in terms) or any(t == low for t in terms):
+            hits.append(f"- `{name}` — {where}")
+    return sorted(hits)[:40]
+
+
 def ask(map_path: str, words: str, limit: int = 12000) -> str:
     """The part of the map that mentions these words, and nothing else.
 
@@ -3945,12 +4096,35 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
             hits += 5 * sum(t in h.lower() for t in terms)
             scored.append((hits, h, b))
     if not scored:
-        return (f"nothing in {map_path} mentions {words!r}. The map is generated "
-                "from the repository, so this is a real absence rather than a "
-                "search that missed.")
+        exact = _definitions_for(map_path, terms)
+        if exact:
+            return "## Defined here\n\n" + "\n".join(exact)
+        # What was indexed, said out loud. The old wording promised more than
+        # it knew — "a real absence rather than a search that missed" — about a
+        # constant that was in the product on line 31, in a language the index
+        # did not cover. A map that overstates its reach turns "I did not look"
+        # into "it is not there", and the reader stops looking too.
+        looked = ""
+        try:
+            with open(os.path.join(os.path.dirname(map_path) or ".",
+                                   "framework_map.json"), encoding="utf-8") as fh:
+                counts = (json.load(fh) or {}).get("indexed") or {}
+            if counts:
+                looked = (" Indexed: "
+                          + ", ".join(f"{n} file(s) of the {where}"
+                                      for where, n in sorted(counts.items())) + ".")
+        except (OSError, ValueError):
+            pass
+        return (f"nothing in {map_path} mentions {words!r}.{looked} If it should "
+                "be there, the map missed it and that is worth saying; if the "
+                "name was a guess, it is a guess this codebase does not use.")
 
     scored.sort(key=lambda x: -x[0])
     out, room = [], limit
+    exact = _definitions_for(map_path, terms)
+    if exact:
+        out.append("## Defined here\n\n" + "\n".join(exact))
+        room -= sum(len(x) for x in exact)
     for hits, h, b in scored:
         kept = [h]
         for line in b:

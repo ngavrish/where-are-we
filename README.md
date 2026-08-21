@@ -70,6 +70,25 @@ $ where-are-we --ask "refund settled invoice"
 - 0.88: "the invoice is settled" (`billing_steps.py`) ≈ "an invoice has settled" (`api_steps.py`)
 ```
 
+## Where is it defined
+
+```console
+$ where-are-we --ask "MAX_PERSISTED_FORECAST_RESULTS"
+
+## Defined here
+
+- `MAX_PERSISTED_FORECAST_RESULTS` — src/constants/forecastStorage.ts:31
+```
+
+Every name in every file the walk reaches, with its line — functions, classes,
+constants, types, step phrases, scenario names. A question about a name is a
+question about where it is, and an answer without the line sends the reader to
+grep for it anyway.
+
+When a name is not there, the answer says what was indexed rather than declaring
+the absence real. A map that overstates its reach turns "I did not look" into
+"it is not there".
+
 ## The other map: the specifications
 
 A codebase is not the only thing an agent gropes around in. The other is the

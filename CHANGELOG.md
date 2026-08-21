@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.6.0
+
+The map indexed the language of the test suite and nothing else, and said so in
+the worst possible way. Asked where a constant was defined — line 31 of the
+product, plainly there — it answered that this was "a real absence rather than a
+search that missed". The agent believed it, rephrased three times, and spent the
+next forty turns grepping by hand. It was right to.
+
+- Every name in every file, with the line it is declared on: a table of
+  declaration shapes per language, and a general shape for the rest, applied to
+  whatever the walk finds. On a real product: 2343 names from 137 files, where
+  the previous version had none.
+- The map records what it indexed, and a "not found" now says where it looked.
+  A map that overstates its reach turns "I did not look" into "it is not there",
+  and the reader stops looking too.
+
 ## 0.5.1
 
 A limit that stops quietly produces a map that looks complete and is not, and an
