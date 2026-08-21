@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.0
+
+Asking the map through a shell puts the question and the whole answer into the
+conversation, where they are re-read on every turn after — and the agent has to
+remember what the command is called, which one of them did not: it spent a turn
+on `which where-are-us where-are-we`.
+
+- `--mcp` serves the same index over MCP on stdin/stdout: `ask`, `defines`,
+  `sections`. The question is an argument, the answer is a tool result. Same
+  regexes, same JSON, no model and no network — JSON-RPC on a pipe, written on
+  the standard library like the rest of this.
+
 ## 0.6.0
 
 The map indexed the language of the test suite and nothing else, and said so in

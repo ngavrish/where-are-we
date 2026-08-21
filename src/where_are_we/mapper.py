@@ -4242,6 +4242,12 @@ def main() -> int:
                     help="how many tickets to fetch at most (default 60). A "
                          "tracker is a graph and a graph will happily hand over a "
                          "thousand; whatever is left out is named in the map")
+    ap.add_argument("--mcp", action="store_true",
+                    help="serve the map over MCP on stdin/stdout instead of "
+                         "answering once and exiting. Same index, same answers — "
+                         "asked as a tool call rather than through a shell, so "
+                         "the question and its answer do not land in the "
+                         "conversation and get re-read on every turn after")
     ap.add_argument("--pointer", action="store_true",
                     help="print what belongs in a prompt: where the map is, what "
                          "sections it has, and how to ask it — never the map itself")
@@ -4251,6 +4257,10 @@ def main() -> int:
 
     # Answering from a map that already exists needs none of what follows: no
     # repository walk, no product roots, no config. It is a read.
+    if args.mcp:
+        from . import mcp as _mcp
+        return _mcp.serve(os.path.abspath(args.out))
+
     if args.specs:
         if not args.spec_cmd:
             print("--specs needs --spec-cmd: this tool does not know your tracker",

@@ -70,6 +70,19 @@ $ where-are-we --ask "refund settled invoice"
 - 0.88: "the invoice is settled" (`billing_steps.py`) ≈ "an invoice has settled" (`api_steps.py`)
 ```
 
+## As an MCP server
+
+```bash
+where-are-we --mcp --out /path/to/the/map
+```
+
+Three tools — `ask`, `defines`, `sections` — over JSON-RPC on stdin and stdout.
+The same index answering the same questions; what changes is that the question is
+an argument and the answer is a tool result, rather than a shell command and its
+output sitting in the conversation to be re-read on every turn after.
+
+No model and no network live in here. It reads the JSON the mapper wrote.
+
 ## Where is it defined
 
 ```console
