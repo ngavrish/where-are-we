@@ -70,6 +70,37 @@ $ where-are-we --ask "refund settled invoice"
 - 0.88: "the invoice is settled" (`billing_steps.py`) ≈ "an invoice has settled" (`api_steps.py`)
 ```
 
+## The other map: the specifications
+
+A codebase is not the only thing an agent gropes around in. The other is the
+tracker — the ticket, its parents, what it links to, what mentions it — and it
+gropes there the same way and for the same reason: no map, so it asks, and asks
+again.
+
+Measured on one run of a real pipeline: sixteen tickets fetched over and over.
+One agent pulled fourteen neighbours to understand the task; the next agent
+pulled the same fourteen again, because a session cannot see another session's
+memory. Three were fetched three times inside a single session, since finding an
+answer already in a conversation costs more than asking for it fresh. Every
+answer then sat in the context for ever, and every later turn paid to re-read it.
+
+```console
+$ where-are-we --specs APF-1934 --spec-cmd 'python3 fetch.py {key}'
+
+  APF-1934 (1 so far)
+  APF-1860 (2 so far)
+  APF-2752 (3 so far)
+spec map: 3 ticket(s) -> ./spec_map.md
+```
+
+This tool knows nothing about any tracker, which is the same contract as the rest
+of it: you hand it a command that turns a ticket key into JSON, it walks the
+links two hops out, and it writes `spec_map.json` and `spec_map.md`. Jira, Linear,
+GitHub Issues, a text file — it never finds out.
+
+`--ask` answers from both maps, because a question about a piece of work is as
+likely to be about what was asked for as about where the code is.
+
 ## Why install it
 
 - **The first forty turns stop repeating.** The answers never change between

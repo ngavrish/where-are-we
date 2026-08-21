@@ -20,6 +20,13 @@ import os
 import re
 import sys
 
+# Imported both ways on purpose: this file is a package module and also a script
+# somebody runs by path, and the second is how most people meet it.
+try:
+    from . import specs
+except ImportError:  # run as a plain file, with no package around it
+    import specs  # type: ignore[no-redef]
+
 STEP_DECORATORS = {"step", "given", "when", "then"}
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
@@ -4011,6 +4018,16 @@ def main() -> int:
                     help="answer from an existing map instead of building one: "
                          "print the sections that mention these words, and nothing "
                          "else. Reads framework_map.md under --out.")
+    ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
+                    help="ticket keys to map, comma separated: the tracker walked "
+                         "once into spec_map.{json,md} so no session has to ask it "
+                         "again")
+    ap.add_argument("--spec-cmd", default=os.getenv("SPEC_FETCH_CMD", ""),
+                    help="how to fetch one ticket as JSON; {key} is substituted. "
+                         "This tool knows no tracker — the caller supplies the "
+                         "source, as with everything else here")
+    ap.add_argument("--spec-depth", type=int, default=0,
+                    help="how many hops from the roots to follow (default 2)")
     ap.add_argument("--pointer", action="store_true",
                     help="print what belongs in a prompt: where the map is, what "
                          "sections it has, and how to ask it — never the map itself")
@@ -4020,8 +4037,32 @@ def main() -> int:
 
     # Answering from a map that already exists needs none of what follows: no
     # repository walk, no product roots, no config. It is a read.
+    if args.specs:
+        if not args.spec_cmd:
+            print("--specs needs --spec-cmd: this tool does not know your tracker",
+                  file=sys.stderr)
+            return 2
+        out_dir = os.path.abspath(args.out)
+        os.makedirs(out_dir, exist_ok=True)
+        roots = [k.strip() for k in args.specs.split(",") if k.strip()]
+        say = None if args.quiet else (lambda line: print(line, flush=True))
+        spec = specs.walk(args.spec_cmd, roots,
+                          depth=args.spec_depth or specs.DEFAULT_DEPTH, say=say)
+        with open(os.path.join(out_dir, "spec_map.json"), "w", encoding="utf-8") as fh:
+            json.dump(spec, fh, indent=2, ensure_ascii=False)
+        with open(os.path.join(out_dir, "spec_map.md"), "w", encoding="utf-8") as fh:
+            fh.write(specs.digest(spec))
+        if not args.quiet:
+            print(f"spec map: {len(spec['tickets'])} ticket(s) -> "
+                  f"{os.path.join(out_dir, 'spec_map.md')}")
+        return 0
+
     if args.sections or args.ask or args.pointer:
-        map_path = os.path.join(os.path.abspath(args.out), "framework_map.md")
+        out_dir = os.path.abspath(args.out)
+        map_path = os.path.join(out_dir, "framework_map.md")
+        # Both maps answer, because a question about this work is as likely to be
+        # about what was asked for as about where the code is.
+        spec_path = os.path.join(out_dir, "spec_map.md")
         if args.pointer:
             print(pointer(map_path), end="")
             return 0
@@ -4033,7 +4074,10 @@ def main() -> int:
                 print(f"no map at {map_path}: {exc}", file=sys.stderr)
                 return 1
             return 0
-        print(ask(map_path, args.ask))
+        answer = ask(map_path, args.ask)
+        if os.path.exists(spec_path):
+            answer += "\n\n" + ask(spec_path, args.ask)
+        print(answer)
         return 0
 
     # The rest of the module reads these through the environment, which is also
