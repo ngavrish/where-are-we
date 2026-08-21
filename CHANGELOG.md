@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0
+
+A codebase is not the only thing an agent gropes around in. The other is the
+tracker, and it gropes there for the same reason: no map, so it asks, and asks
+again. On one run of a real pipeline sixteen tickets were fetched over and over —
+one agent pulled fourteen neighbours, the next pulled the same fourteen again,
+three were fetched three times inside a single session — and every answer then
+sat in a context for ever, paid for on every later turn.
+
+- `--specs KEY[,KEY]` with `--spec-cmd 'your-fetcher {key}'` walks the tracker
+  once, two hops out, into `spec_map.json` and `spec_map.md`. This tool learns
+  nothing about any tracker: it is handed a command that turns a key into JSON.
+- Links are read out of the whole document rather than out of a schema's link
+  fields — a key mentioned in a comment is a link somebody made on purpose.
+- `--ask` answers from both maps: a question about a piece of work is as likely
+  to be about what was asked for as about where the code is.
+
 ## 0.4.1
 
 - `--for author|coder`. The vocabulary is what a scenario is written in, so the
