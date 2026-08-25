@@ -115,6 +115,23 @@ def _each(value) -> list:
     return [text] if text else []
 
 
+# What one call may put into the conversation, in characters. It is a budget for
+# the call, not for each question in it: batching without one turns a saving into
+# a multiplier — five phrases at the old per-question size would have been thirty
+# thousand tokens arriving in a single answer, and every turn after that one pays
+# for them again. Measured on APF-1934, `ask` alone was adding 9,808 tokens per
+# call at two maps of twelve thousand characters each.
+_ANSWER_BUDGET = 12000
+# Hits, not characters, and the same reasoning: forty per phrase across a list of
+# six is two hundred and forty lines nobody asked for as a block.
+_HIT_BUDGET = 40
+
+
+def _share(budget: int, n: int, floor: int) -> int:
+    """A batch splits the budget it would have spent on one question."""
+    return max(floor, budget // max(1, n))
+
+
 def _joined(pairs) -> str:
     """Answers labelled by their question, so a batch stays readable.
 
@@ -161,15 +178,20 @@ def serve(out_dir: str) -> int:
                 spec = os.path.join(out_dir, "spec_map.md")
                 has_spec = os.path.exists(spec)
 
-                def _ask_one(words: str) -> str:
-                    answer = mapper.ask(map_path, words)
+                def _ask_one(words: str, room: int) -> str:
+                    # Two maps, so the room is split between them rather than
+                    # spent twice: the framework map and the spec map each used
+                    # to return a full allowance, doubling every answer.
+                    each = room // 2 if has_spec else room
+                    answer = mapper.ask(map_path, words, each)
                     if has_spec:
-                        answer += "\n\n" + mapper.ask(spec, words)
+                        answer += "\n\n" + mapper.ask(spec, words, each)
                     return answer
 
-                asked = _each(args.get("words"))
-                _reply(_text(_joined((w, _ask_one(w)) for w in asked)
-                             if asked else _ask_one("")), ident)
+                asked = _each(args.get("words")) or [""]
+                room = _share(_ANSWER_BUDGET, len(asked), 1500)
+                _reply(_text(_joined((w, _ask_one(w, room)) for w in asked)),
+                       ident)
             elif name == "defines":
                 wanted = _each(args.get("name"))
                 # One pass over the map for the whole list: _definitions_for
@@ -183,10 +205,12 @@ def serve(out_dir: str) -> int:
                                   + " in the map"),
                        ident)
             elif name == "find":
-                limit = int(args.get("limit") or 40)
+                phrases = _each(args.get("phrase")) or [""]
+                limit = int(args.get("limit") or _HIT_BUDGET)
+                room = _share(limit, len(phrases), 5)
                 _reply(_text(_joined(
-                    (p, mapper.find_text(out_dir, p, limit))
-                    for p in _each(args.get("phrase")) or [""])), ident)
+                    (p, mapper.find_text(out_dir, p, room)) for p in phrases)),
+                       ident)
             elif name == "sections":
                 try:
                     with open(map_path, encoding="utf-8") as fh:
