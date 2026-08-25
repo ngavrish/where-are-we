@@ -99,6 +99,18 @@ def index_lines(path: str, body: str) -> None:
     LINES[path] = body.splitlines()
 
 
+# At most this many lines from any one file. A generated table that matches
+# everything must not spend the whole answer on itself.
+_PER_FILE_CAP = 6
+
+# Lines that declare rather than mention: a definition is what "where is it"
+# means. Python, JS/TS and behave decorators, which is what this map walks.
+_DECLARES = re.compile(
+    r"^\s*(?:@(?:given|when|then|step)\b|def\s|class\s|async\s+def\s"
+    r"|(?:export\s+)?(?:const|let|var|function|class|interface|type)\s)",
+    re.I)
+
+
 def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
     """Every line holding this phrase, with its file and line number.
 
@@ -119,19 +131,68 @@ def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
                 "not keep one, or the walk found nothing")
 
     needle = phrase.lower()
+    # Everything, then the best of it — not the first forty the directory
+    # order happened to reach.
+    #
+    # This used to return the moment it had `limit` hits, walking files in the
+    # order the map was built. On this repository's own map "forecast" holds
+    # 8,249 lines, "reset" 2,975, "export" 1,116: an agent saw forty of them,
+    # chosen by nothing, and was told to ask for something narrower. That is a
+    # tenth of a percent of the answer selected at random, and it is why nearly
+    # half of these calls were followed by opening a file by hand.
+    #
+    # Scanning all of it costs a pass over the line index — twelve megabytes,
+    # tens of milliseconds — against a round trip through a model at a hundred
+    # and fifty thousand tokens of context. There is no version of that trade
+    # where stopping early wins.
+    words = [w for w in re.split(r"[^A-Za-z0-9_]+", phrase) if len(w) > 1]
+    whole = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(needle)
+                       + r"(?![A-Za-z0-9_])")
+    dead = set(doc.get("dead_files") or ())
     hits, scanned = [], 0
     for path, rows in lines.items():
+        low_path = path.lower()
+        # A path that carries the other words of the question is the file being
+        # asked about; the same phrase in an unrelated module is a coincidence.
+        path_bonus = sum(1 for w in words if w.lower() in low_path)
         for number, text in enumerate(rows, 1):
             scanned += 1
-            if needle in text.lower():
-                hits.append(f"- {path}:{number}: {text.strip()[:160]}")
-                if len(hits) >= limit:
-                    return ("\n".join(hits)
-                            + f"\n… stopped at {limit}; ask for something narrower")
+            low = text.lower()
+            if needle not in low:
+                continue
+            score = 1.0 + 0.75 * path_bonus
+            if whole.search(low):
+                score += 2.0        # `reset`, not `resetForm`
+            if phrase in text:
+                score += 0.5        # the case they typed
+            if _DECLARES.search(text):
+                score += 2.5        # where it is defined beats where it is used
+            if path in dead:
+                score -= 2.0        # the map already thinks nobody imports this
+            # A match in a long line is diluted: minified bundles and generated
+            # tables match everything and mean nothing.
+            score -= min(1.0, len(text) / 400.0)
+            hits.append((score, path, number, text.strip()[:160]))
     if not hits:
         return (f"no line holds {phrase!r}. searched {len(lines)} files, "
                 f"{scanned} lines")
-    return "\n".join(hits)
+    hits.sort(key=lambda h: -h[0])
+    # No single file may take the whole answer. Forty hits from one generated
+    # table is the same as no answer, and the second-best file is often the one
+    # that was wanted.
+    per_file, kept = {}, []
+    for score, path, number, text in hits:
+        if per_file.get(path, 0) >= _PER_FILE_CAP:
+            continue
+        per_file[path] = per_file.get(path, 0) + 1
+        kept.append(f"- {path}:{number}: {text}")
+        if len(kept) >= limit:
+            break
+    tail = ""
+    if len(hits) > len(kept):
+        tail = (f"\n… {len(hits)} lines hold it across {len(per_file)} files; "
+                f"these are the {len(kept)} that rank highest")
+    return "\n".join(kept) + tail
 
 
 def index_declarations(path: str, label: str = "") -> None:
