@@ -4122,6 +4122,75 @@ def _definitions_for(map_path: str, terms: list[str]) -> list[str]:
     return sorted(hits)[:40]
 
 
+# Ranking, with the two things counting words leaves out.
+#
+# The old score was `sum(hay.count(t) for t in terms)`, and on a map of a product
+# called InventoryForecasting the word "forecast" is in nearly every section: it
+# separates nothing and counted as much as the rare word that separates
+# everything. A long section also won for being long, since more text holds more
+# of any word. Measured on this repository's own map, three real questions:
+#
+#   "persistence across reload"  the right module was 2nd, now 1st
+#   "cross tab sync"                                  5th, now 1st
+#   "export forecast to csv"           not in the top five at all, now 1st
+#
+# First place is what matters, because every answer here is cut to a budget and
+# the cut takes the tail. On the third question a branch asking about export was
+# handed the 132 KB general module and never shown the export module, which
+# exists, is indexed, and did not fit.
+#
+# BM25: a rare term outweighs a common one (idf), the tenth occurrence adds
+# almost nothing (k1), and a long section is discounted for its length (b). The
+# constants are the standard ones and are not tuned to anything here.
+_BM25_K1 = 1.5
+_BM25_B = 0.75
+
+
+def _rank(blocks, terms):
+    """Sections that mention these words, best first."""
+    import collections
+    import math
+
+    docs = []
+    for head, body in blocks:
+        words = re.findall(r"[a-z][a-z_]{1,}",
+                           (head + "\n" + "\n".join(body)).lower())
+        docs.append((head, body, collections.Counter(words), len(words)))
+    n = len(docs)
+    if not n:
+        return []
+    seen = collections.Counter()
+    for _, _, tf, _ in docs:
+        seen.update(tf.keys())
+    avgdl = sum(dl for _, _, _, dl in docs) / n or 1.0
+    out = []
+    for head, body, tf, dl in docs:
+        score = 0.0
+        for t in terms:
+            f = tf.get(t, 0)
+            if not f:
+                # Still counted when it is only a substring — "forecast" inside
+                # "forecasting" is a hit a reader means, and tokenising alone
+                # would lose it. Given the weight of one occurrence, no more.
+                if t in head.lower() or any(t in ln.lower() for ln in body):
+                    f = 1
+                else:
+                    continue
+            idf = math.log(1 + (n - seen[t] + 0.5) / (seen[t] + 0.5))
+            score += idf * (f * (_BM25_K1 + 1)) / (
+                f + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl))
+        if score <= 0:
+            continue
+        # A heading that matches still says the section is about this rather
+        # than that the word passed through it. Kept, as a multiplier now
+        # rather than a flat five, so it cannot outweigh the ranking itself.
+        if any(t in head.lower() for t in terms):
+            score *= 1.6
+        out.append((score, head, body))
+    out.sort(key=lambda x: -x[0])
+    return out
+
+
 def ask(map_path: str, words: str, limit: int = 12000) -> str:
     """The part of the map that mentions these words, and nothing else.
 
@@ -4154,15 +4223,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
             body.append(line)
     blocks.append((head, body))
 
-    scored = []
-    for h, b in blocks:
-        hay = (h + "\n" + "\n".join(b)).lower()
-        hits = sum(hay.count(t) for t in terms)
-        if hits:
-            # A heading that matches is worth more than a line that does: it says
-            # the whole section is about this, not that the word passed through.
-            hits += 5 * sum(t in h.lower() for t in terms)
-            scored.append((hits, h, b))
+    scored = _rank(blocks, terms)
     if not scored:
         exact = _definitions_for(map_path, terms)
         if exact:
