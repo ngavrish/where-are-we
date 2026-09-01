@@ -101,15 +101,36 @@ def _chunks_of(name: str, path: str, piece: int = 2400) -> list[dict]:
     return out
 
 
+# What a corpus may hold. Docs, and source: a product tree handed over as a
+# corpus is code, and "which component renders the values dropdown" is the
+# question a UI session pays twenty Reads to answer without it. Chunking by
+# blank lines works on source the way it works on prose - functions and
+# blocks separate on empty lines - and the size cap keeps a bundled artifact
+# or a lockfile from flooding the index.
+_CORPUS_EXTS = (".md", ".mdc", ".txt", ".py", ".ts", ".tsx", ".js", ".jsx",
+                ".go", ".java", ".sh", ".feature")
+_CORPUS_FILE_CAP = 200_000
+_CORPUS_SKIP_DIRS = {"node_modules", ".git", "dist", "build", "__pycache__",
+                     ".venv", "coverage"}
+
+
 def _walk(name: str, root: str) -> list[dict]:
-    """A corpus argument is a file or a directory of md/mdc/txt files."""
+    """A corpus argument is a file or a directory of doc and source files."""
     if os.path.isfile(root):
         return _chunks_of(name, root)
     out = []
-    for base, _dirs, files in os.walk(root):
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in _CORPUS_SKIP_DIRS]
         for f in sorted(files):
-            if f.endswith((".md", ".mdc", ".txt")):
-                out.append(os.path.join(base, f))
+            path = os.path.join(base, f)
+            if not f.endswith(_CORPUS_EXTS):
+                continue
+            try:
+                if os.path.getsize(path) > _CORPUS_FILE_CAP:
+                    continue
+            except OSError:
+                continue
+            out.append(path)
     chunks = []
     for path in sorted(out):
         chunks.extend(_chunks_of(name, path))
