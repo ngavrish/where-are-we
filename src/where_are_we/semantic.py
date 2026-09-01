@@ -160,6 +160,7 @@ def build_index(out_dir: str, corpora: list[tuple[str, str]]) -> str:
     except (OSError, ValueError):
         pass
     import numpy as np
+    os.makedirs(out_dir, exist_ok=True)
     texts = [f"{c['title']}\n{c['text']}" for c in chunks]
     matrix = np.array(list(_embedder().embed(texts)), dtype="float32")
     matrix /= (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9)
