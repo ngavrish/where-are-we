@@ -1,6 +1,6 @@
 [project]
 name = "where-are-we"
-version = "0.10.0"
+version = "0.11.0"
 description = "Stop paying your agent to grep. One tree walk writes entry points, routes, data model, step signatures, and every duplicate or dead test into AGENTS.md — or JSON for your own harness."
 readme = "README.md"
 requires-python = ">=3.10"

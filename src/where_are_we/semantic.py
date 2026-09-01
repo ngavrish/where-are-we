@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 
 INDEX_MATRIX = "semantic_index.npy"
 INDEX_CHUNKS = "semantic_index.json"
@@ -162,7 +163,7 @@ def build_index(out_dir: str, corpora: list[tuple[str, str]]) -> str:
     import numpy as np
     os.makedirs(out_dir, exist_ok=True)
     texts = [f"{c['title']}\n{c['text']}" for c in chunks]
-    matrix = np.array(list(_embedder().embed(texts)), dtype="float32")
+    matrix = _embed_cached(texts)
     matrix /= (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9)
     np.save(os.path.join(out_dir, INDEX_MATRIX), matrix)
     with open(meta_path, "w", encoding="utf-8") as fh:
@@ -170,6 +171,46 @@ def build_index(out_dir: str, corpora: list[tuple[str, str]]) -> str:
                    "chunks": chunks}, fh, ensure_ascii=False)
     return f"semantic index built: {len(chunks)} chunks from " \
            f"{len(corpora)} corpus(es)"
+
+
+# An embedding never changes for the same text and the same model, and a
+# run's index is rebuilt from scratch in a fresh RUN_DIR every time - so on a
+# stack where the product source and the rules corpus barely move between
+# runs, five and a half of the six minutes of every index build were spent
+# recomputing vectors that were computed yesterday. The cache is sqlite -
+# already in the stdlib, one file, its own locking - keyed by (model, text
+# hash), living wherever WAWE_EMBED_CACHE points (unset = no cache, exactly
+# the old behavior). It stores raw vectors; normalization stays the caller's.
+def _embed_cached(texts: list):
+    import numpy as np
+    cache_path = os.getenv("WAWE_EMBED_CACHE", "")
+    if not cache_path:
+        return np.array(list(_embedder().embed(texts)), dtype="float32")
+    keys = [hashlib.sha256((_BI_MODEL + "\x00" + t).encode()).hexdigest()
+            for t in texts]
+    con = sqlite3.connect(cache_path, timeout=30)
+    con.execute("CREATE TABLE IF NOT EXISTS vec "
+                "(key TEXT PRIMARY KEY, dim INTEGER, blob BLOB)")
+    have = {}
+    for i in range(0, len(keys), 500):
+        batch = keys[i:i + 500]
+        marks = ",".join("?" for _ in batch)
+        for key, dim, blob in con.execute(
+                f"SELECT key, dim, blob FROM vec WHERE key IN ({marks})",
+                batch):
+            have[key] = np.frombuffer(blob, dtype="float32", count=dim)
+    missing = [i for i, k in enumerate(keys) if k not in have]
+    if missing:
+        fresh = list(_embedder().embed([texts[i] for i in missing]))
+        rows = []
+        for i, vec in zip(missing, fresh):
+            arr = np.asarray(vec, dtype="float32")
+            have[keys[i]] = arr
+            rows.append((keys[i], len(arr), arr.tobytes()))
+        con.executemany("INSERT OR REPLACE INTO vec VALUES (?,?,?)", rows)
+        con.commit()
+    con.close()
+    return np.stack([np.array(have[k], dtype="float32") for k in keys])
 
 
 def search(out_dir: str, query: str, k: int = 6,
