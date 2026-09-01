@@ -186,6 +186,11 @@ def serve(out_dir: str) -> int:
                     answer = mapper.ask(map_path, words, each)
                     if has_spec:
                         answer += "\n\n" + mapper.ask(spec, words, each)
+                    # The MCP is how sessions actually ask; leaving the
+                    # semantic tail on the CLI alone gave meaning to the one
+                    # caller nobody uses.
+                    answer += mapper.meaning_tail(out_dir, words, answer,
+                                                  room=max(room // 3, 1500))
                     return answer
 
                 asked = _each(args.get("words")) or [""]

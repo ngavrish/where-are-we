@@ -4252,6 +4252,26 @@ def _rank(blocks, terms):
     return out
 
 
+def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
+                 room: int = 5000) -> str:
+    """The 'Related by meaning' section, deduplicated against an answer
+    already built by keywords. Empty string when there is no index, no
+    library, or nothing new to add - the keyword answer stands alone."""
+    from . import semantic as _sem
+    hits = _sem.search(out_dir, words, k=k + 2)
+    kept = [h for h in hits if h["title"] not in already][:k]
+    if not kept:
+        return ""
+    out = "\n\n## Related by meaning\n"
+    for h in kept:
+        piece = (f"\n**{h['title']}** ({h['source']})\n"
+                 + h["text"][:1200] + "\n")
+        if len(out) + len(piece) > room:
+            break
+        out += piece
+    return out
+
+
 def ask(map_path: str, words: str, limit: int = 12000) -> str:
     """The part of the map that mentions these words, and nothing else.
 
@@ -4489,19 +4509,7 @@ def main() -> int:
         answer = ask(map_path, args.ask)
         if os.path.exists(spec_path):
             answer += "\n\n" + ask(spec_path, args.ask)
-        # The semantic half: what the words missed but the meaning finds. The
-        # keyword sections answer when the asker knows the map's vocabulary;
-        # these answer when they only know their own. Deduplicated against
-        # the keyword answer by title, capped so the reply stays a reply.
-        from . import semantic as _sem
-        hits = _sem.search(out_dir, args.ask, k=6)
-        kept = [h for h in hits
-                if h["title"] not in answer][:4]
-        if kept:
-            answer += "\n\n## Related by meaning\n"
-            for h in kept:
-                answer += (f"\n**{h['title']}** ({h['source']})\n"
-                           + h["text"][:1200] + "\n")
+        answer += meaning_tail(out_dir, args.ask, answer)
         print(answer)
         return 0
 
