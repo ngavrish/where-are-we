@@ -4431,6 +4431,15 @@ def main() -> int:
                          "sections it has, and how to ask it — never the map itself")
     ap.add_argument("--sections", action="store_true",
                     help="list the section headings of an existing map and exit")
+    ap.add_argument("--corpus", action="append", default=[], metavar="NAME=PATH",
+                    help="an extra corpus for the semantic index: a markdown "
+                         "file or a directory of md/mdc/txt (a rules corpus, a "
+                         "runbook). Repeatable. Indexed beside the map when the "
+                         "optional [semantic] extra is installed; ignored, "
+                         "loudly, when it is not")
+    ap.add_argument("--no-semantic", action="store_true",
+                    help="skip building the semantic index even when fastembed "
+                         "is available")
     args = ap.parse_args()
 
     # Answering from a map that already exists needs none of what follows: no
@@ -4480,6 +4489,19 @@ def main() -> int:
         answer = ask(map_path, args.ask)
         if os.path.exists(spec_path):
             answer += "\n\n" + ask(spec_path, args.ask)
+        # The semantic half: what the words missed but the meaning finds. The
+        # keyword sections answer when the asker knows the map's vocabulary;
+        # these answer when they only know their own. Deduplicated against
+        # the keyword answer by title, capped so the reply stays a reply.
+        from . import semantic as _sem
+        hits = _sem.search(out_dir, args.ask, k=6)
+        kept = [h for h in hits
+                if h["title"] not in answer][:4]
+        if kept:
+            answer += "\n\n## Related by meaning\n"
+            for h in kept:
+                answer += (f"\n**{h['title']}** ({h['source']})\n"
+                           + h["text"][:1200] + "\n")
         print(answer)
         return 0
 
@@ -4699,12 +4721,32 @@ def main() -> int:
         with open(args.agent_file, "w", encoding="utf-8") as fh:
             fh.write(cur)
 
+    # The semantic index, built from the map just written plus whatever
+    # corpora the caller named. Free when nothing changed (content hash),
+    # absent without complaint when the [semantic] extra is not installed -
+    # the keyword ask stands alone then, exactly as it always did.
+    sem_line = ""
+    if not args.no_semantic:
+        from . import semantic as _sem
+        corpora = [("map", os.path.join(out_dir, "framework_map.md"))]
+        spec_md = os.path.join(out_dir, "spec_map.md")
+        if os.path.exists(spec_md):
+            corpora.append(("specs", spec_md))
+        for spec in args.corpus:
+            name, _eq, path = spec.partition("=")
+            if not _eq:
+                name, path = os.path.basename(spec.rstrip("/")), spec
+            corpora.append((name, path))
+        sem_line = _sem.build_index(out_dir, corpora)
+
     c = m["counts"]
     if args.quiet:
         return 0
     print(f"framework map: {c['step_modules']} step modules, {c['steps']} steps, "
           f"{c['features']} features, {c['scenarios']} scenarios "
           f"-> {out_dir}/framework_map.md")
+    if sem_line:
+        print(sem_line)
     return 0
 
 

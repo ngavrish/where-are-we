@@ -1,6 +1,6 @@
 [project]
 name = "where-are-we"
-version = "0.8.1"
+version = "0.9.0"
 description = "Stop paying your agent to grep. One tree walk writes entry points, routes, data model, step signatures, and every duplicate or dead test into AGENTS.md — or JSON for your own harness."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,9 @@ dependencies = []
 # Optional on purpose: regexes carry the tool everywhere, and a real parser
 # sharpens the two languages where they are weakest.
 precise = ["tree-sitter-languages>=1.10", "tree-sitter>=0.21,<0.22"]
+# Local embeddings for the semantic half of --ask: ONNX models on CPU, no
+# service, no database - the index is two flat files beside the map.
+semantic = ["fastembed>=0.4", "numpy>=1.24"]
 
 [project.scripts]
 where-are-we = "where_are_we.mapper:main"
