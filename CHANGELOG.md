@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.11.0
+
+A vector never changes for the same text and model, yet every run rebuilt its
+index from scratch: five and a half of the six minutes of a full five-corpus
+build were recomputing vectors computed the run before.
+
+- `WAWE_EMBED_CACHE` names a sqlite file (stdlib, one file, its own locking)
+  where embeddings are cached across runs, keyed by model and text hash. Unset
+  keeps the old behavior byte for byte.
+- `build_index` creates its out_dir instead of crashing on `np.save`.
+- Running `mapper.py` by path works again: the local imports added since 0.8
+  (`readmes`, `semantic`, `mcp`) now carry the same try-relative-then-plain
+  fallback the top of the file always had.
+
+## 0.10.0
+
+A product tree handed over as `--corpus` is code, and "which component renders
+the values dropdown" is the question a UI session pays twenty Reads to answer
+without it.
+
+- The corpus walk takes doc AND source extensions, skips dependency and build
+  directories, and caps file size so a bundle or lockfile cannot flood the
+  index. Chunking by blank lines works on source the way it works on prose.
+- The "Related by meaning" tail moved into a shared helper: the MCP `ask` now
+  appends it too, not only the CLI `--ask` branch.
+
+## 0.9.0
+
+The keyword ask answers when the asker knows the words the map used; the
+sessions that pay the most only know their own words.
+
+- A local embedding index closes the gap: fastembed's ONNX models on CPU
+  (bge-small for recall, a MiniLM cross-encoder for precision on top), the
+  index two flat files beside the map - at thousands of chunks a numpy dot
+  product IS the vector database. Built after every map write, skipped by
+  content hash, absent without complaint when the `[semantic]` extra is not
+  installed.
+- `--corpus NAME=PATH` indexes external corpora (a rules directory, a runbook)
+  into the same answers; `--ask` grows a "Related by meaning" tail
+  deduplicated against the keyword hits.
+- `--ask` takes every question at once instead of one call per turn, a batch
+  shares one budget, and sections are ranked by BM25 rather than raw word
+  counts.
+- `cluster()` greedy-folds failure messages for triage prefilters.
+
 ## 0.8.0
 
 Half of what an agent searches for is text, not a name. Watched over one run: a
