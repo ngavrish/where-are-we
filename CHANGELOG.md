@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.11.1
+
+Packaging only, no code change to the tool.
+
+- The deb now ships every module. It packaged only `mapper`, `readmes` and
+  `__init__`, but `__init__` imports `mapper` and `mapper` imports `specs`,
+  `semantic` and `mcp`, so the deb smoke test died on a missing-module import
+  on every release since these modules were added.
+- The rpm "attach to the release" step marks the container checkout as a safe
+  git directory, fixing "not a git repository" when `gh` runs as root in the
+  fedora image.
+- `__version__` catches up to the packaged version.
+
 ## 0.11.0
 
 A vector never changes for the same text and model, yet every run rebuilt its
