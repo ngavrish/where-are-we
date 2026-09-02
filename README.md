@@ -18,7 +18,7 @@ Your agent starts working at turn one, not turn 41.
 
 One command turns a repository into a map an agent reads before it works: layers,
 entry points, routes, data model, contracts, tests, and where every name is
-defined. No model, no network - the tree in seconds, the same map every time.
+defined. It reads the tree offline in seconds, and the same tree gives the same map every time.
 
 Without it a session spends its first turns rediscovering the repo:
 
@@ -361,7 +361,7 @@ The same index answering the same questions; what changes is that the question i
 an argument and the answer is a tool result, rather than a shell command and its
 output sitting in the conversation to be re-read on every turn after.
 
-No model and no network live in here. It reads the JSON the mapper wrote.
+It reads the JSON the mapper wrote, on the same machine, offline.
 
 ## As a library
 
