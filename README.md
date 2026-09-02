@@ -14,6 +14,22 @@ One tree walk writes entry points, routes, data model, step signatures, and
 every duplicate or dead test into `AGENTS.md` — or JSON for your own harness.
 Your agent starts working at turn one, not turn 41.
 
+## What you save
+
+Measured on a real 184-feature `behave` suite and one production agent run:
+
+| | Without the map | With the map |
+|---|---|---|
+| Orientation before real work | ~40 turns of `ls`/`find`/`grep` | 1 turn: one `--ask` |
+| Repo context re-sent each turn | the map inlined, ≈ 64k tokens | a pointer, ≈ 212 tokens (**300× less**) |
+| That context over one run | **27.4M tokens** — a quarter of the whole run | a few KB total |
+| Budget it drained | a 5-hour allowance gone in **74 min** | the budget goes to work |
+| Cost to build it | — | one tree walk: **10s**, offline, 0 tokens |
+
+The map (121 KB) stays on disk to grep; a 616-byte pointer is what an agent
+carries. You pay a ten-second tree walk once and stop paying for rediscovery on
+every turn.
+
 ## What it does
 
 One command turns a repository into a map an agent reads before it works: layers,
