@@ -24,9 +24,11 @@ jobs:
         run: |
           V=${{ steps.v.outputs.version }}
           ROOT=$(mktemp -d)
-          install -Dm644 src/where_are_we/mapper.py  $ROOT/usr/lib/where-are-we/where_are_we/mapper.py
-          install -Dm644 src/where_are_we/readmes.py $ROOT/usr/lib/where-are-we/where_are_we/readmes.py
-          install -Dm644 src/where_are_we/__init__.py $ROOT/usr/lib/where-are-we/where_are_we/__init__.py
+          mkdir -p $ROOT/usr/lib/where-are-we/where_are_we
+          # Every module: __init__ imports mapper, and mapper imports specs,
+          # semantic and mcp. Shipping only three of them is the circular-import
+          # crash the deb smoke test hit on every release.
+          install -Dm644 src/where_are_we/*.py -t $ROOT/usr/lib/where-are-we/where_are_we/
           install -Dm644 LICENSE $ROOT/usr/share/doc/where-are-we/copyright
           mkdir -p $ROOT/usr/bin $ROOT/DEBIAN
           cat > $ROOT/usr/bin/where-are-we <<'SH'
@@ -136,7 +138,8 @@ jobs:
       - name: attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          dnf install -y -q gh
+          dnf install -y -q gh git
+          git config --global --add safe.directory "$PWD"
           gh release view "$TAG" >/dev/null 2>&1 \
             || gh release create "$TAG" --generate-notes --verify-tag \
             || gh release view "$TAG" >/dev/null
