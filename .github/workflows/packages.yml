@@ -71,13 +71,14 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           cp where-are-we_*.deb where-are-we_all.deb   # a stable name for /latest/download
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --generate-notes --verify-tag \
-            || gh release view "$TAG" >/dev/null
-          gh release upload "$TAG" where-are-we_*.deb --clobber
+          gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$REPO" --generate-notes --verify-tag \
+            || gh release view "$TAG" -R "$REPO" >/dev/null
+          gh release upload "$TAG" where-are-we_*.deb -R "$REPO" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
 
   rpm:
     runs-on: ubuntu-latest
@@ -138,15 +139,18 @@ jobs:
       - name: attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          dnf install -y -q gh git
-          git config --global --add safe.directory "$PWD"
-          gh release view "$TAG" >/dev/null 2>&1 \
-            || gh release create "$TAG" --generate-notes --verify-tag \
-            || gh release view "$TAG" >/dev/null
-          gh release upload "$TAG" where-are-we-*.rpm --clobber
+          dnf install -y -q gh
+          # -R names the repo so gh needs no local git: the fedora container's
+          # checkout is not a discoverable git dir, which is what 'not a git
+          # repository' was.
+          gh release view "$TAG" -R "$REPO" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$REPO" --generate-notes --verify-tag \
+            || gh release view "$TAG" -R "$REPO" >/dev/null
+          gh release upload "$TAG" where-are-we-*.rpm -R "$REPO" --clobber
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
 
   apt-repo:
     needs: [deb, rpm]

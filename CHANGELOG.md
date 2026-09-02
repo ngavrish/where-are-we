@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.2
+
+Packaging only. The rpm job's "attach to the release" step ran `gh` inside a
+fedora container whose checkout git cannot discover, so it died on "not a git
+repository". Every `gh release` call now names the repo with `-R`, needing no
+local git; the deb job matches for symmetry.
+
 ## 0.11.1
 
 Packaging only, no code change to the tool.
