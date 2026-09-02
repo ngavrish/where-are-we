@@ -75,20 +75,21 @@ $ where-are-we --ask "refund settled invoice"
 - 0.88: "the invoice is settled" (`billing_steps.py`) ≈ "an invoice has settled" (`api_steps.py`)
 ```
 
-## As an MCP server
+## Command line
+
+A CLI is the tool. `pip install where-are-we` gives two commands:
+
+- `where-are-we` — build the map and answer from it.
+- `wawe-readmes` — offer a repo the docs it is missing.
 
 ```bash
-where-are-we --mcp --out /path/to/the/map
+where-are-we --repo . --agent-file AGENTS.md   # build the map, drop a pointer
+where-are-we --ask "refund settled invoice"    # answer from an existing map
+where-are-we --install-hook git                # rebuild on checkout/merge/commit
 ```
 
-Four tools — `ask`, `defines`, `find`, `sections` — over JSON-RPC on stdin and
-stdout. `defines` answers where a name is declared; `find` answers where a phrase
-appears, which is the other half of what a grep was for.
-The same index answering the same questions; what changes is that the question is
-an argument and the answer is a tool result, rather than a shell command and its
-output sitting in the conversation to be re-read on every turn after.
-
-No model and no network live in here. It reads the JSON the mapper wrote.
+Every flag is under **All options** below; the map also answers over MCP
+(`--mcp`) and as a library.
 
 ## Where is it defined
 
@@ -346,6 +347,21 @@ recorded with the map, so a re-run on an unchanged tree costs a stat walk.
 ```
 
 </details>
+
+## As an MCP server
+
+```bash
+where-are-we --mcp --out /path/to/the/map
+```
+
+Four tools — `ask`, `defines`, `find`, `sections` — over JSON-RPC on stdin and
+stdout. `defines` answers where a name is declared; `find` answers where a phrase
+appears, which is the other half of what a grep was for.
+The same index answering the same questions; what changes is that the question is
+an argument and the answer is a tool result, rather than a shell command and its
+output sitting in the conversation to be re-read on every turn after.
+
+No model and no network live in here. It reads the JSON the mapper wrote.
 
 ## As a library
 
