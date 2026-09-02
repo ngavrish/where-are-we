@@ -3967,7 +3967,10 @@ def propose_docs(repo: str, m: dict, apply: bool = False) -> list:
     tool that edits a repository it was asked to read is a tool nobody runs
     twice.
     """
-    from . import readmes as _readmes  # local: the CLI may be run as a script
+    try:
+        from . import readmes as _readmes
+    except ImportError:  # run as a plain file, with no package around it
+        import readmes as _readmes  # type: ignore[no-redef]
 
     planned = []
 
@@ -4257,7 +4260,10 @@ def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
     """The 'Related by meaning' section, deduplicated against an answer
     already built by keywords. Empty string when there is no index, no
     library, or nothing new to add - the keyword answer stands alone."""
-    from . import semantic as _sem
+    try:
+        from . import semantic as _sem
+    except ImportError:  # run as a plain file, with no package around it
+        import semantic as _sem  # type: ignore[no-redef]
     hits = _sem.search(out_dir, words, k=k + 2)
     kept = [h for h in hits if h["title"] not in already][:k]
     if not kept:
@@ -4465,7 +4471,10 @@ def main() -> int:
     # Answering from a map that already exists needs none of what follows: no
     # repository walk, no product roots, no config. It is a read.
     if args.mcp:
-        from . import mcp as _mcp
+        try:
+            from . import mcp as _mcp
+        except ImportError:  # run as a plain file, with no package around it
+            import mcp as _mcp  # type: ignore[no-redef]
         return _mcp.serve(os.path.abspath(args.out))
 
     if args.specs:
@@ -4735,7 +4744,10 @@ def main() -> int:
     # the keyword ask stands alone then, exactly as it always did.
     sem_line = ""
     if not args.no_semantic:
-        from . import semantic as _sem
+        try:
+            from . import semantic as _sem
+        except ImportError:  # run as a plain file, with no package around it
+            import semantic as _sem  # type: ignore[no-redef]
         corpora = [("map", os.path.join(out_dir, "framework_map.md"))]
         spec_md = os.path.join(out_dir, "spec_map.md")
         if os.path.exists(spec_md):
