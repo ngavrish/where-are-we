@@ -16,8 +16,11 @@ Your agent starts working at turn one, not turn 41.
 
 ## What it does
 
-No model, no network, no tokens: it reads the tree, so the same tree always
-gives the same map. Without it, every session opens the same way:
+One command turns a repository into a map an agent reads before it works: layers,
+entry points, routes, data model, contracts, tests, and where every name is
+defined. No model, no network - the tree in seconds, the same map every time.
+
+Without it a session spends its first turns rediscovering the repo:
 
 ```console
 # turn 1   ls; find . -name "*steps*"
@@ -27,7 +30,9 @@ gives the same map. Without it, every session opens the same way:
 # turn 41  first line of actual work
 ```
 
-With it:
+With the map, turn 1 is the work. Measured on a real suite: forty-odd orientation
+turns become one `--ask`, and the agent reads an 849-byte pointer instead of
+grepping a repository it has not seen.
 
 ```console
 $ where-are-we --repo . --agent-file AGENTS.md --max-lines 200
@@ -35,7 +40,7 @@ $ where-are-we --repo . --agent-file AGENTS.md --max-lines 200
 framework map: 66 step modules, 1359 steps, 179 features, 1782 scenarios -> ./framework_map.md
 ```
 
-`AGENTS.md` gets a pointer — 849 bytes, not the map:
+`AGENTS.md` gets a pointer - 849 bytes, not the map:
 
 ```markdown
 ## The framework map
