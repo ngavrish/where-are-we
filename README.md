@@ -175,11 +175,14 @@ about the codebase.
 
 ```bash
 pip install where-are-we
+pip install "where-are-we[semantic]"   # + local embeddings for a semantic --ask
 brew tap ngavrish/tap && brew install where-are-we
 curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh
 ```
 
-macOS, Debian, Ubuntu, Fedora, RHEL. Or `ghcr.io/ngavrish/where-are-we`.
+macOS, Debian, Ubuntu, Fedora, RHEL. Or `ghcr.io/ngavrish/where-are-we`. The
+`[semantic]` extra adds fastembed (ONNX on CPU, no service, no database); without
+it `--ask` still answers by keyword.
 
 ## Output
 
@@ -218,7 +221,15 @@ sixty-four thousand, every turn.
 |---|---|
 | `--pointer` | what belongs in a prompt: the path, the sections, how to ask |
 | `--ask "words"` | only the sections that mention those words, ranked |
+| `--ask "words"` (with `[semantic]`) | the keyword hits plus a "Related by meaning" tail from a local embedding index |
+| `--corpus NAME=PATH` | fold an external corpus (a rules dir, a runbook) into the same semantic answers |
+| `--no-semantic` | skip the embedding index even when fastembed is installed |
+| `--mcp` | serve the map over MCP on stdin/stdout instead of answering once |
 | `--sections` | the section headings |
+
+`WAWE_EMBED_CACHE=<file>` caches the semantic index's embeddings in one sqlite
+file keyed by model and text, so a rebuild does not recompute vectors it already
+has. Unset keeps the old behaviour.
 
 ## What it reads
 
@@ -274,7 +285,7 @@ notebooks.
 
 ```yaml
 - repo: https://github.com/ngavrish/where-are-we
-  rev: v0.3.0
+  rev: v0.11.2
   hooks: [{id: where-are-we}]
 ```
 
