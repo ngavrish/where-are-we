@@ -22,6 +22,11 @@ import json
 import os
 import sys
 
+try:
+    from . import __version__
+except ImportError:  # run as a plain file, with no package around it
+    from __init__ import __version__  # type: ignore[no-redef]
+
 PROTOCOL = "2024-11-05"
 
 TOOLS = [
@@ -168,7 +173,7 @@ def serve(out_dir: str) -> int:
             _reply({"protocolVersion": PROTOCOL,
                     "capabilities": {"tools": {}},
                     "serverInfo": {"name": "where-are-we",
-                                   "version": "0.6.0"}}, ident)
+                                   "version": __version__}}, ident)
         elif method == "tools/list":
             _reply({"tools": TOOLS}, ident)
         elif method == "tools/call":
