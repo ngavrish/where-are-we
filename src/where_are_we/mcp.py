@@ -194,8 +194,15 @@ def serve(out_dir: str) -> int:
                     # The MCP is how sessions actually ask; leaving the
                     # semantic tail on the CLI alone gave meaning to the one
                     # caller nobody uses.
-                    answer += mapper.meaning_tail(out_dir, words, answer,
-                                                  room=max(room // 3, 1500))
+                    # The tail shares the answer's room rather than adding to it:
+                    # a third of the room at most, and never more than is left.
+                    # meaning_tail(room=0) is not safe — its header line is
+                    # written before the room check, so it can come back
+                    # non-empty even at room=0; guarded here instead.
+                    left = max(room - len(answer), 0)
+                    if left:
+                        answer += mapper.meaning_tail(out_dir, words, answer,
+                                                      room=min(room // 3, left))
                     return answer
 
                 asked = _each(args.get("words")) or [""]

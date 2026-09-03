@@ -10,8 +10,12 @@ Answers end on whole rows and say what they left out.
 - In an answer, consecutive rows under one directory are printed under it
   once. Rendering only; the map on disk keeps full paths.
 - `--max-lines` caps the brief per section — every section keeps its head and
-  its first rows, then says how many more are in `framework_map.md` — instead
-  of dropping whatever came after line N.
+  up to its share of rows (none, under a cap too small to hold them), then
+  says how many more are in `framework_map.md` — instead of dropping
+  whatever came after line N.
+- Bold `**…**` lines in a section are structure, not rows: they are neither
+  shown in an answer nor counted as rows that did not match; a
+  `- **label**: value` row matches only if it mentions the words.
 
 ## 0.11.2
 

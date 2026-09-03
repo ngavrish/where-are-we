@@ -4179,7 +4179,8 @@ def pointer(map_path: str, brief_path: str = "") -> str:
         "",
         f"    where-are-we --out {os.path.dirname(map_path) or '.'} --ask \"the words you need\"",
         "",
-        "That prints only the sections that mention those words. "
+        "That prints only the rows that mention those words, whole, and says how much "
+        "of each section it left out. "
         f"`--sections` lists what is in it. `grep` on `{map_path}` works too; "
         "reading the whole file does not — it lands in every message after it.",
         "",
@@ -4459,8 +4460,9 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         for line in b:
             if not line.strip():
                 continue
-            low = line.lower()
-            if any(t in low for t in terms) or line.startswith(("**", "- **")):
+            if line.startswith("**"):
+                continue  # a bare bold subhead: structure, not a row — neither shown nor counted
+            if any(t in line.lower() for t in terms):
                 matching.append(line)
             else:
                 unmatched += 1
@@ -4471,15 +4473,16 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         # 68 times over budget when the head and first row were forced.
         budget = room - _TAIL_RESERVE
         if budget <= len(h):
-            break
+            continue  # this section's head alone would overrun; skip it, not every section after
         seen += 1
-        kept, used, dropped = [h], len(h), 0
-        for line in _group_dirs(matching):
+        kept_rows, used, dropped = [], len(h), 0
+        for line in matching:
             if used + len(line) + 1 > budget:
                 dropped += 1
                 continue
-            kept.append(line)
+            kept_rows.append(line)
             used += len(line) + 1
+        kept = [h] + _group_dirs(kept_rows)
         tail = []
         if dropped:
             tail.append(f"… {dropped} more matching rows")
@@ -4568,8 +4571,9 @@ def main() -> int:
     ap.add_argument("--quiet", action="store_true", help="no summary line")
     ap.add_argument("--ask", default="", metavar="WORDS",
                     help="answer from an existing map instead of building one: "
-                         "print the sections that mention these words, and nothing "
-                         "else. Reads framework_map.md under --out.")
+                         "print the rows that mention these words, whole, with a "
+                         "count of what was left out, and nothing else. Reads "
+                         "framework_map.md under --out.")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "

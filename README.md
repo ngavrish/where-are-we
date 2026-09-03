@@ -242,7 +242,7 @@ sixty-four thousand, every turn.
 | command | what it prints |
 |---|---|
 | `--pointer` | what belongs in a prompt: the path, the sections, how to ask |
-| `--ask "words"` | only the sections that mention those words, ranked |
+| `--ask "words"` | only the rows that mention those words, whole, ranked by section; says what it left out |
 | `--ask "words"` (with `[semantic]`) | the keyword hits plus a "Related by meaning" tail from a local embedding index |
 | `--corpus NAME=PATH` | fold an external corpus (a rules dir, a runbook) into the same semantic answers |
 | `--no-semantic` | skip the embedding index even when fastembed is installed |
