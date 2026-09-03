@@ -85,11 +85,22 @@ And the map answers questions instead of being read:
 $ where-are-we --ask "refund settled invoice"
 
 ## What past runs measured (slowest first)
-- billing/refund.feature:88 Refund a settled invoice — ~252s, failed 3×
+- `billing/`
+  - `refund.feature:88` Refund a settled invoice — ~252s, failed 3×
+  - `credit_note.feature:12` Refund a settled invoice by credit note — ~40s
+… 61 rows in this section do not mention these words
 
 ## Steps that overlap (14 pairs)
 - 0.88: "the invoice is settled" (`billing_steps.py`) ≈ "an invoice has settled" (`api_steps.py`)
+… 2 more matching rows; 11 rows in this section do not mention these words
 ```
+
+An answer is whole rows, never a row cut in the middle, and it fits the limit it
+was given (12,000 characters for the CLI and the MCP) rather than filling it.
+Rows under one directory are printed under it once. Each section ends by saying
+what it left out — how many matching rows did not fit, and how many rows did not
+mention the words at all — so the reader knows whether to ask again with more
+words or to open `framework_map.md`.
 
 ## Command line
 
@@ -307,7 +318,7 @@ notebooks.
 
 ```yaml
 - repo: https://github.com/ngavrish/where-are-we
-  rev: v0.11.2
+  rev: v0.12.0
   hooks: [{id: where-are-we}]
 ```
 
