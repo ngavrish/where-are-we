@@ -1,0 +1,14 @@
+{
+  "name": "where-are-we",
+  "owner": { "name": "ngavrish" },
+  "description": "A map of the repository an agent reads before it works.",
+  "plugins": [
+    {
+      "name": "where-are-we",
+      "source": "./plugin",
+      "description": "Builds the repository map at session start, hands the session its pointer, answers questions over MCP; skills for asking, defining, spec maps and READMEs.",
+      "version": "0.12.0",
+      "author": { "name": "ngavrish" }
+    }
+  ]
+}

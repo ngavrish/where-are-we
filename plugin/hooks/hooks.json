@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "sh ${CLAUDE_PLUGIN_ROOT}/scripts/session-start.sh", "timeout": 120 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Grep|Glob|Bash",
+        "hooks": [
+          { "type": "command", "command": "sh ${CLAUDE_PLUGIN_ROOT}/scripts/prefer-the-map.sh", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

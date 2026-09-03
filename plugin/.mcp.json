@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "where-are-we": {
+      "type": "stdio",
+      "command": "where-are-we",
+      "args": ["--mcp", "--out", "${CLAUDE_PROJECT_DIR}/.wawe"]
+    }
+  }
+}

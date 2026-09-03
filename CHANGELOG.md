@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- A Claude Code plugin in `plugin/`: a SessionStart hook that builds the map
+  and hands the session its pointer, the map's tools over MCP, five skills
+  (`orient`, `ask`, `where-defined`, `spec-map`, `readmes`), and an opt-in
+  strict mode (`WAWE_STRICT=1`) that refuses repository searches while a map
+  exists. Install: `/plugin marketplace add ngavrish/where-are-we`.
+
 ## 0.12.0
 
 Answers end on whole rows and say what they left out.
