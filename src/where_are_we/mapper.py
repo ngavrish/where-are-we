@@ -4278,6 +4278,11 @@ def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
     return out
 
 
+def _group_dirs(rows: list) -> list:
+    """Identity for now; a later change groups matching rows under their directory."""
+    return list(rows)
+
+
 def ask(map_path: str, words: str, limit: int = 12000) -> str:
     """The part of the map that mentions these words, and nothing else.
 
@@ -4344,22 +4349,40 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         out.append("## Defined here\n\n" + "\n".join(exact))
         room -= sum(len(x) for x in exact)
     for hits, h, b in scored:
-        kept = [h]
+        # Whole rows or nothing. Slicing the section at `room` characters left
+        # the last row of every answer cut mid-word, and nothing said how much
+        # of the section had not been shown — the reader took the fragment
+        # for the whole.
+        matching, unmatched = [], 0
         for line in b:
             if not line.strip():
                 continue
             low = line.lower()
             if any(t in low for t in terms) or line.startswith(("**", "- **")):
-                kept.append(line)
+                matching.append(line)
+            else:
+                unmatched += 1
+        kept, used, dropped = [h], len(h), 0
+        for line in _group_dirs(matching):
+            if used + len(line) + 1 > room and kept[1:]:
+                dropped += 1
+                continue
+            kept.append(line)
+            used += len(line) + 1
+        tail = []
+        if dropped:
+            tail.append(f"… {dropped} more matching rows")
+        if unmatched:
+            tail.append(f"{unmatched} rows in this section do not mention these words")
+        if tail:
+            kept.append("; ".join(tail) if dropped else "… " + tail[0])
         chunk = "\n".join(kept)
-        if len(chunk) > room:
-            chunk = chunk[:max(room, 0)]
-        if not chunk.strip():
+        if len(kept) == 1:
             continue
         out.append(chunk)
         room -= len(chunk)
         if room <= 0:
-            out.append(f"\n… more matches in {map_path}; ask for something narrower")
+            out.append(f"\n… more sections match in {map_path}; ask for something narrower")
             break
     return "\n\n".join(out)
 
