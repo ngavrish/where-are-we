@@ -1,6 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.12.1
+
+A code repository gets a real map, and Claude Code gets a plugin.
+
+- `--ask`, `--sections`, `--pointer` and the MCP `sections` read the brief's
+  sections as well as the map's. For a behave suite nothing changes; for a
+  plain code repository the map file was a three-section skeleton and the
+  seventy sections that matter - entry points, routes, data model, public
+  surface - sat in `framework_map_brief.md` where no question reached them.
+- The product under test is guessed from sibling directories only when the
+  repository is a test suite (a steps directory or a feature file). A code
+  repository mapped from a directory of other projects had indexed its
+  neighbours as the product. `--product none` switches the guess off.
 
 - A Claude Code plugin in `plugin/`: a SessionStart hook that builds the map
   and hands the session its pointer, the map's tools over MCP, five skills
