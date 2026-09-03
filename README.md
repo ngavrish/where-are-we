@@ -67,7 +67,7 @@ grepping the repository — it already knows.
 
     where-are-we --ask "the words you need"
 
-That prints only the sections that mention those words. `--sections` lists what
+That prints only the rows that mention those words, whole, and says how much of each section it left out. `--sections` lists what
 is in it.
 
 It has these sections:
@@ -352,7 +352,7 @@ recorded with the map, so a re-run on an unchanged tree costs a stat walk.
 --for author|coder           author gets the whole vocabulary; coder gets the rest
 --only "routes,data model"   keep only these sections in the brief
 --skip "coverage,history"    drop these
---max-lines N                cap the brief; the full map is untouched
+--max-lines N                cap the brief per section; the full map is untouched
 --diff                       what changed since the map already in --out
 --init                       write a starter .framework-map.json
 --install-hook git|agent     wire it into something that already runs

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.0
+
+Answers end on whole rows and say what they left out.
+
+- `--ask` and the MCP `ask` no longer slice a section at a character count:
+  rows are whole, and a section that did not fit ends with how many matching
+  rows were dropped and how many rows did not match at all.
+- In an answer, consecutive rows under one directory are printed under it
+  once. Rendering only; the map on disk keeps full paths.
+- `--max-lines` caps the brief per section — every section keeps its head and
+  its first rows, then says how many more are in `framework_map.md` — instead
+  of dropping whatever came after line N.
+
 ## 0.11.2
 
 Packaging only. The rpm job's "attach to the release" step ran `gh` inside a
