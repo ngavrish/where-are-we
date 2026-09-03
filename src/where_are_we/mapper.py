@@ -4199,15 +4199,31 @@ def pointer(map_path: str, brief_path: str = "") -> str:
     """
     try:
         heads = [h[3:].strip() for h in map_heads(map_path)]
-        size = os.path.getsize(map_path) // 1024
+        size = os.path.getsize(map_path)
+        brief = os.path.join(os.path.dirname(map_path) or ".", "framework_map_brief.md")
+        if os.path.exists(brief):
+            size += os.path.getsize(brief)
+        size = max(1, size // 1024)
     except OSError as exc:
         return f"(no framework map: {exc})"
+    # A suite has step modules; a plain repository does not, and calling its
+    # map "a map of this suite and the product it tests" told the reader to
+    # look for tests that are not there.
+    suite = False
+    try:
+        with open(os.path.join(os.path.dirname(map_path) or ".",
+                               "framework_map.json"), encoding="utf-8") as fh:
+            counts = (json.load(fh) or {}).get("counts") or {}
+        suite = bool(counts.get("step_modules") or counts.get("features"))
+    except (OSError, ValueError):
+        pass
+    what = "this suite and the product it tests" if suite else "this repository"
 
     lines = [
         f"## The framework map",
         "",
-        f"`{map_path}` ({size} KB) is a generated map of this suite and the "
-        "product it tests. It is on disk on purpose: read from it, do not carry "
+        f"`{map_path}` ({size} KB with its brief) is a generated map of {what}. "
+        "It is on disk on purpose: read from it, do not carry "
         "it. Ask it before grepping the repository — it already knows.",
         "",
         f"    where-are-we --out {os.path.dirname(map_path) or '.'} --ask \"the words you need\"",
