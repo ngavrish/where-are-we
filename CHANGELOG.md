@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.2
+
+Plugin fixes from the first install through the marketplace.
+
+- `.wawe/` ignores itself: the hook writes `.wawe/.gitignore` instead of
+  editing the repository's `.gitignore`, and a repository without one stays
+  clean in `git status` too.
+- The pointer says what it is a map of - "this repository" unless the map has
+  step modules and feature files - and its size counts the brief, so a code
+  repository no longer reads "(0 KB) map of this suite".
+- The `v1` tag the GitHub Action example pins to now exists and moves with
+  each release; the pre-commit example pins the current version.
+
 ## 0.12.1
 
 A code repository gets a real map, and Claude Code gets a plugin.

@@ -1,6 +1,6 @@
 {
   "name": "where-are-we",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "A map of the repository an agent reads before it works: the map is built at session start, its 600-byte pointer goes into context, and the map answers questions over MCP instead of being grepped.",
   "author": { "name": "ngavrish" },
   "homepage": "https://github.com/ngavrish/where-are-we",

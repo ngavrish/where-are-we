@@ -25,7 +25,7 @@ Then, in Claude Code:
     /plugin marketplace add ngavrish/where-are-we
     /plugin install where-are-we@where-are-we
 
-`.wawe/` is added to the repository's `.gitignore` by the hook on first build.
+`.wawe/` ignores itself (the hook writes `.wawe/.gitignore`), so the repository's own `.gitignore` is never touched.
 
 ## Try it without installing
 

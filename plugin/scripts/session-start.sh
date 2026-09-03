@@ -32,11 +32,10 @@ if [ ! -f "$out/framework_map.md" ] || [ -n "$head" ] && [ "$head" != "$built" ]
   # session after a commit; edits within a session are not re-walked.
   ( cd "$cwd" && where-are-we --repo . --out .wawe --quiet >/dev/null 2>&1 ) || exit 0
   [ -n "$head" ] && printf '%s' "$head" > "$out/.built-at"
-  # Keep the map out of the repository's own diff.
-  if [ -f "$cwd/.gitignore" ] && ! grep -qx '.wawe/' "$cwd/.gitignore" 2>/dev/null; then
-    printf '\n.wawe/\n' >> "$cwd/.gitignore"
-  fi
 fi
+# The map directory ignores itself, so the repository's own .gitignore is
+# never touched and `git status` stays clean whether or not one exists.
+[ -f "$out/.gitignore" ] || printf '*\n' > "$out/.gitignore"
 
 ptr=$(cd "$cwd" && where-are-we --out .wawe --pointer 2>/dev/null || true)
 [ -n "$ptr" ] || exit 0
