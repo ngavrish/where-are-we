@@ -4332,6 +4332,8 @@ def _defined_here(exact: list, room: int) -> str:
     """
     head = "## Defined here\n"
     budget = room - 32  # the "… N more definitions" line, paid up front
+    if budget <= len(head):
+        return ""  # not even the head fits: nothing, not a head with a count
     kept, used, dropped = [head], len(head), 0
     for line in exact:
         if used + len(line) + 1 > budget:
