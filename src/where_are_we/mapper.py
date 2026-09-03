@@ -4278,15 +4278,70 @@ def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
     return out
 
 
+_ROW_PATH = re.compile(r"^- `([^`]*/)([^`/]+)`(.*)$")
+
+
 def _group_dirs(rows: list) -> list:
-    """Identity for now; a later change groups matching rows under their directory."""
-    return list(rows)
+    """Consecutive rows under one directory, printed under it once.
+
+    `features/checkout/payment.feature`, `features/checkout/refund.feature`
+    is the directory twice; an answer that lists forty rows of one package
+    spends a third of its room on the same prefix. Rendering only — the map on
+    disk keeps full paths, and so does everything that parses it.
+    """
+    out, i = [], 0
+    while i < len(rows):
+        m = _ROW_PATH.match(rows[i])
+        if not m:
+            out.append(rows[i])
+            i += 1
+            continue
+        d = m.group(1)
+        run = [m]
+        j = i + 1
+        while j < len(rows):
+            n = _ROW_PATH.match(rows[j])
+            if not n or n.group(1) != d:
+                break
+            run.append(n)
+            j += 1
+        if len(run) < 2:
+            out.append(rows[i])
+            i += 1
+            continue
+        out.append(f"- `{d}`")
+        out += [f"  - `{r.group(2)}`{r.group(3)}" for r in run]
+        i = j
+    return out
 
 
 # Room kept back for a section's tail line ("… 37 more matching rows; 210 rows
 # in this section do not mention these words") so the tail never pushes an
 # answer past its limit. Longer than any tail the two counts can produce.
 _TAIL_RESERVE = 96
+
+
+def _defined_here(exact: list, room: int) -> str:
+    """The definitions block, whole lines up to `room`, with a count of what
+    did not fit. Empty when not even one definition fits.
+
+    The section loop bounds itself against `limit`; this block was appended
+    whole before it, so 30 short definitions came back 1186 characters at
+    every limit from 50 to 1000 — a ceiling that only held after the block
+    that runs first.
+    """
+    head = "## Defined here\n"
+    budget = room - 32  # the "… N more definitions" line, paid up front
+    kept, used, dropped = [head], len(head), 0
+    for line in exact:
+        if used + len(line) + 1 > budget:
+            dropped += 1
+            continue
+        kept.append(line)
+        used += len(line) + 1
+    if dropped:
+        kept.append(f"… {dropped} more definitions")
+    return "\n".join(kept) if len(kept) > 1 else ""
 
 
 def ask(map_path: str, words: str, limit: int = 12000) -> str:
@@ -4325,7 +4380,9 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     if not scored:
         exact = _definitions_for(map_path, terms)
         if exact:
-            return "## Defined here\n\n" + "\n".join(exact)
+            block = _defined_here(exact, limit)
+            if block:
+                return block
         # What was indexed, said out loud. The old wording promised more than
         # it knew — "a real absence rather than a search that missed" — about a
         # constant that was in the product on line 31, in a language the index
@@ -4352,8 +4409,10 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     out, room = [], limit
     exact = _definitions_for(map_path, terms)
     if exact:
-        out.append("## Defined here\n\n" + "\n".join(exact))
-        room -= sum(len(x) for x in exact)
+        block = _defined_here(exact, room)
+        if block:
+            out.append(block)
+            room -= len(block) + 2
     seen = 0
     for hits, h, b in scored:
         # Whole rows or nothing. Slicing the section at `room` characters left
