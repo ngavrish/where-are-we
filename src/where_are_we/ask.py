@@ -1,0 +1,321 @@
+"""`ask()`: the part of the map that mentions these words, and nothing else.
+
+Moved out of `mapper.py` because three places there trimmed a list to a
+budget, each with its own copy of "keep whole items in order while they fit,
+count what didn't" — the definitions block, a section's matching rows, and
+`_cap_sections`'s per-section share. `fit_lines` is that one loop; everything
+below it is naming what goes in and out.
+"""
+
+import json
+import os
+import re
+
+RESERVE_TAIL = 96  # a section's tail line ("… 37 more matching rows; 210 rows
+# in this section do not mention these words"), paid for up front so the tail
+# never pushes an answer past its limit. Longer than any tail the two counts
+# can produce.
+RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
+# paid for up front the same way.
+
+_ROW_PATH = re.compile(r"^- `([^`]*/)([^`/]+)`(.*)$")
+
+
+def fit_lines(lines: list, budget: int, cost=len, sep: int = 1) -> tuple:
+    """Whole lines, in order, while `used + cost(line) + sep <= budget`.
+
+    Best-fit, not a prefix: a line that does not fit is skipped and counted,
+    and a later, shorter line may still fit. Returns the kept lines and how
+    many were dropped.
+    """
+    kept, used, dropped = [], 0, 0
+    for line in lines:
+        c = cost(line)
+        if used + c + sep > budget:
+            dropped += 1
+            continue
+        kept.append(line)
+        used += c + sep
+    return kept, dropped
+
+
+def _group_dirs(rows: list) -> list:
+    """Consecutive rows under one directory, printed under it once.
+
+    `features/checkout/payment.feature`, `features/checkout/refund.feature`
+    is the directory twice; an answer that lists forty rows of one package
+    spends a third of its room on the same prefix. Rendering only — the map on
+    disk keeps full paths, and so does everything that parses it.
+    """
+    out, i = [], 0
+    while i < len(rows):
+        m = _ROW_PATH.match(rows[i])
+        if not m:
+            out.append(rows[i])
+            i += 1
+            continue
+        d = m.group(1)
+        run = [m]
+        j = i + 1
+        while j < len(rows):
+            n = _ROW_PATH.match(rows[j])
+            if not n or n.group(1) != d:
+                break
+            run.append(n)
+            j += 1
+        if len(run) < 2:
+            out.append(rows[i])
+            i += 1
+            continue
+        out.append(f"- `{d}`")
+        out += [f"  - `{r.group(2)}`{r.group(3)}" for r in run]
+        i = j
+    return out
+
+
+def _defined_here(exact: list, room: int) -> str:
+    """The definitions block, whole lines up to `room`, with a count of what
+    did not fit. Empty when not even one definition fits.
+
+    The section loop bounds itself against `limit`; this block runs first, so
+    30 short definitions used to come back 1186 characters at every limit
+    from 50 to 1000 — a ceiling that only held after the block that runs
+    first.
+    """
+    head = "## Defined here\n"
+    budget = room - RESERVE_DEFINED
+    if budget <= len(head):
+        return ""  # not even the head fits: nothing, not a head with a count
+    kept_rows, dropped = fit_lines(exact, budget - len(head))
+    kept = [head] + kept_rows
+    if dropped:
+        kept.append(f"… {dropped} more definitions")
+    return "\n".join(kept) if len(kept) > 1 else ""
+
+
+# Ranking, with the two things counting words leaves out.
+#
+# The old score was `sum(hay.count(t) for t in terms)`, and on a map of a
+# product called InventoryForecasting the word "forecast" is in nearly every
+# section: it separates nothing and counted as much as the rare word that
+# separates everything. A long section also won for being long, since more
+# text holds more of any word. Measured on this repository's own map, three
+# real questions:
+#
+#   "persistence across reload"  the right module was 2nd, now 1st
+#   "cross tab sync"                                  5th, now 1st
+#   "export forecast to csv"           not in the top five at all, now 1st
+#
+# First place is what matters, because every answer here is cut to a budget
+# and the cut takes the tail. On the third question a branch asking about
+# export was handed the 132 KB general module and never shown the export
+# module, which exists, is indexed, and did not fit.
+#
+# BM25: a rare term outweighs a common one (idf), the tenth occurrence adds
+# almost nothing (k1), and a long section is discounted for its length (b).
+# The constants are the standard ones and are not tuned to anything here.
+_BM25_K1 = 1.5
+_BM25_B = 0.75
+
+
+def _rank(blocks, terms):
+    """Sections that mention these words, best first."""
+    import collections
+    import math
+
+    docs = []
+    for head, body in blocks:
+        words = re.findall(r"[a-z][a-z_]{1,}",
+                           (head + "\n" + "\n".join(body)).lower())
+        docs.append((head, body, collections.Counter(words), len(words)))
+    n = len(docs)
+    if not n:
+        return []
+    seen = collections.Counter()
+    for _, _, tf, _ in docs:
+        seen.update(tf.keys())
+    avgdl = sum(dl for _, _, _, dl in docs) / n or 1.0
+    out = []
+    for head, body, tf, dl in docs:
+        score = 0.0
+        for t in terms:
+            f = tf.get(t, 0)
+            if not f:
+                # Still counted when it is only a substring — "forecast"
+                # inside "forecasting" is a hit a reader means, and tokenising
+                # alone would lose it. Given the weight of one occurrence, no
+                # more.
+                if t in head.lower() or any(t in ln.lower() for ln in body):
+                    f = 1
+                else:
+                    continue
+            idf = math.log(1 + (n - seen[t] + 0.5) / (seen[t] + 0.5))
+            score += idf * (f * (_BM25_K1 + 1)) / (
+                f + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl))
+        if score <= 0:
+            continue
+        # A heading that matches still says the section is about this rather
+        # than that the word passed through it. Kept, as a multiplier now
+        # rather than a flat five, so it cannot outweigh the ranking itself.
+        if any(t in head.lower() for t in terms):
+            score *= 1.6
+        out.append((score, head, body))
+    out.sort(key=lambda x: -x[0])
+    return out
+
+
+def _blocks(text: str) -> list:
+    """The map's `#`/`##` sections as `(head, body_lines)` pairs."""
+    blocks, head, body = [], "", []
+    for line in text.splitlines():
+        if line.startswith("#") and line.lstrip("#").startswith(" "):
+            if head or body:
+                blocks.append((head, body))
+            head, body = line, []
+        else:
+            body.append(line)
+    blocks.append((head, body))
+    return blocks
+
+
+def _split_rows(body: list, terms: list) -> tuple:
+    """This section's rows that mention a term, and how many did not. A bare
+    bold subhead — structure, not a row — is neither shown nor counted."""
+    matching, unmatched = [], 0
+    for line in body:
+        if not line.strip():
+            continue
+        if line.startswith("**"):
+            continue
+        if any(t in line.lower() for t in terms):
+            matching.append(line)
+        else:
+            unmatched += 1
+    return matching, unmatched
+
+
+def _definitions_block(map_path: str, terms: list, room: int) -> str:
+    """`## Defined here`, bounded to `room`; empty when nothing was defined
+    under these terms."""
+    try:
+        from . import mapper as _mapper
+    except ImportError:  # run as a plain file, with no package around it
+        import mapper as _mapper  # type: ignore[no-redef]
+    exact = _mapper._definitions_for(map_path, terms)
+    if not exact:
+        return ""
+    return _defined_here(exact, room)
+
+
+def _section_answer(head: str, body: list, terms: list, room: int) -> tuple:
+    """One section's answer: matching rows, grouped by directory, with a tail
+    saying what didn't fit or didn't match.
+
+    Returns `(chunk, attempted)`. `chunk` is empty when the section has
+    nothing to show. `attempted` is true whenever the section's head alone
+    fit in `room` — independent of whether a chunk came out of it — and feeds
+    `seen`, for the "more sections match" note.
+    """
+    matching, unmatched = _split_rows(body, terms)
+    # `room` is a ceiling, not a target. The tail line is paid for up front,
+    # the head is included only if it fits, and no row is forced in: a first
+    # row longer than the room is a dropped row, not an exception. Measured
+    # at review: a 3 KB head with limit=50 came back 68 times over budget
+    # when the head and first row were forced.
+    budget = room - RESERVE_TAIL
+    if budget <= len(head):
+        return "", False  # this section's head alone would overrun; skip it, not every section after
+    kept_rows, dropped = fit_lines(matching, budget - len(head))
+    kept = [head] + _group_dirs(kept_rows)
+    tail = []
+    if dropped:
+        tail.append(f"… {dropped} more matching rows")
+    if unmatched:
+        tail.append(f"{unmatched} rows in this section do not mention these words")
+    if tail:
+        kept.append("; ".join(tail) if dropped else "… " + tail[0])
+    if len(kept) == 1:
+        return "", True
+    return "\n".join(kept), True
+
+
+def _more_note(room: int) -> str:
+    """The "more sections match" note, only if it fits: a note that says
+    "more" when there is no more, or that pushes the answer past its limit,
+    is the defect this guards."""
+    note = "… more sections match; ask for something narrower"
+    return note if len(note) + 2 <= room else ""
+
+
+def ask(map_path: str, words: str, limit: int = 12000) -> str:
+    """The part of the map that mentions these words, and nothing else.
+
+    A map is generated so nobody has to search the repository. Then it is 253 KB,
+    and searching *it* is the same problem one size down: grep hands back matching
+    lines with no idea which section they came from, so the reader either takes
+    the lines without their meaning or opens the whole file — and opening the
+    whole file puts it into every message that follows.
+
+    So: sections, ranked by how much they mention what was asked, cut to a size
+    that answers rather than a size that has to be paid for on every later turn.
+    """
+    try:
+        with open(map_path, encoding="utf-8") as fh:
+            text = fh.read()
+    except OSError as exc:
+        return f"no map at {map_path}: {exc}"
+
+    terms = [w.lower() for w in re.split(r"[\s,]+", words) if len(w) > 1]
+    if not terms:
+        return "ask what?"
+
+    blocks = _blocks(text)
+    scored = _rank(blocks, terms)
+    if not scored:
+        block = _definitions_block(map_path, terms, limit)
+        if block:
+            return block
+        # What was indexed, said out loud. The old wording promised more than
+        # it knew — "a real absence rather than a search that missed" — about a
+        # constant that was in the product on line 31, in a language the index
+        # did not cover. A map that overstates its reach turns "I did not look"
+        # into "it is not there", and the reader stops looking too.
+        looked = ""
+        try:
+            with open(os.path.join(os.path.dirname(map_path) or ".",
+                                   "framework_map.json"), encoding="utf-8") as fh:
+                counts = (json.load(fh) or {}).get("indexed") or {}
+            if counts:
+                looked = (" indexed: "
+                          + ", ".join(f"{where} {n} files"
+                                      for where, n in sorted(counts.items())))
+        except (OSError, ValueError):
+            pass
+        # Facts, not counsel. This is a script — a walk, some patterns, a JSON
+        # file — and an answer that reasons about what the reader should
+        # conclude is a script pretending to be an opinion. Say what was
+        # searched and what was found; the conclusion is the reader's.
+        return f"no match for {words!r}.{looked}"
+
+    scored.sort(key=lambda x: -x[0])
+    out, room = [], limit
+    block = _definitions_block(map_path, terms, room)
+    if block:
+        out.append(block)
+        room -= len(block) + 2
+    seen = 0
+    for hits, h, b in scored:
+        chunk, attempted = _section_answer(h, b, terms, room)
+        if attempted:
+            seen += 1
+        if chunk:
+            out.append(chunk)
+            room -= len(chunk) + 2
+    if seen < len(scored):
+        # Only when a matching section really went unshown, and only if the
+        # note itself fits: a note that says "more" when there is no more, or
+        # that pushes the answer past its limit, is the defect this guards.
+        note = _more_note(room)
+        if note:
+            out.append(note)
+    return "\n\n".join(out)
