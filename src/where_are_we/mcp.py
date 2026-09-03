@@ -230,9 +230,8 @@ def serve(out_dir: str) -> int:
                        ident)
             elif name == "sections":
                 try:
-                    with open(map_path, encoding="utf-8") as fh:
-                        heads = [ln.rstrip() for ln in fh if ln.startswith("## ")]
-                    _reply(_text("\n".join(heads)), ident)
+                    from .ask import map_heads
+                    _reply(_text("\n".join(map_heads(map_path))), ident)
                 except OSError as exc:
                     _reply(_text(f"no map at {map_path}: {exc}"), ident)
             else:

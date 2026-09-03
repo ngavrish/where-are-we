@@ -102,6 +102,16 @@ what it left out — how many matching rows did not fit, and how many rows did n
 mention the words at all — so the reader knows whether to ask again with more
 words or to open `framework_map.md`.
 
+## As a Claude Code plugin
+
+    /plugin marketplace add ngavrish/where-are-we
+    /plugin install where-are-we@where-are-we
+
+The plugin builds the map at session start, puts its pointer into the session's
+context, serves the map's tools over MCP (`ask`, `find`, `defines`,
+`sections`) and ships five skills. It needs `where-are-we` on PATH
+(`pipx install where-are-we`). Details in [plugin/README.md](plugin/README.md).
+
 ## Command line
 
 A CLI is the tool. `pip install where-are-we` gives two commands:

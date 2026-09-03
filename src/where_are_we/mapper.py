@@ -28,9 +28,9 @@ except ImportError:  # run as a plain file, with no package around it
     import specs  # type: ignore[no-redef]
 
 try:
-    from .ask import ask, fit_lines
+    from .ask import ask, fit_lines, map_heads
 except ImportError:  # run as a plain file, with no package around it
-    from ask import ask, fit_lines  # type: ignore[no-redef]
+    from ask import ask, fit_lines, map_heads  # type: ignore[no-redef]
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
 
@@ -627,6 +627,25 @@ def _manifest(repo: str) -> dict:
     return {}
 
 
+def _looks_like_suite(repo: str) -> bool:
+    """Whether this repository is a test suite with a product elsewhere: a
+    steps directory or a feature file within a few levels of the root."""
+    root = os.path.abspath(repo)
+    try:
+        for cur, dirs, files in os.walk(root):
+            depth = cur[len(root):].count(os.sep)
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", ".venv", "dist", "build")]
+            if os.path.basename(cur) in ("steps", "step_defs", "step_definitions"):
+                return True
+            if any(f.endswith(".feature") for f in files):
+                return True
+            if depth >= 3:
+                dirs[:] = []
+    except OSError:
+        return False
+    return False
+
+
 def _product_roots() -> list:
     """Where the product under test is checked out. Given by PRODUCT_SRC (colon
     or comma separated); otherwise the siblings of the test repo are tried, so a
@@ -639,9 +658,18 @@ def _product_roots() -> list:
     if stated:
         return [x for x in stated if x]
     raw = os.getenv("PRODUCT_SRC", "")
+    if raw.strip().lower() in ("none", "-", "off"):
+        return []
     if raw:
         return [x for x in re.split(r"[:,]", raw) if x]
     repo = os.getenv("AGENT_REPO", "/work")
+    # Siblings are tried only for a repository that is a test suite. A plain
+    # code repository mapped from a directory of other projects indexed its
+    # neighbours as "the product" - 231 files of three unrelated repositories,
+    # and `defines` answered with their paths. --product none switches the
+    # guess off for a suite too.
+    if not _looks_like_suite(repo):
+        return []
     out = []
     for parent in (os.path.dirname(os.path.abspath(repo)), "/checkout"):
         if not os.path.isdir(parent):
@@ -4170,8 +4198,7 @@ def pointer(map_path: str, brief_path: str = "") -> str:
     end.
     """
     try:
-        with open(map_path, encoding="utf-8") as fh:
-            heads = [ln[3:].strip() for ln in fh if ln.startswith("## ")]
+        heads = [h[3:].strip() for h in map_heads(map_path)]
         size = os.path.getsize(map_path) // 1024
     except OSError as exc:
         return f"(no framework map: {exc})"
@@ -4268,7 +4295,7 @@ def main() -> int:
                          "(default: $RUN_DIR or the current directory)")
     ap.add_argument("--product", default=os.getenv("PRODUCT_SRC", ""),
                     help="source roots of the application under test, comma separated; "
-                         "without it, siblings of the repo are tried")
+                         "without it, a test suite tries its sibling directories; a plain code repository does not; 'none' switches the guess off")
     ap.add_argument("--rules", default=os.getenv("RULES_REPO", ""),
                     help="a corpus of rules to list by name")
     ap.add_argument("--runs-api", default=os.getenv("RUNS_API_READ", ""),
@@ -4396,8 +4423,7 @@ def main() -> int:
             return 0
         if args.sections:
             try:
-                with open(map_path, encoding="utf-8") as fh:
-                    print("\n".join(ln.rstrip() for ln in fh if ln.startswith("## ")))
+                print("\n".join(map_heads(map_path)))
             except OSError as exc:
                 print(f"no map at {map_path}: {exc}", file=sys.stderr)
                 return 1

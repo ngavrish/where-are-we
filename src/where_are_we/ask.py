@@ -177,6 +177,41 @@ def _blocks(text: str) -> list:
     blocks.append((head, body))
     return blocks
 
+BRIEF_NAME = "framework_map_brief.md"
+
+
+def map_text(map_path: str) -> str:
+    """The map as one text: `framework_map.md` plus every section of the brief
+    beside it whose heading the map does not already have.
+
+    For a behave suite the map carries the step and feature sections and the
+    brief summarises them. For a plain code repository the map is a 1 KB
+    skeleton of three empty suite sections while the brief holds the seventy
+    that matter - entry points, routes, data model, public surface - and an
+    `ask` that read only the map answered nothing about the code. Reading both
+    costs nothing: the brief is a few dozen KB on disk, read once per question.
+    """
+    with open(map_path, encoding="utf-8") as fh:
+        text = fh.read()
+    brief = os.path.join(os.path.dirname(map_path) or ".", BRIEF_NAME)
+    try:
+        with open(brief, encoding="utf-8") as fh:
+            extra = fh.read()
+    except OSError:
+        return text
+    have = {h.strip() for h, _ in _blocks(text) if h.startswith("## ")}
+    keep = []
+    for head, body in _blocks(extra):
+        if head.startswith("## ") and head.strip() not in have:
+            keep.append("\n".join([head] + body))
+    return text if not keep else text.rstrip("\n") + "\n\n" + "\n\n".join(keep) + "\n"
+
+
+def map_heads(map_path: str) -> list:
+    """The `## ` headings of the map and its brief, in order, without repeats."""
+    return [h.strip() for h, _ in _blocks(map_text(map_path)) if h.startswith("## ")]
+
+
 
 def _split_rows(body: list, terms: list) -> tuple:
     """This section's rows that mention a term, and how many did not. A bare
@@ -269,8 +304,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     that answers rather than a size that has to be paid for on every later turn.
     """
     try:
-        with open(map_path, encoding="utf-8") as fh:
-            text = fh.read()
+        text = map_text(map_path)
     except OSError as exc:
         return f"no map at {map_path}: {exc}"
 
