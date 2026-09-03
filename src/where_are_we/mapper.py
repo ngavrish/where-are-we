@@ -4283,6 +4283,12 @@ def _group_dirs(rows: list) -> list:
     return list(rows)
 
 
+# Room kept back for a section's tail line ("… 37 more matching rows; 210 rows
+# in this section do not mention these words") so the tail never pushes an
+# answer past its limit. Longer than any tail the two counts can produce.
+_TAIL_RESERVE = 96
+
+
 def ask(map_path: str, words: str, limit: int = 12000) -> str:
     """The part of the map that mentions these words, and nothing else.
 
@@ -4348,6 +4354,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     if exact:
         out.append("## Defined here\n\n" + "\n".join(exact))
         room -= sum(len(x) for x in exact)
+    seen = 0
     for hits, h, b in scored:
         # Whole rows or nothing. Slicing the section at `room` characters left
         # the last row of every answer cut mid-word, and nothing said how much
@@ -4362,9 +4369,18 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
                 matching.append(line)
             else:
                 unmatched += 1
+        # `limit` is a ceiling, not a target. The tail line is paid for up
+        # front, the head is included only if it fits, and no row is forced
+        # in: a first row longer than the room is a dropped row, not an
+        # exception. Measured at review: a 3 KB head with limit=50 came back
+        # 68 times over budget when the head and first row were forced.
+        budget = room - _TAIL_RESERVE
+        if budget <= len(h):
+            break
+        seen += 1
         kept, used, dropped = [h], len(h), 0
         for line in _group_dirs(matching):
-            if used + len(line) + 1 > room and kept[1:]:
+            if used + len(line) + 1 > budget:
                 dropped += 1
                 continue
             kept.append(line)
@@ -4376,14 +4392,18 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
             tail.append(f"{unmatched} rows in this section do not mention these words")
         if tail:
             kept.append("; ".join(tail) if dropped else "… " + tail[0])
-        chunk = "\n".join(kept)
         if len(kept) == 1:
             continue
+        chunk = "\n".join(kept)
         out.append(chunk)
-        room -= len(chunk)
-        if room <= 0:
-            out.append(f"\n… more sections match in {map_path}; ask for something narrower")
-            break
+        room -= len(chunk) + 2
+    if seen < len(scored):
+        # Only when a matching section really went unshown, and only if the
+        # note itself fits: a note that says "more" when there is no more, or
+        # that pushes the answer past its limit, is the defect this guards.
+        note = "… more sections match; ask for something narrower"
+        if len(note) + 2 <= room:
+            out.append(note)
     return "\n\n".join(out)
 
 
