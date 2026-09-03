@@ -28,9 +28,9 @@ except ImportError:  # run as a plain file, with no package around it
     import specs  # type: ignore[no-redef]
 
 try:
-    from .ask import ask, fit_lines
+    from .ask import ask, fit_lines, map_heads
 except ImportError:  # run as a plain file, with no package around it
-    from ask import ask, fit_lines  # type: ignore[no-redef]
+    from ask import ask, fit_lines, map_heads  # type: ignore[no-redef]
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
 
@@ -4170,8 +4170,7 @@ def pointer(map_path: str, brief_path: str = "") -> str:
     end.
     """
     try:
-        with open(map_path, encoding="utf-8") as fh:
-            heads = [ln[3:].strip() for ln in fh if ln.startswith("## ")]
+        heads = [h[3:].strip() for h in map_heads(map_path)]
         size = os.path.getsize(map_path) // 1024
     except OSError as exc:
         return f"(no framework map: {exc})"
@@ -4396,8 +4395,7 @@ def main() -> int:
             return 0
         if args.sections:
             try:
-                with open(map_path, encoding="utf-8") as fh:
-                    print("\n".join(ln.rstrip() for ln in fh if ln.startswith("## ")))
+                print("\n".join(map_heads(map_path)))
             except OSError as exc:
                 print(f"no map at {map_path}: {exc}", file=sys.stderr)
                 return 1
