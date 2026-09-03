@@ -197,6 +197,15 @@ def _split_rows(body: list, terms: list) -> tuple:
 def _definitions_block(map_path: str, terms: list, room: int) -> str:
     """`## Defined here`, bounded to `room`; empty when nothing was defined
     under these terms."""
+    # This import must stay right here, function-local, and reference the
+    # module rather than pull a name out of it. mapper.py imports this module
+    # at load time with a plain top-level `from .ask import ask, fit_lines`,
+    # so a module-level or name-extracting import here
+    # (`from .mapper import _definitions_for`) raises "cannot import name
+    # from partially initialized module" whenever `where_are_we.ask` is
+    # imported before `where_are_we.mapper`. Deferring the import to call
+    # time, and only binding the module object, sidesteps that: by the time
+    # this function actually runs, both modules have finished loading.
     try:
         from . import mapper as _mapper
     except ImportError:  # run as a plain file, with no package around it
