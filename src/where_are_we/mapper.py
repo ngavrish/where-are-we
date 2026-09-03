@@ -3252,13 +3252,19 @@ def _cap_sections(text: str, max_lines: int) -> str:
     heads = [i for i, l in enumerate(lines) if l.startswith("## ")]
     if not heads:
         return "\n".join(lines[:max_lines])
-    preamble = lines[:heads[0]]
-    share = max(2, (max_lines - len(preamble) - 2 * len(heads)) // len(heads))
+    # The preamble is the brief's own few lines; a long one is cut too, or it
+    # alone could spend the cap (measured at review: a 200-line preamble under
+    # --max-lines 10 came back 206 lines). Every head stays whatever the cap —
+    # a section that is absent cannot be asked about — so a cap too small to
+    # hold the heads is exceeded by the heads and their tails, and by nothing
+    # else: no row is forced in.
+    preamble = lines[:heads[0]][:max(4, max_lines // 4)]
+    share = max(0, (max_lines - len(preamble) - 3 * len(heads)) // len(heads))
     out = list(preamble)
     for n, start in enumerate(heads):
         end = heads[n + 1] if n + 1 < len(heads) else len(lines)
         body = [l for l in lines[start + 1:end] if l.strip()]
-        out += [lines[start], ""]
+        out.append(lines[start])
         out += body[:share]
         if len(body) > share:
             out.append(f"… {len(body) - share} more in framework_map.md")
