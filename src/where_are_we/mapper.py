@@ -3238,6 +3238,34 @@ def for_audience(text: str, audience: str) -> str:
     return "\n".join(kept).rstrip() + "\n"
 
 
+def _cap_sections(text: str, max_lines: int) -> str:
+    """The brief cut inside its sections rather than at a line number.
+
+    `--max-lines 200` used to keep the first 200 lines and drop the rest, so
+    the sections at the end — the overlaps, the dead phrases, the debts — were
+    the ones that never reached the prompt. Now every section is present and
+    none is complete past its share; the tail says where the rest is.
+    """
+    if max_lines <= 0 or text.count("\n") <= max_lines:
+        return text
+    lines = text.split("\n")
+    heads = [i for i, l in enumerate(lines) if l.startswith("## ")]
+    if not heads:
+        return "\n".join(lines[:max_lines])
+    preamble = lines[:heads[0]]
+    share = max(2, (max_lines - len(preamble) - 2 * len(heads)) // len(heads))
+    out = list(preamble)
+    for n, start in enumerate(heads):
+        end = heads[n + 1] if n + 1 < len(heads) else len(lines)
+        body = [l for l in lines[start + 1:end] if l.strip()]
+        out += [lines[start], ""]
+        out += body[:share]
+        if len(body) > share:
+            out.append(f"… {len(body) - share} more in framework_map.md")
+        out.append("")
+    return "\n".join(out)
+
+
 def brief(m: dict) -> str:
     """The few thousand characters that go in the prompt: where things are, and
     which module owns which area. The step phrases themselves stay in the big
@@ -4794,9 +4822,7 @@ def main() -> int:
                 out_lines.append(line)
         text = "\n".join(out_lines) + "\n"
     if args.max_lines and text.count("\n") > args.max_lines:
-        cut = text.splitlines()[:args.max_lines]
-        text = "\n".join(cut) + f"\n\n… trimmed to {args.max_lines} lines; " \
-               "the full map is beside this file\n"
+        text = _cap_sections(text, args.max_lines)
     with open(os.path.join(out_dir, "framework_map_brief.md"), "w", encoding="utf-8") as fh:
         fh.write(text)
     if args.html:
