@@ -16,6 +16,7 @@ Answers end on whole rows and say what they left out.
 - Bold `**…**` lines in a section are structure, not rows: they are neither
   shown in an answer nor counted as rows that did not match; a
   `- **label**: value` row matches only if it mentions the words.
+- Internal: answering moved to `where_are_we/ask.py`; `mapper.ask` is a re-export.
 
 ## 0.11.2
 
