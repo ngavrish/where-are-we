@@ -12,8 +12,7 @@ is entered - from the map's facts, not from guesses.
     where-are-we --repo . --out .wawe --docs plan     # list what would be written, nothing changes
     where-are-we --repo . --out .wawe --docs write    # write the drafts
 
-(The `wawe-readmes` command exists but takes no arguments and writes into
-`$AGENT_REPO` at once; prefer the two lines above.)
+Or the same as one command: `wawe-readmes --repo .` lists, `wawe-readmes --repo . --write` writes.
 
 - Run `--plan` first and read the list; a directory that is deliberately
   undocumented (vendored code, generated output) should be excluded with

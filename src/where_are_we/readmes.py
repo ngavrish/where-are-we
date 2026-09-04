@@ -115,9 +115,32 @@ def describe(d: str) -> str | None:
     return "\n".join(lines)
 
 
-def main() -> int:
-    repo = os.getenv("AGENT_REPO", "/work")
-    written = 0
+def main(argv: list | None = None) -> int:
+    """Offer a repository the READMEs it is missing.
+
+    Nothing is written unless asked: the default lists what would be written.
+    Until 0.12.3 this entry point parsed no arguments at all - `--help` ran it,
+    and with AGENT_REPO set it wrote files into that tree without a word.
+    """
+    import argparse
+
+    ap = argparse.ArgumentParser(
+        prog="wawe-readmes",
+        description="Draft a README.md for every directory that lacks one, from what "
+                    "the directory holds. Lists by default; writes only with --write.")
+    ap.add_argument("--repo", default=os.getenv("AGENT_REPO") or ".",
+                    help="the repository to walk (default: $AGENT_REPO or the current directory)")
+    ap.add_argument("--write", action="store_true",
+                    help="write the drafts; without it, only list what would be written")
+    ap.add_argument("--quiet", action="store_true", help="no per-file lines, only the count")
+    args = ap.parse_args(argv)
+
+    repo = os.path.abspath(args.repo)
+    if not os.path.isdir(repo):
+        print(f"no such directory: {repo}", file=sys.stderr)
+        return 2
+    verb = "wrote" if args.write else "would write"
+    count = 0
     for base, dirs, _ in os.walk(repo):
         dirs[:] = [x for x in dirs if x not in SKIP]
         target = os.path.join(base, "README.md")
@@ -126,11 +149,14 @@ def main() -> int:
         text = describe(base)
         if not text:
             continue
-        with open(target, "w", encoding="utf-8") as fh:
-            fh.write(text)
-        written += 1
-        print("wrote", os.path.relpath(target, repo))
-    print(f"{written} README files written")
+        if args.write:
+            with open(target, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        count += 1
+        if not args.quiet:
+            print(verb, os.path.relpath(target, repo))
+    print(f"{count} README files {'written' if args.write else 'would be written'}"
+          + ("" if args.write else " (add --write to write them)"))
     return 0
 
 

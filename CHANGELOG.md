@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.3
+
+- `wawe-readmes` is a command: `--help`, `--repo` (default `$AGENT_REPO` or
+  the current directory), `--write`. Until now it parsed no arguments - `--help`
+  ran it, and with `AGENT_REPO` set it wrote READMEs into that tree without a
+  word. The default is now to list what would be written; nothing is written
+  without `--write`.
+
 ## 0.12.2
 
 Plugin fixes from the first install through the marketplace.

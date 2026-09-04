@@ -59,7 +59,7 @@ events. Estimates are marked as estimates.
 | Feature | What it does | Measured impact | If not measured, how to |
 |---|---|---|---|
 | `where-are-we --docs plan|write` | Drafts a README per directory that lacks one, from the map's facts, with a `TODO:` for the purpose only a human knows | Not measured | Count of directories without a README before/after |
-| `wawe-readmes` | The same as a command | **Defect, 2026-09-04:** the entry point parses no arguments — `--help` runs it, and it writes into `$AGENT_REPO` (default `/work`) without asking. Fix before 1.0.0 | — |
+| `wawe-readmes` | The same as a command: `--repo`, `--write`, `--help`; lists by default, writes only with `--write` | Fixed in 0.12.3: until then the entry point parsed no arguments and wrote into `$AGENT_REPO` unasked | — |
 
 ## Ways in
 
