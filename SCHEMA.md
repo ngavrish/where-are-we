@@ -50,3 +50,13 @@ was built from (commit and newest mtime) and is how staleness is decided.
 
 Everything is derived; nothing is inferred by a model. An absent section means
 the repository has none of that, not that the tool failed.
+
+## Stability
+
+`where-are-we/1` is the contract of the 1.x releases. Within the major:
+sections may be added; a section that exists keeps its shape and meaning; a
+key is never renamed or removed. A change that must break one of those bumps
+the schema to `where-are-we/2` and the tool to 2.0.0, and the map says which
+schema it is in its first key. The CLI flags and the four MCP tools (`ask`,
+`find`, `defines`, `sections`) are held to the same rule: a flag or a tool
+that exists in 1.0 exists, with the same meaning, in every 1.x.
