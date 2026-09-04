@@ -112,6 +112,8 @@ context, serves the map's tools over MCP (`ask`, `find`, `defines`,
 `sections`) and ships five skills. It needs `where-are-we` on PATH
 (`pipx install where-are-we`). Details in [plugin/README.md](plugin/README.md).
 
+Every feature and what it is measured to save: [docs/FEATURES.md](docs/FEATURES.md).
+
 ## Command line
 
 A CLI is the tool. `pip install where-are-we` gives two commands:

@@ -9,11 +9,11 @@ description: Use when a repository's directories have no README or a stale one a
 README saying what the directory holds, what its public surface is, and how it
 is entered - from the map's facts, not from guesses.
 
-    wawe-readmes --repo . --out .wawe --plan     # list what would be written, nothing changes
-    wawe-readmes --repo . --out .wawe --write    # write the drafts
+    where-are-we --repo . --out .wawe --docs plan     # list what would be written, nothing changes
+    where-are-we --repo . --out .wawe --docs write    # write the drafts
 
-(`where-are-we --docs plan` / `--docs write` do the same from the main
-command.)
+(The `wawe-readmes` command exists but takes no arguments and writes into
+`$AGENT_REPO` at once; prefer the two lines above.)
 
 - Run `--plan` first and read the list; a directory that is deliberately
   undocumented (vendored code, generated output) should be excluded with
