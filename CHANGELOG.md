@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.0.0
+
+The contract is fixed. What 0.12.3 does, 1.0.0 does, and every 1.x will:
+
+- `framework_map.json` is schema `where-are-we/1`: sections may be added, a
+  section that exists keeps its shape and meaning, a key is never renamed or
+  removed (SCHEMA.md, "Stability").
+- The CLI flags and the four MCP tools (`ask`, `find`, `defines`, `sections`)
+  keep their names and meanings through 1.x; anything that must break bumps
+  to 2.0.0.
+- The pointer, the brief and the map files keep their names and places:
+  `framework_map.md`, `framework_map_brief.md`, `framework_map.json`,
+  `spec_map.md`, `spec_map.json` under `--out` (`.wawe/` for the plugin and the
+  pre-commit hook).
+- The README lists every feature with what it is measured to save, and says
+  "not measured" where it is not.
+
+No code changed between 0.12.3 and 1.0.0.
+
 ## 0.12.3
 
 - `wawe-readmes` is a command: `--help`, `--repo` (default `$AGENT_REPO` or

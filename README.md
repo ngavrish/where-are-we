@@ -420,7 +420,7 @@ notebooks.
 
 ```yaml
 - repo: https://github.com/ngavrish/where-are-we
-  rev: v0.12.3
+  rev: v1.0.0
   hooks: [{id: where-are-we}]
 ```
 
