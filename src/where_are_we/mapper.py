@@ -2129,7 +2129,7 @@ def build(repo: str) -> dict:
         for fn in files:
             # Extensionless names count: a Jenkinsfile is the CI, a Rakefile is
             # the build, and neither ends in anything.
-            if fn.endswith((".py", ".ts", ".tsx", ".js", ".go", ".java", ".kt",
+            if fn.endswith((".py", ".ts", ".tsx", ".js", ".jsx", ".go", ".java", ".kt",
                             ".rb", ".rs", ".cs", ".yaml", ".yml", ".tf", ".proto",
                             ".xml", ".json", ".md", ".sh", ".sql", ".ex", ".exs",
                             ".dart", ".sol", ".vue", ".svelte", ".rego", ".jmx",
@@ -2269,7 +2269,90 @@ def build(repo: str) -> dict:
                         targets.add(f"{name} ({os.path.basename(home)})")
             if targets:
                 func_calls[f"{os.path.basename(rel)}:{node.name}"] = sorted(targets)[:8]
-    func_calls = dict(sorted(func_calls.items(), key=lambda kv: -len(kv[1]))[:60])
+
+    # Same call graph for TypeScript, JavaScript and Go: there is no AST here,
+    # so a definition is found by pattern and a call graph body by matching
+    # braces from the definition line, capped at 400 lines. ts/js and go are
+    # kept as separate name tables, so a callee only counts when it is
+    # defined in another file of the same language group.
+    ts_js_ext = (".ts", ".tsx", ".js", ".jsx")
+    _js_not_a_method = {"if", "for", "while", "switch", "catch", "else", "do",
+                         "function", "return", "yield", "await", "typeof",
+                         "new", "delete", "instanceof"}
+
+    def _tsjs_def_names(body: str) -> list:
+        found = []
+        for m in re.finditer(r"^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)\s*\(",
+                              body, re.M):
+            found.append((m.group(1), body.count("\n", 0, m.start())))
+        for m in re.finditer(r"^\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s*)?\(", body, re.M):
+            found.append((m.group(1), body.count("\n", 0, m.start())))
+        for m in re.finditer(r"^  (\w+)\s*\([^)]*\)\s*\{", body, re.M):
+            if m.group(1) not in _js_not_a_method:
+                found.append((m.group(1), body.count("\n", 0, m.start())))
+        return found
+
+    def _go_def_names(body: str) -> list:
+        found = []
+        for m in re.finditer(r"^func\s+(\w+)\s*\(", body, re.M):
+            found.append((m.group(1), body.count("\n", 0, m.start())))
+        for m in re.finditer(r"^func\s+\([^)]*\)\s+(\w+)\s*\(", body, re.M):
+            found.append((m.group(1), body.count("\n", 0, m.start())))
+        return found
+
+    def _brace_body(lines: list, start: int) -> str:
+        depth, started, out = 0, False, []
+        for i in range(start, min(start + 400, len(lines))):
+            line = lines[i]
+            out.append(line)
+            for ch in line:
+                if ch == "{":
+                    depth += 1
+                    started = True
+                elif ch == "}":
+                    depth -= 1
+            if started and depth <= 0:
+                break
+        return "\n".join(out)
+
+    defined_tsjs: dict[str, str] = {}
+    defined_go: dict[str, str] = {}
+    defs_by_file: dict[str, list] = {}
+    for rel in code_files:
+        if rel.endswith(ts_js_ext):
+            table, finder = defined_tsjs, _tsjs_def_names
+        elif rel.endswith(".go"):
+            table, finder = defined_go, _go_def_names
+        else:
+            continue
+        body = _read(rel)
+        if not body:
+            continue
+        defs = finder(body)
+        if defs:
+            defs_by_file[rel] = defs
+        for name, _ in defs:
+            table.setdefault(name, rel)
+
+    for rel, defs in defs_by_file.items():
+        table = defined_tsjs if rel.endswith(ts_js_ext) else defined_go
+        body = _read(rel)
+        if not body:
+            continue
+        lines = body.splitlines()
+        for name, line_idx in defs:
+            fn_body = _brace_body(lines, line_idx)
+            targets = set()
+            for callee in set(re.findall(r"\b(\w+)\s*\(", fn_body)):
+                home = table.get(callee)
+                if home and home != rel:
+                    targets.add(f"{callee} ({os.path.basename(home)})")
+            if targets:
+                func_calls[f"{os.path.basename(rel)}:{name}"] = sorted(targets)[:8]
+
+    # One cap across both languages, tie-broken by key so ties do not depend
+    # on os.walk order.
+    func_calls = dict(sorted(func_calls.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:60])
 
     # Data flow: which handler touches which table, by co-occurrence in a file.
     data_flow = {}
