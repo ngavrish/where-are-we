@@ -125,7 +125,7 @@ as estimates.
 
 | Feature | What it does | Measured impact | If not measured, how to |
 |---|---|---|---|
-| One tree walk → `framework_map.md`, `framework_map_brief.md`, `framework_map.json` | Indexes layers, entry points, routes, data model, public surface, call graph, steps, scenarios, fixtures, CI, duplicates, dead code, every declared name with its line | Build: ~10 s on the 184-feature suite, offline, 0 tokens (README). 75 sections on this repository, 28 on the demo suite | — |
+| One tree walk → `framework_map.md`, `framework_map_brief.md`, `framework_map.json` | Indexes layers, entry points, routes, data model, public surface, call graph, steps, scenarios, fixtures, CI, duplicates, dead code, every declared name with its line. Declarations are indexed by dedicated regex for Python, TypeScript/JavaScript, Rust, Kotlin, C# and Ruby (a tree-sitter parse tree instead, for the languages it has a grammar for, where `pip install "where-are-we[precise]"` is present), and by a generic pattern for anything else | Build: ~10 s on the 184-feature suite, offline, 0 tokens (README). 75 sections on this repository, 28 on the demo suite | — |
 | Deterministic output | Same tree, same map, byte for byte | Not measured as a number; the golden check of 150 `ask` cases across the 0.12 refactor relied on it and held | `diff` two builds of one tree |
 | `schema: where-are-we/1`, stable JSON contract (`SCHEMA.md`) | Sections may be added within a major; existing shapes keep | Not measurable; a promise | Consumers: any agent runner that reads the JSON (`find_text`, `_definitions_for`) |
 | Fingerprint (`<commit>:<newest mtime>`) and `--force` | A build is skipped when the tree has not moved | Not measured | Time a no-op rebuild vs a forced one |

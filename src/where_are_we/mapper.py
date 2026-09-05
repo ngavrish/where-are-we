@@ -66,6 +66,19 @@ DECLARATIONS = {
     ".feature": (
         r"^\s*(?:Scenario(?: Outline)?|Feature):\s*(.+?)\s*$",
     ),
+    ".rs": (
+        r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait|type|const|static|mod)\s+([A-Za-z_]\w*)",
+    ),
+    ".kt": (
+        r"^\s*(?:(?:public|private|internal|open|data|sealed|abstract|suspend|override|inline)\s+)*(?:fun|class|object|interface|val|var)\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?([A-Za-z_]\w*)",
+    ),
+    ".cs": (
+        r"^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|async|override|virtual|readonly)\s+)*(?:class|interface|struct|enum|record|delegate)\s+([A-Za-z_]\w*)",
+        r"^\s*(?:(?:public|private|protected|internal|static|abstract|async|override|virtual)\s+)+[\w<>\[\],.?]+\s+([A-Za-z_]\w*)\s*\(",
+    ),
+    ".rb": (
+        r"^\s*(?:def\s+(?:self\.)?|class\s+|module\s+)([A-Za-z_]\w*[?!=]?)",
+    ),
 }
 for _alias in (".tsx", ".js", ".jsx", ".mjs", ".cjs"):
     DECLARATIONS[_alias] = DECLARATIONS[".ts"]
@@ -200,27 +213,17 @@ def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
     return "\n".join(kept) + tail
 
 
-def index_declarations(path: str, label: str = "") -> None:
-    """Record every name this file declares, with the line it is declared on.
+def _declared_names(body: str, ext: str) -> list:
+    """(name, 1-based line) pairs `body` declares, by the patterns for `ext`.
 
-    Called for the suite and for the product alike. Without it the map could say
-    which module a step lived in and nothing at all about the code under test —
-    so an agent asking where a constant was defined was told it did not exist,
-    and spent forty turns grepping for something the map had never looked for.
+    The matching rules `index_declarations` and `declarations_in` both need:
+    the file-reading and bookkeeping around it differ (one fills the shared
+    DEFINITIONS/LINES tables, the other returns a plain list), the pattern
+    walk over the text does not.
     """
-    ext = os.path.splitext(path)[1].lower()
     patterns = DECLARATIONS.get(ext) or DECLARATIONS["*"]
-    try:
-        if os.path.getsize(path) > 2 * 1024 * 1024:
-            return  # a generated bundle is names nobody asks about, by the ton
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            body = fh.read()
-    except OSError:
-        return
-    if "\x00" in body[:2048]:
-        return  # binary
-    INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
-    index_lines(path, body)
+    compiled = [re.compile(pattern) for pattern in patterns]
+    out = []
     # Line by line, and the number is the loop counter.
     #
     # Computed from a match offset instead, it was wrong for one name in nine:
@@ -230,7 +233,6 @@ def index_declarations(path: str, label: str = "") -> None:
     # and twenty pointed at a blank line — which is worse than not indexing at
     # all, because the reader opens the file, sees nothing, and stops trusting
     # the map.
-    compiled = [re.compile(pattern) for pattern in patterns]
     for number, text in enumerate(body.splitlines(), 1):
         for pattern in compiled:
             found = pattern.match(text) or pattern.search(text)
@@ -238,8 +240,60 @@ def index_declarations(path: str, label: str = "") -> None:
                 continue
             name = found.group(1).strip()
             if len(name) >= 2 and name in text:
-                DEFINITIONS.setdefault(name, f"{path}:{number}")
+                out.append((name, number))
             break
+    return out
+
+
+def _read_for_declarations(path: str):
+    """This file's text, or None for anything too large or not text.
+
+    Shared by `index_declarations` and `declarations_in` so the size cap and
+    the binary sniff are one rule, not two that can drift apart.
+    """
+    try:
+        if os.path.getsize(path) > 2 * 1024 * 1024:
+            return None  # a generated bundle is names nobody asks about, by the ton
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+    except OSError:
+        return None
+    if "\x00" in body[:2048]:
+        return None  # binary
+    return body
+
+
+def declarations_in(path: str) -> list:
+    """Every name `path` declares, with its 1-based line, as (name, line).
+
+    What `index_declarations` finds for one file, without the side effects on
+    DEFINITIONS/LINES/INDEXED: a caller that wants the names of a single file
+    (a test, a future `--diff`) asks this instead of reading the shared maps
+    and filtering them back down to one path.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    body = _read_for_declarations(path)
+    if body is None:
+        return []
+    return _declared_names(body, ext)
+
+
+def index_declarations(path: str, label: str = "") -> None:
+    """Record every name this file declares, with the line it is declared on.
+
+    Called for the suite and for the product alike. Without it the map could say
+    which module a step lived in and nothing at all about the code under test —
+    so an agent asking where a constant was defined was told it did not exist,
+    and spent forty turns grepping for something the map had never looked for.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    body = _read_for_declarations(path)
+    if body is None:
+        return
+    INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
+    index_lines(path, body)
+    for name, number in _declared_names(body, ext):
+        DEFINITIONS.setdefault(name, f"{path}:{number}")
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
@@ -404,7 +458,22 @@ def _ts_symbols(path: str, lang: str) -> list:
         return []
     wanted = {"function_declaration", "class_declaration", "method_definition",
               "interface_declaration", "type_alias_declaration", "enum_declaration",
-              "lexical_declaration", "type_declaration", "func_declaration"}
+              "lexical_declaration", "type_declaration", "func_declaration",
+              # rust
+              "function_item", "struct_item", "enum_item", "trait_item",
+              "const_item", "static_item", "mod_item", "type_item",
+              # kotlin (class_declaration also covers its "interface" spelling)
+              "object_declaration",
+              # c_sharp (class_declaration, interface_declaration and
+              # enum_declaration already listed above)
+              "struct_declaration", "record_declaration", "delegate_declaration",
+              "method_declaration",
+              # ruby
+              "method", "singleton_method", "class", "module"}
+    # Languages with no export keyword: a top-level declaration is visible by
+    # definition, so gating on `export_statement` here would just drop every
+    # name in every file.
+    no_export_keyword = {"go", "rust", "kotlin", "c_sharp", "ruby"}
     out = []
 
     def walk(node, exported=False):
@@ -412,9 +481,11 @@ def _ts_symbols(path: str, lang: str) -> list:
             exported = True
         if node.type in wanted:
             for child in node.children:
-                if child.type in ("identifier", "type_identifier", "property_identifier"):
+                if child.type in ("identifier", "type_identifier",
+                                   "property_identifier", "simple_identifier",
+                                   "constant"):
                     name = child.text.decode(errors="replace")
-                    if exported or lang == "go":
+                    if exported or lang in no_export_keyword:
                         out.append(name)
                     break
         for child in node.children:
@@ -3477,6 +3548,20 @@ def brief(m: dict) -> str:
     td = _as_dict(m.get("types_declared"))
     _sect("Types declared",
           [f"- `{os.path.basename(k)}`: " + ", ".join(v[:12]) for k, v in list(td.items())[:15]])
+    # Every name index_declarations found, everywhere it looked: Rust, Kotlin,
+    # C#, Ruby and the rest, next to each other because a name is a name
+    # whatever it is written in. `ask.py`'s own "Defined here" answers one
+    # query against the same table; this is the same heading with nothing
+    # asked yet, so a reader skimming this file sees that the map reaches
+    # these languages at all before it ever needs to ask about one of them.
+    defs = _as_dict(m.get("definitions"))
+    if defs:
+        _cap = 60
+        rows = [f"- `{name}` — {loc}" for name, loc in sorted(defs.items())[:_cap]]
+        if len(defs) > _cap:
+            rows.append(f"… {len(defs) - _cap} more names defined; ask the map "
+                        "instead of grepping for one")
+        _sect("Defined here", rows)
     ebs = _as_dict(m.get("env_by_service"))
     _sect("Environment by service",
           [f"- `{k}`: " + ", ".join(v[:12]) for k, v in list(ebs.items())[:15]])

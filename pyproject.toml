@@ -6,7 +6,8 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "BoberIT"}]
-keywords = ["testing", "agents", "codebase-map", "behave", "pytest", "cucumber"]
+keywords = ["testing", "agents", "codebase-map", "behave", "pytest", "cucumber",
+            "rust", "kotlin", "csharp", "ruby"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Topic :: Software Development :: Testing",

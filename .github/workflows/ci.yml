@@ -33,6 +33,26 @@ jobs:
           where-are-we --repo /tmp/fx --out /tmp/fxmap
           grep -q "cucumber-js" /tmp/fxmap/framework_map_brief.md
           grep -q "users" /tmp/fxmap/framework_map_brief.md
+      - name: map a rust/kotlin/csharp/ruby fixture
+        run: |
+          mkdir -p /tmp/langs
+          printf 'pub fn charge() {}\nstruct Invoice;\npub(crate) enum State { A }\ntrait Pay {}\n// fn commented() {}\n' > /tmp/langs/lib.rs
+          printf 'class Invoice(val id: Int)\nfun charge(): Unit = Unit\nobject Config\nsuspend fun refund() {}\n' > /tmp/langs/Pay.kt
+          printf 'public class Invoice {\n  public static void Charge() {}\n  private int Total() => 1;\n}\npublic interface IPay {}\n' > /tmp/langs/Pay.cs
+          printf 'module Billing\n  class Invoice\n    def charge?\n    end\n    def self.refund\n    end\n  end\nend\n' > /tmp/langs/pay.rb
+          where-are-we --repo /tmp/langs --out /tmp/langsmap
+          grep -q "charge" /tmp/langsmap/framework_map*.md
+          grep -q "Invoice" /tmp/langsmap/framework_map*.md
+          grep -q "State" /tmp/langsmap/framework_map*.md
+          grep -q "Pay" /tmp/langsmap/framework_map*.md
+          grep -q "Config" /tmp/langsmap/framework_map*.md
+          grep -q "refund" /tmp/langsmap/framework_map*.md
+          grep -q "Charge" /tmp/langsmap/framework_map*.md
+          grep -q "Total" /tmp/langsmap/framework_map*.md
+          grep -q "IPay" /tmp/langsmap/framework_map*.md
+          grep -q "Billing" /tmp/langsmap/framework_map*.md
+          grep -q "charge?" /tmp/langsmap/framework_map*.md
+          ! grep -q "commented" /tmp/langsmap/framework_map*.md
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
