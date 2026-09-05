@@ -35,7 +35,7 @@ def _layer_line(paths: list, what: str) -> str:
 
 
 def build(repo: str, out_dir: str | None = None,
-          keep_indexes: bool = False) -> dict:
+          keep_indexes: bool = False, force: bool = False) -> dict:
     # Nothing this build accumulates may come from the build before it. Read
     # `state.reset` for what that covers and why `--also` is the one caller
     # that passes keep_indexes.
@@ -50,6 +50,12 @@ def build(repo: str, out_dir: str | None = None,
     if out_dir is None:
         out_dir = os.getenv("RUN_DIR")
     no_cache = bool(os.environ.get("WAWE_NO_CACHE")) or out_dir is None
+    # `force` distrusts the cache without throwing it away: nothing in it is
+    # believed, every answer is computed again, and what this build found is
+    # written back over the top, so the build after a forced one is warm
+    # again. That is the difference from WAWE_NO_CACHE=1, which also stops
+    # the cache being written and so makes the next build cold as well.
+    state.PARSE_CACHE_READS = not force
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT

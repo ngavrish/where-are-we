@@ -526,3 +526,31 @@ jobs:
             --product none --force --quiet --no-semantic
           ! grep -q "stopped after" /tmp/big/m2/framework_map.md
           grep -q C599_19 /tmp/big/m2/framework_map.json
+
+      - name: --force reads nothing from the parse cache and rewrites it
+        run: |
+          rm -rf /tmp/fc
+          mkdir -p /tmp/fc/r /tmp/fc/m
+          printf 'def AAA_fn():\n    pass\n' > /tmp/fc/r/m.py
+          where-are-we --repo /tmp/fc/r --out /tmp/fc/m --product none --force --quiet --no-semantic
+          grep -q AAA_fn /tmp/fc/m/framework_map.json
+          # The same byte count, with the old timestamp put back: what rsync
+          # --times, cp -p and a restore from a build cache leave behind, and
+          # what mtime-and-size cannot tell from no change at all.
+          printf 'def BBB_fn():\n    pass\n' > /tmp/fc/r/m.py
+          python -c "import os; os.utime('/tmp/fc/r/m.py', (1700000000, 1700000000))"
+          where-are-we --repo /tmp/fc/r --out /tmp/fc/m --product none --force --quiet --no-semantic
+          grep -q BBB_fn /tmp/fc/m/framework_map.json
+          ! grep -q AAA_fn /tmp/fc/m/framework_map.json
+          # And the cache is rewritten, so the build after a --force is warm.
+          rm -rf /tmp/fc/big /tmp/fc/bm
+          mkdir -p /tmp/fc/big
+          for i in $(seq 0 29); do printf 'def g%s():\n    return %s\n' "$i" "$i" > /tmp/fc/big/m$i.py; done
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/fc/big --out /tmp/fc/bm \
+            --product none --force --quiet --no-semantic 2> /tmp/fc/force.log
+          grep -qE "^parsed [1-9][0-9]* files$" /tmp/fc/force.log
+          rm /tmp/fc/bm/framework_map.json
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/fc/big --out /tmp/fc/bm \
+            --product none --quiet --no-semantic 2> /tmp/fc/warm.log
+          grep -q "^parsed 0 files$" /tmp/fc/warm.log
+          where-are-we --help | grep -q "read nothing from the parse cache"

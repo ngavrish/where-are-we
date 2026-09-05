@@ -180,11 +180,14 @@ def _cached(path: str, kind: str, compute):
     hand back last month's answer for a file the sha changed underneath.
     That check has a blind spot: a file rewritten with the same byte count
     inside the same filesystem timestamp tick keeps its old mtime and size,
-    and the stale value is served. Nothing here detects that; WAWE_NO_CACHE=1
-    is the escape hatch for anyone who suspects it has happened.
+    and the stale value is served. `--force` is the escape hatch: it sets
+    `state.PARSE_CACHE_READS` False for that build, so nothing here is
+    believed and every answer is computed again, and the cache is rewritten
+    from what that build found.
 
-    WAWE_NO_CACHE=1 makes this a plain call to `compute()`, for whoever wants
-    to be certain the cache is not the reason an answer looks a certain way.
+    WAWE_NO_CACHE=1 goes further and makes this a plain call to `compute()`
+    with nothing recorded at all, for whoever wants a build that leaves the
+    cache exactly as it was.
     """
     if os.environ.get("WAWE_NO_CACHE"):
         state.PARSE_COUNT += 1
@@ -195,10 +198,11 @@ def _cached(path: str, kind: str, compute):
         state.PARSE_COUNT += 1
         return compute()
     key = f"{kind}\x1e{path}"
-    entry = state._PARSE_CACHE.get(key)
-    if (entry is not None and entry.get("mtime") == st.st_mtime
-            and entry.get("size") == st.st_size):
-        return entry["value"]
+    if state.PARSE_CACHE_READS:
+        entry = state._PARSE_CACHE.get(key)
+        if (entry is not None and entry.get("mtime") == st.st_mtime
+                and entry.get("size") == st.st_size):
+            return entry["value"]
     value = compute()
     state.PARSE_COUNT += 1
     state._PARSE_CACHE[key] = {"mtime": st.st_mtime, "size": st.st_size, "value": value}

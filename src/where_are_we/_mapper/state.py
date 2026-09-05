@@ -69,6 +69,17 @@ CACHE_SCHEMA = 1
 _PARSE_CACHE: dict = {}
 
 
+# Whether this build may answer from the parse cache, as opposed to only
+# writing into it. `--force` sets it False: the cache validates an entry
+# against a file's mtime and size, which cannot tell apart a rewrite of the
+# same byte count that kept its timestamp (rsync --times, cp -p, tar -p, a
+# restore from a build cache), and before this there was no flag that made the
+# tool distrust what it thought it knew. Only the undocumented WAWE_NO_CACHE=1
+# did, and that also stops the cache being written, so the next build paid for
+# a cold parse too.
+PARSE_CACHE_READS = True
+
+
 # Incremented on every parse actually done: an ast.parse, a tree-sitter parse,
 # or an index_declarations regex pass over a file's body. A rebuild of a tree
 # nobody touched should add nothing to it, and WAWE_DEBUG_PARSES=1 prints the

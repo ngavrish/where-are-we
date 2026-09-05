@@ -269,7 +269,13 @@ def main() -> int:
     ap.add_argument("--force", action="store_true",
                     help="rebuild even when the existing map still matches the "
                          "repository (by default a map is built when it is missing "
-                         "or the repository has moved, and skipped otherwise)")
+                         "or the repository has moved, and skipped otherwise), and "
+                         "read nothing from the parse cache while doing it: every "
+                         "file is parsed again and the cache is rewritten from "
+                         "what this build found. Use it when a file was restored "
+                         "or copied with its timestamp kept (rsync --times, cp -p, "
+                         "a build cache), which the cache cannot tell from no "
+                         "change at all")
     ap.add_argument("--quiet", action="store_true", help="no summary line")
     ap.add_argument("--ask", default="", metavar="WORDS",
                     help="answer from an existing map instead of building one: "
@@ -564,7 +570,7 @@ def main() -> int:
     # write .wawe-cache.json into whatever directory --init ran from.
     if not args.init:
         os.makedirs(out_dir, exist_ok=True)
-    m = build(repo, out_dir=None if args.init else out_dir)
+    m = build(repo, out_dir=None if args.init else out_dir, force=args.force)
     if len(repos) > 1:
         m["also"] = {}
         for extra in repos[1:]:
@@ -576,7 +582,7 @@ def main() -> int:
             # are cleared by the reset either way, which is what the two
             # .clear() calls that used to be here did by hand.
             m["also"][os.path.basename(extra)] = build(
-                extra, out_dir=out_dir, keep_indexes=True)
+                extra, out_dir=out_dir, keep_indexes=True, force=args.force)
         os.environ["AGENT_REPO"] = repo
         # The name index is a copy taken when the first root finished; the line
         # index is the live dict. So a second root's lines were searchable and
