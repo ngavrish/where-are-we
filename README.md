@@ -196,12 +196,45 @@ as estimates.
 | Whole rows, a ceiling, a tail | An answer never pretends to be complete: what was left out is counted |
 | The map says what it maps | "a map of this repository" vs "of this suite and the product it tests", from the map's own counts (0.12.2) |
 
-### Not yet measured anywhere
+### How to measure it on your own sessions
 
-The next instrumented agent run will add: sizes of map answers in context,
-searches per session with the map tools present, and the turn count per
-role — the three numbers that turn the "not measured" rows above into
-measured ones.
+`wawe-measure` reads Claude Code's own transcripts (`~/.claude/projects/<project>/<session>.jsonl`)
+and counts, per session, how many turns were spent looking around versus doing
+something else:
+
+```bash
+pip install where-are-we
+wawe-measure --since 2026-09-01           # table, one row per session, a median row
+wawe-measure --since 2026-09-01 --json    # the same rows as JSON
+wawe-measure --sessions /path/to/jsonls   # a directory of transcripts instead of ~/.claude/projects
+```
+
+Definitions:
+
+- A *turn* is one assistant message.
+- A *search* is a `Grep` or `Glob` tool call, or a `Bash` call whose command
+  starts with (after an optional `cd ... &&`) `grep`, `rg`, `find`, `ls`,
+  `ag`, `ack`, `fd` or `tree`.
+- A *map call* is a tool call whose name contains `where-are-we` (the MCP
+  tools) or a `Bash` call whose command contains `where-are-we --`.
+- *orientation_turns* is how many turns went by before the agent did
+  something other than look around (an edit, a write, a test run): the
+  count of turns before the first turn with a non-search, non-read, non-map
+  tool call.
+
+Measured 2026-09-05, `wawe-measure --since 2026-09-01` against 30 sessions on
+this machine (one developer, several projects, not a controlled run):
+
+| | sessions | median searches | median orientation_turns |
+|---|---|---|---|
+| with a map call | 5 | 5 | 3 |
+| without a map call | 25 | 1 | 2 |
+
+Five sessions used the map at all in this window, and those five ran longer
+and searched more, not less: this is one developer's mixed transcripts, not
+a before/after comparison, and settling the "orientation replaced by one
+--ask" claim above needs matched sessions on the same task, one with the map
+and one without.
 
 ## Command line
 

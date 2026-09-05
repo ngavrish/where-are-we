@@ -24,6 +24,7 @@ semantic = ["fastembed>=0.4", "numpy>=1.24"]
 [project.scripts]
 where-are-we = "where_are_we.mapper:main"
 wawe-readmes = "where_are_we.readmes:main"
+wawe-measure = "where_are_we.measure:main"
 
 [build-system]
 requires = ["hatchling"]
