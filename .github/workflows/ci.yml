@@ -662,3 +662,27 @@ jobs:
           print("does not exist:", missing, " not reported:", lost)
           sys.exit(1 if missing or lost else 0)
           EOF
+
+      - name: a symlink out of the repository is not read into the map
+        run: |
+          rm -rf /tmp/esc
+          mkdir -p /tmp/esc/r /tmp/esc/outside/secretdir /tmp/esc/m
+          printf 'INSIDE_NAME = 1\n' > /tmp/esc/r/x.py
+          printf 'SIBLING = 2\n' > /tmp/esc/r/sibling.py
+          printf 'OUTSIDE_SECRET = "hunter2"\n' > /tmp/esc/outside/secretdir/creds.py
+          ln -sf /etc/passwd /tmp/esc/r/passwd.py
+          ln -sf /tmp/esc/outside/secretdir/creds.py /tmp/esc/r/linkfile.py
+          ln -sf /tmp/esc/outside/secretdir /tmp/esc/r/linkdir
+          # A link that stays inside the repository is still followed.
+          ln -sf /tmp/esc/r/sibling.py /tmp/esc/r/inside_link.py
+          where-are-we --repo /tmp/esc/r --out /tmp/esc/m --product none \
+            --force --quiet --no-semantic
+          ! grep -q "root:x:0:0" /tmp/esc/m/framework_map.json
+          ! grep -q hunter2 /tmp/esc/m/framework_map.json
+          ! grep -q OUTSIDE_SECRET /tmp/esc/m/framework_map.json
+          grep -q INSIDE_NAME /tmp/esc/m/framework_map.json
+          grep -q SIBLING /tmp/esc/m/framework_map.json
+          grep -q "inside_link.py" /tmp/esc/m/framework_map.json
+          # And the map says it left something out rather than looking complete.
+          grep -q "a symlink in this tree resolves outside the repository" \
+            /tmp/esc/m/framework_map.md

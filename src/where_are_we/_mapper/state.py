@@ -94,6 +94,13 @@ _WALK_CACHE: dict[tuple, list] = {}
 _IGNORE_CACHE: dict[str, list] = {}
 
 
+# Whether a walked path is a symlink leaving the tree, per (root, path). One
+# build walks the same repository about a dozen times, once per topic, and
+# the answer costs an lstat; asking it once per file instead of once per file
+# per pass is the difference between a measurable slowdown and none.
+_LINK_CACHE: dict[tuple, bool] = {}
+
+
 # What the walk had to leave out. A limit that stops quietly produces a map that
 # looks complete and is not, and the reader has no way to tell — which is worse
 # than a small map, because a small map that says so can be asked to grow. Named
@@ -120,9 +127,9 @@ def reset(keep_indexes: bool = False) -> None:
     stay searchable in the first root's map; that path says so here instead
     of relying on the absence of a reset.
 
-    The three caches always go, `--also` included: they answer "which files
-    are under this root" and "what does this file say", and a second root is
-    a different question with the same key.
+    The four caches always go, `--also` included: they answer "which files
+    are under this root", "what does this file say" and "does this path leave
+    the tree", and a second root is a different question with the same key.
 
     `_PARSE_CACHE` is deliberately not cleared. It is not this build's
     working state: it is loaded from `out_dir` at the top of every build and
@@ -132,6 +139,7 @@ def reset(keep_indexes: bool = False) -> None:
     _WALK_CACHE.clear()
     _IGNORE_CACHE.clear()
     _FILE_CACHE.clear()
+    _LINK_CACHE.clear()
     if keep_indexes:
         return
     DEFINITIONS.clear()

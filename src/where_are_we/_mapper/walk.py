@@ -11,7 +11,8 @@ import os
 import re
 
 from . import state
-from .state import TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _WALK_CACHE
+from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
+                    _WALK_CACHE)
 
 # `CACHE_SCHEMA`, `PARSE_COUNT`, `_PARSE_CACHE` and `__version__` are reached
 # through `state` rather than imported by name: three of them are rebound, and
@@ -335,9 +336,47 @@ def _ignores(root: str) -> list:
     return pats
 
 
+_ESCAPED_NOTE = ("a symlink in this tree resolves outside the repository and was "
+                 "not read: a link that leaves the repository is not part of it, "
+                 "and what is on the other end has no business in a map that gets "
+                 "committed and pasted into prompts")
+
+
+def _leaves_tree(path: str, real_root: str) -> bool:
+    """Whether `path` is a symlink whose target lives outside `real_root`.
+
+    `os.walk` is called without `followlinks` anywhere in this package, so a
+    symlinked *directory* is never descended into and a link loop terminates.
+    A symlinked *file* is still listed, and was still read: a `passwd.py`
+    pointing at `/etc/passwd` put the whole of `/etc/passwd` into the map's
+    line index, and a link to a file in a sibling checkout put that file's
+    contents there. The path recorded stays inside the repository, which
+    makes the leak harder to notice rather than easier.
+
+    Only links are resolved, and the answer is remembered for the length of
+    the build, because one build walks the same tree about a dozen times and
+    the `lstat` per file per pass was measurable where one per file is not.
+    """
+    key = (real_root, path)
+    hit = _LINK_CACHE.get(key)
+    if hit is not None:
+        return hit
+    out = False
+    if os.path.islink(path):
+        try:
+            real = os.path.realpath(path)
+        except OSError:
+            out = True
+        else:
+            out = not (real == real_root or real.startswith(real_root + os.sep))
+    _LINK_CACHE[key] = out
+    return out
+
+
 def _tree(root: str):
     """`os.walk(root)` with the directories this project never reads pruned,
-    and a bound on how much of a tree one pass will look at.
+    files that link out of the tree dropped, and a bound on how much of a
+    tree one pass will look at.
 
     Yields the same `(base, dirs, files)` triples in the same order, so a
     caller reads exactly as it did before. What it adds is the `SKIP_DIRS`
@@ -353,9 +392,14 @@ def _tree(root: str):
 
     `WAWE_MAX_FILES` raises it, which is what the note in the map says to do.
     """
+    real_root = os.path.realpath(root)
     seen = 0
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        kept = [f for f in files if not _leaves_tree(os.path.join(base, f), real_root)]
+        if len(kept) != len(files) and _ESCAPED_NOTE not in TRUNCATED:
+            TRUNCATED.append(_ESCAPED_NOTE)
+        files = kept
         seen += len(dirs) + len(files)
         yield base, dirs, files
         if seen >= MAX_FILES:
