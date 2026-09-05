@@ -26,7 +26,20 @@ _CLICK_COUNT = 40  # pages/checkout.py: CheckoutPage.click_1..40
 
 
 def _write(path: str, content: str) -> None:
+    # Skips the write, and so the mtime bump, when the content already
+    # matches: `build_all()` regenerates a fixture's repo on every call, and
+    # a real, unchanged tree does not get every file rewritten between two
+    # builds of it either. Without this, calling `build_all()` twice on the
+    # same root looks cold to the parse cache both times - every file's
+    # mtime moved even though nothing in it did - and a "warm rebuild"
+    # check built on top of that would never actually be warm.
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    try:
+        with open(path, encoding="utf-8") as fh:
+            if fh.read() == content:
+                return
+    except OSError:
+        pass
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(content)
 
@@ -340,8 +353,12 @@ def build_all(root: str) -> dict:
             # falls back to that same default.
             os.environ["WAWE_JUNIT_DIRS"] = os.path.join(repo, ".no-junit-dirs")
 
-            m = mapper.build(repo, out_dir=out_dir)
+            # Before the build, not after: build() saves its parse cache into
+            # out_dir itself, and only into a directory that already exists
+            # (main() creates out_dir the same way, before its own build()
+            # call, for the same reason).
             os.makedirs(out_dir, exist_ok=True)
+            m = mapper.build(repo, out_dir=out_dir)
             with open(os.path.join(out_dir, "framework_map.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump(m, fh, indent=2)

@@ -44,6 +44,11 @@ try:
     from importlib.metadata import version as _pkg_version
     __version__ = _pkg_version("where-are-we")
 except Exception:  # noqa: BLE001 -- not installed: a loose checkout, no pip/uv
+    # Every such checkout stamps the cache the same fixed "0", whatever
+    # commit or release it actually is: a release-to-release stale cache
+    # (the thing the version stamp exists to catch) is only possible here,
+    # between two of these unnumbered checkouts, since the number itself
+    # never changes to tell them apart.
     __version__ = "0"
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
