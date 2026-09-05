@@ -28,8 +28,10 @@ except ImportError:  # run as a plain file, with no package around it
     import specs  # type: ignore[no-redef]
 
 try:
+    from . import ask as _ask
     from .ask import ask, fit_lines, map_heads, log_answer, callers
 except ImportError:  # run as a plain file, with no package around it
+    import ask as _ask  # type: ignore[no-redef]
     from ask import ask, fit_lines, map_heads, log_answer, callers  # type: ignore[no-redef]
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
@@ -441,18 +443,41 @@ def _config(repo: str) -> dict:
     try:
         import tomllib
         data = tomllib.loads(body)
-        return data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
+        out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
+        # `[synonyms]` is its own top-level table, named once for the project
+        # even when the rest of its config sits under `[where-are-we]` or
+        # `[tool.where-are-we]`; folded in here so it is never lost to
+        # whichever of those three branches `out` ended up as.
+        if isinstance(data.get("synonyms"), dict) and "synonyms" not in out:
+            out = {**out, "synonyms": data["synonyms"]}
+        return out
     except Exception:  # noqa: BLE001 — python 3.10, or a file with a typo in it
-        out = {}
+        # No tomllib on 3.10, so `[table]` headers are tracked by hand. A key
+        # under `[where-are-we]` or `[tool.where-are-we]` flattens to the top,
+        # the same as tomllib's own branches above; a key under any other
+        # table (`[synonyms]`) nests under that table's name instead, so
+        # `.wawe.toml`'s `[synonyms]` reaches `_config` the same shape on
+        # every supported Python. Arrays of strings are the only value shape
+        # this needs; nothing here reads a nested table of its own.
+        out: dict = {}
+        table = None
         for line in body.splitlines():
+            m_table = re.match(r'^\s*\[([\w.-]+)\]\s*$', line)
+            if m_table:
+                table = m_table.group(1)
+                continue
             m2 = re.match(r'\s*([\w-]+)\s*=\s*(.+)', line)
             if not m2:
                 continue
             key, raw = m2.group(1), m2.group(2).strip()
             if raw.startswith("["):
-                out[key] = [x.strip().strip('"\'') for x in raw.strip("[]").split(",") if x.strip()]
+                value = [x.strip().strip('"\'') for x in raw.strip("[]").split(",") if x.strip()]
             else:
-                out[key] = raw.strip('"\'')
+                value = raw.strip('"\'')
+            if table in (None, "where-are-we", "tool.where-are-we"):
+                out[key] = value
+            else:
+                out.setdefault(table, {})[key] = value
         return out
 
 
@@ -4519,13 +4544,23 @@ def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = Non
     return "\n".join(lines) + "\n"
 
 
-def _definitions_for(map_path: str, terms: list[str]) -> list[str]:
+def _definitions_for(map_path: str, terms: list[str],
+                     extra: list[str] | None = None) -> list[str]:
     """Exact places, from the map's own index of what was defined where.
 
     Answered before any prose, because this is the question actually being
     asked. A scenario author looking for `def ad_product_shows` wants a file and
     a line; told which module it lives in, they grep the module. Over one run
     that was forty hand searches against three questions to the map.
+
+    `terms` keeps its original meaning: a name counts only when it holds
+    every one of them, or is exactly one of them - "invoice checkout" is a
+    name naming both, not a name naming either. `extra` is `ask()`'s
+    synonym and stem words, each of which is enough on its own; asking for
+    "login" should not lose `def login` because it does not also mention
+    "auth". Literal matches are returned before expansion-only ones so a
+    name that answers what was actually typed is never pushed out of the
+    40-row cap by one that only answers a synonym.
     """
     path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
     try:
@@ -4533,12 +4568,16 @@ def _definitions_for(map_path: str, terms: list[str]) -> list[str]:
             defs = (json.load(fh) or {}).get("definitions") or {}
     except (OSError, ValueError):
         return []
-    hits = []
+    extra = extra or []
+    literal, expansion = [], []
     for name, where in defs.items():
         low = name.lower()
-        if all(t in low for t in terms) or any(t == low for t in terms):
-            hits.append(f"- `{name}` — {where}")
-    return sorted(hits)[:40]
+        row = f"- `{name}` — {where}"
+        if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
+            literal.append(row)
+        elif any(t in low for t in extra):
+            expansion.append(row)
+    return (sorted(literal) + sorted(expansion))[:40]
 
 
 def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
@@ -4697,6 +4736,8 @@ def main() -> int:
             from . import mcp as _mcp
         except ImportError:  # run as a plain file, with no package around it
             import mcp as _mcp  # type: ignore[no-redef]
+        syn = _config(os.path.abspath(args.repo)).get("synonyms")
+        _ask.set_synonyms(syn if isinstance(syn, dict) else {})
         return _mcp.serve(os.path.abspath(args.out))
 
     if args.lsp:
@@ -4764,6 +4805,11 @@ def main() -> int:
             log_answer(out_dir, "callers", args.callers, answer, len(answer))
             print(answer)
             return 0
+        # `--ask` answers from a map already on disk and never builds one, so
+        # this is the one path that skips `conf = _config(repo)` below; a
+        # project's `[synonyms]` still has to reach `ask()` from here.
+        syn = _config(os.path.abspath(args.repo)).get("synonyms")
+        _ask.set_synonyms(syn if isinstance(syn, dict) else {})
         answer = ask(map_path, args.ask)
         if os.path.exists(spec_path):
             answer += "\n\n" + ask(spec_path, args.ask)

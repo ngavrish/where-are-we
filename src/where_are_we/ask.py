@@ -20,6 +20,118 @@ RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
 
 _ROW_PATH = re.compile(r"^- `([^`]*/)([^`/]+)`(.*)$")
+_DEF_ROW = re.compile(r"^- `([^`]+)`")  # a "## Defined here" row: the name in backticks
+
+
+# Synonyms and stemming: the map says "signin()", the question says "login",
+# and neither side is wrong. Groups are the words a reader means the same
+# thing by; the stem catches the plural or the "-ing" the question happened
+# to type. Both feed `_expand`, which is what `ask()` actually searches with.
+SYNONYMS: dict = {
+    "login": ["login", "signin", "sign_in", "sign-in", "auth", "authenticate", "authentication"],
+    "logout": ["logout", "signout", "sign_out"],
+    "invoice": ["invoice", "bill", "billing"],
+    "payment": ["payment", "pay", "charge", "checkout"],
+    "user": ["user", "account", "customer", "member"],
+    "config": ["config", "configuration", "settings", "setup"],
+    "error": ["error", "exception", "failure", "fault"],
+    "endpoint": ["endpoint", "route", "handler", "api"],
+    "test": ["test", "spec", "scenario", "case"],
+    "db": ["db", "database", "table", "model", "schema"],
+    "delete": ["delete", "remove", "destroy", "drop"],
+    "create": ["create", "add", "insert", "new"],
+    "update": ["update", "edit", "modify", "patch", "change"],
+    "fetch": ["fetch", "get", "load", "read", "retrieve"],
+    "queue": ["queue", "topic", "subject", "message", "event"],
+    "deploy": ["deploy", "release", "ship", "rollout"],
+    "cache": ["cache", "memo", "memoize"],
+    "cron": ["cron", "schedule", "job", "task"],
+    "permission": ["permission", "role", "scope", "guard", "acl"],
+    "secret": ["secret", "credential", "token", "key", "password"],
+}
+
+_user_synonyms: dict = {}
+
+
+def set_synonyms(mapping: dict) -> None:
+    """Replace the extra groups read from `.wawe.toml`'s `[synonyms]` table.
+
+    Called once by `mapper.main()` before `ask()` runs, with whatever that
+    file names; an empty mapping goes back to only the built-in groups above.
+    A module setter rather than a parameter on `ask()`, because `--ask` and
+    the MCP tool both call `ask()` the same way, and neither should have to
+    thread a project's config through every call to reach this one.
+    """
+    global _user_synonyms
+    _user_synonyms = dict(mapping or {})
+
+
+def _groups() -> list:
+    """Every synonym group: the built-in ones above, plus `.wawe.toml`'s
+    `[synonyms]` merged in, one project's word added to the group its key
+    already belongs to, or as a new group of its own when no group has it."""
+    groups = [list(g) for g in SYNONYMS.values()]
+    for key, extra in _user_synonyms.items():
+        key = str(key).lower()
+        extra = [str(e).lower() for e in extra]
+        for g in groups:
+            if key in g:
+                g.extend(e for e in extra if e not in g)
+                break
+        else:
+            groups.append([key] + extra)
+    return groups
+
+
+def _stem(word: str) -> str:
+    """A search stem, not a linguistic one: lowercase, one suffix off, never
+    down to fewer than 3 letters, and left alone under 5.
+
+    Plurals in "-ies" become "-y" ("categories" becomes "category"). "-es" is
+    stripped only after a sibilant ("boxes" becomes "box"), because English
+    spells a plain "-s" plural the same way when the word already ends in a
+    silent "e" ("invoices" becomes "invoice", not "invoic"). Then "-ing",
+    "-ed", a bare "-s", in that order, first one that fits.
+    """
+    w = word.lower()
+    if len(w) < 5:
+        return w
+    if w.endswith("ies") and len(w) - 2 >= 3:
+        return w[:-3] + "y"
+    if (w.endswith("es") and len(w) - 2 >= 3
+            and (w[-3] in "sxz" or w[-4:-2] in ("ch", "sh"))):
+        return w[:-2]
+    for suf in ("ing", "ed", "s"):
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[:-len(suf)]
+    return w
+
+
+def _expand(terms: list) -> list:
+    """`terms`, in order, plus each term's stem and every member of a group
+    that contains the term or its stem, each word added once.
+
+    The literal terms stay first and unchanged, so a caller can still tell
+    what was asked from what this turned up besides it, by set difference.
+    """
+    groups = _groups()
+    out = list(terms)
+    seen = set(out)
+
+    def add(word):
+        if word not in seen:
+            out.append(word)
+            seen.add(word)
+
+    for t in terms:
+        stem = _stem(t)
+        if stem != t:
+            add(stem)
+        for g in groups:
+            if t in g or stem in g:
+                for member in g:
+                    add(member)
+    return out
 
 
 def fit_lines(lines: list, budget: int, cost=len, sep: int = 1) -> tuple:
@@ -119,11 +231,19 @@ _BM25_K1 = 1.5
 _BM25_B = 0.75
 
 
-def _rank(blocks, terms):
-    """Sections that mention these words, best first."""
+def _rank(blocks, terms, half=None):
+    """Sections that mention these words, best first.
+
+    `half`, when given, is the terms `_expand` added that were not asked for
+    literally: a synonym or a stem earns a section a place, but at half the
+    weight of a word the reader actually typed, so a section that only
+    matches through an expansion never outranks one that matches the words
+    themselves.
+    """
     import collections
     import math
 
+    half = half or ()
     docs = []
     for head, body in blocks:
         words = re.findall(r"[a-z][a-z_]{1,}",
@@ -151,7 +271,8 @@ def _rank(blocks, terms):
                 else:
                     continue
             idf = math.log(1 + (n - seen[t] + 0.5) / (seen[t] + 0.5))
-            score += idf * (f * (_BM25_K1 + 1)) / (
+            weight = 0.5 if t in half else 1.0
+            score += weight * idf * (f * (_BM25_K1 + 1)) / (
                 f + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl))
         if score <= 0:
             continue
@@ -161,7 +282,14 @@ def _rank(blocks, terms):
         if any(t in head.lower() for t in terms):
             score *= 1.6
         out.append((score, head, body))
-    out.sort(key=lambda x: -x[0])
+    # Rounded for the sort only, not for the score itself: two sections whose
+    # difference is noise rather than signal (found live on "invoice
+    # checkout" - a summary line naming this run's own build path tokenises
+    # to a different word count call to call, nudging every score's length
+    # normalisation by a few parts in ten thousand) would otherwise change
+    # places from one run to the next on the same tree. Sort is stable, so a
+    # real tie falls back to `docs`' own order, itself fixed by the map text.
+    out.sort(key=lambda x: -round(x[0], 2))
     return out
 
 
@@ -230,9 +358,17 @@ def _split_rows(body: list, terms: list) -> tuple:
     return matching, unmatched
 
 
-def _definitions_block(map_path: str, terms: list, room: int) -> str:
+def _definitions_block(map_path: str, terms: list, room: int,
+                       extra: list | None = None) -> str:
     """`## Defined here`, bounded to `room`; empty when nothing was defined
-    under these terms."""
+    under these terms.
+
+    `terms` keeps `_definitions_for`'s AND semantics: a name counts when it
+    holds every literal word, or is exactly one of them. `extra`, when
+    given, is synonym and stem words from `_expand`; any one of them is
+    enough on its own, and a name that only matches through `extra` is
+    listed after every name that matches `terms`.
+    """
     # This import must stay right here, function-local, and reference the
     # module rather than pull a name out of it. mapper.py imports this module
     # at load time with a plain top-level `from .ask import ask, fit_lines`,
@@ -246,7 +382,7 @@ def _definitions_block(map_path: str, terms: list, room: int) -> str:
         from . import mapper as _mapper
     except ImportError:  # run as a plain file, with no package around it
         import mapper as _mapper  # type: ignore[no-redef]
-    exact = _mapper._definitions_for(map_path, terms)
+    exact = _mapper._definitions_for(map_path, terms, extra)
     if not exact:
         return ""
     return _defined_here(exact, room)
@@ -338,6 +474,48 @@ def _callers_block(map_path: str, words: str, room: int) -> str:
     return "\n\n".join(out)
 
 
+def _also_matched(def_block: str, section_chunks: list, terms: list, candidates: list) -> str:
+    """The "(also matched: signin, auth)" line, with its trailing blank line,
+    or an empty string: causal, not incidental.
+
+    A candidate earns a place only for a row (or a defined name) the literal
+    words did not already match on their own - riding along in a row the
+    literal words earned does not count. `_definitions_for`'s AND semantics
+    apply to a name; `_split_rows`'s OR semantics apply to a section row, so
+    each is checked the way it was matched.
+    """
+    if not candidates:
+        return ""
+    extra, seen = [], set()
+
+    def credit(low):
+        for c in candidates:
+            if c not in seen and c in low:
+                extra.append(c)
+                seen.add(c)
+
+    if def_block:
+        for line in def_block.splitlines()[1:]:
+            if line.startswith("…"):
+                continue
+            m = _DEF_ROW.match(line)
+            if not m:
+                continue
+            name_low = m.group(1).lower()
+            if all(t in name_low for t in terms) or any(t == name_low for t in terms):
+                continue
+            credit(name_low)
+    for chunk in section_chunks:
+        for line in chunk.splitlines()[1:]:
+            if line.startswith("…"):
+                continue
+            low = line.lower()
+            if any(t in low for t in terms):
+                continue
+            credit(low)
+    return f"(also matched: {', '.join(extra)})\n\n" if extra else ""
+
+
 def _more_note(room: int) -> str:
     """The "more sections match" note, only if it fits: a note that says
     "more" when there is no more, or that pushes the answer past its limit,
@@ -366,13 +544,21 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     terms = [w.lower() for w in re.split(r"[\s,]+", words) if len(w) > 1]
     if not terms:
         return "ask what?"
+    expanded = _expand(terms)
+    half = set(expanded) - set(terms)
+    # Every word `_expand` added beyond what was typed, in order, deduped:
+    # the largest an "also matched" line could possibly be, reserved from
+    # `room` up front so that line never pushes an answer past `limit`.
+    # `limit` is a ceiling for everyone who calls `ask()`, this note included.
+    candidates = list(dict.fromkeys(t for t in expanded if t not in terms))
+    note_room = len(f"(also matched: {', '.join(candidates)})") + 2 if candidates else 0
 
     blocks = _blocks(text)
-    scored = _rank(blocks, terms)
+    scored = _rank(blocks, expanded, half)
     if not scored:
-        block = _definitions_block(map_path, terms, limit)
+        block = _definitions_block(map_path, terms, limit - note_room, candidates)
         if block:
-            return block
+            return _also_matched(block, [], terms, candidates) + block
         cblock = _callers_block(map_path, words, limit)
         if cblock:
             return cblock
@@ -398,19 +584,21 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         # searched and what was found; the conclusion is the reader's.
         return f"no match for {words!r}.{looked}"
 
-    scored.sort(key=lambda x: -x[0])
-    out, room = [], limit
-    block = _definitions_block(map_path, terms, room)
-    if block:
-        out.append(block)
-        room -= len(block) + 2
+    scored.sort(key=lambda x: -round(x[0], 2))  # same rounding as _rank's own sort, so this no-op re-sort cannot undo it
+    out, room = [], limit - note_room
+    def_block = _definitions_block(map_path, terms, room, candidates)
+    if def_block:
+        out.append(def_block)
+        room -= len(def_block) + 2
     seen = 0
+    section_chunks = []
     for hits, h, b in scored:
-        chunk, attempted = _section_answer(h, b, terms, room)
+        chunk, attempted = _section_answer(h, b, expanded, room)
         if attempted:
             seen += 1
         if chunk:
             out.append(chunk)
+            section_chunks.append(chunk)
             room -= len(chunk) + 2
     if seen < len(scored):
         # Only when a matching section really went unshown, and only if the
@@ -423,7 +611,8 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     cblock = _callers_block(map_path, words, room)
     if cblock:
         out.append(cblock)
-    return "\n\n".join(out)
+    answer = "\n\n".join(out)
+    return _also_matched(def_block, section_chunks, terms, candidates) + answer
 
 
 LOG_NAME = ".wawe-ask.log"

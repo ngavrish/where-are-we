@@ -9,15 +9,15 @@
 - `step_login_invalid` — <root>/suite/repo/steps/login_steps.py:17
 - `step_login_valid` — <root>/suite/repo/steps/login_steps.py:12
 
+## How a test authenticates
+- `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
+
 ### `steps/login_steps.py` — 5 steps
 … 5 rows in this section do not mention these words
 
 ## Feature files
 - `features/login.feature` — 2 scenarios
 … 1 rows in this section do not mention these words
-
-## How a test authenticates
-- `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
 
 ## Files nothing imports
 - `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`

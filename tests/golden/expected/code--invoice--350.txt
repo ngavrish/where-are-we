@@ -4,7 +4,7 @@
 - `get_invoice` — <root>/code/repo/app/api.py:15
 - `list_invoices` — <root>/code/repo/app/api.py:9
 
-## Which code touches which table
+## Files nothing imports
 … 1 more matching rows
 
 … more sections match; ask for something narrower

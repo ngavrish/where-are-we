@@ -19,5 +19,4 @@
 - `def step_pay_25` — <root>/suite/repo/steps/pay_steps.py:107
 - `def step_pay_26` — <root>/suite/repo/steps/pay_steps.py:111
 - `def step_pay_27` — <root>/suite/repo/steps/pay_steps.py:115
-- `def step_pay_28` — <root>/suite/repo/steps/pay_steps.py:119
-… 20 more definitions
+… 21 more definitions

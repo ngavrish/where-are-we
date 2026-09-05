@@ -1,14 +1,32 @@
+(also matched: checkout)
+
 ## Defined here
 
 - `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
-
-## How a feature file is written here
-    Then the payment is charged
-  Scenario: Customer pays and the charge is declined
-    Then the charge is declined
-    Then the payment is charged
-… 14 rows in this section do not mention these words
-
-## Defined here
-- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
-… 80 rows in this section do not mention these words
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+- `CheckoutPage.click_13` — pages/checkout.py:43
+- `CheckoutPage.click_14` — pages/checkout.py:46
+- `CheckoutPage.click_15` — pages/checkout.py:49
+- `CheckoutPage.click_16` — pages/checkout.py:52
+- `CheckoutPage.click_17` — pages/checkout.py:55
+- `CheckoutPage.click_18` — pages/checkout.py:58
+- `CheckoutPage.click_19` — pages/checkout.py:61
+- `CheckoutPage.click_1` — pages/checkout.py:7
+- `CheckoutPage.click_20` — pages/checkout.py:64
+- `CheckoutPage.click_21` — pages/checkout.py:67
+- `CheckoutPage.click_22` — pages/checkout.py:70
+- `CheckoutPage.click_23` — pages/checkout.py:73
+- `CheckoutPage.click_24` — pages/checkout.py:76
+- `CheckoutPage.click_25` — pages/checkout.py:79
+- `CheckoutPage.click_26` — pages/checkout.py:82
+- `CheckoutPage.click_27` — pages/checkout.py:85
+- `CheckoutPage.click_28` — pages/checkout.py:88
+- `CheckoutPage.click_29` — pages/checkout.py:91
+- `CheckoutPage.click_2` — pages/checkout.py:10
+- `CheckoutPage.click_30` — pages/checkout.py:94
+- `CheckoutPage.click_31` — pages/checkout.py:97
+- `CheckoutPage.click_32` — pages/checkout.py:100
+- `CheckoutPage.click_33` — pages/checkout.py:103
+… 13 more definitions

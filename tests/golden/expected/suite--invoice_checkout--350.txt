@@ -1,8 +1,9 @@
-## How a feature file is written here
-Sample: `features/checkout/pay.feature`
-    When they pay for the invoice
-    When they pay for the invoice
-    When they add a new card and pay for the invoice
-… 14 rows in this section do not mention these words
+(also matched: pay, charge)
+
+## Defined here
+
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+- `Customer pays with a new card` — <root>/suite/repo/features/checkout/pay.feature:15
+… 38 more definitions
 
 … more sections match; ask for something narrower

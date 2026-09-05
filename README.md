@@ -130,7 +130,7 @@ as estimates.
 | `schema: where-are-we/1`, stable JSON contract (`SCHEMA.md`) | Sections may be added within a major; existing shapes keep | Not measurable; a promise | Consumers: any agent runner that reads the JSON (`find_text`, `_definitions_for`) |
 | Fingerprint (`<commit>:<newest mtime>`) and `--force` | A build is skipped when the tree has not moved | Not measured | Time a no-op rebuild vs a forced one |
 | `## This map is incomplete` | What a bound cut (file count, spec depth) is named at the top of the map | Not measured; a correctness feature: an answer of "absent" is never given past a bound | Count answers that say "indexed: …" per run |
-| `.wawe.toml`, `.wawe-ignore`, `WAWE_MAX_FILES`, `WAWE_JUNIT_DIRS` (os.pathsep separated; default: the repository's own `reports`, `test-results`, `junit`, `build/test-results`, plus `/runs`, never `/tmp`) | A project states its invocation, exclusions and where its JUnit history lives once | Not measured | — |
+| `.wawe.toml`, `.wawe-ignore`, `WAWE_MAX_FILES`, `WAWE_JUNIT_DIRS` (os.pathsep separated; default: the repository's own `reports`, `test-results`, `junit`, `build/test-results`, plus `/runs`, never `/tmp`) | A project states its invocation, exclusions and where its JUnit history lives once. `.wawe.toml`'s `[synonyms]` table adds a project's own words to `--ask`'s built-in groups | Not measured | — |
 | `--product`, sibling guessing only for a suite, `--product none` | The application under test is indexed beside its suite; a plain code repository does not index its neighbours | Measured 2026-09-03 on this repository: before the fix the map held 231 files of three unrelated sibling repositories (3.1 MB JSON, `defines` answering with their paths); after, `indexed: suite 75`, 818 KB | — |
 | `--also` | Fold other repositories into one map | Not measured | — |
 | `--diff` | What changed since the map already in `--out` | the pointer names what moved since the last session; CI step "pointer says what changed since the last session" proves it | — |
@@ -145,6 +145,7 @@ as estimates.
 | The pointer (`--pointer`, `--agent-file`) | ~600–850 bytes in the prompt naming the map, its sections and how to ask; the map stays on disk | Map inlined: ≈ 64k tokens re-sent every turn, 27.4M tokens over one run, a quarter of that run; pointer: ≈ 212 tokens (300× less); a 5-hour allowance gone in 74 min vs the budget going to work (README, measured on one production run) | — |
 | Orientation replaced by one `--ask` | The first turns of a session stop being `ls`/`find`/`grep` | ~40 orientation turns → 1 on the measured suite (README) | — |
 | `--ask` / MCP `ask`: whole rows, ranked sections, honest tail | Only rows that mention the words, never a cut row, `limit` a strict ceiling, "… N more matching rows; M rows do not mention these words" | Before 0.12: an answer could exceed its limit 68× (3 KB head at limit 50) and cut a row mid-word; after: ≤ limit on every golden case (150), 5/5 fixture checks. `.wawe/.wawe-ask.log` records every answer; `wawe-measure --ask-log .wawe` prints median/p95/max tokens | — |
+| `--ask` synonyms and stemming | "login" also searches "signin", "auth"; "invoices" also searches "invoice"; a synonym or a stem scores at half the weight of the literal word, so it never outranks an exact hit; the first line says `(also matched: signin, auth)` when an expansion found something the literal words did not; `.wawe.toml`'s `[synonyms]` table adds a project's own words to the built-in groups | Not measured | — |
 | Rows under one directory printed once | `- \`features/checkout/\`` then the files | Not measured | Bytes of an answer before/after on a 40-row directory |
 | `## Defined here` (`defines`, `_definitions_for`) | A name → file:line, every declared name in every walked file | Not measured as turns saved; the README's claim is one question instead of `grep -rn` | Count `Grep` calls per session before/after (the run's call events) |
 | Cross-file call graph (`call_graph_files`) | Function to callees defined in another file, Python by AST, now TypeScript, JavaScript and Go by pattern | Not measured | Count `Grep` calls spent chasing a callee across files before/after |
@@ -398,7 +399,7 @@ sixty-four thousand, every turn.
 | command | what it prints |
 |---|---|
 | `--pointer` | what belongs in a prompt: the path, the sections, how to ask |
-| `--ask "words"` | only the rows that mention those words, whole, ranked by section; says what it left out |
+| `--ask "words"` | only the rows that mention those words, their stems and their synonyms, whole, ranked by section; says what it left out and what a synonym matched |
 | `--ask "words"` (with `[semantic]`) | the keyword hits plus a "Related by meaning" tail from a local embedding index |
 | `--corpus NAME=PATH` | fold an external corpus (a rules dir, a runbook) into the same semantic answers |
 | `--no-semantic` | skip the embedding index even when fastembed is installed |
@@ -497,6 +498,17 @@ its own in `.framework-map.json` and what it states wins:
 existing files are never overwritten, and anything shaped like a credential is
 redacted before it reaches a file. The commit and the newest file in the tree are
 recorded with the map, so a re-run on an unchanged tree costs a stat walk.
+
+`.wawe.toml`'s `[synonyms]` table adds a project's own words to `--ask`'s
+built-in groups (login/signin/auth, invoice/bill/billing, and eighteen more):
+
+```toml
+[synonyms]
+invoice = ["proforma", "receipt"]
+```
+
+merges into the group that already has `invoice`, or starts a new group when
+none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 
 <details>
 <summary><b>All options</b></summary>

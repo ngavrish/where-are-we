@@ -1,8 +1,9 @@
+(also matched: checkout)
+
 ## Defined here
 
 - `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
-
-## How a feature file is written here
-    Then the payment is charged
-  Scenario: Customer pays and the charge is declined
-… 2 more matching rows; 14 rows in this section do not mention these words
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+… 36 more definitions

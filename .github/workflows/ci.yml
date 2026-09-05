@@ -23,6 +23,37 @@ jobs:
       - name: golden
         run: python tests/golden/check.py
 
+      - name: ask expands synonyms and stems
+        run: |
+          mkdir -p /tmp/syn
+          printf '%s\n' \
+            '# map' \
+            '' \
+            '## Steps' \
+            '- `steps/a.py:3` user signs in with signin()' \
+            '- `steps/b.py:9` cart total' \
+            > /tmp/syn/framework_map.md
+          where-are-we --out /tmp/syn --ask login | tee /tmp/syn-out.txt
+          grep -q "signin()" /tmp/syn-out.txt
+          ! grep -q "cart total" /tmp/syn-out.txt
+          grep -q "also matched: signin" /tmp/syn-out.txt
+
+      - name: .wawe.toml [synonyms] merges into ask, tomllib and the fallback parser alike
+        run: |
+          mkdir -p /tmp/syncfg/repo /tmp/syncfg/out
+          printf '%s\n' \
+            '[synonyms]' \
+            'invoice = ["proforma", "receipt"]' \
+            > /tmp/syncfg/repo/.wawe.toml
+          printf '%s\n' \
+            '# map' \
+            '' \
+            '## Billing' \
+            '- `app/billing.py:5` handles the proforma export for a customer' \
+            > /tmp/syncfg/out/framework_map.md
+          where-are-we --repo /tmp/syncfg/repo --out /tmp/syncfg/out --ask invoice | tee /tmp/syncfg-out.txt
+          grep -q "also matched:.*proforma" /tmp/syncfg-out.txt
+
       - name: map itself
         run: |
           rm -rf /tmp/map
