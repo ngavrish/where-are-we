@@ -1096,9 +1096,20 @@ def build(repo: str) -> dict:
     # What past runs measured: how long each scenario takes and how often it
     # failed. The suite writes junit on every scoped run, and nobody has ever
     # read it back — so every branch guesses at cost and stability instead of
-    # knowing which scenario is a twenty-minute one.
+    # knowing which scenario is a twenty-minute one. Where to look is
+    # `WAWE_JUNIT_DIRS` (os.pathsep separated); by default the repository's
+    # own report directories plus `/runs`, a well-known mount for a scoped
+    # run's output. Never `/tmp`: it is shared with everything else that runs
+    # on the machine, so reading it made the map depend on whatever another
+    # process happened to leave behind rather than on this repository, and
+    # walking all of it on every build was slow besides.
     history: dict[str, dict] = {}
-    for root in ("/runs", "/tmp"):
+    junit_env = os.getenv("WAWE_JUNIT_DIRS", "")
+    junit_dirs = (junit_env.split(os.pathsep) if junit_env else
+                  [os.path.join(repo, d) for d in
+                   ("reports", "test-results", "junit", os.path.join("build", "test-results"))]
+                  + ["/runs"])
+    for root in junit_dirs:
         if not os.path.isdir(root):
             continue
         for base, dirs, files in os.walk(root):

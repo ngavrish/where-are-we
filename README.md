@@ -130,7 +130,7 @@ as estimates.
 | `schema: where-are-we/1`, stable JSON contract (`SCHEMA.md`) | Sections may be added within a major; existing shapes keep | Not measurable; a promise | Consumers: any agent runner that reads the JSON (`find_text`, `_definitions_for`) |
 | Fingerprint (`<commit>:<newest mtime>`) and `--force` | A build is skipped when the tree has not moved | Not measured | Time a no-op rebuild vs a forced one |
 | `## This map is incomplete` | What a bound cut (file count, spec depth) is named at the top of the map | Not measured; a correctness feature: an answer of "absent" is never given past a bound | Count answers that say "indexed: …" per run |
-| `.wawe.toml`, `.wawe-ignore`, `WAWE_MAX_FILES` | A project states its invocation and exclusions once | Not measured | — |
+| `.wawe.toml`, `.wawe-ignore`, `WAWE_MAX_FILES`, `WAWE_JUNIT_DIRS` (os.pathsep separated; default: the repository's own `reports`, `test-results`, `junit`, `build/test-results`, plus `/runs`, never `/tmp`) | A project states its invocation, exclusions and where its JUnit history lives once | Not measured | — |
 | `--product`, sibling guessing only for a suite, `--product none` | The application under test is indexed beside its suite; a plain code repository does not index its neighbours | Measured 2026-09-03 on this repository: before the fix the map held 231 files of three unrelated sibling repositories (3.1 MB JSON, `defines` answering with their paths); after, `indexed: suite 75`, 818 KB | — |
 | `--also` | Fold other repositories into one map | Not measured | — |
 | `--diff` | What changed since the map already in `--out` | Not measured | — |

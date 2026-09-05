@@ -272,33 +272,6 @@ CREATE TABLE customers (
 
 _BUILDERS = {"suite": _build_suite, "code": _build_code, "poly": _build_poly}
 
-_real_isdir = os.path.isdir
-
-
-def _isdir_without_scenario_history_scan(path):
-    """`os.path.isdir`, except for the two paths `build()` scans unconditionally
-    for JUnit results: `/runs` and `/tmp`, hardcoded, not parameterised by
-    `repo` and not gated by any environment variable the way `--product` and
-    `--runs-api` are.
-
-    A fixture's own repository lives under one of those two directories on
-    most machines (this one included: `check.py`/`regen.py` build under
-    `/tmp` for the reasons in their own comments), but that scan checks the
-    literal strings `"/runs"` and `"/tmp"`, never a path beneath them, so this
-    still lets every real lookup through, including the ones against the
-    fixture's own files a few directories inside `/tmp`.
-
-    Left unpatched, whatever `.xml` file another process happens to have
-    dropped anywhere under the real `/tmp` (there almost always is one, on a
-    machine that runs any test suite) becomes a `## What past runs measured`
-    section in every fixture's map, on every machine differently: exactly the
-    non-determinism this suite exists to catch, coming from outside the
-    fixture entirely.
-    """
-    if path in ("/runs", "/tmp"):
-        return False
-    return _real_isdir(path)
-
 
 def _reset_state() -> None:
     """Clear mapper's module-level indexes before mapping a fresh repository.
@@ -342,7 +315,8 @@ def build_all(root: str) -> dict:
     land in `## Defined here` intact and equally easy to normalise away in
     `check.py`/`regen.py`.
     """
-    saved_env = {k: os.environ.get(k) for k in ("AGENT_REPO", "PRODUCT_SRC")}
+    saved_env = {k: os.environ.get(k)
+                 for k in ("AGENT_REPO", "PRODUCT_SRC", "WAWE_JUNIT_DIRS")}
     outs = {}
     try:
         for name in FIXTURES:
@@ -358,12 +332,15 @@ def build_all(root: str) -> dict:
             # given three fixtures living under one `root`, could see another
             # fixture's directory and index it as "the product".
             os.environ["PRODUCT_SRC"] = "none"
+            # `build()`'s default junit roots include `/runs` when it exists,
+            # which a machine set up for real scoped runs (this project's own)
+            # may well have. A fixture has no scenario history of its own, so
+            # it points at a directory that never exists rather than at
+            # nothing: an empty `WAWE_JUNIT_DIRS` is treated as unset, and
+            # falls back to that same default.
+            os.environ["WAWE_JUNIT_DIRS"] = os.path.join(repo, ".no-junit-dirs")
 
-            os.path.isdir = _isdir_without_scenario_history_scan
-            try:
-                m = mapper.build(repo)
-            finally:
-                os.path.isdir = _real_isdir
+            m = mapper.build(repo)
             os.makedirs(out_dir, exist_ok=True)
             with open(os.path.join(out_dir, "framework_map.json"), "w",
                       encoding="utf-8") as fh:
