@@ -213,13 +213,22 @@ def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
     return "\n".join(kept) + tail
 
 
-def _declared_names(body: str, ext: str) -> list:
+# Extensions where a tree-sitter grammar can stand in for the regex table,
+# keyed to the grammar name `_tree_sitter`/`_ts_symbols` expect. Only the four
+# this task added: widening this to languages the regex table already gets
+# right (Python, TypeScript) is a separate change, not this one.
+TS_LANG_BY_EXT = {".rs": "rust", ".kt": "kotlin", ".cs": "c_sharp", ".rb": "ruby"}
+
+
+def _regex_declared_names(body: str, ext: str) -> list:
     """(name, 1-based line) pairs `body` declares, by the patterns for `ext`.
 
     The matching rules `index_declarations` and `declarations_in` both need:
     the file-reading and bookkeeping around it differ (one fills the shared
     DEFINITIONS/LINES tables, the other returns a plain list), the pattern
-    walk over the text does not.
+    walk over the text does not. Also the fallback when no tree-sitter parser
+    is installed, or the file's language has none: the CI path, and the one
+    every regex in this table is written and checked against.
     """
     patterns = DECLARATIONS.get(ext) or DECLARATIONS["*"]
     compiled = [re.compile(pattern) for pattern in patterns]
@@ -242,6 +251,57 @@ def _declared_names(body: str, ext: str) -> list:
             if len(name) >= 2 and name in text:
                 out.append((name, number))
             break
+    return out
+
+
+def _line_for_name(lines: list, name: str, regex_hits: list) -> int:
+    """The 1-based line to credit `name` to.
+
+    First choice is the line the regex table itself would have picked for
+    this exact name, so a name tree-sitter and the regex both see keeps the
+    same line either way. Failing that (tree-sitter found something the
+    line-start regex missed, typically a multi-line signature), the first
+    line that mentions the name as a whole word; failing even that, the top
+    of the file rather than nothing.
+    """
+    for hit_name, line in regex_hits:
+        if hit_name == name:
+            return line
+    whole_word = re.compile(r"\b" + re.escape(name) + r"\b")
+    for number, text in enumerate(lines, 1):
+        if whole_word.search(text):
+            return number
+    return 1
+
+
+def _declared_names(body: str, ext: str, path: str = "") -> list:
+    """(name, 1-based line) pairs `body` (the text of `path`) declares.
+
+    A tree-sitter parse tree where one is installed for `ext`'s language,
+    since it gets exported/visibility and multi-line signatures right where a
+    line-start regex cannot; the regex table otherwise, which is also what
+    supplies the line number in both cases (see `_line_for_name`). Absent the
+    optional parser this is exactly `_regex_declared_names`, byte for byte:
+    the CI path never installs `tree-sitter-languages`, so it never takes the
+    branch below.
+    """
+    regex_hits = _regex_declared_names(body, ext)
+    ts_lang = TS_LANG_BY_EXT.get(ext)
+    if not ts_lang or not path:
+        return regex_hits
+    if _tree_sitter(ts_lang) is None:
+        return regex_hits
+    ts_names = _ts_symbols(path, ts_lang)
+    if not ts_names:
+        return regex_hits
+    lines = body.splitlines()
+    seen = set()
+    out = []
+    for name in ts_names:
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append((name, _line_for_name(lines, name, regex_hits)))
     return out
 
 
@@ -275,7 +335,7 @@ def declarations_in(path: str) -> list:
     body = _read_for_declarations(path)
     if body is None:
         return []
-    return _declared_names(body, ext)
+    return _declared_names(body, ext, path)
 
 
 def index_declarations(path: str, label: str = "") -> None:
@@ -292,7 +352,7 @@ def index_declarations(path: str, label: str = "") -> None:
         return
     INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
     index_lines(path, body)
-    for name, number in _declared_names(body, ext):
+    for name, number in _declared_names(body, ext, path):
         DEFINITIONS.setdefault(name, f"{path}:{number}")
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
@@ -3554,13 +3614,16 @@ def brief(m: dict) -> str:
     # query against the same table; this is the same heading with nothing
     # asked yet, so a reader skimming this file sees that the map reaches
     # these languages at all before it ever needs to ask about one of them.
+    # The brief is what `--agent-file` writes straight into a prompt, so this
+    # list is capped hard: a large repository's full name table belongs in
+    # framework_map.json (`_definitions_for` reads it there, uncapped), not
+    # in the tens of thousands of tokens a prompt actually pays for.
     defs = _as_dict(m.get("definitions"))
     if defs:
-        _cap = 60
+        _cap = 80
         rows = [f"- `{name}` — {loc}" for name, loc in sorted(defs.items())[:_cap]]
         if len(defs) > _cap:
-            rows.append(f"… {len(defs) - _cap} more names defined; ask the map "
-                        "instead of grepping for one")
+            rows.append(f"… {len(defs) - _cap} more declared names; ask `defines`")
         _sect("Defined here", rows)
     ebs = _as_dict(m.get("env_by_service"))
     _sect("Environment by service",
