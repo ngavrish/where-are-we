@@ -265,7 +265,12 @@ def _config(repo: str) -> dict:
     import tomllib
     try:
         data = tomllib.loads(body)
-    except tomllib.TOMLDecodeError:  # a file with a typo in it
+    except (tomllib.TOMLDecodeError, RecursionError):
+        # A file with a typo in it, or one built to be parsed rather than
+        # read: twenty thousand nested brackets are valid TOML syntax right up
+        # to the point where the parser's own recursion runs out, and a
+        # RecursionError out of a config read used to end the build. No
+        # configuration is the answer to both.
         return {}
     out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
     # `[synonyms]` is its own top-level table, named once for the project
