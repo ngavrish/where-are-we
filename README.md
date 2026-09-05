@@ -156,7 +156,7 @@ as estimates.
 
 | Feature | What it does | Measured impact | If not measured, how to |
 |---|---|---|---|
-| `--specs`, `--spec-cmd`, `--spec-depth`, `--spec-limit` → `spec_map.md/json` | A ticket and its links two hops out, from any command that returns JSON | Not measured | Turns spent fetching tracker pages before/after |
+| `--specs`, `--spec-cmd`, `--spec-source`, `--spec-depth`, `--spec-limit` → `spec_map.md/json` | A ticket and its links two hops out, from any command that returns JSON, or from `--spec-source github\|linear` with no command to write | Not measured | Turns spent fetching tracker pages before/after |
 | `ask` over both maps | One question, answers from code and spec | Not measured | — |
 
 ### Semantic answers (optional extra)
@@ -300,6 +300,12 @@ This tool knows nothing about any tracker, which is the same contract as the res
 of it: you hand it a command that turns a ticket key into JSON, it walks the
 links two hops out, and it writes `spec_map.json` and `spec_map.md`. Jira, Linear,
 GitHub Issues, a text file — it never finds out.
+
+Two trackers it does not need a command for: `--spec-source github` builds the
+`gh issue view {key} --repo owner/name --json ...` call itself, reading
+owner/name off the repository's `origin` remote; `--spec-source linear` builds
+the GraphQL call over `curl` and needs `LINEAR_API_KEY` set. Either way
+`--spec-cmd` is filled in rather than typed.
 
 `--ask` answers from both maps, because a question about a piece of work is as
 likely to be about what was asked for as about where the code is.

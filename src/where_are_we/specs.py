@@ -29,7 +29,7 @@ import json
 import os
 import re
 import subprocess
-from typing import Any
+from typing import Any, Callable
 
 # How far from the starting ticket to walk. Two hops reaches a parent's other
 # children — the sibling work that explains why a ticket is worded as it is —
@@ -47,12 +47,35 @@ DEFAULT_LIMIT = int(os.getenv("WAWE_SPEC_LIMIT", "60"))
 # a key and matching one turns every "fixed 42 tests" into a fetch.
 KEY = re.compile(r"\b[A-Z][A-Z0-9_]{1,9}-\d+\b")
 
+# GitHub spells a key "#12", never as a bare number: a bare number is as
+# common in a body as a test count, but nothing else writes "#12" on purpose.
+# The captured group is the part `gh issue view` actually wants; walk() reads
+# it back out to build the fetch, and writes the whole match ("#12") onto the
+# ticket so links_of and digest see the same shape as every other source.
+GITHUB_KEY = re.compile(r"(?<![\w/])#(\d+)\b")
 
-def fetch(command: str, key: str, timeout: int = 60) -> dict[str, Any] | None:
-    """One ticket, through whatever the caller uses to reach its tracker."""
+# The GraphQL body Linear's API takes on stdin, one ticket at a time. `{key}`
+# is substituted the same way the command's own `{key}` would be, just kept
+# out of the command line because a query this shaped does not belong there.
+LINEAR_QUERY = (
+    '{"query":"{ issue(id: \\"{key}\\") { identifier title description '
+    'state { name } url parent { identifier } children { nodes { identifier } } '
+    'relations { nodes { relatedIssue { identifier } } } '
+    'comments { nodes { body } } } }"}'
+)
+
+
+def fetch(command: str, key: str, timeout: int = 60,
+          stdin: str | None = None) -> dict[str, Any] | None:
+    """One ticket, through whatever the caller uses to reach its tracker.
+
+    `stdin` is fed to the command as-is (Linear's GraphQL body goes this way,
+    since it does not belong on a command line).
+    """
     try:
         out = subprocess.run(command.replace("{key}", key), shell=True,
-                             capture_output=True, text=True, timeout=timeout)
+                             capture_output=True, text=True, timeout=timeout,
+                             input=stdin)
     except subprocess.TimeoutExpired:
         return {"key": key, "error": f"the tracker did not answer in {timeout}s"}
     if out.returncode != 0:
@@ -63,24 +86,83 @@ def fetch(command: str, key: str, timeout: int = 60) -> dict[str, Any] | None:
         return {"key": key, "error": "the fetcher did not return JSON"}
 
 
-def links_of(ticket: dict[str, Any]) -> list[str]:
+def links_of(ticket: dict[str, Any], key_re: re.Pattern = KEY) -> list[str]:
     """Every ticket key this one points at, however the tracker spells it.
 
     Read out of the whole document rather than out of the fields a particular
     tracker happens to use: a key mentioned in a comment is a link somebody made
-    on purpose, and no schema records it.
+    on purpose, and no schema records it. The whole match is the key, even when
+    `key_re` also captures a group for its own use (GitHub's does, for the
+    fetch); a group changes what `findall` returns, so this walks matches
+    instead and keeps `group(0)`.
     """
     text = json.dumps(ticket, ensure_ascii=False)
-    return sorted(set(KEY.findall(text)))
+    return sorted(set(m.group(0) for m in key_re.finditer(text)))
+
+
+def command_for(source: str, repo: str) -> tuple[str, re.Pattern]:
+    """A ready-made command for a tracker this tool already knows how to reach.
+
+    `source` is "github" or "linear". `repo` is a local checkout; for github
+    it supplies the `origin` remote that names the repository, since `gh`
+    needs owner/name and this tool otherwise has no notion of "the repo".
+    Returns the same `(command, key_re)` shape a caller would otherwise write
+    by hand for `--spec-cmd`, so `walk` never has to know which source it is.
+    """
+    if source == "github":
+        owner_repo = _github_owner_repo(repo)
+        cmd = (f"gh issue view {{key}} --repo {owner_repo} "
+               "--json number,title,body,state,labels,url,comments")
+        return cmd, GITHUB_KEY
+    if source == "linear":
+        cmd = ('[ -n "$LINEAR_API_KEY" ] || '
+               '{ echo "LINEAR_API_KEY is not set" >&2; exit 1; }\n'
+               'curl -sS -H "Authorization: $LINEAR_API_KEY" '
+               '-H "Content-Type: application/json" '
+               'https://api.linear.app/graphql -d @-')
+        return cmd, KEY
+    raise ValueError(f"unknown spec source: {source!r} (want github or linear)")
+
+
+def linear_query(key: str) -> str:
+    """The GraphQL body for one Linear issue, ready for `curl -d @-`."""
+    return LINEAR_QUERY.replace("{key}", key)
+
+
+def _github_owner_repo(repo: str) -> str:
+    """The `owner/name` a `gh --repo` flag wants, read off `origin`.
+
+    Handles both remote forms git actually hands out: `git@github.com:o/n.git`
+    and `https://github.com/o/n`.
+    """
+    out = subprocess.run(["git", "-C", repo, "remote", "get-url", "origin"],
+                         capture_output=True, text=True, timeout=10)
+    url = out.stdout.strip()
+    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$", url)
+    if not m:
+        raise ValueError("origin is not a github remote: "
+                          f"{url or out.stderr.strip() or '(no origin set)'}")
+    return f"{m.group(1)}/{m.group(2)}"
 
 
 def walk(command: str, roots: list[str], depth: int = DEFAULT_DEPTH,
-         limit: int = DEFAULT_LIMIT, say=None) -> dict[str, Any]:
+         limit: int = DEFAULT_LIMIT, say=None, key_re: re.Pattern = KEY,
+         stdin: str | Callable[[str], str] | None = None) -> dict[str, Any]:
     """Everything within `depth` hops of the roots, fetched once each.
 
     The limit is a stop, not a target: a tracker is a graph and a graph is
     happy to hand over a thousand tickets. Whatever it stops at is said out
     loud — a map that quietly ends is worse than a small one.
+
+    `key_re` is the pattern a key matches. Most trackers fetch by the same
+    string a key is written as, but not every one does: GitHub's key is
+    written "#12" and fetched as "12", so a source like that captures the part
+    to fetch with in group 1, and this reads it back out and writes the whole
+    key onto the ticket afterwards, so links_of and digest never have to know.
+
+    `stdin` feeds the fetcher's standard input, for a tracker whose query does
+    not belong on a command line (Linear's GraphQL body). It is a string sent
+    to every fetch as-is, or a callable of the key that builds one per ticket.
     """
     seen: dict[str, Any] = {}
     edges: dict[str, list[str]] = {}
@@ -94,13 +176,21 @@ def walk(command: str, roots: list[str], depth: int = DEFAULT_DEPTH,
         if len(seen) >= limit:
             dropped.append(key)
             continue
-        ticket = fetch(command, key)
+        fetch_key = key
+        if key_re.groups:
+            m = key_re.match(key)
+            if m:
+                fetch_key = m.group(1)
+        one_stdin = stdin(key) if callable(stdin) else stdin
+        ticket = fetch(command, fetch_key, stdin=one_stdin)
         if ticket is None:
             continue
+        if isinstance(ticket, dict) and key_re.groups:
+            ticket["key"] = key
         seen[key] = ticket
         if say:
             say(f"  {key} ({len(seen)} so far)")
-        found = [k for k in links_of(ticket) if k != key]
+        found = [k for k in links_of(ticket, key_re) if k != key]
         edges[key] = found
         if hop < depth:
             frontier += [(k, hop + 1) for k in found if k not in seen]

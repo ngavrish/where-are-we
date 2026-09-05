@@ -4452,7 +4452,14 @@ def main() -> int:
     ap.add_argument("--spec-cmd", default=os.getenv("SPEC_FETCH_CMD", ""),
                     help="how to fetch one ticket as JSON; {key} is substituted. "
                          "This tool knows no tracker — the caller supplies the "
-                         "source, as with everything else here")
+                         "source, as with everything else here. Ignored when "
+                         "--spec-source is github or linear, which fill it in")
+    ap.add_argument("--spec-source", choices=["cmd", "github", "linear"],
+                    default=os.getenv("SPEC_SOURCE", "cmd"),
+                    help="'cmd' (default) uses --spec-cmd as given. 'github' "
+                         "builds the gh CLI command for the repo under --repo, "
+                         "reading owner/name off its origin remote. 'linear' "
+                         "builds the GraphQL call and needs LINEAR_API_KEY set")
     ap.add_argument("--spec-depth", type=int, default=0,
                     help="how many hops from the roots to follow (default 2)")
     ap.add_argument("--spec-limit", type=int, default=0,
@@ -4503,6 +4510,17 @@ def main() -> int:
         return _lsp.serve(os.path.abspath(args.out), os.path.abspath(args.repo))
 
     if args.specs:
+        key_re = specs.KEY
+        spec_stdin = None
+        if args.spec_source != "cmd":
+            try:
+                args.spec_cmd, key_re = specs.command_for(
+                    args.spec_source, os.path.abspath(args.repo))
+            except ValueError as exc:
+                print(f"--spec-source {args.spec_source}: {exc}", file=sys.stderr)
+                return 2
+            if args.spec_source == "linear":
+                spec_stdin = specs.linear_query
         if not args.spec_cmd:
             print("--specs needs --spec-cmd: this tool does not know your tracker",
                   file=sys.stderr)
@@ -4513,7 +4531,8 @@ def main() -> int:
         say = None if args.quiet else (lambda line: print(line, flush=True))
         spec = specs.walk(args.spec_cmd, roots,
                           depth=args.spec_depth or specs.DEFAULT_DEPTH,
-                          limit=args.spec_limit or specs.DEFAULT_LIMIT, say=say)
+                          limit=args.spec_limit or specs.DEFAULT_LIMIT, say=say,
+                          key_re=key_re, stdin=spec_stdin)
         with open(os.path.join(out_dir, "spec_map.json"), "w", encoding="utf-8") as fh:
             json.dump(spec, fh, indent=2, ensure_ascii=False)
         with open(os.path.join(out_dir, "spec_map.md"), "w", encoding="utf-8") as fh:

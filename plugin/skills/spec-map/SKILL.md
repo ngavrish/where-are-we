@@ -23,8 +23,17 @@ ticket key into JSON, and it walks the links two hops out:
 `--spec-limit` bounds the count. What the bound cut is named at the top of the
 map under `## This map is incomplete`.
 
-Any source works: Jira, Linear, GitHub Issues (`gh issue view {key} --json
-title,body,comments`), a directory of text files.
+Any source works: Jira, Linear, GitHub Issues, a directory of text files.
+
+GitHub and Linear need no command written by hand:
+
+    where-are-we --repo . --out .wawe --specs '#12' --spec-source github
+    where-are-we --repo . --out .wawe --specs ENG-1 --spec-source linear
+
+`--spec-source github` builds the `gh issue view` call itself, reading
+owner/name off the repository's `origin` remote; give it keys the way GitHub
+writes them, `#12`. `--spec-source linear` builds the GraphQL call over `curl`
+and needs `LINEAR_API_KEY` set in the environment.
 
 ## Ask it
 

@@ -81,3 +81,19 @@ jobs:
           where-are-we --repo /tmp/lsp/r --out /tmp/lsp/m --force
           python docs/examples/lsp-smoke.py /tmp/lsp/r /tmp/lsp/m | tee /tmp/lsp-smoke.out
           grep -q "billing.py" /tmp/lsp-smoke.out
+      - name: "spec source: github"
+        run: |
+          mkdir -p /tmp/ghbin /tmp/ghrepo
+          cat > /tmp/ghbin/gh <<'SH'
+          #!/bin/sh
+          # gh's own argv is issue/view/<number>/--repo/..., so the number
+          # substituted for {key} lands at $3, not $2.
+          echo "{\"number\": $3, \"title\": \"t $3\", \"body\": \"see #7\", \"comments\": []}"
+          SH
+          chmod +x /tmp/ghbin/gh
+          git -C /tmp/ghrepo init -q
+          git -C /tmp/ghrepo remote add origin git@github.com:acme/shop.git
+          PATH="/tmp/ghbin:$PATH" where-are-we --repo /tmp/ghrepo --out /tmp/ghmap \
+            --specs '#12' --spec-source github --quiet
+          grep -q '#12' /tmp/ghmap/spec_map.md
+          grep -q '#7' /tmp/ghmap/spec_map.md
