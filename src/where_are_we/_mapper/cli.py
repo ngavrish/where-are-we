@@ -547,10 +547,16 @@ def main() -> int:
             print(f"no map at {map_path}: build one with "
                   f"`where-are-we --repo . --out {args.out}`", file=sys.stderr)
             return 1
-        if not have_map and not args.ask:
-            # --pointer, --sections and --callers read the code map and only
-            # the code map, so for them the spec map beside it is not an
-            # answer either. Say which file is missing and which one is there.
+        # Per flag, not per invocation. These four are separate branches and
+        # the first one given wins, so the question is what the branch that
+        # will actually run needs, not what the command line also mentions.
+        # `--ask x --callers foo` runs --callers, and gating on "did anyone
+        # say --ask" let it answer "nothing in the map calls foo" from a
+        # directory with no code map in it at all.
+        if not have_map and (args.pointer or args.sections or args.callers):
+            # These three read the code map and only the code map, so for
+            # them the spec map beside it is not an answer. Say which file is
+            # missing and which one is there.
             print(f"no map at {map_path}: {spec_path} is there, and only "
                   f"--ask reads it", file=sys.stderr)
             return 1
