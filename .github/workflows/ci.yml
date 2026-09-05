@@ -1103,7 +1103,7 @@ jobs:
           grep -q SIBLING /tmp/esc/m/framework_map.json
           grep -q "inside_link.py" /tmp/esc/m/framework_map.json
           # And the map says it left something out rather than looking complete.
-          grep -q "a symlink in this tree resolves outside the repository" \
+          grep -q "a symlink that resolves outside the repository" \
             /tmp/esc/m/framework_map.md
 
       - name: a broad handler no longer swallows what the parse loop does
