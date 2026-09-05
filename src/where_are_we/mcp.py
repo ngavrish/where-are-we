@@ -122,10 +122,30 @@ TOOLS = [
 ]
 
 
+class _BadParams(Exception):
+    """A request's shape was wrong: reply -32602, do not touch the map."""
+
+
 def _reply(result: dict, ident) -> None:
     sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": ident,
                                  "result": result}) + "\n")
     sys.stdout.flush()
+
+
+def _reply_error(code: int, message: str, ident) -> None:
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": ident,
+                                 "error": {"code": code,
+                                           "message": message}}) + "\n")
+    sys.stdout.flush()
+
+
+def _is_str_or_str_list(value) -> bool:
+    """`words`/`name`/`phrase` accept a bare string or a list of strings."""
+    if isinstance(value, str):
+        return True
+    if isinstance(value, (list, tuple)):
+        return all(isinstance(x, str) for x in value)
+    return False
 
 
 def _each(value) -> list:
@@ -175,113 +195,174 @@ def _text(body: str) -> dict:
     return {"content": [{"type": "text", "text": body}]}
 
 
+def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> None:
+    """One request, fully validated before anything is read or written.
+
+    Raises `_BadParams` for a malformed request (the caller replies -32602)
+    and lets any other exception through (the caller replies -32603); a
+    request that dispatches cleanly always replies for itself.
+    """
+    if method == "initialize":
+        _reply({"protocolVersion": PROTOCOL,
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "where-are-we",
+                               "version": __version__}}, ident)
+        return
+    if method == "tools/list":
+        _reply({"tools": TOOLS}, ident)
+        return
+    if method != "tools/call":
+        if ident is not None:
+            _reply({}, ident)
+        return
+
+    if not isinstance(params, dict):
+        raise _BadParams("params must be an object")
+    name = params.get("name")
+    args = params.get("arguments")
+    if args is None:
+        args = {}
+    elif not isinstance(args, dict):
+        raise _BadParams("arguments must be an object")
+
+    if name == "ask":
+        words_field = args.get("words")
+        if words_field is not None and not _is_str_or_str_list(words_field):
+            raise _BadParams("words must be a string or a list of strings")
+        spec = os.path.join(out_dir, "spec_map.md")
+        has_spec = os.path.exists(spec)
+
+        def _ask_one(words: str, room: int) -> str:
+            # Two maps, so the room is split between them rather than
+            # spent twice: the framework map and the spec map each used
+            # to return a full allowance, doubling every answer.
+            each = room // 2 if has_spec else room
+            answer = mapper.ask(map_path, words, each)
+            if has_spec:
+                answer += "\n\n" + mapper.ask(spec, words, each)
+            # The MCP is how sessions actually ask; leaving the
+            # semantic tail on the CLI alone gave meaning to the one
+            # caller nobody uses.
+            # The tail shares the answer's room rather than adding to it:
+            # a third of the room at most, and never more than is left.
+            # meaning_tail(room=0) is not safe — its header line is
+            # written before the room check, so it can come back
+            # non-empty even at room=0; guarded here instead.
+            left = max(room - len(answer), 0)
+            if left:
+                answer += mapper.meaning_tail(out_dir, words, answer,
+                                              room=min(room // 3, left))
+            return answer
+
+        asked = _each(words_field) or [""]
+        room = _share(_ANSWER_BUDGET, len(asked), 1500)
+        pairs = []
+        for w in asked:
+            a = _ask_one(w, room)
+            log_answer(out_dir, "ask", w, a, room)
+            pairs.append((w, a))
+        _reply(_text(_joined(pairs)), ident)
+    elif name == "defines":
+        name_field = args.get("name")
+        if name_field is not None and not _is_str_or_str_list(name_field):
+            raise _BadParams("name must be a string or a list of strings")
+        wanted = _each(name_field)
+        # One pass over the map for the whole list: _definitions_for
+        # already takes several names, and reading the map once per name
+        # is the cost this batching exists to remove.
+        hits = mapper._definitions_for(map_path,
+                                       [w.lower() for w in wanted])
+        answer = ("\n".join(hits) if hits
+                  else "no declaration of "
+                       + ", ".join(repr(w) for w in wanted)
+                       + " in the map")
+        log_answer(out_dir, "defines", ", ".join(wanted), answer,
+                   len(answer))
+        _reply(_text(answer), ident)
+    elif name == "callers":
+        name_field = args.get("name")
+        if name_field is not None and not _is_str_or_str_list(name_field):
+            raise _BadParams("name must be a string or a list of strings")
+        json_path = os.path.join(out_dir, "framework_map.json")
+        wanted = _each(name_field)
+        lines = []
+        for w in wanted:
+            hits = callers(json_path, w)
+            lines.append(f"{w}: " + ", ".join(hits) if hits
+                         else f"nothing in the map calls {w}")
+        answer = "\n".join(lines)
+        log_answer(out_dir, "callers", ", ".join(wanted), answer,
+                   len(answer))
+        _reply(_text(answer), ident)
+    elif name == "find":
+        phrase_field = args.get("phrase")
+        if phrase_field is not None and not _is_str_or_str_list(phrase_field):
+            raise _BadParams("phrase must be a string or a list of strings")
+        limit_field = args.get("limit")
+        if limit_field is not None and not isinstance(limit_field, int):
+            raise _BadParams("limit must be an integer")
+        phrases = _each(phrase_field) or [""]
+        limit = int(limit_field or _HIT_BUDGET)
+        room = _share(limit, len(phrases), 5)
+        pairs = []
+        for p in phrases:
+            a = mapper.find_text(out_dir, p, room)
+            log_answer(out_dir, "find", p, a, room)
+            pairs.append((p, a))
+        _reply(_text(_joined(pairs)), ident)
+    elif name == "sections":
+        try:
+            from .ask import map_heads
+            answer = "\n".join(map_heads(map_path))
+            log_answer(out_dir, "sections", "", answer, len(answer))
+            _reply(_text(answer), ident)
+        except OSError as exc:
+            _reply(_text(f"no map at {map_path}: {exc}"), ident)
+    else:
+        _reply(_text(f"no tool named {name!r}"), ident)
+
+
 def serve(out_dir: str) -> int:
-    """Read requests until stdin closes. One request, one answer, no state."""
+    """Read requests until stdin closes. One request, one answer, no state.
+
+    A malformed request never takes the server down with it: its dispatch is
+    wrapped so a bad shape gets a JSON-RPC -32602 and anything else gets a
+    -32603, and the loop reads the next line either way. The client that
+    closes its end of the pipe mid-answer (`| head`, a killed editor) gets a
+    quiet exit instead of a BrokenPipeError traceback.
+    """
     from . import mapper
 
     map_path = os.path.join(out_dir, "framework_map.md")
 
-    for line in sys.stdin:
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            request = json.loads(line)
-        except ValueError:
-            continue
-        method, ident = request.get("method"), request.get("id")
-        params = request.get("params") or {}
-
-        if method == "initialize":
-            _reply({"protocolVersion": PROTOCOL,
-                    "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "where-are-we",
-                                   "version": __version__}}, ident)
-        elif method == "tools/list":
-            _reply({"tools": TOOLS}, ident)
-        elif method == "tools/call":
-            name = params.get("name")
-            args = params.get("arguments") or {}
-            if name == "ask":
-                spec = os.path.join(out_dir, "spec_map.md")
-                has_spec = os.path.exists(spec)
-
-                def _ask_one(words: str, room: int) -> str:
-                    # Two maps, so the room is split between them rather than
-                    # spent twice: the framework map and the spec map each used
-                    # to return a full allowance, doubling every answer.
-                    each = room // 2 if has_spec else room
-                    answer = mapper.ask(map_path, words, each)
-                    if has_spec:
-                        answer += "\n\n" + mapper.ask(spec, words, each)
-                    # The MCP is how sessions actually ask; leaving the
-                    # semantic tail on the CLI alone gave meaning to the one
-                    # caller nobody uses.
-                    # The tail shares the answer's room rather than adding to it:
-                    # a third of the room at most, and never more than is left.
-                    # meaning_tail(room=0) is not safe — its header line is
-                    # written before the room check, so it can come back
-                    # non-empty even at room=0; guarded here instead.
-                    left = max(room - len(answer), 0)
-                    if left:
-                        answer += mapper.meaning_tail(out_dir, words, answer,
-                                                      room=min(room // 3, left))
-                    return answer
-
-                asked = _each(args.get("words")) or [""]
-                room = _share(_ANSWER_BUDGET, len(asked), 1500)
-                pairs = []
-                for w in asked:
-                    a = _ask_one(w, room)
-                    log_answer(out_dir, "ask", w, a, room)
-                    pairs.append((w, a))
-                _reply(_text(_joined(pairs)), ident)
-            elif name == "defines":
-                wanted = _each(args.get("name"))
-                # One pass over the map for the whole list: _definitions_for
-                # already takes several names, and reading the map once per name
-                # is the cost this batching exists to remove.
-                hits = mapper._definitions_for(map_path,
-                                               [w.lower() for w in wanted])
-                answer = ("\n".join(hits) if hits
-                          else "no declaration of "
-                               + ", ".join(repr(w) for w in wanted)
-                               + " in the map")
-                log_answer(out_dir, "defines", ", ".join(wanted), answer,
-                           len(answer))
-                _reply(_text(answer), ident)
-            elif name == "callers":
-                json_path = os.path.join(out_dir, "framework_map.json")
-                wanted = _each(args.get("name"))
-                lines = []
-                for w in wanted:
-                    hits = callers(json_path, w)
-                    lines.append(f"{w}: " + ", ".join(hits) if hits
-                                 else f"nothing in the map calls {w}")
-                answer = "\n".join(lines)
-                log_answer(out_dir, "callers", ", ".join(wanted), answer,
-                           len(answer))
-                _reply(_text(answer), ident)
-            elif name == "find":
-                phrases = _each(args.get("phrase")) or [""]
-                limit = int(args.get("limit") or _HIT_BUDGET)
-                room = _share(limit, len(phrases), 5)
-                pairs = []
-                for p in phrases:
-                    a = mapper.find_text(out_dir, p, room)
-                    log_answer(out_dir, "find", p, a, room)
-                    pairs.append((p, a))
-                _reply(_text(_joined(pairs)), ident)
-            elif name == "sections":
-                try:
-                    from .ask import map_heads
-                    answer = "\n".join(map_heads(map_path))
-                    log_answer(out_dir, "sections", "", answer, len(answer))
-                    _reply(_text(answer), ident)
-                except OSError as exc:
-                    _reply(_text(f"no map at {map_path}: {exc}"), ident)
-            else:
-                _reply(_text(f"no tool named {name!r}"), ident)
-        elif ident is not None:
-            _reply({}, ident)
+    try:
+        for line in sys.stdin:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                request = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(request, dict):
+                continue  # not a JSON-RPC object; nothing sane to reply to
+            method, ident = request.get("method"), request.get("id")
+            params = request.get("params")
+            if params is None:
+                params = {}
+            try:
+                _dispatch(mapper, out_dir, map_path, method, ident, params)
+            except _BadParams as exc:
+                _reply_error(-32602, str(exc), ident)
+            except BrokenPipeError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - keep serving the pipe
+                _reply_error(-32603, str(exc), ident)
+    except BrokenPipeError:
+        # The reader went away (`| head`, a killed editor). Redirect our
+        # stdout to devnull first so the interpreter's own shutdown flush
+        # does not raise the same error a second time on the way out.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        os.close(devnull)
     return 0

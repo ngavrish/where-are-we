@@ -345,3 +345,23 @@ jobs:
           printf 'z=3\n' > /tmp/pd/r/c.py
           where-are-we --out /tmp/pd/m --pointer > /tmp/pd/second.txt
           grep -q "2 files changed" /tmp/pd/second.txt
+
+      - name: mcp malformed params/arguments/limit get a JSON-RPC error, not a dead server
+        run: |
+          rm -rf /tmp/mcperr
+          mkdir -p /tmp/mcperr/pkg
+          printf 'def charge(x):\n    return x\n' > /tmp/mcperr/pkg/billing.py
+          where-are-we --repo /tmp/mcperr --out /tmp/mcperr/.wawe --force --no-semantic --quiet
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":[1,2,3]}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask","arguments":["x"]}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"charge","limit":"abc"}}}' \
+            '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ask","arguments":{"words":"charge"}}}' \
+            | where-are-we --repo /tmp/mcperr --out /tmp/mcperr/.wawe --mcp | tee /tmp/mcperr-out.txt
+          grep -q '"id": 1, "error": {"code": -32602' /tmp/mcperr-out.txt
+          grep -q '"id": 2, "error": {"code": -32602' /tmp/mcperr-out.txt
+          grep -q '"id": 3, "error": {"code": -32602' /tmp/mcperr-out.txt
+          # A bad request earlier on the same pipe must not take the server
+          # down: the next, well-formed request still gets answered.
+          grep -q '"id": 4, "result"' /tmp/mcperr-out.txt
+
