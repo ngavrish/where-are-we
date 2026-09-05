@@ -435,3 +435,49 @@ jobs:
           test "${PIPESTATUS[0]}" = "0"
           test ! -s /tmp/epipe/lsp.err
 
+      - name: semantic search degrades on a corrupt index, through the MCP ask path
+        run: |
+          rm -rf /tmp/sem
+          mkdir -p /tmp/sem/pkg
+          printf 'def charge(x):\n    return x\n' > /tmp/sem/pkg/billing.py
+          where-are-we --repo /tmp/sem --out /tmp/sem/.wawe --force --no-semantic --quiet
+          : > /tmp/sem/.wawe/semantic_index.npy
+          printf '{"fingerprint":"x","chunks":[]}' > /tmp/sem/.wawe/semantic_index.json
+          pip install -q numpy
+          python - <<'EOF'
+          import io
+          import sys
+          import types
+
+          # A real numpy (installed above) so np.load's own EOFError on a
+          # zero-byte file is genuine; only fastembed is stubbed, since
+          # this failure never reaches an embedder.
+          fastembed = types.ModuleType("fastembed")
+
+          class TextEmbedding:
+              def __init__(self, *a, **k):
+                  pass
+
+              def embed(self, texts):
+                  return [[0.1] * 384 for _ in texts]
+
+          fastembed.TextEmbedding = TextEmbedding
+          sys.modules["fastembed"] = fastembed
+
+          from where_are_we import mcp
+
+          request = ('{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+                     '"params":{"name":"ask","arguments":{"words":"charge"}}}\n')
+          sys.stdin = io.StringIO(request)
+          out, real_stdout = io.StringIO(), sys.stdout
+          sys.stdout = out
+          try:
+              rc = mcp.serve("/tmp/sem/.wawe")
+          finally:
+              sys.stdout = real_stdout
+          answer = out.getvalue()
+          assert rc == 0, rc
+          assert "charge" in answer, answer
+          print("semantic: corrupt index answered without the tail, OK")
+          EOF
+

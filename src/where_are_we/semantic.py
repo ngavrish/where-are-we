@@ -23,6 +23,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 
 INDEX_MATRIX = "semantic_index.npy"
 INDEX_CHUNKS = "semantic_index.json"
@@ -31,6 +32,10 @@ _CROSS_MODEL = os.getenv("WAWE_RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
 
 _bi = None
 _cross = None
+# One warning per process, not one per call: `search()` runs inside the MCP
+# request loop, and a session that keeps asking would otherwise get the same
+# stderr line on every question.
+_warned_corrupt_index = False
 
 
 def available() -> bool:
@@ -186,30 +191,49 @@ def _embed_cached(texts: list):
     cache_path = os.getenv("WAWE_EMBED_CACHE", "")
     if not cache_path:
         return np.array(list(_embedder().embed(texts)), dtype="float32")
+    try:
+        return _embed_with_cache(cache_path, texts)
+    except Exception as exc:  # noqa: BLE001 - a locked/missing cache is not
+        # a build failure: a shared cache across CI jobs, a slow network
+        # filesystem, or a stale -journal from a killed build all degrade
+        # to "no cache", the same as WAWE_EMBED_CACHE never being set.
+        print(f"embed cache unavailable, embedding without it: {exc}",
+              file=sys.stderr)
+        return np.array(list(_embedder().embed(texts)), dtype="float32")
+
+
+def _embed_with_cache(cache_path: str, texts: list):
+    import numpy as np
     keys = [hashlib.sha256((_BI_MODEL + "\x00" + t).encode()).hexdigest()
             for t in texts]
     con = sqlite3.connect(cache_path, timeout=30)
-    con.execute("CREATE TABLE IF NOT EXISTS vec "
-                "(key TEXT PRIMARY KEY, dim INTEGER, blob BLOB)")
-    have = {}
-    for i in range(0, len(keys), 500):
-        batch = keys[i:i + 500]
-        marks = ",".join("?" for _ in batch)
-        for key, dim, blob in con.execute(
-                f"SELECT key, dim, blob FROM vec WHERE key IN ({marks})",
-                batch):
-            have[key] = np.frombuffer(blob, dtype="float32", count=dim)
-    missing = [i for i, k in enumerate(keys) if k not in have]
-    if missing:
-        fresh = list(_embedder().embed([texts[i] for i in missing]))
-        rows = []
-        for i, vec in zip(missing, fresh):
-            arr = np.asarray(vec, dtype="float32")
-            have[keys[i]] = arr
-            rows.append((keys[i], len(arr), arr.tobytes()))
-        con.executemany("INSERT OR REPLACE INTO vec VALUES (?,?,?)", rows)
-        con.commit()
-    con.close()
+    try:
+        # WAL lets a reader through while this connection holds the write
+        # lock, and survives a killed build's stale -journal better than
+        # the default rollback journal.
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("CREATE TABLE IF NOT EXISTS vec "
+                    "(key TEXT PRIMARY KEY, dim INTEGER, blob BLOB)")
+        have = {}
+        for i in range(0, len(keys), 500):
+            batch = keys[i:i + 500]
+            marks = ",".join("?" for _ in batch)
+            for key, dim, blob in con.execute(
+                    f"SELECT key, dim, blob FROM vec WHERE key IN ({marks})",
+                    batch):
+                have[key] = np.frombuffer(blob, dtype="float32", count=dim)
+        missing = [i for i, k in enumerate(keys) if k not in have]
+        if missing:
+            fresh = list(_embedder().embed([texts[i] for i in missing]))
+            rows = []
+            for i, vec in zip(missing, fresh):
+                arr = np.asarray(vec, dtype="float32")
+                have[keys[i]] = arr
+                rows.append((keys[i], len(arr), arr.tobytes()))
+            con.executemany("INSERT OR REPLACE INTO vec VALUES (?,?,?)", rows)
+            con.commit()
+    finally:
+        con.close()
     return np.stack([np.array(have[k], dtype="float32") for k in keys])
 
 
@@ -220,6 +244,7 @@ def search(out_dir: str, query: str, k: int = 6,
     Returns [] when there is no index or no library - the caller's keyword
     path is the fallback, not an error.
     """
+    global _warned_corrupt_index
     if not available():
         return []
     try:
@@ -227,7 +252,15 @@ def search(out_dir: str, query: str, k: int = 6,
         matrix = np.load(os.path.join(out_dir, INDEX_MATRIX))
         with open(os.path.join(out_dir, INDEX_CHUNKS), encoding="utf-8") as fh:
             chunks = (json.load(fh) or {}).get("chunks") or []
-    except (OSError, ValueError):
+    except (OSError, ValueError, EOFError) as exc:
+        # A build rewriting the index mid-read (or a zero-byte file, which
+        # is exactly the state `np.save`'s own `open(..., "wb")` creates
+        # before it has written anything) is not an error for the caller:
+        # the keyword answer stands alone, the same as "no index at all".
+        if not _warned_corrupt_index:
+            print(f"semantic index unreadable, answering without it: {exc}",
+                  file=sys.stderr)
+            _warned_corrupt_index = True
         return []
     if len(chunks) != len(matrix):
         return []
