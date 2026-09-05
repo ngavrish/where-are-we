@@ -365,3 +365,39 @@ jobs:
           # down: the next, well-formed request still gets answered.
           grep -q '"id": 4, "result"' /tmp/mcperr-out.txt
 
+      - name: lsp malformed params get a JSON-RPC error; file:// URI is percent-encoded
+        run: |
+          rm -rf "/tmp/lsperr"
+          mkdir -p "/tmp/lsperr/repo café"
+          printf 'def charge(x):\n    return x\n' > "/tmp/lsperr/repo café/billing.py"
+          printf 'from billing import charge\n\ndef pay():\n    return charge(1)\n' > "/tmp/lsperr/repo café/api.py"
+          where-are-we --repo "/tmp/lsperr/repo café" --out /tmp/lsperr/m --force --no-semantic --quiet
+          python - <<'EOF'
+          import json
+          import subprocess
+
+          def frame(obj):
+              body = json.dumps(obj).encode()
+              return b"Content-Length: %d\r\n\r\n%s" % (len(body), body)
+
+          messages = [
+              frame({"jsonrpc": "2.0", "id": 1,
+                     "method": "textDocument/definition", "params": [1, 2]}),
+              frame({"jsonrpc": "2.0", "id": 2,
+                     "method": "workspace/symbol", "params": {"query": "cha"}}),
+          ]
+          proc = subprocess.run(
+              ["where-are-we", "--repo", "/tmp/lsperr/repo café",
+               "--out", "/tmp/lsperr/m", "--lsp"],
+              input=b"".join(messages), capture_output=True, timeout=30)
+          out = proc.stdout.decode()
+          assert '"code": -32602' in out, out
+          # A path with a space and a non-ASCII character comes back
+          # percent-encoded (Path.as_uri()), not raw: an editor can open it.
+          assert "repo%20caf%C3%A9" in out, out
+          # The bad request above did not end the session.
+          assert '"name": "charge"' in out, out
+          assert proc.returncode == 0, proc.returncode
+          print("lsp malformed params and unicode URI: OK")
+          EOF
+
