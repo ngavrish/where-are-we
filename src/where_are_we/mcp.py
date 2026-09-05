@@ -28,9 +28,18 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import log_answer, callers
+    from .ask import log_answer, callers, map_heads
 except ImportError:  # run as a plain file, with no package around it
-    from ask import log_answer, callers  # type: ignore[no-redef]
+    from ask import log_answer, callers, map_heads  # type: ignore[no-redef]
+
+# Top level, both ways round: `mapper` is the layer below this one and does
+# not import back. This and the `map_heads` above used to be imports inside
+# functions, because the facade re-exported the command line and the command
+# line imported this module.
+try:
+    from . import mapper
+except ImportError:  # run as a plain file, with no package around it
+    import mapper  # type: ignore[no-redef]
 
 PROTOCOL = "2024-11-05"
 
@@ -267,11 +276,11 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         if name_field is not None and not _is_str_or_str_list(name_field):
             raise _BadParams("name must be a string or a list of strings")
         wanted = _each(name_field)
-        # One pass over the map for the whole list: _definitions_for
+        # One pass over the map for the whole list: definitions_for
         # already takes several names, and reading the map once per name
         # is the cost this batching exists to remove.
-        hits = mapper._definitions_for(map_path,
-                                       [w.lower() for w in wanted])
+        hits = mapper.definitions_for(map_path,
+                                      [w.lower() for w in wanted])
         answer = ("\n".join(hits) if hits
                   else "no declaration of "
                        + ", ".join(repr(w) for w in wanted)
@@ -312,7 +321,6 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         _reply(_text(_joined(pairs)), ident)
     elif name == "sections":
         try:
-            from .ask import map_heads
             answer = "\n".join(map_heads(map_path))
             log_answer(out_dir, "sections", "", answer, len(answer))
             _reply(_text(answer), ident)
@@ -331,8 +339,6 @@ def serve(out_dir: str) -> int:
     closes its end of the pipe mid-answer (`| head`, a killed editor) gets a
     quiet exit instead of a BrokenPipeError traceback.
     """
-    from . import mapper
-
     map_path = os.path.join(out_dir, "framework_map.md")
 
     try:

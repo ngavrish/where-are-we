@@ -25,7 +25,7 @@ precise = ["tree-sitter-languages>=1.10", "tree-sitter>=0.21,<0.22"]
 semantic = ["fastembed>=0.4", "numpy>=1.24"]
 
 [project.scripts]
-where-are-we = "where_are_we.mapper:main"
+where-are-we = "where_are_we.cli:main"
 wawe-readmes = "where_are_we.readmes:main"
 wawe-measure = "where_are_we.measure:main"
 

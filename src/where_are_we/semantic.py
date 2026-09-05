@@ -34,6 +34,10 @@ INDEX_MATRIX = "semantic_index.npy"
 INDEX_CHUNKS = "semantic_index.json"
 _BI_MODEL = os.getenv("WAWE_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 _CROSS_MODEL = os.getenv("WAWE_RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
+# One sqlite file to keep embeddings in between runs, or "" for no cache. Read
+# beside the two model names it belongs with rather than in the middle of the
+# function that embeds.
+EMBED_CACHE = os.getenv("WAWE_EMBED_CACHE", "")
 
 _bi = None
 _cross = None
@@ -210,7 +214,7 @@ def build_index(out_dir: str, corpora: list[tuple[str, str]]) -> str:
 # the old behavior). It stores raw vectors; normalization stays the caller's.
 def _embed_cached(texts: list):
     import numpy as np
-    cache_path = os.getenv("WAWE_EMBED_CACHE", "")
+    cache_path = EMBED_CACHE
     if not cache_path:
         return np.array(list(_embedder().embed(texts)), dtype="float32")
     try:

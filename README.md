@@ -483,14 +483,14 @@ defaults from.
 
 | name | read in | what it does | default |
 |---|---|---|---|
-| `AGENT_REPO` | `_mapper/walk.py`, `_mapper/cli.py`, `readmes.py` | the repository to index or answer about, when `--repo` is not given. `main()` also writes it back so the walk and the product guess see the resolved path | unset: `--out`'s parent when that is a `.wawe`, then `/work` if it exists, then the current directory |
-| `RUN_DIR` | `_mapper/cli.py`, `_mapper/build.py` | where the map files are written, when `--out` is not given | `.` |
-| `PRODUCT_SRC` | `_mapper/walk.py`, `_mapper/cli.py` | the product under test, colon or comma separated, when `--product` is not given. `none` switches the sibling guess off | unset: the siblings of a repository that looks like a test suite |
-| `RULES_REPO` | `_mapper/build.py`, `_mapper/cli.py` | a directory of agent rule files to fold into the map, when `--rules` is not given | `/rules` |
-| `RUNS_API_READ` | `_mapper/build.py`, `_mapper/cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is not given | unset: no runs section |
-| `SPEC_ROOTS` | `_mapper/cli.py` | the ticket keys `--specs` walks from, comma separated | unset |
-| `SPEC_FETCH_CMD` | `_mapper/cli.py` | the command that fetches one ticket as JSON, when `--spec-cmd` is not given | unset: `--specs` refuses to run without one |
-| `SPEC_SOURCE` | `_mapper/cli.py` | which built-in tracker command to use (`jira`, `linear`, `github`, `cmd`), when `--spec-source` is not given | `cmd` |
+| `AGENT_REPO` | `_mapper/walk.py`, `cli.py`, `readmes.py` | the repository to index or answer about, when `--repo` is not given. `main()` also writes it back so the walk and the product guess see the resolved path | unset: `--out`'s parent when that is a `.wawe`, then `/work` if it exists, then the current directory |
+| `RUN_DIR` | `cli.py`, `_mapper/build.py` | where the map files are written, when `--out` is not given | `.` |
+| `PRODUCT_SRC` | `_mapper/walk.py`, `cli.py` | the product under test, colon or comma separated, when `--product` is not given. `none` switches the sibling guess off | unset: the siblings of a repository that looks like a test suite |
+| `RULES_REPO` | `_mapper/build.py`, `cli.py` | a directory of agent rule files to fold into the map, when `--rules` is not given | `/rules` |
+| `RUNS_API_READ` | `_mapper/build.py`, `cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is not given | unset: no runs section |
+| `SPEC_ROOTS` | `cli.py` | the ticket keys `--specs` walks from, comma separated | unset |
+| `SPEC_FETCH_CMD` | `cli.py` | the command that fetches one ticket as JSON, when `--spec-cmd` is not given | unset: `--specs` refuses to run without one |
+| `SPEC_SOURCE` | `cli.py` | which built-in tracker command to use (`jira`, `linear`, `github`, `cmd`), when `--spec-source` is not given | `cmd` |
 | `WAWE_SPEC_DEPTH` | `specs.py` | how many link hops out from each root ticket the spec map walks | `2` |
 | `WAWE_SPEC_LIMIT` | `specs.py` | the most tickets one spec map will fetch | `60` |
 | `WAWE_MAX_FILES` | `_mapper/walk.py` | the most files one walk will visit before it stops and says so in the map | `40000` |
@@ -505,6 +505,22 @@ defaults from.
 | `WAWE_EMBED_CACHE` | `semantic.py` | a directory to keep embeddings in between runs | unset: no cache |
 | `WAWE_STRICT` | the Claude Code plugin, not `src/` | set to `1` and the plugin's PreToolUse hook refuses `Grep`, `Glob` and `Bash` searches over the repository, so the map is asked instead | unset: searches are allowed |
 | `PYTHONIOENCODING` | the interpreter | a codec narrower than the map's text no longer fails: characters it cannot carry are replaced | unset: the locale's codec |
+
+Each variable is read in one place, and named there. `WAWE_NO_CACHE`,
+`WAWE_DEBUG_PARSES` and `WAWE_POINTER_MAX` are read once when
+`_mapper/state.py` is imported (`NO_CACHE`, `DEBUG_PARSES`, `POINTER_MAX`),
+`WAWE_MAX_FILES` when `_mapper/walk.py` is (`MAX_FILES`), `WAWE_VOCAB` when
+`_mapper/render.py` is (`VOCAB_CAP`), `WAWE_ASK_LOG` when `ask.py` is
+(`LOG_ANSWERS`), the three `WAWE_EMBED`/`WAWE_RERANK` ones when `semantic.py`
+is, and the two `WAWE_SPEC` ones when `specs.py` is. So a process that sets one
+of those after importing the package keeps the value it started with.
+
+The rest are read per call. Five of them are the ones a flag writes back into
+the environment for a later stage to pick up (`AGENT_REPO`, `PRODUCT_SRC`,
+`RUN_DIR`, `RULES_REPO`, `RUNS_API_READ`). Three more are argparse defaults,
+which `main()` evaluates when it builds the parser (`SPEC_ROOTS`,
+`SPEC_FETCH_CMD`, `SPEC_SOURCE`). The last is `WAWE_JUNIT_DIRS`, which a caller
+that builds several maps in one process sets per build.
 
 ## Keeping it honest
 

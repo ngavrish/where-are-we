@@ -227,7 +227,7 @@ def _cached(path: str, kind: str, compute):
     with nothing recorded at all, for whoever wants a build that leaves the
     cache exactly as it was.
     """
-    if os.environ.get("WAWE_NO_CACHE"):
+    if state.NO_CACHE:
         state.PARSE_COUNT += 1
         return compute()
     try:
@@ -262,10 +262,15 @@ def _config(repo: str) -> dict:
     # that is not configuration, and an unbounded read of a path a repository
     # chooses the contents of is a hole whatever the file is called.
     body = _slurp(path, 64 * 1024)
+    import tomllib
     try:
-        import tomllib
         data = tomllib.loads(body)
-    except Exception:  # noqa: BLE001, a file with a typo in it
+    except (tomllib.TOMLDecodeError, RecursionError):
+        # A file with a typo in it, or one built to be parsed rather than
+        # read: twenty thousand nested brackets are valid TOML syntax right up
+        # to the point where the parser's own recursion runs out, and a
+        # RecursionError out of a config read used to end the build. No
+        # configuration is the answer to both.
         return {}
     out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
     # `[synonyms]` is its own top-level table, named once for the project
@@ -885,7 +890,7 @@ def _walk(root: str, want: str) -> list[str]:
 
 
 
-def _fingerprint(repo: str) -> str:
+def fingerprint(repo: str) -> str:
     """What the map was built from: the commit, and the newest file in the tree.
 
     A map is only worth rebuilding when the thing it describes has moved. The
@@ -919,7 +924,10 @@ def _fingerprint(repo: str) -> str:
         head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
                               capture_output=True, text=True, encoding="utf-8",
                               errors="replace", timeout=15).stdout.strip()
-    except Exception:  # noqa: BLE001 - a repository without git still gets a map
+    except (OSError, subprocess.SubprocessError):
+        # No git on the machine, no repository here, or a call that outlived
+        # its timeout. A tree still gets a map; it is stamped with its newest
+        # file alone.
         pass
     newest = 0
     for full in _indexable(repo):
@@ -928,6 +936,11 @@ def _fingerprint(repo: str) -> str:
         except OSError:
             continue
     return f"{head}:{newest}"
+
+
+# The name this was called for its first eight releases, kept so a caller
+# that already imported it does not break. Deprecated: use `fingerprint`.
+_fingerprint = fingerprint
 
 
 def _manifest(repo: str) -> dict:

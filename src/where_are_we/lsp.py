@@ -23,8 +23,17 @@ import re
 import sys
 from urllib.parse import unquote, urlparse
 
+# Top level, both ways round: `mapper` is the layer below this one and does
+# not import back. This used to be an import inside `serve()`, because the
+# facade re-exported the command line and the command line imported this
+# module.
+try:
+    from . import mapper
+except ImportError:  # run as a plain file, with no package around it
+    import mapper  # type: ignore[no-redef]
+
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-# _definitions_for renders each hit as "- `name` <em dash> path:line"; the
+# definitions_for renders each hit as "- `name` <em dash> path:line"; the
 # em dash is written as an escape here rather than the character itself so a
 # grep for the character in new prose does not also flag a format this
 # module only reads, never writes.
@@ -84,7 +93,7 @@ def _definition(mapper_mod, map_path: str, repo: str, params: dict) -> list:
     name = _identifier_at(lines[line_no], position.get("character", 0))
     if not name:
         return []
-    hits = mapper_mod._definitions_for(map_path, [name.lower()])
+    hits = mapper_mod.definitions_for(map_path, [name.lower()])
     locations = []
     for hit in hits:
         found = _HIT.match(hit)
@@ -197,8 +206,6 @@ def serve(out_dir: str, repo: str) -> int:
     reads the next frame either way. An editor that closes its end of the
     pipe mid-reply gets a quiet exit instead of a BrokenPipeError traceback.
     """
-    from . import mapper
-
     map_path = os.path.join(out_dir, "framework_map.md")
     json_path = os.path.join(out_dir, "framework_map.json")
     stdin = sys.stdin.buffer

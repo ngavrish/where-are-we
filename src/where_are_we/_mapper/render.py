@@ -13,6 +13,12 @@ from . import state
 from .state import TRUNCATED
 from .walk import _write_atomic
 
+# How many vocabulary entries the brief may print, split across its groups.
+# Read here rather than 670 lines into `brief()`, where a caller of `brief()`
+# had no way to see that the function read the environment at all. No cap by
+# default: see where it is used for why the arithmetic is not close.
+VOCAB_CAP = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
+
 try:
     from ..ask import fit_lines, map_heads
 except ImportError:  # run as a plain file, with no package around it
@@ -340,7 +346,7 @@ def brief(m: dict) -> str:
     # these languages at all before it ever needs to ask about one of them.
     # The brief is what `--agent-file` writes straight into a prompt, so this
     # list is capped hard: a large repository's full name table belongs in
-    # framework_map.json (`_definitions_for` reads it there, uncapped), not
+    # framework_map.json (`definitions_for` reads it there, uncapped), not
     # in the tens of thousands of tokens a prompt actually pays for.
     defs = _as_dict(m.get("definitions"))
     if defs:
@@ -835,7 +841,7 @@ def brief(m: dict) -> str:
         # first, while a single turn spent grepping for a phrase re-reads the
         # entire context to ask the question and again to receive the answer.
         # Truncating this to save context is saving the cheap thing.
-        cap = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
+        cap = VOCAB_CAP
         total = sum(len(v) for v in vocab.values())
         lines += ["", f"## What you can already write with ({total})", "",
                   "The vocabulary this suite already has. Write from these; adding a "
@@ -892,10 +898,22 @@ def changed_since(repo: str, out_dir: str) -> list[str]:
 
     def _git(*args: str) -> str | None:
         try:
+            # The codec is named, and it replaces: two of these three calls
+            # ask for `-z` output, which carries a path exactly as it is on
+            # disk, and `text=True` alone decodes with the locale's codec.
+            # Under LC_ALL=C that is ascii, so one accented filename in a
+            # repository raised UnicodeDecodeError out of subprocess itself
+            # and took `--pointer` down with it.
             r = subprocess.run(["git", "-C", repo, *args], capture_output=True,
-                               text=True, timeout=15)
+                               text=True, encoding="utf-8", errors="replace",
+                               timeout=15)
             return r.stdout if r.returncode == 0 else None
-        except Exception:  # noqa: BLE001, a repository without git reports nothing
+        except (OSError, subprocess.SubprocessError, ValueError):
+            # No git on the machine, no repository here, a call that outlived
+            # its timeout, or output this cannot decode: nothing changed
+            # since, as far as this can tell. ValueError is the family
+            # UnicodeDecodeError belongs to, and is the belt to the named
+            # codec's braces.
             return None
 
     head = _git("rev-parse", "HEAD")
@@ -1026,42 +1044,6 @@ def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = Non
         if len(("\n".join(lines) + "\n\n" + note + "\n").encode()) <= state.POINTER_MAX:
             lines += ["", note]
     return "\n".join(lines) + "\n"
-
-
-def _definitions_for(map_path: str, terms: list[str],
-                     extra: list[str] | None = None) -> list[str]:
-    """Exact places, from the map's own index of what was defined where.
-
-    Answered before any prose, because this is the question actually being
-    asked. A scenario author looking for `def ad_product_shows` wants a file and
-    a line; told which module it lives in, they grep the module. Over one run
-    that was forty hand searches against three questions to the map.
-
-    `terms` keeps its original meaning: a name counts only when it holds
-    every one of them, or is exactly one of them - "invoice checkout" is a
-    name naming both, not a name naming either. `extra` is `ask()`'s
-    synonym and stem words, each of which is enough on its own; asking for
-    "login" should not lose `def login` because it does not also mention
-    "auth". Literal matches are returned before expansion-only ones so a
-    name that answers what was actually typed is never pushed out of the
-    40-row cap by one that only answers a synonym.
-    """
-    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            defs = (json.load(fh) or {}).get("definitions") or {}
-    except (OSError, ValueError):
-        return []
-    extra = extra or []
-    literal, expansion = [], []
-    for name, where in defs.items():
-        low = name.lower()
-        row = f"- `{name}` — {where}"
-        if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
-            literal.append(row)
-        elif any(t in low for t in extra):
-            expansion.append(row)
-    return (sorted(literal) + sorted(expansion))[:40]
 
 
 def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,

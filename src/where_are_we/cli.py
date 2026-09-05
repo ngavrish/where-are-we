@@ -3,6 +3,15 @@ repository (a starter manifest, and the READMEs it is missing).
 
 `main()` is the only place that reads argv, prints to stdout, or decides what
 goes where; every other module in the package is a library it calls.
+
+It lives here, beside the public modules, and not in `_mapper/`, because it is
+the outermost layer: it depends on `build`, `render`, `ask`, `mcp`, `lsp`,
+`hooks`, `readmes`, `semantic` and `specs`, and nothing depends on it except
+the console script. While it sat inside the private package, the facade had to
+re-export `main` from it, which made `mapper` depend on the layer above it and
+put every module in the package on a cycle: eleven imports were written inside
+functions for no reason other than to dodge one. They are ordinary top-level
+imports now.
 """
 
 import argparse
@@ -12,24 +21,34 @@ import os
 import re
 import sys
 
+# Two-way imports, as everywhere else in this package: relative when there is a
+# package around this file, plain when `mapper.py` is being run by path and
+# `src/where_are_we` is itself the import root.
 try:
-    from .. import specs
-except ImportError:  # run as a plain file, with no package around it
-    import specs  # type: ignore[no-redef]
-
-try:
-    from .. import ask as _ask
-    from ..ask import ask, map_heads, log_answer, callers
+    from . import ask as _ask, hooks, lsp, mcp, specs
+    from .ask import ask, callers, log_answer, map_heads
+    from ._mapper.build import build
+    from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
+                                 digest, for_audience, meaning_tail, pointer)
+    from ._mapper.state import DEFINITIONS, INDEXED
+    from ._mapper.walk import (SKIP_DIRS, _config, _product_roots,
+                               _write_atomic, _write_atomic_group, fingerprint,
+                               redact)
 except ImportError:  # run as a plain file, with no package around it
     import ask as _ask  # type: ignore[no-redef]
-    from ask import ask, map_heads, log_answer, callers  # type: ignore[no-redef]
-
-from .build import build
-from .render import (_as_dict, _cap_sections, brief, changed_since, digest,
-                     for_audience, meaning_tail, pointer)
-from .state import DEFINITIONS, INDEXED
-from .walk import (SKIP_DIRS, _config, _fingerprint, _product_roots,
-                   _write_atomic, _write_atomic_group, redact)
+    import hooks  # type: ignore[no-redef]
+    import lsp  # type: ignore[no-redef]
+    import mcp  # type: ignore[no-redef]
+    import specs  # type: ignore[no-redef]
+    from ask import ask, callers, log_answer, map_heads  # type: ignore[no-redef]
+    from _mapper.build import build  # type: ignore[no-redef]
+    from _mapper.render import (_as_dict, _cap_sections, brief,  # type: ignore[no-redef]
+                                changed_since, digest, for_audience,
+                                meaning_tail, pointer)
+    from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
+    from _mapper.walk import (SKIP_DIRS, _config,  # type: ignore[no-redef]
+                              _product_roots, _write_atomic,
+                              _write_atomic_group, fingerprint, redact)
 
 
 def _write_error(exc: OSError, fallback: str = "") -> int:
@@ -196,7 +215,7 @@ def propose_docs(repo: str, m: dict, apply: bool = False) -> list:
     twice.
     """
     try:
-        from .. import readmes as _readmes
+        from . import readmes as _readmes
     except ImportError:  # run as a plain file, with no package around it
         import readmes as _readmes  # type: ignore[no-redef]
 
@@ -279,7 +298,6 @@ def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) 
     added alongside the original git and Claude Code kinds; this name stays
     because scripts and the CLI already call it.
     """
-    from .. import hooks
     return hooks.install(repo, kind, product, out, agent_file)
 
 
@@ -468,20 +486,12 @@ def main() -> int:
     # Answering from a map that already exists needs none of what follows: no
     # repository walk, no product roots, no config. It is a read.
     if args.mcp:
-        try:
-            from .. import mcp as _mcp
-        except ImportError:  # run as a plain file, with no package around it
-            import mcp as _mcp  # type: ignore[no-redef]
         syn = _config(os.path.abspath(args.repo)).get("synonyms")
         _ask.set_synonyms(syn if isinstance(syn, dict) else {})
-        return _mcp.serve(os.path.abspath(args.out))
+        return mcp.serve(os.path.abspath(args.out))
 
     if args.lsp:
-        try:
-            from .. import lsp as _lsp
-        except ImportError:  # run as a plain file, with no package around it
-            import lsp as _lsp  # type: ignore[no-redef]
-        return _lsp.serve(os.path.abspath(args.out), os.path.abspath(args.repo))
+        return lsp.serve(os.path.abspath(args.out), os.path.abspath(args.repo))
 
     if args.specs:
         key_re = specs.KEY
@@ -656,7 +666,7 @@ def main() -> int:
         print(f"watching {repo}, every {args.watch}s — Ctrl-C to stop")
         while True:
             try:
-                now_fp = _fingerprint(repo)
+                now_fp = fingerprint(repo)
                 if now_fp != last:
                     last = now_fp
                     # Before the build, same reasoning as the primary path:
@@ -672,7 +682,7 @@ def main() -> int:
                     _write_artifacts(out_dir, m2, args)
                     c2 = m2["counts"]
                     print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - a watcher outlives the tree
                 # A watcher is meant to outlive whatever the tree does to it.
                 # One raised iteration used to end the loop for good, and the
                 # map then quietly stopped following the repository: a file
@@ -696,7 +706,7 @@ def main() -> int:
             return 2
         return 0
 
-    stamp_now = _fingerprint(repo)
+    stamp_now = fingerprint(repo)
     existing = os.path.join(out_dir, "framework_map.json")
     if not args.force and not args.init and os.path.exists(existing):
         try:
@@ -802,7 +812,7 @@ def main() -> int:
     sem_line = ""
     if not args.no_semantic:
         try:
-            from .. import semantic as _sem
+            from . import semantic as _sem
         except ImportError:  # run as a plain file, with no package around it
             import semantic as _sem  # type: ignore[no-redef]
         corpora = [("map", os.path.join(out_dir, "framework_map.md"))]

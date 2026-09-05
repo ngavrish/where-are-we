@@ -1693,3 +1693,414 @@ jobs:
           # never writes.
           test -f "/tmp/nr/m/framework_map.md.$$.tmp"
           test -f /tmp/nr/m/notes.txt.99999.tmp
+
+      - name: the names two public modules call are public names
+        run: |
+          set -o pipefail
+          rm -rf /tmp/pub
+          mkdir -p /tmp/pub
+          printf 'def charge(x):\n    return x\n' > /tmp/pub/billing.py
+          # ask.py, lsp.py, mcp.py and hooks.py reached into the facade for
+          # `_definitions_for` and `_fingerprint`: two underscore names that
+          # four modules and a language server's documented line format
+          # already depended on. They are public names now, and the old ones
+          # are aliases of the same objects for one release.
+          python - <<'EOF'
+          from where_are_we import mapper
+          for name in ("definitions_for", "fingerprint"):
+              assert hasattr(mapper, name), name
+          assert mapper.definitions_for is mapper._definitions_for
+          assert mapper.fingerprint is mapper._fingerprint
+          assert mapper.fingerprint("/tmp/pub").endswith(tuple("0123456789"))
+          EOF
+          # And the callers really call the public ones: no module outside the
+          # facade and its aliases mentions the underscore spellings.
+          if grep -rn "_definitions_for\|_fingerprint" src/where_are_we \
+               --include='*.py' | grep -v "src/where_are_we/mapper.py" \
+               | grep -v "_definitions_for = definitions_for" \
+               | grep -v "_fingerprint = fingerprint" \
+               | grep -v "^src/where_are_we/_mapper/walk.py:.*# " ; then
+            echo "a caller still uses the deprecated underscore name"; exit 1
+          fi
+
+      - name: the command line is the outermost layer, and the graph has no cycles
+        run: |
+          set -o pipefail
+          rm -rf /tmp/dip
+          mkdir -p /tmp/dip/repo
+          printf 'def charge(x):\n    return x\n' > /tmp/dip/repo/billing.py
+          # 22 modules, no cycle. On the old layout `mapper` re-exported the
+          # command line, which imported `ask`, `hooks`, `lsp` and `mcp`, each
+          # of which imported `mapper` back, and eleven imports had to be
+          # written inside functions to keep Python from tripping over it.
+          python tests/golden/import_graph.py | tee /tmp/dip/graph.txt
+          grep -q ", 0 cycles," /tmp/dip/graph.txt
+          # None of those eleven is left: no module defers an import of the
+          # facade, or of a module the facade can reach, to call time.
+          python tests/golden/import_graph.py --verbose > /tmp/dip/edges.txt
+          if grep -E "^deferred .* -> where_are_we\.(mapper|hooks|lsp|mcp|ask)( |$)" \
+               /tmp/dip/edges.txt; then
+            echo "an import is still deferred to dodge a cycle"; exit 1
+          fi
+          # Importing the map does not import the command line, the MCP server
+          # or the language server: three programs the reader of a map never
+          # runs.
+          python -X importtime -c "import where_are_we.mapper" 2> /tmp/dip/imports.txt
+          for name in where_are_we.cli where_are_we._mapper.cli where_are_we.mcp \
+                      where_are_we.lsp where_are_we.hooks where_are_we.specs; do
+            if grep -q " $name\$" /tmp/dip/imports.txt; then
+              echo "importing the facade also imported $name"; exit 1
+            fi
+          done
+          # And all three ways of running the tool still run it.
+          where-are-we --repo /tmp/dip/repo --out /tmp/dip/m --quiet --no-semantic
+          python -m where_are_we.mapper --repo /tmp/dip/repo --out /tmp/dip/m \
+            --force --quiet --no-semantic
+          python src/where_are_we/mapper.py --repo /tmp/dip/repo --out /tmp/dip/m \
+            --force --quiet --no-semantic
+          test -s /tmp/dip/m/framework_map_brief.md
+          # The console script points at the module that owns argv.
+          grep -q 'where-are-we = "where_are_we.cli:main"' pyproject.toml
+
+      - name: a star import exports the shared names, and Ctx is really frozen
+        run: |
+          set -o pipefail
+          python - <<'EOF'
+          import inspect
+          # `mapper.DEFINITIONS` worked and `from ... import *; DEFINITIONS`
+          # raised NameError, because a star import goes by the module dict and
+          # these eleven names are answered by an attribute hook. __all__ makes
+          # the star import ask for them by name.
+          ns = {}
+          exec("from where_are_we.mapper import *", ns)
+          for name in ("DEFINITIONS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
+                       "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE", "_IGNORE_CACHE",
+                       "_PARSE_CACHE", "_WALK_CACHE"):
+              assert name in ns, name
+          from where_are_we import mapper
+          from where_are_we._mapper import state
+          assert ns["DEFINITIONS"] is state.DEFINITIONS
+          # Importing the map still does not import the command line: none of
+          # its four names is in the star surface.
+          for name in ("main", "init_manifest", "install_hook", "propose_docs"):
+              assert name not in ns, name
+          # Documented, not fixed: a static lookup skips __getattr__ by
+          # definition, so a static reader takes these from _mapper.state.
+          try:
+              inspect.getattr_static(mapper, "DEFINITIONS")
+              raise SystemExit("getattr_static now works; the note in mapper.py is stale")
+          except AttributeError:
+              pass
+          EOF
+          python - <<'EOF'
+          from where_are_we._mapper.extract import Ctx
+          c = Ctx(repo="/x", code_files=["a.py"], read=lambda rel, limit=1: "")
+          # frozen=True used to freeze three bindings and nothing else: the one
+          # field twenty extractors iterate was a mutable list they all shared.
+          assert isinstance(c.code_files, tuple), type(c.code_files)
+          assert hash(c) == hash(Ctx(repo="/x", code_files=("a.py",), read=c.read))
+          try:
+              c.code_files.append("X.py")
+              raise SystemExit("code_files is still mutable")
+          except AttributeError:
+              pass
+          EOF
+
+      - name: two repositories in one process match two fresh processes
+        run: |
+          set -o pipefail
+          rm -rf /tmp/purity
+          mkdir -p /tmp/purity/a /tmp/purity/b
+          printf 'ONLY_IN_A = 1\ndef shared_name():\n    pass\n' > /tmp/purity/a/alpha.py
+          printf 'ONLY_IN_B = 1\ndef shared_name():\n    pass\n' > /tmp/purity/b/beta.py
+          # The baseline is built by a process that maps one repository and
+          # exits, which is the only run that cannot be carrying anything. The
+          # step above this one compares in-process builds against in-process
+          # builds, so a reset that never ran would look consistent from one
+          # side.
+          cat > /tmp/purity/one.py <<'EOF'
+          import json, os, sys
+          from where_are_we import mapper
+          os.environ["PRODUCT_SRC"] = "none"
+          out = []
+          for repo in sys.argv[1:]:
+              os.environ["AGENT_REPO"] = repo
+              d = repo + ".out"
+              os.makedirs(d, exist_ok=True)
+              m = mapper.build(repo, out_dir=d)
+              out.append({"definitions": sorted(m["definitions"]),
+                          "indexed": m["indexed"]})
+          print(json.dumps(out[-1], sort_keys=True))
+          EOF
+          A=/tmp/purity/a
+          B=/tmp/purity/b
+          python /tmp/purity/one.py $A > /tmp/purity/fresh-a.json
+          python /tmp/purity/one.py $B > /tmp/purity/fresh-b.json
+          python /tmp/purity/one.py $A $B > /tmp/purity/ab.json
+          python /tmp/purity/one.py $B $A > /tmp/purity/ba.json
+          diff /tmp/purity/fresh-b.json /tmp/purity/ab.json
+          diff /tmp/purity/fresh-a.json /tmp/purity/ba.json
+          # And the baseline really is one repository's own names, so the diffs
+          # above are not two equal helpings of the same leak.
+          grep -q ONLY_IN_A /tmp/purity/fresh-a.json
+          if grep -q ONLY_IN_B /tmp/purity/fresh-a.json; then
+            echo "a fresh build of A already carries B"; exit 1
+          fi
+
+      - name: no hook writer is handed a value it does not use
+        run: |
+          set -o pipefail
+          rm -rf /tmp/isp
+          mkdir -p /tmp/isp/repo /tmp/isp/home
+          git -C /tmp/isp/repo init -q
+          python - <<'EOF'
+          import ast, inspect, json, sys
+          from where_are_we import hooks
+          bad = []
+          # install() keeps its six parameters: it is the public entry point and
+          # the CLI calls it by name. What stops here is threading all six on
+          # into writers that need one or two: every kind is dispatched with
+          # exactly what it reads, and the command line the two command-writing
+          # kinds need is built once and passed as one string.
+          for name in ("_install_git", "_install_claude", "_install_cursor",
+                       "_install_codex", "_install_gemini"):
+              fn = getattr(hooks, name)
+              params = list(inspect.signature(fn).parameters)
+              if len(params) > 2:
+                  bad.append(f"{name} takes {len(params)} parameters: {params}")
+              body = ast.parse(inspect.getsource(fn))
+              read = {n.id for n in ast.walk(body) if isinstance(n, ast.Name)}
+              for p in params:
+                  if p not in read:
+                      bad.append(f"{name} never reads its parameter {p}")
+          print("\n".join(bad) or "every hook writer takes only what it reads")
+          sys.exit(1 if bad else 0)
+          EOF
+          # And the two kinds that write a command still write the same one.
+          python - <<'EOF'
+          import json
+          from where_are_we import hooks
+          args = ("/tmp/isp/repo", "none", "/tmp/isp/out", "AGENTS.md")
+          print(hooks.install(args[0], "git", *args[1:], home="/tmp/isp/home"))
+          print(hooks.install(args[0], "claude", *args[1:], home="/tmp/isp/home"))
+          git_line = [l for l in open("/tmp/isp/repo/.git/hooks/post-commit")
+                      if "where-are-we" in l][0].strip()
+          conf = json.load(open("/tmp/isp/home/.claude/settings.json"))
+          claude_line = conf["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+          assert git_line == claude_line, (git_line, claude_line)
+          assert git_line == ("where-are-we --repo /tmp/isp/repo --product none "
+                              "--out /tmp/isp/out --agent-file AGENTS.md --quiet || true"), git_line
+          EOF
+
+      - name: the extractors are a registry, not twenty-one call sites
+        run: |
+          set -o pipefail
+          rm -rf /tmp/ocp
+          mkdir -p /tmp/ocp/repo
+          printf 'import requests\n\ndef charge(user_id):\n    requests.post("https://x/y")\n    return user_id\n' \
+            > /tmp/ocp/repo/billing.py
+          where-are-we --repo /tmp/ocp/repo --out /tmp/ocp/m --product none \
+            --force --quiet --no-semantic
+          # build() called each extractor by name and unwrapped its dict into a
+          # local, so a new topic meant editing a 2,400-line function twice.
+          # Now there is one loop over one list.
+          if grep -nE "extract\.(code|data|infra|tests)\." src/where_are_we/_mapper/build.py; then
+            echo "build() still calls an extractor by name"; exit 1
+          fi
+          python - <<'EOF'
+          import json, sys
+          from where_are_we._mapper import extract
+          m = json.load(open("/tmp/ocp/m/framework_map.json"))
+          names = [n for n, _fn in extract.EXTRACTORS]
+          assert len(extract.EXTRACTORS) == 20, len(extract.EXTRACTORS)
+          assert len(set(names)) == 20, "a topic name is repeated"
+          # Every key any of them returns is a key of the map, under the name
+          # the extractor gave it.
+          ctx = extract.Ctx(repo="/tmp/ocp/repo", code_files=("billing.py",),
+                            read=lambda rel, limit=200000: open("/tmp/ocp/repo/" + rel).read())
+          keys = set()
+          for name, fn in extract.EXTRACTORS:
+              got = fn(ctx)
+              assert name in got, f"{fn.__name__} does not return its own topic {name}"
+              keys |= set(got)
+          missing = sorted(k for k in keys if k not in m)
+          print(f"{len(extract.EXTRACTORS)} extractors, {len(keys)} map keys, missing: {missing}")
+          sys.exit(1 if missing else 0)
+          EOF
+          # The one that would have been lost in the merge: `outbound` is found
+          # by the registry's extractor and reaches the map.
+          grep -q '"outbound"' /tmp/ocp/m/framework_map.json
+
+      - name: the broad handlers that are left are the ones that should be
+        run: |
+          set -o pipefail
+          rm -rf /tmp/pol
+          mkdir -p /tmp/pol/r
+          printf 'x = 1\n' > /tmp/pol/r/a.py
+          # Eight broad handlers across the package, and each one is a server
+          # loop, an optional dependency, or a third-party parser over a file
+          # this package did not write. Every other one now names what it
+          # catches, so a programming error in the lines it covers is a
+          # traceback rather than a silently empty section.
+          python - <<'EOF'
+          import pathlib, re, sys
+          allowed = {
+              "semantic.py": 2,        # an optional index: no cache, no reranker
+              "cli.py": 1,             # --watch outlives whatever the tree does
+              "lsp.py": 1,             # keep serving the pipe
+              "mcp.py": 1,             # keep serving the pipe
+              "build.py": 1,           # git for-each-ref plus a strip and a slice
+              "declare.py": 2,         # an optional tree-sitter grammar, and its parser
+          }
+          bad = []
+          for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
+              hits = re.findall(r"except (?:Exception|BaseException)", path.read_text())
+              if len(hits) != allowed.get(path.name, 0):
+                  bad.append(f"{path}: {len(hits)} broad handlers, expected "
+                             f"{allowed.get(path.name, 0)}")
+              # A broad handler says why on the line it is written on.
+              for line in path.read_text().splitlines():
+                  if re.match(r"\s*except (Exception|BaseException)", line) and "#" not in line:
+                      bad.append(f"{path}: a broad handler with no reason: {line.strip()}")
+          print("\n".join(bad) or "the broad handlers are the documented ones")
+          sys.exit(1 if bad else 0)
+          EOF
+          # And what the narrowed ones used to swallow still degrades the same
+          # way. A .wawe.toml with a typo in it is not a build failure.
+          printf '[where-are-we\nbroken = \n' > /tmp/pol/r/.wawe.toml
+          where-are-we --repo /tmp/pol/r --out /tmp/pol/m --product none \
+            --force --quiet --no-semantic
+          python -c "
+          from where_are_we._mapper.walk import _config, fingerprint
+          assert _config('/tmp/pol/r') == {}, _config('/tmp/pol/r')
+          assert fingerprint('/tmp/pol/r').startswith(':'), 'a tree with no git still gets a stamp'
+          from where_are_we._mapper.render import changed_since
+          changed_since('/tmp/pol/r', '')
+          print('a broken config, and a tree with no git, still build')
+          "
+
+      - name: every knob is read in one named place, and still works
+        run: |
+          set -o pipefail
+          rm -rf /tmp/cfg
+          mkdir -p /tmp/cfg/r
+          printf 'def charge():\n    pass\n' > /tmp/cfg/r/a.py
+          # WAWE_VOCAB was read 670 lines into brief() and WAWE_ASK_LOG inside
+          # log_answer(), so a caller of either had no way to see that the
+          # function read the environment at all. They are module constants
+          # now, and so are the two the parse cache is driven by.
+          python - <<'EOF'
+          import pathlib, re, sys
+          # Only the six that travel as a parameter channel, or per build, are
+          # still read inside a function.
+          allowed = {"AGENT_REPO", "PRODUCT_SRC", "RUN_DIR", "RULES_REPO",
+                     "RUNS_API_READ", "WAWE_JUNIT_DIRS", "SPEC_ROOTS",
+                     "SPEC_FETCH_CMD", "SPEC_SOURCE", "HOME"}
+          bad = []
+          for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
+              indent = 0
+              for line in path.read_text().splitlines():
+                  if re.match(r"^(def |class |[A-Za-z_])", line):
+                      indent = 0
+                  elif line.strip():
+                      indent = len(line) - len(line.lstrip())
+                  for name in re.findall(r"os\.(?:getenv|environ\.get)\(\"([A-Z_]+)\"", line):
+                      if indent and name not in allowed:
+                          bad.append(f"{path}: {name} read inside a function")
+          print("\n".join(bad) or "every other knob is read once, at module level")
+          sys.exit(1 if bad else 0)
+          EOF
+          python -c "
+          from where_are_we._mapper import state, render
+          from where_are_we import ask, semantic
+          for mod, name in ((state, 'NO_CACHE'), (state, 'DEBUG_PARSES'),
+                            (state, 'POINTER_MAX'), (render, 'VOCAB_CAP'),
+                            (ask, 'LOG_ANSWERS'), (semantic, 'EMBED_CACHE')):
+              assert hasattr(mod, name), (mod.__name__, name)
+          print('every constant is where the README says it is')
+          "
+          # And the knobs still do what they say.
+          WAWE_VOCAB=1 where-are-we --repo /tmp/cfg/r --out /tmp/cfg/m --product none \
+            --force --quiet --no-semantic
+          WAWE_ASK_LOG=0 where-are-we --out /tmp/cfg/m --ask charge > /dev/null
+          test ! -f /tmp/cfg/m/.wawe-ask.log
+          where-are-we --out /tmp/cfg/m --ask charge > /dev/null
+          test -s /tmp/cfg/m/.wawe-ask.log
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cfg/r --out /tmp/cfg/m \
+            --product none --force --quiet --no-semantic 2>&1 | grep -q "parsed .* files"
+
+      - name: SCHEMA.md documents every key the map emits
+        run: |
+          set -o pipefail
+          rm -rf /tmp/schema
+          where-are-we --repo . --out /tmp/schema --product none --force \
+            --quiet --no-semantic
+          # CONTRIBUTING.md calls framework_map.json a contract and says
+          # something depends on every key in it. SCHEMA.md documented 41 of
+          # the 145 the build emits.
+          python - <<'EOF'
+          import json, pathlib, re, sys
+          m = json.load(open("/tmp/schema/framework_map.json"))
+          doc = pathlib.Path("SCHEMA.md").read_text()
+          rows = dict(re.findall(r"^\| `([a-z_0-9]+)` \| ([^|]+) \|", doc, re.M))
+          missing = [k for k in m if k not in rows]
+          extra = [k for k in rows if k not in m]
+          blank = [k for k, shape in rows.items() if not shape.strip()]
+          print(f"{len(m)} keys in the map, {len(rows)} rows in SCHEMA.md, "
+                f"undocumented: {missing}, documented but never emitted: {extra}")
+          sys.exit(1 if (missing or extra or blank) else 0)
+          EOF
+
+      - name: an accented filename does not take --pointer down under an ascii locale
+        run: |
+          set -o pipefail
+          rm -rf /tmp/acc
+          mkdir -p /tmp/acc/repo
+          git -C /tmp/acc/repo init -q
+          git -C /tmp/acc/repo config user.email t@t
+          git -C /tmp/acc/repo config user.name t
+          printf 'def cafe_login():\n    pass\n' > /tmp/acc/repo/café.py
+          git -C /tmp/acc/repo add -A
+          git -C /tmp/acc/repo commit -qm one
+          where-are-we --repo /tmp/acc/repo --out /tmp/acc/m --product none \
+            --force --quiet --no-semantic
+          # Records the head this session started from.
+          where-are-we --repo /tmp/acc/repo --out /tmp/acc/m --pointer > /dev/null
+          printf 'def other():\n    pass\n' > /tmp/acc/repo/naïve.py
+          git -C /tmp/acc/repo add -A
+          git -C /tmp/acc/repo commit -qm two
+          # `git diff --name-only -z` hands back a path exactly as it is on
+          # disk. subprocess's text=True decodes it with the locale's codec,
+          # which under LC_ALL=C is ascii, and the UnicodeDecodeError that
+          # raised came out of subprocess itself: `--pointer` exited 1 on any
+          # repository with one accented filename in it.
+          LC_ALL=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0 \
+            where-are-we --repo /tmp/acc/repo --out /tmp/acc/m --pointer \
+            > /tmp/acc/ptr.txt 2>/tmp/acc/ptr.err
+          grep -q "framework map" /tmp/acc/ptr.txt
+          if grep -q "UnicodeDecodeError" /tmp/acc/ptr.err; then
+            echo "unexpected match: grep -q 'UnicodeDecodeError' /tmp/acc/ptr.err"; exit 1
+          fi
+          # And the note is still made: the path is decoded with a named codec
+          # that replaces what it cannot carry, rather than not read at all.
+          grep -q "Since the last session 1 file changed" /tmp/acc/ptr.txt
+
+      - name: a .wawe.toml built to be parsed does not end the build
+        run: |
+          set -o pipefail
+          rm -rf /tmp/deep
+          mkdir -p /tmp/deep/repo
+          printf 'KEPT = 1\n' > /tmp/deep/repo/a.py
+          # Twenty thousand nested brackets are valid TOML syntax right up to
+          # the point where tomllib's own recursion runs out. RecursionError is
+          # not a TOMLDecodeError, so it came out of the config read and ended
+          # the build.
+          python -c "open('/tmp/deep/repo/.wawe.toml','w').write('a = ' + '['*20000 + ']'*20000 + chr(10))"
+          where-are-we --repo /tmp/deep/repo --out /tmp/deep/m --product none \
+            --force --quiet --no-semantic
+          grep -q KEPT /tmp/deep/m/framework_map.json
+          python -c "
+          from where_are_we._mapper.walk import _config
+          assert _config('/tmp/deep/repo') == {}, 'a config that cannot be parsed is no config'
+          print('a config built to be parsed reads as no config')
+          "
