@@ -8,3 +8,7 @@
     Then the charge is declined
     Then the payment is charged
 … 14 rows in this section do not mention these words
+
+## Defined here
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+… 80 rows in this section do not mention these words

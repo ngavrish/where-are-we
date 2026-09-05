@@ -8,3 +8,7 @@
 ## Public surface of the code
 - `b.ts`: payInvoice
 … 2 rows in this section do not mention these words
+
+## Defined here
+- `payInvoice` — <root>/poly/repo/b.ts:3
+… 5 rows in this section do not mention these words

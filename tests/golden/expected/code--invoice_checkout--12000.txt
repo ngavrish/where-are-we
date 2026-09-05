@@ -19,3 +19,9 @@
   - `api.py`: list_invoices, get_invoice, health
   - `models.py`: Invoice, Customer
 … 2 rows in this section do not mention these words
+
+## Defined here
+- `Invoice` — <root>/code/repo/app/models.py:9
+- `get_invoice` — <root>/code/repo/app/api.py:15
+- `list_invoices` — <root>/code/repo/app/api.py:9
+… 5 rows in this section do not mention these words

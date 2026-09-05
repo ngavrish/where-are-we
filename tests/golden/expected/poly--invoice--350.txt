@@ -8,3 +8,5 @@
 ## Public surface of the code
 - `b.ts`: payInvoice
 … 2 rows in this section do not mention these words
+
+… more sections match; ask for something narrower

@@ -27,6 +27,85 @@ Sample: `features/checkout/pay.feature`
 - `pay_steps.py:step_pay_26` → click_26 (checkout.py)
 - `pay_steps.py:step_pay_27` → click_27 (checkout.py)
 
+## Defined here
+- `CheckoutPage` — <root>/suite/repo/pages/checkout.py:4
+- `CheckoutPage.click_1` — pages/checkout.py:7
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+- `CheckoutPage.click_13` — pages/checkout.py:43
+- `CheckoutPage.click_14` — pages/checkout.py:46
+- `CheckoutPage.click_15` — pages/checkout.py:49
+- `CheckoutPage.click_16` — pages/checkout.py:52
+- `CheckoutPage.click_17` — pages/checkout.py:55
+- `CheckoutPage.click_18` — pages/checkout.py:58
+- `CheckoutPage.click_19` — pages/checkout.py:61
+- `CheckoutPage.click_2` — pages/checkout.py:10
+- `CheckoutPage.click_20` — pages/checkout.py:64
+- `CheckoutPage.click_21` — pages/checkout.py:67
+- `CheckoutPage.click_22` — pages/checkout.py:70
+- `CheckoutPage.click_23` — pages/checkout.py:73
+- `CheckoutPage.click_24` — pages/checkout.py:76
+- `CheckoutPage.click_25` — pages/checkout.py:79
+- `CheckoutPage.click_26` — pages/checkout.py:82
+- `CheckoutPage.click_27` — pages/checkout.py:85
+- `CheckoutPage.click_28` — pages/checkout.py:88
+- `CheckoutPage.click_29` — pages/checkout.py:91
+- `CheckoutPage.click_3` — pages/checkout.py:13
+- `CheckoutPage.click_30` — pages/checkout.py:94
+- `CheckoutPage.click_31` — pages/checkout.py:97
+- `CheckoutPage.click_32` — pages/checkout.py:100
+- `CheckoutPage.click_33` — pages/checkout.py:103
+- `CheckoutPage.click_34` — pages/checkout.py:106
+- `CheckoutPage.click_35` — pages/checkout.py:109
+- `CheckoutPage.click_36` — pages/checkout.py:112
+- `CheckoutPage.click_37` — pages/checkout.py:115
+- `CheckoutPage.click_38` — pages/checkout.py:118
+- `CheckoutPage.click_39` — pages/checkout.py:121
+- `CheckoutPage.click_4` — pages/checkout.py:16
+- `CheckoutPage.click_40` — pages/checkout.py:124
+- `CheckoutPage.click_5` — pages/checkout.py:19
+- `CheckoutPage.click_6` — pages/checkout.py:22
+- `CheckoutPage.click_7` — pages/checkout.py:25
+- `CheckoutPage.click_8` — pages/checkout.py:28
+- `CheckoutPage.click_9` — pages/checkout.py:31
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+- `Customer pays with a new card` — <root>/suite/repo/features/checkout/pay.feature:15
+- `Customer pays with a saved card` — <root>/suite/repo/features/checkout/pay.feature:3
+- `Pay for an order` — <root>/suite/repo/features/checkout/pay.feature:1
+- `class CheckoutPage` — pages/checkout.py:4
+- `click_1` — <root>/suite/repo/pages/checkout.py:7
+- `click_10` — <root>/suite/repo/pages/checkout.py:34
+- `click_11` — <root>/suite/repo/pages/checkout.py:37
+- `click_12` — <root>/suite/repo/pages/checkout.py:40
+- `click_13` — <root>/suite/repo/pages/checkout.py:43
+- `click_14` — <root>/suite/repo/pages/checkout.py:46
+- `click_15` — <root>/suite/repo/pages/checkout.py:49
+- `click_16` — <root>/suite/repo/pages/checkout.py:52
+- `click_17` — <root>/suite/repo/pages/checkout.py:55
+- `click_18` — <root>/suite/repo/pages/checkout.py:58
+- `click_19` — <root>/suite/repo/pages/checkout.py:61
+- `click_2` — <root>/suite/repo/pages/checkout.py:10
+- `click_20` — <root>/suite/repo/pages/checkout.py:64
+- `click_21` — <root>/suite/repo/pages/checkout.py:67
+- `click_22` — <root>/suite/repo/pages/checkout.py:70
+- `click_23` — <root>/suite/repo/pages/checkout.py:73
+- `click_24` — <root>/suite/repo/pages/checkout.py:76
+- `click_25` — <root>/suite/repo/pages/checkout.py:79
+- `click_26` — <root>/suite/repo/pages/checkout.py:82
+- `click_27` — <root>/suite/repo/pages/checkout.py:85
+- `click_28` — <root>/suite/repo/pages/checkout.py:88
+- `click_29` — <root>/suite/repo/pages/checkout.py:91
+- `click_3` — <root>/suite/repo/pages/checkout.py:13
+- `click_30` — <root>/suite/repo/pages/checkout.py:94
+- `click_31` — <root>/suite/repo/pages/checkout.py:97
+- `click_32` — <root>/suite/repo/pages/checkout.py:100
+- `click_33` — <root>/suite/repo/pages/checkout.py:103
+- `click_34` — <root>/suite/repo/pages/checkout.py:106
+- `click_35` — <root>/suite/repo/pages/checkout.py:109
+- `click_36` — <root>/suite/repo/pages/checkout.py:112
+… 5 rows in this section do not mention these words
+
 ## What each module says it is for
 - `steps/pay_steps.py` — Step definitions for paying at checkout.
 - `pages/checkout.py` — The checkout page: every element pay_steps.py clicks through.
@@ -51,14 +130,14 @@ Sample: `features/checkout/pay.feature`
 ## Largest files
 - steps/pay_steps.py (2 KB), pages/checkout.py (1 KB), steps/login_steps.py (0 KB)
 
-## Biggest feature files (scenario line numbers are in the full map)
-- `features/checkout/pay.feature` — 3 scenarios
-… 1 rows in this section do not mention these words
-
 ## How this suite is built
 - **features** — Gherkin features — 2 files under features, features/checkout
 - **Page objects**: `pages/checkout.py`
 … 4 rows in this section do not mention these words
+
+## Biggest feature files (scenario line numbers are in the full map)
+- `features/checkout/pay.feature` — 3 scenarios
+… 1 rows in this section do not mention these words
 
 ## Page-object methods nothing calls
 - `checkout.py`: CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17()

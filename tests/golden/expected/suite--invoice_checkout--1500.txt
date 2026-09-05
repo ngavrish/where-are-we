@@ -27,5 +27,5 @@ Sample: `features/checkout/pay.feature`
 - `pay_steps.py:step_pay_26` → click_26 (checkout.py)
 - `pay_steps.py:step_pay_27` → click_27 (checkout.py)
 
-## What each module says it is for
-… 2 more matching rows; 1 rows in this section do not mention these words
+## Defined here
+… 76 more matching rows; 5 rows in this section do not mention these words

@@ -208,6 +208,9 @@ Feature: Pay for an order
     Then the payment is charged
 … 8 rows in this section do not mention these words
 
+### `steps/login_steps.py` — 5 steps
+… 5 rows in this section do not mention these words
+
 ## Feature files
 - `features/checkout/pay.feature` — 3 scenarios
 … 1 rows in this section do not mention these words
@@ -216,23 +219,17 @@ Feature: Pay for an order
 - `features/checkout/pay.feature` — 3 scenarios
 … 1 rows in this section do not mention these words
 
-### `steps/login_steps.py` — 5 steps
-… 5 rows in this section do not mention these words
+## What a step may call
+… 1 rows in this section do not mention these words
 
 # Framework map
 Built from `<root>/suite/repo` at the start of this run: 2 step modules, 45 step phrases, 2 feature files, 5 scenarios.
-
-## What a step may call
-… 1 rows in this section do not mention these words
 
 ## How the top-level packages depend on each other
 - `steps` → pages
 
 ## How a test authenticates
 - `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
-
-## Which feature is served by which modules
-- `login.feature` → steps: login_steps.py
 
 ## Who calls whom, across files
 - `pay_steps.py:step_pay_1` → click_1 (checkout.py)
@@ -255,6 +252,17 @@ Built from `<root>/suite/repo` at the start of this run: 2 step modules, 45 step
 - `pay_steps.py:step_pay_25` → click_25 (checkout.py)
 - `pay_steps.py:step_pay_26` → click_26 (checkout.py)
 - `pay_steps.py:step_pay_27` → click_27 (checkout.py)
+
+## Which feature is served by which modules
+- `login.feature` → steps: login_steps.py
+
+## Defined here
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+- `Customer pays with a new card` — <root>/suite/repo/features/checkout/pay.feature:15
+- `Customer pays with a saved card` — <root>/suite/repo/features/checkout/pay.feature:3
+- `Pay for an order` — <root>/suite/repo/features/checkout/pay.feature:1
+- `a registered user` — <root>/suite/repo/steps/login_steps.py:7
+… 76 rows in this section do not mention these words
 
 ## How this suite is built
 - **steps** — step definitions the features bind to — 2 files under steps

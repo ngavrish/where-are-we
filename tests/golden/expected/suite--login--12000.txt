@@ -39,3 +39,10 @@
 ## What each module says it is for
 - `steps/login_steps.py` — Step definitions for logging in.
 … 2 rows in this section do not mention these words
+
+## Defined here
+- `Failed login` — <root>/suite/repo/features/login.feature:8
+- `Log in` — <root>/suite/repo/features/login.feature:1
+- `Successful login` — <root>/suite/repo/features/login.feature:3
+- `a registered user` — <root>/suite/repo/steps/login_steps.py:7
+… 77 rows in this section do not mention these words

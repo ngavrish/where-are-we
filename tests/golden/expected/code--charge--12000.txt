@@ -5,3 +5,7 @@
 ## Public surface of the code
 - `app/billing.py`: charge, refund
 … 3 rows in this section do not mention these words
+
+## Defined here
+- `charge` — <root>/code/repo/app/billing.py:4
+… 7 rows in this section do not mention these words
