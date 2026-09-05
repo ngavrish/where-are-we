@@ -1860,7 +1860,15 @@ def build(repo: str, out_dir: str | None = None,
     # on os.walk order.
     func_calls = dict(sorted(func_calls.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:60])
 
-    data_flow = extract.code.data_flow(ctx)["data_flow"]
+    # Every extractor, in registry order, merged into one dict. There is no
+    # call site per topic and no unwrap per topic: `extract.EXTRACTORS` is the
+    # list, and a new one is added there rather than here. What is still by
+    # hand is the result key below, because `framework_map.json`'s key order
+    # is part of the file and these twenty sit interleaved with topics this
+    # function computes itself.
+    extracted: dict = {}
+    for _name, extractor in extract.EXTRACTORS:
+        extracted.update(extractor(ctx))
 
     # Who owns a file, by who last touched it most.
     blame_owners = {}
@@ -1894,11 +1902,6 @@ def build(repo: str, out_dir: str | None = None,
             blame_owners[f] = [f"{n} ({c})" for n, c in top]
     blame_owners = dict(sorted(blame_owners.items(),
                                key=lambda kv: -len(kv[1]))[:40])
-
-    coverage_by_file = extract.tests.coverage_by_file(ctx)["coverage_by_file"]
-
-    _topic = extract.code.deprecations(ctx)
-    api_versions, deprecations = _topic["api_versions"], _topic["deprecations"]
 
     # Documentation that talks about things the code no longer has.
     doc_drift = []
@@ -2059,21 +2062,6 @@ def build(repo: str, out_dir: str | None = None,
                        "runs": re.findall(r"^\s*-?\s*(?:script|command):\s*(.+)$", body, re.M)[:6]}
     ci = dict(list(ci.items())[:15])
 
-    build_systems = extract.infra.build_systems(ctx)["build_systems"]
-
-    stores = extract.data.datastores(ctx)["stores"]
-
-    obs_config = extract.infra.observability_config(ctx)["obs_config"]
-
-    _topic = extract.tests.performance_and_factories(ctx)
-    factories, perf_suites = _topic["factories"], _topic["perf_suites"]
-
-    db_constraints = extract.data.db_constraints(ctx)["db_constraints"]
-
-    generated = extract.code.generated(ctx)["generated"]
-
-    types_declared = extract.code.types_declared(ctx)["types_declared"]
-
     # Environment by service, not one flat list: a compose file says which
     # variables each service is handed.
     env_by_service = {}
@@ -2095,12 +2083,6 @@ def build(repo: str, out_dir: str | None = None,
             env_by_service[f"{os.path.basename(rel)}:{svc}"] = sorted(set(names))[:20]
     env_by_service = dict(list(env_by_service.items())[:25])
 
-    client_policies = extract.data.client_policies(ctx)["client_policies"]
-
-    transactions = extract.data.transactions(ctx)["transactions"]
-
-    logging_config = extract.infra.logging_config(ctx)["logging_config"]
-
     # The repository's own conventions, from the templates it makes people fill in.
     templates = {}
     for name in (".github/PULL_REQUEST_TEMPLATE.md", ".github/pull_request_template.md",
@@ -2112,8 +2094,6 @@ def build(repo: str, out_dir: str | None = None,
             templates[name] = [a or b for a, b in templates[name]]
         elif os.path.isdir(fp):
             templates[name] = sorted(os.listdir(fp))[:10]
-
-    license_headers = extract.code.license_headers(ctx)["license_headers"]
 
     # Lock files: what is actually installed, as opposed to what a manifest
     # would accept.
@@ -2130,10 +2110,6 @@ def build(repo: str, out_dir: str | None = None,
         pins += re.findall(r'^([\w./-]+)\s+v([\w.+-]+)', body, re.M)
         locked[name] = [f"{a}=={b}" for a, b in pins[:60]] or [f"{body.count(chr(10))} lines"]
     locked = {k: v[:40] for k, v in locked.items()}
-
-    status_codes = extract.data.status_codes(ctx)["status_codes"]
-
-    outbound = extract.data.outbound_calls(ctx)["outbound"]
 
     # Kubernetes beyond kinds: what keeps a pod alive and what it is allowed.
     k8s_runtime = {}
@@ -2183,12 +2159,6 @@ def build(repo: str, out_dir: str | None = None,
             flag_uses[rel] = sorted(set(hits))[:10]
     flag_uses = dict(list(flag_uses.items())[:20])
 
-    time_assumptions = extract.infra.time_assumptions(ctx)["time_assumptions"]
-
-    complexity = extract.code.complexity(ctx)["complexity"]
-
-    clones = extract.code.clones(ctx)["clones"]
-
     # Lines, not just files: a hundred shell scripts and a hundred thousand lines
     # of TypeScript are not the same repository.
     loc: dict[str, int] = {}
@@ -2230,8 +2200,6 @@ def build(repo: str, out_dir: str | None = None,
             if a in (import_graph.get(b) or []) and f"{b} ↔ {a}" not in cycles:
                 cycles.append(f"{a} ↔ {b}")
     cycles = cycles[:20]
-
-    sdks = extract.infra.sdks(ctx)["sdks"]
 
     # The tools that police this repository, and what they enforce.
     quality_tools = {}
@@ -2418,43 +2386,43 @@ def build(repo: str, out_dir: str | None = None,
         "hotspots": hotspots,
         "dependency_licenses": dep_licenses,
         "call_graph_files": func_calls,
-        "data_flow": data_flow,
+        "data_flow": extracted["data_flow"],
         "blame_owners": blame_owners,
-        "coverage_by_file": coverage_by_file,
-        "deprecations": deprecations,
-        "api_versions": sorted(api_versions)[:10],
+        "coverage_by_file": extracted["coverage_by_file"],
+        "deprecations": extracted["deprecations"],
+        "api_versions": sorted(extracted["api_versions"])[:10],
         "doc_drift": doc_drift,
         "more_suites": more_suites,
         "data_stack": data_stack,
-        "build_systems": build_systems,
-        "stores": stores,
-        "obs_config": obs_config,
-        "perf_suites": perf_suites,
-        "factories": factories,
-        "db_constraints": db_constraints,
-        "generated": generated,
-        "types_declared": types_declared,
+        "build_systems": extracted["build_systems"],
+        "stores": extracted["stores"],
+        "obs_config": extracted["obs_config"],
+        "perf_suites": extracted["perf_suites"],
+        "factories": extracted["factories"],
+        "db_constraints": extracted["db_constraints"],
+        "generated": extracted["generated"],
+        "types_declared": extracted["types_declared"],
         "env_by_service": env_by_service,
-        "client_policies": client_policies,
-        "transactions": transactions,
-        "logging_config": logging_config,
+        "client_policies": extracted["client_policies"],
+        "transactions": extracted["transactions"],
+        "logging_config": extracted["logging_config"],
         "templates": templates,
-        "license_headers": license_headers,
+        "license_headers": extracted["license_headers"],
         "locked": locked,
-        "status_codes": status_codes,
-        "outbound": outbound,
+        "status_codes": extracted["status_codes"],
+        "outbound": extracted["outbound"],
         "k8s_runtime": k8s_runtime,
         "assets": assets,
         "topic_schemas": topic_schemas,
         "flag_uses": flag_uses,
-        "time_assumptions": time_assumptions,
-        "complexity": complexity,
-        "clones": clones,
+        "time_assumptions": extracted["time_assumptions"],
+        "complexity": extracted["complexity"],
+        "clones": extracted["clones"],
         "loc": loc,
         "comment_lines": comments,
         "dead_files": dead_files,
         "cycles": cycles,
-        "sdks": sdks,
+        "sdks": extracted["sdks"],
         "quality_tools": quality_tools,
         "releases": releases,
         "changelog_entries": changelog_entries,

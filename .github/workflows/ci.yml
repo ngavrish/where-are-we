@@ -1891,3 +1891,42 @@ jobs:
           assert git_line == ("where-are-we --repo /tmp/isp/repo --product none "
                               "--out /tmp/isp/out --agent-file AGENTS.md --quiet || true"), git_line
           EOF
+
+      - name: the extractors are a registry, not twenty-one call sites
+        run: |
+          set -o pipefail
+          rm -rf /tmp/ocp
+          mkdir -p /tmp/ocp/repo
+          printf 'import requests\n\ndef charge(user_id):\n    requests.post("https://x/y")\n    return user_id\n' \
+            > /tmp/ocp/repo/billing.py
+          where-are-we --repo /tmp/ocp/repo --out /tmp/ocp/m --product none \
+            --force --quiet --no-semantic
+          # build() called each extractor by name and unwrapped its dict into a
+          # local, so a new topic meant editing a 2,400-line function twice.
+          # Now there is one loop over one list.
+          if grep -nE "extract\.(code|data|infra|tests)\." src/where_are_we/_mapper/build.py; then
+            echo "build() still calls an extractor by name"; exit 1
+          fi
+          python - <<'EOF'
+          import json, sys
+          from where_are_we._mapper import extract
+          m = json.load(open("/tmp/ocp/m/framework_map.json"))
+          names = [n for n, _fn in extract.EXTRACTORS]
+          assert len(extract.EXTRACTORS) == 20, len(extract.EXTRACTORS)
+          assert len(set(names)) == 20, "a topic name is repeated"
+          # Every key any of them returns is a key of the map, under the name
+          # the extractor gave it.
+          ctx = extract.Ctx(repo="/tmp/ocp/repo", code_files=("billing.py",),
+                            read=lambda rel, limit=200000: open("/tmp/ocp/repo/" + rel).read())
+          keys = set()
+          for name, fn in extract.EXTRACTORS:
+              got = fn(ctx)
+              assert name in got, f"{fn.__name__} does not return its own topic {name}"
+              keys |= set(got)
+          missing = sorted(k for k in keys if k not in m)
+          print(f"{len(extract.EXTRACTORS)} extractors, {len(keys)} map keys, missing: {missing}")
+          sys.exit(1 if missing else 0)
+          EOF
+          # The one that would have been lost in the merge: `outbound` is found
+          # by the registry's extractor and reaches the map.
+          grep -q '"outbound"' /tmp/ocp/m/framework_map.json

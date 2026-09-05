@@ -15,7 +15,7 @@ from typing import Protocol
 
 from . import code, data, infra, tests
 
-__all__ = ["Ctx", "Read", "code", "data", "infra", "tests"]
+__all__ = ["Ctx", "EXTRACTORS", "Read", "code", "data", "infra", "tests"]
 
 
 class Read(Protocol):
@@ -52,3 +52,38 @@ class Ctx:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code_files", tuple(self.code_files))
+
+
+# Every extractor, with the topic it is named after, in the order `build()`
+# runs them. This is the registry: `build()` walks it and merges what comes
+# back, so adding an extractor is a line here and a line in the map's result,
+# not a call site and an unwrap and a local and a result key. The topic name
+# is the section a reader would look for; two of these hand back a second key
+# as well, because the pass that finds one finds the other.
+#
+# The order is the order the calls were written in and is kept deliberately:
+# it decides which topic warms the file cache first, which is not supposed to
+# change any answer (`_slurp` caches on the path and the limit together) and
+# is the sort of thing worth being able to rule out.
+EXTRACTORS = (
+    ("data_flow", code.data_flow),
+    ("coverage_by_file", tests.coverage_by_file),
+    ("deprecations", code.deprecations),
+    ("build_systems", infra.build_systems),
+    ("stores", data.datastores),
+    ("obs_config", infra.observability_config),
+    ("perf_suites", tests.performance_and_factories),
+    ("db_constraints", data.db_constraints),
+    ("generated", code.generated),
+    ("types_declared", code.types_declared),
+    ("client_policies", data.client_policies),
+    ("transactions", data.transactions),
+    ("logging_config", infra.logging_config),
+    ("license_headers", code.license_headers),
+    ("status_codes", data.status_codes),
+    ("outbound", data.outbound_calls),
+    ("time_assumptions", infra.time_assumptions),
+    ("complexity", code.complexity),
+    ("clones", code.clones),
+    ("sdks", infra.sdks),
+)
