@@ -21,6 +21,31 @@ from where_are_we import mapper  # noqa: E402
 
 FIXTURES = ("suite", "code", "poly")
 
+# The three files `build_all()` writes per fixture, and the only three
+# `check.py` pins byte for byte against `tests/golden/maps/`.
+MAP_FILES = ("framework_map.md", "framework_map_brief.md", "framework_map.json")
+
+
+def normalised_map(out_dir: str, filename: str, root: str) -> str:
+    """One map file's text with everything run-specific taken out of it.
+
+    Two things move between runs and mean nothing: the temporary root the
+    fixture was built under (it lands inside absolute paths, the same way
+    `check.py` strips it out of an `ask()` answer), and the JSON's own
+    `fingerprint` and `repo`, which record which checkout was mapped and
+    when. Both are replaced by fixed markers so a map built here and a map
+    built by `regen.py` a month ago compare byte for byte.
+    """
+    text = open(os.path.join(out_dir, filename), encoding="utf-8").read()
+    text = text.replace(root, "<root>")
+    if filename.endswith(".json"):
+        m = json.loads(text)
+        for key in ("fingerprint", "repo"):
+            if key in m:
+                m[key] = "<" + key + ">"
+        text = json.dumps(m, indent=2)
+    return text
+
 _STEP_COUNT = 40  # steps/pay_steps.py: step_pay_1..40, each calling page.click_N()
 _CLICK_COUNT = 40  # pages/checkout.py: CheckoutPage.click_1..40
 

@@ -1,0 +1,1879 @@
+{
+  "schema": "where-are-we/1",
+  "repo": "<repo>",
+  "stated": {},
+  "layers": {
+    "features": "Gherkin features \u2014 2 files under features, features/checkout",
+    "steps": "step definitions the features bind to \u2014 2 files under steps",
+    "page_objects": "classes that own selectors and page actions \u2014 1 files under pages",
+    "driver": "browser/session driver: waits, screenshots: none found",
+    "environment": "hooks and per-scenario setup: none found"
+  },
+  "public_api": {
+    "pages/checkout.py": [
+      "CheckoutPage.click_1()",
+      "CheckoutPage.click_10()",
+      "CheckoutPage.click_11()",
+      "CheckoutPage.click_12()",
+      "CheckoutPage.click_13()",
+      "CheckoutPage.click_14()",
+      "CheckoutPage.click_15()",
+      "CheckoutPage.click_16()",
+      "CheckoutPage.click_17()",
+      "CheckoutPage.click_18()",
+      "CheckoutPage.click_19()",
+      "CheckoutPage.click_2()",
+      "CheckoutPage.click_20()",
+      "CheckoutPage.click_21()",
+      "CheckoutPage.click_22()",
+      "CheckoutPage.click_23()",
+      "CheckoutPage.click_24()",
+      "CheckoutPage.click_25()",
+      "CheckoutPage.click_26()",
+      "CheckoutPage.click_27()",
+      "CheckoutPage.click_28()",
+      "CheckoutPage.click_29()",
+      "CheckoutPage.click_3()",
+      "CheckoutPage.click_30()",
+      "CheckoutPage.click_31()",
+      "CheckoutPage.click_32()",
+      "CheckoutPage.click_33()",
+      "CheckoutPage.click_34()",
+      "CheckoutPage.click_35()",
+      "CheckoutPage.click_36()",
+      "CheckoutPage.click_37()",
+      "CheckoutPage.click_38()",
+      "CheckoutPage.click_39()",
+      "CheckoutPage.click_4()",
+      "CheckoutPage.click_40()",
+      "CheckoutPage.click_5()",
+      "CheckoutPage.click_6()",
+      "CheckoutPage.click_7()",
+      "CheckoutPage.click_8()",
+      "CheckoutPage.click_9()"
+    ]
+  },
+  "definitions": {
+    "CheckoutPage": "<root>/suite/repo/pages/checkout.py:4",
+    "CheckoutPage.click_1": "pages/checkout.py:7",
+    "CheckoutPage.click_10": "pages/checkout.py:34",
+    "CheckoutPage.click_11": "pages/checkout.py:37",
+    "CheckoutPage.click_12": "pages/checkout.py:40",
+    "CheckoutPage.click_13": "pages/checkout.py:43",
+    "CheckoutPage.click_14": "pages/checkout.py:46",
+    "CheckoutPage.click_15": "pages/checkout.py:49",
+    "CheckoutPage.click_16": "pages/checkout.py:52",
+    "CheckoutPage.click_17": "pages/checkout.py:55",
+    "CheckoutPage.click_18": "pages/checkout.py:58",
+    "CheckoutPage.click_19": "pages/checkout.py:61",
+    "CheckoutPage.click_2": "pages/checkout.py:10",
+    "CheckoutPage.click_20": "pages/checkout.py:64",
+    "CheckoutPage.click_21": "pages/checkout.py:67",
+    "CheckoutPage.click_22": "pages/checkout.py:70",
+    "CheckoutPage.click_23": "pages/checkout.py:73",
+    "CheckoutPage.click_24": "pages/checkout.py:76",
+    "CheckoutPage.click_25": "pages/checkout.py:79",
+    "CheckoutPage.click_26": "pages/checkout.py:82",
+    "CheckoutPage.click_27": "pages/checkout.py:85",
+    "CheckoutPage.click_28": "pages/checkout.py:88",
+    "CheckoutPage.click_29": "pages/checkout.py:91",
+    "CheckoutPage.click_3": "pages/checkout.py:13",
+    "CheckoutPage.click_30": "pages/checkout.py:94",
+    "CheckoutPage.click_31": "pages/checkout.py:97",
+    "CheckoutPage.click_32": "pages/checkout.py:100",
+    "CheckoutPage.click_33": "pages/checkout.py:103",
+    "CheckoutPage.click_34": "pages/checkout.py:106",
+    "CheckoutPage.click_35": "pages/checkout.py:109",
+    "CheckoutPage.click_36": "pages/checkout.py:112",
+    "CheckoutPage.click_37": "pages/checkout.py:115",
+    "CheckoutPage.click_38": "pages/checkout.py:118",
+    "CheckoutPage.click_39": "pages/checkout.py:121",
+    "CheckoutPage.click_4": "pages/checkout.py:16",
+    "CheckoutPage.click_40": "pages/checkout.py:124",
+    "CheckoutPage.click_5": "pages/checkout.py:19",
+    "CheckoutPage.click_6": "pages/checkout.py:22",
+    "CheckoutPage.click_7": "pages/checkout.py:25",
+    "CheckoutPage.click_8": "pages/checkout.py:28",
+    "CheckoutPage.click_9": "pages/checkout.py:31",
+    "Customer pays and the charge is declined": "<root>/suite/repo/features/checkout/pay.feature:9",
+    "Customer pays with a new card": "<root>/suite/repo/features/checkout/pay.feature:15",
+    "Customer pays with a saved card": "<root>/suite/repo/features/checkout/pay.feature:3",
+    "Failed login": "<root>/suite/repo/features/login.feature:8",
+    "Log in": "<root>/suite/repo/features/login.feature:1",
+    "Pay for an order": "<root>/suite/repo/features/checkout/pay.feature:1",
+    "Successful login": "<root>/suite/repo/features/login.feature:3",
+    "a registered user": "<root>/suite/repo/steps/login_steps.py:7",
+    "class CheckoutPage": "pages/checkout.py:4",
+    "click_1": "<root>/suite/repo/pages/checkout.py:7",
+    "click_10": "<root>/suite/repo/pages/checkout.py:34",
+    "click_11": "<root>/suite/repo/pages/checkout.py:37",
+    "click_12": "<root>/suite/repo/pages/checkout.py:40",
+    "click_13": "<root>/suite/repo/pages/checkout.py:43",
+    "click_14": "<root>/suite/repo/pages/checkout.py:46",
+    "click_15": "<root>/suite/repo/pages/checkout.py:49",
+    "click_16": "<root>/suite/repo/pages/checkout.py:52",
+    "click_17": "<root>/suite/repo/pages/checkout.py:55",
+    "click_18": "<root>/suite/repo/pages/checkout.py:58",
+    "click_19": "<root>/suite/repo/pages/checkout.py:61",
+    "click_2": "<root>/suite/repo/pages/checkout.py:10",
+    "click_20": "<root>/suite/repo/pages/checkout.py:64",
+    "click_21": "<root>/suite/repo/pages/checkout.py:67",
+    "click_22": "<root>/suite/repo/pages/checkout.py:70",
+    "click_23": "<root>/suite/repo/pages/checkout.py:73",
+    "click_24": "<root>/suite/repo/pages/checkout.py:76",
+    "click_25": "<root>/suite/repo/pages/checkout.py:79",
+    "click_26": "<root>/suite/repo/pages/checkout.py:82",
+    "click_27": "<root>/suite/repo/pages/checkout.py:85",
+    "click_28": "<root>/suite/repo/pages/checkout.py:88",
+    "click_29": "<root>/suite/repo/pages/checkout.py:91",
+    "click_3": "<root>/suite/repo/pages/checkout.py:13",
+    "click_30": "<root>/suite/repo/pages/checkout.py:94",
+    "click_31": "<root>/suite/repo/pages/checkout.py:97",
+    "click_32": "<root>/suite/repo/pages/checkout.py:100",
+    "click_33": "<root>/suite/repo/pages/checkout.py:103",
+    "click_34": "<root>/suite/repo/pages/checkout.py:106",
+    "click_35": "<root>/suite/repo/pages/checkout.py:109",
+    "click_36": "<root>/suite/repo/pages/checkout.py:112",
+    "click_37": "<root>/suite/repo/pages/checkout.py:115",
+    "click_38": "<root>/suite/repo/pages/checkout.py:118",
+    "click_39": "<root>/suite/repo/pages/checkout.py:121",
+    "click_4": "<root>/suite/repo/pages/checkout.py:16",
+    "click_40": "<root>/suite/repo/pages/checkout.py:124",
+    "click_5": "<root>/suite/repo/pages/checkout.py:19",
+    "click_6": "<root>/suite/repo/pages/checkout.py:22",
+    "click_7": "<root>/suite/repo/pages/checkout.py:25",
+    "click_8": "<root>/suite/repo/pages/checkout.py:28",
+    "click_9": "<root>/suite/repo/pages/checkout.py:31",
+    "def step_login_error": "<root>/suite/repo/steps/login_steps.py:27",
+    "def step_login_invalid": "<root>/suite/repo/steps/login_steps.py:17",
+    "def step_login_valid": "<root>/suite/repo/steps/login_steps.py:12",
+    "def step_on_dashboard": "<root>/suite/repo/steps/login_steps.py:22",
+    "def step_pay_1": "<root>/suite/repo/steps/pay_steps.py:11",
+    "def step_pay_10": "<root>/suite/repo/steps/pay_steps.py:47",
+    "def step_pay_11": "<root>/suite/repo/steps/pay_steps.py:51",
+    "def step_pay_12": "<root>/suite/repo/steps/pay_steps.py:55",
+    "def step_pay_13": "<root>/suite/repo/steps/pay_steps.py:59",
+    "def step_pay_14": "<root>/suite/repo/steps/pay_steps.py:63",
+    "def step_pay_15": "<root>/suite/repo/steps/pay_steps.py:67",
+    "def step_pay_16": "<root>/suite/repo/steps/pay_steps.py:71",
+    "def step_pay_17": "<root>/suite/repo/steps/pay_steps.py:75",
+    "def step_pay_18": "<root>/suite/repo/steps/pay_steps.py:79",
+    "def step_pay_19": "<root>/suite/repo/steps/pay_steps.py:83",
+    "def step_pay_2": "<root>/suite/repo/steps/pay_steps.py:15",
+    "def step_pay_20": "<root>/suite/repo/steps/pay_steps.py:87",
+    "def step_pay_21": "<root>/suite/repo/steps/pay_steps.py:91",
+    "def step_pay_22": "<root>/suite/repo/steps/pay_steps.py:95",
+    "def step_pay_23": "<root>/suite/repo/steps/pay_steps.py:99",
+    "def step_pay_24": "<root>/suite/repo/steps/pay_steps.py:103",
+    "def step_pay_25": "<root>/suite/repo/steps/pay_steps.py:107",
+    "def step_pay_26": "<root>/suite/repo/steps/pay_steps.py:111",
+    "def step_pay_27": "<root>/suite/repo/steps/pay_steps.py:115",
+    "def step_pay_28": "<root>/suite/repo/steps/pay_steps.py:119",
+    "def step_pay_29": "<root>/suite/repo/steps/pay_steps.py:123",
+    "def step_pay_3": "<root>/suite/repo/steps/pay_steps.py:19",
+    "def step_pay_30": "<root>/suite/repo/steps/pay_steps.py:127",
+    "def step_pay_31": "<root>/suite/repo/steps/pay_steps.py:131",
+    "def step_pay_32": "<root>/suite/repo/steps/pay_steps.py:135",
+    "def step_pay_33": "<root>/suite/repo/steps/pay_steps.py:139",
+    "def step_pay_34": "<root>/suite/repo/steps/pay_steps.py:143",
+    "def step_pay_35": "<root>/suite/repo/steps/pay_steps.py:147",
+    "def step_pay_36": "<root>/suite/repo/steps/pay_steps.py:151",
+    "def step_pay_37": "<root>/suite/repo/steps/pay_steps.py:155",
+    "def step_pay_38": "<root>/suite/repo/steps/pay_steps.py:159",
+    "def step_pay_39": "<root>/suite/repo/steps/pay_steps.py:163",
+    "def step_pay_4": "<root>/suite/repo/steps/pay_steps.py:23",
+    "def step_pay_40": "<root>/suite/repo/steps/pay_steps.py:167",
+    "def step_pay_5": "<root>/suite/repo/steps/pay_steps.py:27",
+    "def step_pay_6": "<root>/suite/repo/steps/pay_steps.py:31",
+    "def step_pay_7": "<root>/suite/repo/steps/pay_steps.py:35",
+    "def step_pay_8": "<root>/suite/repo/steps/pay_steps.py:39",
+    "def step_pay_9": "<root>/suite/repo/steps/pay_steps.py:43",
+    "def step_registered_user": "<root>/suite/repo/steps/login_steps.py:7",
+    "pay step 1": "<root>/suite/repo/steps/pay_steps.py:11",
+    "pay step 10": "<root>/suite/repo/steps/pay_steps.py:47",
+    "pay step 11": "<root>/suite/repo/steps/pay_steps.py:51",
+    "pay step 12": "<root>/suite/repo/steps/pay_steps.py:55",
+    "pay step 13": "<root>/suite/repo/steps/pay_steps.py:59",
+    "pay step 14": "<root>/suite/repo/steps/pay_steps.py:63",
+    "pay step 15": "<root>/suite/repo/steps/pay_steps.py:67",
+    "pay step 16": "<root>/suite/repo/steps/pay_steps.py:71",
+    "pay step 17": "<root>/suite/repo/steps/pay_steps.py:75",
+    "pay step 18": "<root>/suite/repo/steps/pay_steps.py:79",
+    "pay step 19": "<root>/suite/repo/steps/pay_steps.py:83",
+    "pay step 2": "<root>/suite/repo/steps/pay_steps.py:15",
+    "pay step 20": "<root>/suite/repo/steps/pay_steps.py:87",
+    "pay step 21": "<root>/suite/repo/steps/pay_steps.py:91",
+    "pay step 22": "<root>/suite/repo/steps/pay_steps.py:95",
+    "pay step 23": "<root>/suite/repo/steps/pay_steps.py:99",
+    "pay step 24": "<root>/suite/repo/steps/pay_steps.py:103",
+    "pay step 25": "<root>/suite/repo/steps/pay_steps.py:107",
+    "pay step 26": "<root>/suite/repo/steps/pay_steps.py:111",
+    "pay step 27": "<root>/suite/repo/steps/pay_steps.py:115",
+    "pay step 28": "<root>/suite/repo/steps/pay_steps.py:119",
+    "pay step 29": "<root>/suite/repo/steps/pay_steps.py:123",
+    "pay step 3": "<root>/suite/repo/steps/pay_steps.py:19",
+    "pay step 30": "<root>/suite/repo/steps/pay_steps.py:127",
+    "pay step 31": "<root>/suite/repo/steps/pay_steps.py:131",
+    "pay step 32": "<root>/suite/repo/steps/pay_steps.py:135",
+    "pay step 33": "<root>/suite/repo/steps/pay_steps.py:139",
+    "pay step 34": "<root>/suite/repo/steps/pay_steps.py:143",
+    "pay step 35": "<root>/suite/repo/steps/pay_steps.py:147",
+    "pay step 36": "<root>/suite/repo/steps/pay_steps.py:151",
+    "pay step 37": "<root>/suite/repo/steps/pay_steps.py:155",
+    "pay step 38": "<root>/suite/repo/steps/pay_steps.py:159",
+    "pay step 39": "<root>/suite/repo/steps/pay_steps.py:163",
+    "pay step 4": "<root>/suite/repo/steps/pay_steps.py:23",
+    "pay step 40": "<root>/suite/repo/steps/pay_steps.py:167",
+    "pay step 5": "<root>/suite/repo/steps/pay_steps.py:27",
+    "pay step 6": "<root>/suite/repo/steps/pay_steps.py:31",
+    "pay step 7": "<root>/suite/repo/steps/pay_steps.py:35",
+    "pay step 8": "<root>/suite/repo/steps/pay_steps.py:39",
+    "pay step 9": "<root>/suite/repo/steps/pay_steps.py:43",
+    "step_login_error": "<root>/suite/repo/steps/login_steps.py:27",
+    "step_login_invalid": "<root>/suite/repo/steps/login_steps.py:17",
+    "step_login_valid": "<root>/suite/repo/steps/login_steps.py:12",
+    "step_on_dashboard": "<root>/suite/repo/steps/login_steps.py:22",
+    "step_pay_1": "<root>/suite/repo/steps/pay_steps.py:11",
+    "step_pay_10": "<root>/suite/repo/steps/pay_steps.py:47",
+    "step_pay_11": "<root>/suite/repo/steps/pay_steps.py:51",
+    "step_pay_12": "<root>/suite/repo/steps/pay_steps.py:55",
+    "step_pay_13": "<root>/suite/repo/steps/pay_steps.py:59",
+    "step_pay_14": "<root>/suite/repo/steps/pay_steps.py:63",
+    "step_pay_15": "<root>/suite/repo/steps/pay_steps.py:67",
+    "step_pay_16": "<root>/suite/repo/steps/pay_steps.py:71",
+    "step_pay_17": "<root>/suite/repo/steps/pay_steps.py:75",
+    "step_pay_18": "<root>/suite/repo/steps/pay_steps.py:79",
+    "step_pay_19": "<root>/suite/repo/steps/pay_steps.py:83",
+    "step_pay_2": "<root>/suite/repo/steps/pay_steps.py:15",
+    "step_pay_20": "<root>/suite/repo/steps/pay_steps.py:87",
+    "step_pay_21": "<root>/suite/repo/steps/pay_steps.py:91",
+    "step_pay_22": "<root>/suite/repo/steps/pay_steps.py:95",
+    "step_pay_23": "<root>/suite/repo/steps/pay_steps.py:99",
+    "step_pay_24": "<root>/suite/repo/steps/pay_steps.py:103",
+    "step_pay_25": "<root>/suite/repo/steps/pay_steps.py:107",
+    "step_pay_26": "<root>/suite/repo/steps/pay_steps.py:111",
+    "step_pay_27": "<root>/suite/repo/steps/pay_steps.py:115",
+    "step_pay_28": "<root>/suite/repo/steps/pay_steps.py:119",
+    "step_pay_29": "<root>/suite/repo/steps/pay_steps.py:123",
+    "step_pay_3": "<root>/suite/repo/steps/pay_steps.py:19",
+    "step_pay_30": "<root>/suite/repo/steps/pay_steps.py:127",
+    "step_pay_31": "<root>/suite/repo/steps/pay_steps.py:131",
+    "step_pay_32": "<root>/suite/repo/steps/pay_steps.py:135",
+    "step_pay_33": "<root>/suite/repo/steps/pay_steps.py:139",
+    "step_pay_34": "<root>/suite/repo/steps/pay_steps.py:143",
+    "step_pay_35": "<root>/suite/repo/steps/pay_steps.py:147",
+    "step_pay_36": "<root>/suite/repo/steps/pay_steps.py:151",
+    "step_pay_37": "<root>/suite/repo/steps/pay_steps.py:155",
+    "step_pay_38": "<root>/suite/repo/steps/pay_steps.py:159",
+    "step_pay_39": "<root>/suite/repo/steps/pay_steps.py:163",
+    "step_pay_4": "<root>/suite/repo/steps/pay_steps.py:23",
+    "step_pay_40": "<root>/suite/repo/steps/pay_steps.py:167",
+    "step_pay_5": "<root>/suite/repo/steps/pay_steps.py:27",
+    "step_pay_6": "<root>/suite/repo/steps/pay_steps.py:31",
+    "step_pay_7": "<root>/suite/repo/steps/pay_steps.py:35",
+    "step_pay_8": "<root>/suite/repo/steps/pay_steps.py:39",
+    "step_pay_9": "<root>/suite/repo/steps/pay_steps.py:43",
+    "step_registered_user": "<root>/suite/repo/steps/login_steps.py:7",
+    "they land on the dashboard": "<root>/suite/repo/steps/login_steps.py:22",
+    "they log in with the wrong password": "<root>/suite/repo/steps/login_steps.py:17",
+    "they log in with valid credentials": "<root>/suite/repo/steps/login_steps.py:12",
+    "they see an error message": "<root>/suite/repo/steps/login_steps.py:27"
+  },
+  "indexed": {
+    "suite": 5
+  },
+  "lines": {
+    "<root>/suite/repo/features/checkout/pay.feature": [
+      "Feature: Pay for an order",
+      "",
+      "  Scenario: Customer pays with a saved card",
+      "    Given a customer with a saved card",
+      "    When they pay for the invoice",
+      "    Then the payment is charged",
+      "    And a receipt is emailed",
+      "",
+      "  Scenario: Customer pays and the charge is declined",
+      "    Given a customer with a card that will be declined",
+      "    When they pay for the invoice",
+      "    Then the charge is declined",
+      "    And they see a retry prompt",
+      "",
+      "  Scenario: Customer pays with a new card",
+      "    Given a customer with no saved card",
+      "    When they add a new card and pay for the invoice",
+      "    Then the payment is charged"
+    ],
+    "<root>/suite/repo/features/login.feature": [
+      "Feature: Log in",
+      "",
+      "  Scenario: Successful login",
+      "    Given a registered user",
+      "    When they log in with valid credentials",
+      "    Then they land on the dashboard",
+      "",
+      "  Scenario: Failed login",
+      "    Given a registered user",
+      "    When they log in with the wrong password",
+      "    Then they see an error message"
+    ],
+    "<root>/suite/repo/pages/checkout.py": [
+      "\"\"\"The checkout page: every element pay_steps.py clicks through.\"\"\"",
+      "",
+      "",
+      "class CheckoutPage:",
+      "    \"\"\"Page object for the checkout flow.\"\"\"",
+      "",
+      "    def click_1(self):",
+      "        pass",
+      "",
+      "    def click_2(self):",
+      "        pass",
+      "",
+      "    def click_3(self):",
+      "        pass",
+      "",
+      "    def click_4(self):",
+      "        pass",
+      "",
+      "    def click_5(self):",
+      "        pass",
+      "",
+      "    def click_6(self):",
+      "        pass",
+      "",
+      "    def click_7(self):",
+      "        pass",
+      "",
+      "    def click_8(self):",
+      "        pass",
+      "",
+      "    def click_9(self):",
+      "        pass",
+      "",
+      "    def click_10(self):",
+      "        pass",
+      "",
+      "    def click_11(self):",
+      "        pass",
+      "",
+      "    def click_12(self):",
+      "        pass",
+      "",
+      "    def click_13(self):",
+      "        pass",
+      "",
+      "    def click_14(self):",
+      "        pass",
+      "",
+      "    def click_15(self):",
+      "        pass",
+      "",
+      "    def click_16(self):",
+      "        pass",
+      "",
+      "    def click_17(self):",
+      "        pass",
+      "",
+      "    def click_18(self):",
+      "        pass",
+      "",
+      "    def click_19(self):",
+      "        pass",
+      "",
+      "    def click_20(self):",
+      "        pass",
+      "",
+      "    def click_21(self):",
+      "        pass",
+      "",
+      "    def click_22(self):",
+      "        pass",
+      "",
+      "    def click_23(self):",
+      "        pass",
+      "",
+      "    def click_24(self):",
+      "        pass",
+      "",
+      "    def click_25(self):",
+      "        pass",
+      "",
+      "    def click_26(self):",
+      "        pass",
+      "",
+      "    def click_27(self):",
+      "        pass",
+      "",
+      "    def click_28(self):",
+      "        pass",
+      "",
+      "    def click_29(self):",
+      "        pass",
+      "",
+      "    def click_30(self):",
+      "        pass",
+      "",
+      "    def click_31(self):",
+      "        pass",
+      "",
+      "    def click_32(self):",
+      "        pass",
+      "",
+      "    def click_33(self):",
+      "        pass",
+      "",
+      "    def click_34(self):",
+      "        pass",
+      "",
+      "    def click_35(self):",
+      "        pass",
+      "",
+      "    def click_36(self):",
+      "        pass",
+      "",
+      "    def click_37(self):",
+      "        pass",
+      "",
+      "    def click_38(self):",
+      "        pass",
+      "",
+      "    def click_39(self):",
+      "        pass",
+      "",
+      "    def click_40(self):",
+      "        pass"
+    ],
+    "<root>/suite/repo/steps/login_steps.py": [
+      "\"\"\"Step definitions for logging in.\"\"\"",
+      "",
+      "from behave import given, then, when",
+      "",
+      "",
+      "@given(\"a registered user\")",
+      "def step_registered_user(context):",
+      "    pass",
+      "",
+      "",
+      "@when(\"they log in with valid credentials\")",
+      "def step_login_valid(context):",
+      "    pass",
+      "",
+      "",
+      "@when(\"they log in with the wrong password\")",
+      "def step_login_invalid(context):",
+      "    pass",
+      "",
+      "",
+      "@then(\"they land on the dashboard\")",
+      "def step_on_dashboard(context):",
+      "    pass",
+      "",
+      "",
+      "@then(\"they see an error message\")",
+      "def step_login_error(context):",
+      "    pass"
+    ],
+    "<root>/suite/repo/steps/pay_steps.py": [
+      "\"\"\"Step definitions for paying at checkout.\"\"\"",
+      "",
+      "from behave import step",
+      "",
+      "from pages.checkout import CheckoutPage",
+      "",
+      "page = CheckoutPage()",
+      "",
+      "",
+      "@step(\"pay step 1\")",
+      "def step_pay_1(context):",
+      "    page.click_1()",
+      "",
+      "@step(\"pay step 2\")",
+      "def step_pay_2(context):",
+      "    page.click_2()",
+      "",
+      "@step(\"pay step 3\")",
+      "def step_pay_3(context):",
+      "    page.click_3()",
+      "",
+      "@step(\"pay step 4\")",
+      "def step_pay_4(context):",
+      "    page.click_4()",
+      "",
+      "@step(\"pay step 5\")",
+      "def step_pay_5(context):",
+      "    page.click_5()",
+      "",
+      "@step(\"pay step 6\")",
+      "def step_pay_6(context):",
+      "    page.click_6()",
+      "",
+      "@step(\"pay step 7\")",
+      "def step_pay_7(context):",
+      "    page.click_7()",
+      "",
+      "@step(\"pay step 8\")",
+      "def step_pay_8(context):",
+      "    page.click_8()",
+      "",
+      "@step(\"pay step 9\")",
+      "def step_pay_9(context):",
+      "    page.click_9()",
+      "",
+      "@step(\"pay step 10\")",
+      "def step_pay_10(context):",
+      "    page.click_10()",
+      "",
+      "@step(\"pay step 11\")",
+      "def step_pay_11(context):",
+      "    page.click_11()",
+      "",
+      "@step(\"pay step 12\")",
+      "def step_pay_12(context):",
+      "    page.click_12()",
+      "",
+      "@step(\"pay step 13\")",
+      "def step_pay_13(context):",
+      "    page.click_13()",
+      "",
+      "@step(\"pay step 14\")",
+      "def step_pay_14(context):",
+      "    page.click_14()",
+      "",
+      "@step(\"pay step 15\")",
+      "def step_pay_15(context):",
+      "    page.click_15()",
+      "",
+      "@step(\"pay step 16\")",
+      "def step_pay_16(context):",
+      "    page.click_16()",
+      "",
+      "@step(\"pay step 17\")",
+      "def step_pay_17(context):",
+      "    page.click_17()",
+      "",
+      "@step(\"pay step 18\")",
+      "def step_pay_18(context):",
+      "    page.click_18()",
+      "",
+      "@step(\"pay step 19\")",
+      "def step_pay_19(context):",
+      "    page.click_19()",
+      "",
+      "@step(\"pay step 20\")",
+      "def step_pay_20(context):",
+      "    page.click_20()",
+      "",
+      "@step(\"pay step 21\")",
+      "def step_pay_21(context):",
+      "    page.click_21()",
+      "",
+      "@step(\"pay step 22\")",
+      "def step_pay_22(context):",
+      "    page.click_22()",
+      "",
+      "@step(\"pay step 23\")",
+      "def step_pay_23(context):",
+      "    page.click_23()",
+      "",
+      "@step(\"pay step 24\")",
+      "def step_pay_24(context):",
+      "    page.click_24()",
+      "",
+      "@step(\"pay step 25\")",
+      "def step_pay_25(context):",
+      "    page.click_25()",
+      "",
+      "@step(\"pay step 26\")",
+      "def step_pay_26(context):",
+      "    page.click_26()",
+      "",
+      "@step(\"pay step 27\")",
+      "def step_pay_27(context):",
+      "    page.click_27()",
+      "",
+      "@step(\"pay step 28\")",
+      "def step_pay_28(context):",
+      "    page.click_28()",
+      "",
+      "@step(\"pay step 29\")",
+      "def step_pay_29(context):",
+      "    page.click_29()",
+      "",
+      "@step(\"pay step 30\")",
+      "def step_pay_30(context):",
+      "    page.click_30()",
+      "",
+      "@step(\"pay step 31\")",
+      "def step_pay_31(context):",
+      "    page.click_31()",
+      "",
+      "@step(\"pay step 32\")",
+      "def step_pay_32(context):",
+      "    page.click_32()",
+      "",
+      "@step(\"pay step 33\")",
+      "def step_pay_33(context):",
+      "    page.click_33()",
+      "",
+      "@step(\"pay step 34\")",
+      "def step_pay_34(context):",
+      "    page.click_34()",
+      "",
+      "@step(\"pay step 35\")",
+      "def step_pay_35(context):",
+      "    page.click_35()",
+      "",
+      "@step(\"pay step 36\")",
+      "def step_pay_36(context):",
+      "    page.click_36()",
+      "",
+      "@step(\"pay step 37\")",
+      "def step_pay_37(context):",
+      "    page.click_37()",
+      "",
+      "@step(\"pay step 38\")",
+      "def step_pay_38(context):",
+      "    page.click_38()",
+      "",
+      "@step(\"pay step 39\")",
+      "def step_pay_39(context):",
+      "    page.click_39()",
+      "",
+      "@step(\"pay step 40\")",
+      "def step_pay_40(context):",
+      "    page.click_40()"
+    ]
+  },
+  "feature_links": {
+    "features/checkout/pay.feature": {
+      "step_modules": [],
+      "page_objects": []
+    },
+    "features/login.feature": {
+      "step_modules": [
+        "steps/login_steps.py"
+      ],
+      "page_objects": []
+    }
+  },
+  "data_files": [],
+  "testids": {
+    "suite": [],
+    "product": []
+  },
+  "helpers": {},
+  "reporting": {},
+  "hooks": {},
+  "quarantine": {},
+  "product": {
+    "routes": [],
+    "storage_keys": [],
+    "api_paths": []
+  },
+  "locators": {},
+  "timings": {},
+  "behave_config": {},
+  "coverage_docs": {},
+  "env_setup": {},
+  "backend": {
+    "endpoints": [],
+    "tables": [
+      "behave",
+      "pages.checkout"
+    ],
+    "seed_scripts": []
+  },
+  "api_tests": [],
+  "conventions": {},
+  "scenario_history": {},
+  "dir_readmes": {},
+  "duplicates": {},
+  "near_duplicates": [
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 2",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 3",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 4",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 5",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 6",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 7",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 8",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 9",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 10",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 11",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 12",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 13",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 14",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 15",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 16",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 17",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 18",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 19",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 20",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 21",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 22",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 23",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 24",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 25",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 26",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 27",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 28",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 29",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 30",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 31",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 32",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 33",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 34",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 35",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 36",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 37",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 38",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 39",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 1",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 40",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 3",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 4",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 5",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 6",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 7",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 8",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 9",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 10",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 11",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 12",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 13",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 14",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 15",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 16",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 17",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 18",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 19",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 20",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 21",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 22",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 23",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 24",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 25",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 26",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 27",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 28",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 29",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 30",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 31",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 32",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 33",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 34",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 35",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 36",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 37",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 38",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 39",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 2",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 40",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 3",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 4",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 3",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 5",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    },
+    {
+      "a": "pay step 3",
+      "a_in": "steps/pay_steps.py",
+      "b": "pay step 6",
+      "b_in": "steps/pay_steps.py",
+      "similarity": 1.0
+    }
+  ],
+  "call_graph": {
+    "pay_steps.py:step_pay_1": [
+      "click_1"
+    ],
+    "pay_steps.py:step_pay_2": [
+      "click_2"
+    ],
+    "pay_steps.py:step_pay_3": [
+      "click_3"
+    ],
+    "pay_steps.py:step_pay_4": [
+      "click_4"
+    ],
+    "pay_steps.py:step_pay_5": [
+      "click_5"
+    ],
+    "pay_steps.py:step_pay_6": [
+      "click_6"
+    ],
+    "pay_steps.py:step_pay_7": [
+      "click_7"
+    ],
+    "pay_steps.py:step_pay_8": [
+      "click_8"
+    ],
+    "pay_steps.py:step_pay_9": [
+      "click_9"
+    ],
+    "pay_steps.py:step_pay_10": [
+      "click_10"
+    ],
+    "pay_steps.py:step_pay_11": [
+      "click_11"
+    ],
+    "pay_steps.py:step_pay_12": [
+      "click_12"
+    ],
+    "pay_steps.py:step_pay_13": [
+      "click_13"
+    ],
+    "pay_steps.py:step_pay_14": [
+      "click_14"
+    ],
+    "pay_steps.py:step_pay_15": [
+      "click_15"
+    ],
+    "pay_steps.py:step_pay_16": [
+      "click_16"
+    ],
+    "pay_steps.py:step_pay_17": [
+      "click_17"
+    ],
+    "pay_steps.py:step_pay_18": [
+      "click_18"
+    ],
+    "pay_steps.py:step_pay_19": [
+      "click_19"
+    ],
+    "pay_steps.py:step_pay_20": [
+      "click_20"
+    ],
+    "pay_steps.py:step_pay_21": [
+      "click_21"
+    ],
+    "pay_steps.py:step_pay_22": [
+      "click_22"
+    ],
+    "pay_steps.py:step_pay_23": [
+      "click_23"
+    ],
+    "pay_steps.py:step_pay_24": [
+      "click_24"
+    ],
+    "pay_steps.py:step_pay_25": [
+      "click_25"
+    ],
+    "pay_steps.py:step_pay_26": [
+      "click_26"
+    ],
+    "pay_steps.py:step_pay_27": [
+      "click_27"
+    ],
+    "pay_steps.py:step_pay_28": [
+      "click_28"
+    ],
+    "pay_steps.py:step_pay_29": [
+      "click_29"
+    ],
+    "pay_steps.py:step_pay_30": [
+      "click_30"
+    ],
+    "pay_steps.py:step_pay_31": [
+      "click_31"
+    ],
+    "pay_steps.py:step_pay_32": [
+      "click_32"
+    ],
+    "pay_steps.py:step_pay_33": [
+      "click_33"
+    ],
+    "pay_steps.py:step_pay_34": [
+      "click_34"
+    ],
+    "pay_steps.py:step_pay_35": [
+      "click_35"
+    ],
+    "pay_steps.py:step_pay_36": [
+      "click_36"
+    ],
+    "pay_steps.py:step_pay_37": [
+      "click_37"
+    ],
+    "pay_steps.py:step_pay_38": [
+      "click_38"
+    ],
+    "pay_steps.py:step_pay_39": [
+      "click_39"
+    ],
+    "pay_steps.py:step_pay_40": [
+      "click_40"
+    ]
+  },
+  "artefacts": {},
+  "unused_steps": {
+    "steps/pay_steps.py": [
+      "pay step 1",
+      "pay step 2",
+      "pay step 3",
+      "pay step 4",
+      "pay step 5",
+      "pay step 6",
+      "pay step 7",
+      "pay step 8",
+      "pay step 9",
+      "pay step 10",
+      "pay step 11",
+      "pay step 12",
+      "pay step 13",
+      "pay step 14",
+      "pay step 15",
+      "pay step 16",
+      "pay step 17",
+      "pay step 18",
+      "pay step 19",
+      "pay step 20"
+    ]
+  },
+  "unused_api": {
+    "pages/checkout.py": [
+      "CheckoutPage.click_10()",
+      "CheckoutPage.click_11()",
+      "CheckoutPage.click_12()",
+      "CheckoutPage.click_13()",
+      "CheckoutPage.click_14()",
+      "CheckoutPage.click_15()",
+      "CheckoutPage.click_16()",
+      "CheckoutPage.click_17()",
+      "CheckoutPage.click_18()",
+      "CheckoutPage.click_19()",
+      "CheckoutPage.click_20()",
+      "CheckoutPage.click_21()",
+      "CheckoutPage.click_22()",
+      "CheckoutPage.click_23()",
+      "CheckoutPage.click_24()",
+      "CheckoutPage.click_25()",
+      "CheckoutPage.click_26()",
+      "CheckoutPage.click_27()",
+      "CheckoutPage.click_28()",
+      "CheckoutPage.click_29()"
+    ]
+  },
+  "debts": {},
+  "git_history": {},
+  "ticket_links": {},
+  "dependencies": [
+    "pages"
+  ],
+  "ci": {},
+  "required_env": [],
+  "auth": {
+    "steps/login_steps.py": [
+      "def step_login_valid(context):",
+      "def step_login_invalid(context):",
+      "def step_login_error(context):"
+    ]
+  },
+  "concurrency": {
+    "shared_state": [],
+    "serial_tags": [],
+    "notes": []
+  },
+  "failure_signatures": {},
+  "safe_data": {},
+  "slow_steps": {},
+  "tag_meaning": {},
+  "fragile_locators": {},
+  "testid_owners": {},
+  "rules_corpus": [],
+  "ui_strings": [],
+  "infrastructure": {},
+  "schemas": {},
+  "owners": {},
+  "env_differences": {},
+  "past_runs": [],
+  "visual_baselines": [],
+  "feature_style": {
+    "sample": "features/checkout/pay.feature",
+    "first_scenario": "Feature: Pay for an order\n\n  Scenario: Customer pays with a saved card\n    Given a customer with a saved card\n    When they pay for the invoice\n    Then the payment is charged\n    And a receipt is emailed\n\n  Scenario: Customer pays and the charge is declined\n    Given a customer with a card that will be declined\n    When they pay for the invoice\n    Then the charge is declined\n    And they see a retry prompt\n\n  Scenario: Customer pays with a new card\n    Given a customer with no saved card\n    When they add a new card and pay for the invoice\n    Then the payment is charged",
+    "uses_outlines": false,
+    "example_headers": []
+  },
+  "pytest_tests": {},
+  "fixtures": {},
+  "markers": [],
+  "js_tests": {},
+  "test_config": {},
+  "other_suites": {},
+  "contracts": {
+    "openapi": [],
+    "graphql": [],
+    "migrations": [],
+    "mocks": [],
+    "feature_flags": [],
+    "i18n": [],
+    "images": [],
+    "secret_paths": []
+  },
+  "contract_details": {
+    "endpoints": [],
+    "graphql": [],
+    "migration_tables": [],
+    "i18n_keys": [],
+    "flags": []
+  },
+  "languages": {
+    "Python": 3
+  },
+  "entry": {},
+  "exports": {
+    "pages/checkout.py": [
+      "CheckoutPage"
+    ]
+  },
+  "routes_served": [],
+  "models": {},
+  "import_graph": {
+    "steps": [
+      "pages"
+    ]
+  },
+  "workspaces": [],
+  "messaging": {},
+  "grpc": {},
+  "schedules": {},
+  "kubernetes": {},
+  "iac": {},
+  "cache_keys": [],
+  "permissions": {},
+  "observability": {
+    "metrics": [],
+    "log_fields": [],
+    "spans": []
+  },
+  "error_types": {},
+  "cli_commands": {},
+  "frontend": {
+    "components": [],
+    "stores": [],
+    "hooks": []
+  },
+  "adrs": [],
+  "coverage_reports": {},
+  "hotspots": [
+    "steps/pay_steps.py (2 KB)",
+    "pages/checkout.py (1 KB)",
+    "steps/login_steps.py (0 KB)"
+  ],
+  "dependency_licenses": {},
+  "call_graph_files": {
+    "pay_steps.py:step_pay_1": [
+      "click_1 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_10": [
+      "click_10 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_11": [
+      "click_11 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_12": [
+      "click_12 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_13": [
+      "click_13 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_14": [
+      "click_14 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_15": [
+      "click_15 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_16": [
+      "click_16 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_17": [
+      "click_17 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_18": [
+      "click_18 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_19": [
+      "click_19 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_2": [
+      "click_2 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_20": [
+      "click_20 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_21": [
+      "click_21 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_22": [
+      "click_22 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_23": [
+      "click_23 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_24": [
+      "click_24 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_25": [
+      "click_25 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_26": [
+      "click_26 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_27": [
+      "click_27 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_28": [
+      "click_28 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_29": [
+      "click_29 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_3": [
+      "click_3 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_30": [
+      "click_30 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_31": [
+      "click_31 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_32": [
+      "click_32 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_33": [
+      "click_33 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_34": [
+      "click_34 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_35": [
+      "click_35 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_36": [
+      "click_36 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_37": [
+      "click_37 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_38": [
+      "click_38 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_39": [
+      "click_39 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_4": [
+      "click_4 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_40": [
+      "click_40 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_5": [
+      "click_5 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_6": [
+      "click_6 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_7": [
+      "click_7 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_8": [
+      "click_8 (checkout.py)"
+    ],
+    "pay_steps.py:step_pay_9": [
+      "click_9 (checkout.py)"
+    ]
+  },
+  "data_flow": {},
+  "blame_owners": {},
+  "coverage_by_file": {},
+  "deprecations": {},
+  "api_versions": [],
+  "doc_drift": [],
+  "more_suites": {},
+  "data_stack": {
+    "dbt_models": [],
+    "airflow_dags": {},
+    "spark_jobs": [],
+    "notebooks": []
+  },
+  "build_systems": {},
+  "stores": {},
+  "obs_config": {},
+  "perf_suites": {},
+  "factories": {},
+  "db_constraints": {},
+  "generated": {},
+  "types_declared": {},
+  "env_by_service": {},
+  "client_policies": {},
+  "transactions": {},
+  "logging_config": {},
+  "templates": {},
+  "license_headers": {},
+  "locked": {},
+  "status_codes": {},
+  "outbound": {},
+  "k8s_runtime": {},
+  "assets": {},
+  "topic_schemas": {},
+  "flag_uses": {},
+  "time_assumptions": {},
+  "complexity": [],
+  "clones": {},
+  "loc": {
+    "Python": 321
+  },
+  "comment_lines": {
+    "Python": 0
+  },
+  "dead_files": [
+    "pages/checkout.py",
+    "steps/login_steps.py",
+    "steps/pay_steps.py"
+  ],
+  "cycles": [],
+  "sdks": {},
+  "quality_tools": {},
+  "releases": [],
+  "changelog_entries": [],
+  "docs_site": {},
+  "env_parity": {
+    "in_ci_only": [],
+    "in_example_only": []
+  },
+  "test_ratio": {
+    "code_files": 3,
+    "test_files": 0,
+    "share": "0%"
+  },
+  "binaries_routes": {},
+  "ci_tags": {},
+  "entry_points": {},
+  "docs": {},
+  "module_docs": {
+    "steps/login_steps.py": "Step definitions for logging in.",
+    "steps/pay_steps.py": "Step definitions for paying at checkout.",
+    "pages/checkout.py": "The checkout page: every element pay_steps.py clicks through."
+  },
+  "tags": {},
+  "environment": {},
+  "symbols": {
+    "steps/login_steps.py": {
+      "constants": [],
+      "functions": [
+        "step_login_error",
+        "step_login_invalid",
+        "step_login_valid",
+        "step_on_dashboard",
+        "step_registered_user"
+      ]
+    },
+    "steps/pay_steps.py": {
+      "constants": [],
+      "functions": [
+        "step_pay_1",
+        "step_pay_10",
+        "step_pay_11",
+        "step_pay_12",
+        "step_pay_13",
+        "step_pay_14",
+        "step_pay_15",
+        "step_pay_16",
+        "step_pay_17",
+        "step_pay_18",
+        "step_pay_19",
+        "step_pay_2",
+        "step_pay_20",
+        "step_pay_21",
+        "step_pay_22",
+        "step_pay_23",
+        "step_pay_24",
+        "step_pay_25",
+        "step_pay_26",
+        "step_pay_27",
+        "step_pay_28",
+        "step_pay_29",
+        "step_pay_3",
+        "step_pay_30",
+        "step_pay_31",
+        "step_pay_32",
+        "step_pay_33",
+        "step_pay_34",
+        "step_pay_35",
+        "step_pay_36",
+        "step_pay_37",
+        "step_pay_38",
+        "step_pay_39",
+        "step_pay_4",
+        "step_pay_40",
+        "step_pay_5",
+        "step_pay_6",
+        "step_pay_7",
+        "step_pay_8",
+        "step_pay_9"
+      ]
+    }
+  },
+  "steps": {
+    "steps/login_steps.py": [
+      "a registered user",
+      "they log in with valid credentials",
+      "they log in with the wrong password",
+      "they land on the dashboard",
+      "they see an error message"
+    ],
+    "steps/pay_steps.py": [
+      "pay step 1",
+      "pay step 2",
+      "pay step 3",
+      "pay step 4",
+      "pay step 5",
+      "pay step 6",
+      "pay step 7",
+      "pay step 8",
+      "pay step 9",
+      "pay step 10",
+      "pay step 11",
+      "pay step 12",
+      "pay step 13",
+      "pay step 14",
+      "pay step 15",
+      "pay step 16",
+      "pay step 17",
+      "pay step 18",
+      "pay step 19",
+      "pay step 20",
+      "pay step 21",
+      "pay step 22",
+      "pay step 23",
+      "pay step 24",
+      "pay step 25",
+      "pay step 26",
+      "pay step 27",
+      "pay step 28",
+      "pay step 29",
+      "pay step 30",
+      "pay step 31",
+      "pay step 32",
+      "pay step 33",
+      "pay step 34",
+      "pay step 35",
+      "pay step 36",
+      "pay step 37",
+      "pay step 38",
+      "pay step 39",
+      "pay step 40"
+    ]
+  },
+  "features": {
+    "features/checkout/pay.feature": {
+      "scenarios": [
+        {
+          "line": 3,
+          "name": "Customer pays with a saved card"
+        },
+        {
+          "line": 9,
+          "name": "Customer pays and the charge is declined"
+        },
+        {
+          "line": 15,
+          "name": "Customer pays with a new card"
+        }
+      ],
+      "tags": []
+    },
+    "features/login.feature": {
+      "scenarios": [
+        {
+          "line": 3,
+          "name": "Successful login"
+        },
+        {
+          "line": 8,
+          "name": "Failed login"
+        }
+      ],
+      "tags": []
+    }
+  },
+  "page_objects": [
+    "pages/checkout.py"
+  ],
+  "drivers": [],
+  "behave_environment_files": [],
+  "scripts": [],
+  "counts": {
+    "step_modules": 2,
+    "steps": 45,
+    "features": 2,
+    "scenarios": 5
+  }
+}

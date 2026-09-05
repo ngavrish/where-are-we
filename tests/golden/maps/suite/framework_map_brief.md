@@ -1,0 +1,358 @@
+# Framework map (brief)
+
+2 step modules / 45 step phrases, 2 feature files / 5 scenarios. Full map with every step phrase: `framework_map.md` in this run's directory — grep that file instead of grepping the repository.
+
+## What this codebase is made of
+
+Python (3)
+
+## Public surface of the code
+
+- `pages/checkout.py`: CheckoutPage
+
+## How the top-level packages depend on each other
+
+- `steps` → pages
+
+## Largest files
+
+- steps/pay_steps.py (2 KB), pages/checkout.py (1 KB), steps/login_steps.py (0 KB)
+
+## Who calls whom, across files
+
+- `pay_steps.py:step_pay_1` → click_1 (checkout.py)
+- `pay_steps.py:step_pay_10` → click_10 (checkout.py)
+- `pay_steps.py:step_pay_11` → click_11 (checkout.py)
+- `pay_steps.py:step_pay_12` → click_12 (checkout.py)
+- `pay_steps.py:step_pay_13` → click_13 (checkout.py)
+- `pay_steps.py:step_pay_14` → click_14 (checkout.py)
+- `pay_steps.py:step_pay_15` → click_15 (checkout.py)
+- `pay_steps.py:step_pay_16` → click_16 (checkout.py)
+- `pay_steps.py:step_pay_17` → click_17 (checkout.py)
+- `pay_steps.py:step_pay_18` → click_18 (checkout.py)
+- `pay_steps.py:step_pay_19` → click_19 (checkout.py)
+- `pay_steps.py:step_pay_2` → click_2 (checkout.py)
+- `pay_steps.py:step_pay_20` → click_20 (checkout.py)
+- `pay_steps.py:step_pay_21` → click_21 (checkout.py)
+- `pay_steps.py:step_pay_22` → click_22 (checkout.py)
+- `pay_steps.py:step_pay_23` → click_23 (checkout.py)
+- `pay_steps.py:step_pay_24` → click_24 (checkout.py)
+- `pay_steps.py:step_pay_25` → click_25 (checkout.py)
+- `pay_steps.py:step_pay_26` → click_26 (checkout.py)
+- `pay_steps.py:step_pay_27` → click_27 (checkout.py)
+
+## Defined here
+
+- `CheckoutPage` — <root>/suite/repo/pages/checkout.py:4
+- `CheckoutPage.click_1` — pages/checkout.py:7
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+- `CheckoutPage.click_13` — pages/checkout.py:43
+- `CheckoutPage.click_14` — pages/checkout.py:46
+- `CheckoutPage.click_15` — pages/checkout.py:49
+- `CheckoutPage.click_16` — pages/checkout.py:52
+- `CheckoutPage.click_17` — pages/checkout.py:55
+- `CheckoutPage.click_18` — pages/checkout.py:58
+- `CheckoutPage.click_19` — pages/checkout.py:61
+- `CheckoutPage.click_2` — pages/checkout.py:10
+- `CheckoutPage.click_20` — pages/checkout.py:64
+- `CheckoutPage.click_21` — pages/checkout.py:67
+- `CheckoutPage.click_22` — pages/checkout.py:70
+- `CheckoutPage.click_23` — pages/checkout.py:73
+- `CheckoutPage.click_24` — pages/checkout.py:76
+- `CheckoutPage.click_25` — pages/checkout.py:79
+- `CheckoutPage.click_26` — pages/checkout.py:82
+- `CheckoutPage.click_27` — pages/checkout.py:85
+- `CheckoutPage.click_28` — pages/checkout.py:88
+- `CheckoutPage.click_29` — pages/checkout.py:91
+- `CheckoutPage.click_3` — pages/checkout.py:13
+- `CheckoutPage.click_30` — pages/checkout.py:94
+- `CheckoutPage.click_31` — pages/checkout.py:97
+- `CheckoutPage.click_32` — pages/checkout.py:100
+- `CheckoutPage.click_33` — pages/checkout.py:103
+- `CheckoutPage.click_34` — pages/checkout.py:106
+- `CheckoutPage.click_35` — pages/checkout.py:109
+- `CheckoutPage.click_36` — pages/checkout.py:112
+- `CheckoutPage.click_37` — pages/checkout.py:115
+- `CheckoutPage.click_38` — pages/checkout.py:118
+- `CheckoutPage.click_39` — pages/checkout.py:121
+- `CheckoutPage.click_4` — pages/checkout.py:16
+- `CheckoutPage.click_40` — pages/checkout.py:124
+- `CheckoutPage.click_5` — pages/checkout.py:19
+- `CheckoutPage.click_6` — pages/checkout.py:22
+- `CheckoutPage.click_7` — pages/checkout.py:25
+- `CheckoutPage.click_8` — pages/checkout.py:28
+- `CheckoutPage.click_9` — pages/checkout.py:31
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+- `Customer pays with a new card` — <root>/suite/repo/features/checkout/pay.feature:15
+- `Customer pays with a saved card` — <root>/suite/repo/features/checkout/pay.feature:3
+- `Failed login` — <root>/suite/repo/features/login.feature:8
+- `Log in` — <root>/suite/repo/features/login.feature:1
+- `Pay for an order` — <root>/suite/repo/features/checkout/pay.feature:1
+- `Successful login` — <root>/suite/repo/features/login.feature:3
+- `a registered user` — <root>/suite/repo/steps/login_steps.py:7
+- `class CheckoutPage` — pages/checkout.py:4
+- `click_1` — <root>/suite/repo/pages/checkout.py:7
+- `click_10` — <root>/suite/repo/pages/checkout.py:34
+- `click_11` — <root>/suite/repo/pages/checkout.py:37
+- `click_12` — <root>/suite/repo/pages/checkout.py:40
+- `click_13` — <root>/suite/repo/pages/checkout.py:43
+- `click_14` — <root>/suite/repo/pages/checkout.py:46
+- `click_15` — <root>/suite/repo/pages/checkout.py:49
+- `click_16` — <root>/suite/repo/pages/checkout.py:52
+- `click_17` — <root>/suite/repo/pages/checkout.py:55
+- `click_18` — <root>/suite/repo/pages/checkout.py:58
+- `click_19` — <root>/suite/repo/pages/checkout.py:61
+- `click_2` — <root>/suite/repo/pages/checkout.py:10
+- `click_20` — <root>/suite/repo/pages/checkout.py:64
+- `click_21` — <root>/suite/repo/pages/checkout.py:67
+- `click_22` — <root>/suite/repo/pages/checkout.py:70
+- `click_23` — <root>/suite/repo/pages/checkout.py:73
+- `click_24` — <root>/suite/repo/pages/checkout.py:76
+- `click_25` — <root>/suite/repo/pages/checkout.py:79
+- `click_26` — <root>/suite/repo/pages/checkout.py:82
+- `click_27` — <root>/suite/repo/pages/checkout.py:85
+- `click_28` — <root>/suite/repo/pages/checkout.py:88
+- `click_29` — <root>/suite/repo/pages/checkout.py:91
+- `click_3` — <root>/suite/repo/pages/checkout.py:13
+- `click_30` — <root>/suite/repo/pages/checkout.py:94
+- `click_31` — <root>/suite/repo/pages/checkout.py:97
+- `click_32` — <root>/suite/repo/pages/checkout.py:100
+- `click_33` — <root>/suite/repo/pages/checkout.py:103
+- `click_34` — <root>/suite/repo/pages/checkout.py:106
+- `click_35` — <root>/suite/repo/pages/checkout.py:109
+- `click_36` — <root>/suite/repo/pages/checkout.py:112
+… 144 more declared names; ask `defines`
+
+## Lines of code
+
+- Python: 321
+
+## How much of this is tests
+
+- 0 test files of 3 (0%)
+
+## Files nothing imports
+
+- `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
+
+## How this suite is built
+
+- **features** — Gherkin features — 2 files under features, features/checkout
+- **steps** — step definitions the features bind to — 2 files under steps
+- **page_objects** — classes that own selectors and page actions — 1 files under pages
+- **driver** — browser/session driver: waits, screenshots: none found
+- **environment** — hooks and per-scenario setup: none found
+
+- **Page objects**: `pages/checkout.py`
+
+## What a step may call
+
+- `pages/checkout.py`: CheckoutPage.click_1(), CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17(), CheckoutPage.click_18(), CheckoutPage.click_19(), CheckoutPage.click_2(), CheckoutPage.click_20(), CheckoutPage.click_21(), CheckoutPage.click_22(), CheckoutPage.click_23() … +24 more in the full map
+
+## What each module says it is for
+
+- `steps/login_steps.py` — Step definitions for logging in.
+- `steps/pay_steps.py` — Step definitions for paying at checkout.
+- `pages/checkout.py` — The checkout page: every element pay_steps.py clicks through.
+
+## Which feature is served by which modules
+
+- `login.feature` → steps: login_steps.py
+
+## Backend the tests touch
+
+- tables queried: behave, pages.checkout
+
+## Steps that overlap (80 pairs) — check whether one already does what you need
+
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 2" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 3" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 4" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 5" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 6" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 7" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 8" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 9" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 10" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 11" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 12" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 13" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 14" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 15" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 16" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 17" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 18" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 19" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 20" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 21" (`pay_steps.py`)
+
+## What each step calls
+
+- `pay_steps.py:step_pay_1` → click_1
+- `pay_steps.py:step_pay_2` → click_2
+- `pay_steps.py:step_pay_3` → click_3
+- `pay_steps.py:step_pay_4` → click_4
+- `pay_steps.py:step_pay_5` → click_5
+- `pay_steps.py:step_pay_6` → click_6
+- `pay_steps.py:step_pay_7` → click_7
+- `pay_steps.py:step_pay_8` → click_8
+- `pay_steps.py:step_pay_9` → click_9
+- `pay_steps.py:step_pay_10` → click_10
+- `pay_steps.py:step_pay_11` → click_11
+- `pay_steps.py:step_pay_12` → click_12
+- `pay_steps.py:step_pay_13` → click_13
+- `pay_steps.py:step_pay_14` → click_14
+- `pay_steps.py:step_pay_15` → click_15
+- `pay_steps.py:step_pay_16` → click_16
+- `pay_steps.py:step_pay_17` → click_17
+- `pay_steps.py:step_pay_18` → click_18
+- `pay_steps.py:step_pay_19` → click_19
+- `pay_steps.py:step_pay_20` → click_20
+- `pay_steps.py:step_pay_21` → click_21
+- `pay_steps.py:step_pay_22` → click_22
+- `pay_steps.py:step_pay_23` → click_23
+- `pay_steps.py:step_pay_24` → click_24
+- `pay_steps.py:step_pay_25` → click_25
+
+## Step phrases no feature uses (20) — dead weight, do not imitate
+
+- `pay_steps.py`: pay step 1; pay step 2; pay step 3; pay step 4
+
+## Page-object methods nothing calls
+
+- `checkout.py`: CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17()
+
+## How a test authenticates
+
+- `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
+
+## How a feature file is written here
+
+Sample: `features/checkout/pay.feature`
+
+```gherkin
+Feature: Pay for an order
+
+  Scenario: Customer pays with a saved card
+    Given a customer with a saved card
+    When they pay for the invoice
+    Then the payment is charged
+    And a receipt is emailed
+
+  Scenario: Customer pays and the charge is declined
+    Given a customer with a card that will be declined
+    When they pay for the invoice
+    Then the charge is declined
+    And they see a retry prompt
+
+  Scenario: Customer pays with a new card
+    Given a customer with no saved card
+    When they add a new card and pay for the invoice
+    Then the payment is charged
+```
+
+## What you can already write with (85)
+
+The vocabulary this suite already has. Write from these; adding a new one is a last resort, and the overlaps above say which ones already say the same thing.
+
+**step phrases** (45)
+- a registered user
+- pay step 1
+- pay step 10
+- pay step 11
+- pay step 12
+- pay step 13
+- pay step 14
+- pay step 15
+- pay step 16
+- pay step 17
+- pay step 18
+- pay step 19
+- pay step 2
+- pay step 20
+- pay step 21
+- pay step 22
+- pay step 23
+- pay step 24
+- pay step 25
+- pay step 26
+- pay step 27
+- pay step 28
+- pay step 29
+- pay step 3
+- pay step 30
+- pay step 31
+- pay step 32
+- pay step 33
+- pay step 34
+- pay step 35
+- pay step 36
+- pay step 37
+- pay step 38
+- pay step 39
+- pay step 4
+- pay step 40
+- pay step 5
+- pay step 6
+- pay step 7
+- pay step 8
+- pay step 9
+- they land on the dashboard
+- they log in with the wrong password
+- they log in with valid credentials
+- they see an error message
+
+**page object methods** (40)
+- CheckoutPage.click_1()
+- CheckoutPage.click_10()
+- CheckoutPage.click_11()
+- CheckoutPage.click_12()
+- CheckoutPage.click_13()
+- CheckoutPage.click_14()
+- CheckoutPage.click_15()
+- CheckoutPage.click_16()
+- CheckoutPage.click_17()
+- CheckoutPage.click_18()
+- CheckoutPage.click_19()
+- CheckoutPage.click_2()
+- CheckoutPage.click_20()
+- CheckoutPage.click_21()
+- CheckoutPage.click_22()
+- CheckoutPage.click_23()
+- CheckoutPage.click_24()
+- CheckoutPage.click_25()
+- CheckoutPage.click_26()
+- CheckoutPage.click_27()
+- CheckoutPage.click_28()
+- CheckoutPage.click_29()
+- CheckoutPage.click_3()
+- CheckoutPage.click_30()
+- CheckoutPage.click_31()
+- CheckoutPage.click_32()
+- CheckoutPage.click_33()
+- CheckoutPage.click_34()
+- CheckoutPage.click_35()
+- CheckoutPage.click_36()
+- CheckoutPage.click_37()
+- CheckoutPage.click_38()
+- CheckoutPage.click_39()
+- CheckoutPage.click_4()
+- CheckoutPage.click_40()
+- CheckoutPage.click_5()
+- CheckoutPage.click_6()
+- CheckoutPage.click_7()
+- CheckoutPage.click_8()
+- CheckoutPage.click_9()
+
+
+## Step modules, largest first
+
+- `steps/pay_steps.py` — 40 steps
+- `steps/login_steps.py` — 5 steps
+
+## Biggest feature files (scenario line numbers are in the full map)
+
+- `features/checkout/pay.feature` — 3 scenarios
+- `features/login.feature` — 2 scenarios

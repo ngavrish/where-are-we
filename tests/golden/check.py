@@ -1,4 +1,5 @@
-"""Verifies the golden `ask` suite and map determinism, without pytest.
+"""Verifies the golden `ask` suite, the pinned fixture maps and map
+determinism, without pytest.
 
 A global hook in this environment blocks the model from writing or editing
 any `test_*.py` file, so this is a plain script instead of `tests/test_golden.py`:
@@ -67,9 +68,11 @@ def _normalized(text: str, root: str) -> str:
     return text.replace(root, "<root>")
 
 
-def _check_golden(root: str) -> list:
+def _check_golden(root: str) -> tuple:
     """Every case's `ask()` answer against its pinned expected file. Returns
-    the problems found; empty means all 150 cases matched."""
+    `(problems, outs)`; empty problems means all 150 cases matched. The build
+    is handed back so the map check can compare the same three maps rather
+    than pay for a fourth build of the fixtures."""
     outs = _rebuilt(root)
     problems = []
     for fixture, words, limit in _cases():
@@ -94,6 +97,29 @@ def _check_golden(root: str) -> list:
         # RESERVE_DEFINED in ask.py exist to guarantee exactly that).
         if len(got) > limit and not got.startswith("no match for "):
             problems.append(f"{name}: exceeds its limit ({len(got)} > {limit})")
+    return problems, outs
+
+
+def _check_maps(outs: dict, root: str) -> list:
+    """The three map files of each fixture against `tests/golden/maps/`.
+
+    `expected/` pins the answers `ask()` gives, which is a summary of the map
+    and hides a change the ranking happens to smooth over. This pins the maps
+    themselves, byte for byte, which is what a refactor that claims to change
+    nothing has to be measured against. `regen.py --maps` is the fix when the
+    change was intended."""
+    problems = []
+    for fixture in sorted(outs):
+        for filename in build_fixtures.MAP_FILES:
+            pinned = HERE / "maps" / fixture / filename
+            if not pinned.exists():
+                problems.append(f"maps/{fixture}/{filename}: not pinned "
+                                 "(run regen.py --maps)")
+                continue
+            got = build_fixtures.normalised_map(outs[fixture], filename, root)
+            if got != pinned.read_text(encoding="utf-8"):
+                problems.append(f"maps/{fixture}/{filename}: differs from the pinned "
+                                 "map (run regen.py --maps if intended)")
     return problems
 
 
@@ -139,7 +165,8 @@ def _check_determinism(root1: str, root2: str) -> tuple:
 
 def main() -> int:
     n_cases = sum(1 for _ in _cases())
-    problems = _check_golden(GOLDEN_ROOT)
+    problems, outs = _check_golden(GOLDEN_ROOT)
+    problems += _check_maps(outs, GOLDEN_ROOT)
     det_problems, warm_parses = _check_determinism(GOLDEN_ROOT, DETERMINISM_ROOT_2)
     problems += det_problems
     if problems:
@@ -148,7 +175,7 @@ def main() -> int:
             print(f"- {p}")
         return 1
     print(f"golden: {n_cases} cases, {len(build_fixtures.FIXTURES)} fixtures identical, "
-          f"warm parses: {warm_parses}")
+          f"maps identical, warm parses: {warm_parses}")
     return 0
 
 

@@ -1,0 +1,299 @@
+{
+  "schema": "where-are-we/1",
+  "repo": "<repo>",
+  "stated": {},
+  "layers": {
+    "features": "Gherkin features: none found",
+    "steps": "step definitions the features bind to: none found",
+    "page_objects": "classes that own selectors and page actions: none found",
+    "driver": "browser/session driver: waits, screenshots: none found",
+    "environment": "hooks and per-scenario setup: none found"
+  },
+  "public_api": {},
+  "definitions": {
+    "Serve": "<root>/poly/repo/main.go:3",
+    "TestServe": "<root>/poly/repo/main.go:7",
+    "charge": "<root>/poly/repo/a.ts:1",
+    "customers": "<root>/poly/repo/migrations/V1__init.sql:1",
+    "main": "<root>/poly/repo/main.go:1",
+    "payInvoice": "<root>/poly/repo/b.ts:3"
+  },
+  "indexed": {
+    "suite": 4
+  },
+  "lines": {
+    "<root>/poly/repo/a.ts": [
+      "export function charge(amount: number): string {",
+      "  return `charged ${amount}`;",
+      "}"
+    ],
+    "<root>/poly/repo/b.ts": [
+      "import { charge } from \"./a\";",
+      "",
+      "export function payInvoice(amount: number): string {",
+      "  return charge(amount);",
+      "}"
+    ],
+    "<root>/poly/repo/main.go": [
+      "package main",
+      "",
+      "func Serve() {",
+      "\t// starts the HTTP server",
+      "}",
+      "",
+      "func TestServe() {",
+      "\t// exercises Serve directly, with no test file",
+      "\tServe()",
+      "}",
+      "",
+      "func main() {",
+      "\tServe()",
+      "}"
+    ],
+    "<root>/poly/repo/migrations/V1__init.sql": [
+      "CREATE TABLE customers (",
+      "    id INTEGER PRIMARY KEY,",
+      "    name TEXT NOT NULL",
+      ");"
+    ]
+  },
+  "feature_links": {},
+  "data_files": [],
+  "testids": {
+    "suite": [],
+    "product": []
+  },
+  "helpers": {},
+  "reporting": {},
+  "hooks": {},
+  "quarantine": {},
+  "product": {
+    "routes": [],
+    "storage_keys": [],
+    "api_paths": []
+  },
+  "locators": {},
+  "timings": {},
+  "behave_config": {},
+  "coverage_docs": {},
+  "env_setup": {},
+  "backend": {
+    "endpoints": [],
+    "tables": [],
+    "seed_scripts": []
+  },
+  "api_tests": [],
+  "conventions": {},
+  "scenario_history": {},
+  "dir_readmes": {},
+  "duplicates": {},
+  "near_duplicates": [],
+  "call_graph": {},
+  "artefacts": {},
+  "unused_steps": {},
+  "unused_api": {},
+  "debts": {},
+  "git_history": {},
+  "ticket_links": {},
+  "dependencies": {},
+  "ci": {},
+  "required_env": [],
+  "auth": {},
+  "concurrency": {
+    "shared_state": [],
+    "serial_tags": [],
+    "notes": []
+  },
+  "failure_signatures": {},
+  "safe_data": {},
+  "slow_steps": {},
+  "tag_meaning": {},
+  "fragile_locators": {},
+  "testid_owners": {},
+  "rules_corpus": [],
+  "ui_strings": [],
+  "infrastructure": {},
+  "schemas": {},
+  "owners": {},
+  "env_differences": {},
+  "past_runs": [],
+  "visual_baselines": [],
+  "feature_style": {},
+  "pytest_tests": {},
+  "fixtures": {},
+  "markers": [],
+  "js_tests": {},
+  "test_config": {},
+  "other_suites": {},
+  "contracts": {
+    "openapi": [],
+    "graphql": [],
+    "migrations": [
+      "migrations/V1__init.sql"
+    ],
+    "mocks": [],
+    "feature_flags": [],
+    "i18n": [],
+    "images": [],
+    "secret_paths": []
+  },
+  "contract_details": {
+    "endpoints": [],
+    "graphql": [],
+    "migration_tables": [
+      "customers(id, name)"
+    ],
+    "i18n_keys": [],
+    "flags": []
+  },
+  "languages": {
+    "TypeScript": 2,
+    "Go": 1,
+    "SQL": 1
+  },
+  "entry": {
+    "main.go": [
+      "present"
+    ],
+    "go binaries": [
+      "main.go"
+    ]
+  },
+  "exports": {
+    "main.go": [
+      "Serve",
+      "TestServe"
+    ],
+    "a.ts": [
+      "charge"
+    ],
+    "b.ts": [
+      "payInvoice"
+    ]
+  },
+  "routes_served": [],
+  "models": {},
+  "import_graph": {},
+  "workspaces": [],
+  "messaging": {},
+  "grpc": {},
+  "schedules": {},
+  "kubernetes": {},
+  "iac": {},
+  "cache_keys": [],
+  "permissions": {},
+  "observability": {
+    "metrics": [],
+    "log_fields": [],
+    "spans": []
+  },
+  "error_types": {},
+  "cli_commands": {},
+  "frontend": {
+    "components": [],
+    "stores": [],
+    "hooks": []
+  },
+  "adrs": [],
+  "coverage_reports": {},
+  "hotspots": [
+    "main.go (0 KB)",
+    "b.ts (0 KB)",
+    "a.ts (0 KB)"
+  ],
+  "dependency_licenses": {},
+  "call_graph_files": {
+    "b.ts:payInvoice": [
+      "charge (a.ts)"
+    ]
+  },
+  "data_flow": {},
+  "blame_owners": {},
+  "coverage_by_file": {},
+  "deprecations": {},
+  "api_versions": [],
+  "doc_drift": [],
+  "more_suites": {},
+  "data_stack": {
+    "dbt_models": [],
+    "airflow_dags": {},
+    "spark_jobs": [],
+    "notebooks": []
+  },
+  "build_systems": {},
+  "stores": {},
+  "obs_config": {},
+  "perf_suites": {},
+  "factories": {},
+  "db_constraints": {},
+  "generated": {},
+  "types_declared": {},
+  "env_by_service": {},
+  "client_policies": {},
+  "transactions": {},
+  "logging_config": {},
+  "templates": {},
+  "license_headers": {},
+  "locked": {},
+  "status_codes": {},
+  "outbound": {},
+  "k8s_runtime": {},
+  "assets": {},
+  "topic_schemas": {},
+  "flag_uses": {},
+  "time_assumptions": {},
+  "complexity": [],
+  "clones": {},
+  "loc": {
+    "Go": 14,
+    "TypeScript": 8,
+    "SQL": 4
+  },
+  "comment_lines": {
+    "TypeScript": 0,
+    "Go": 2,
+    "SQL": 0
+  },
+  "dead_files": [
+    "b.ts"
+  ],
+  "cycles": [],
+  "sdks": {},
+  "quality_tools": {},
+  "releases": [],
+  "changelog_entries": [],
+  "docs_site": {},
+  "env_parity": {
+    "in_ci_only": [],
+    "in_example_only": []
+  },
+  "test_ratio": {
+    "code_files": 4,
+    "test_files": 0,
+    "share": "0%"
+  },
+  "binaries_routes": {
+    "main.go": [
+      "(routes not attributable by directory)"
+    ]
+  },
+  "ci_tags": {},
+  "entry_points": {},
+  "docs": {},
+  "module_docs": {},
+  "tags": {},
+  "environment": {},
+  "symbols": {},
+  "steps": {},
+  "features": {},
+  "page_objects": [],
+  "drivers": [],
+  "behave_environment_files": [],
+  "scripts": [],
+  "counts": {
+    "step_modules": 0,
+    "steps": 0,
+    "features": 0,
+    "scenarios": 0
+  }
+}

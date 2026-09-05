@@ -1,10 +1,17 @@
-"""Rewrites `tests/golden/expected/` from scratch.
+"""Rewrites `tests/golden/expected/` from scratch, and with `--maps` the
+pinned fixture maps in `tests/golden/maps/` as well.
 
 Run after a deliberate change to what `mapper.py` produces: a refactor that
 is meant to leave the output alone (verify with `check.py` that it does), or
 one of the two intended behaviour changes later in this plan (verify with
 `check.py` that only the expected rows moved). This script does not judge
 whether a change was intended; it only records the current output as golden.
+
+`--maps` is separate because the two golden sets answer different questions.
+`expected/` pins what `ask()` replies; `maps/` pins the three map files the
+build writes, which is what a refactor of the mapper has to leave alone. A
+refactor should move neither, so the flag is off by default: you have to say
+that moving the maps is what you meant.
 
 Run: `uv run --python 3.12 --with-editable . python tests/golden/regen.py`
 """
@@ -37,7 +44,22 @@ def _cases():
         yield fixture, words, int(limit)
 
 
+def _write_maps(outs: dict) -> int:
+    """Pin each fixture's three map files under `tests/golden/maps/<fixture>/`."""
+    maps_dir = HERE / "maps"
+    written = 0
+    for fixture, out_dir in sorted(outs.items()):
+        target = maps_dir / fixture
+        target.mkdir(parents=True, exist_ok=True)
+        for filename in build_fixtures.MAP_FILES:
+            text = build_fixtures.normalised_map(out_dir, filename, GOLDEN_ROOT)
+            (target / filename).write_text(text, encoding="utf-8")
+            written += 1
+    return written
+
+
 def main() -> int:
+    maps = "--maps" in sys.argv[1:]
     expected_dir = HERE / "expected"
     expected_dir.mkdir(exist_ok=True)
     written = 0
@@ -56,6 +78,8 @@ def main() -> int:
         path.write_text(got, encoding="utf-8")
         written += 1
     print(f"wrote {written} expected files to {expected_dir}")
+    if maps:
+        print(f"wrote {_write_maps(outs)} map files to {HERE / 'maps'}")
     return 0
 
 

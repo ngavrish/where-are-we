@@ -1,0 +1,381 @@
+{
+  "schema": "where-are-we/1",
+  "repo": "<repo>",
+  "stated": {},
+  "layers": {
+    "features": "Gherkin features: none found",
+    "steps": "step definitions the features bind to: none found",
+    "page_objects": "classes that own selectors and page actions: none found",
+    "driver": "browser/session driver: waits, screenshots: none found",
+    "environment": "hooks and per-scenario setup: none found"
+  },
+  "public_api": {},
+  "definitions": {
+    "Customer": "<root>/code/repo/app/models.py:19",
+    "Invoice": "<root>/code/repo/app/models.py:9",
+    "charge": "<root>/code/repo/app/billing.py:4",
+    "get_invoice": "<root>/code/repo/app/api.py:15",
+    "health": "<root>/code/repo/app/api.py:21",
+    "list_invoices": "<root>/code/repo/app/api.py:9",
+    "main": "<root>/code/repo/app/cli.py:6",
+    "refund": "<root>/code/repo/app/billing.py:9"
+  },
+  "indexed": {
+    "suite": 5
+  },
+  "lines": {
+    "<root>/code/repo/Makefile": [
+      "test:",
+      "\tpytest",
+      "",
+      "lint:",
+      "\truff check ."
+    ],
+    "<root>/code/repo/app/api.py": [
+      "\"\"\"HTTP routes for invoices.\"\"\"",
+      "",
+      "from fastapi import FastAPI",
+      "",
+      "app = FastAPI()",
+      "",
+      "",
+      "@app.get(\"/invoice\")",
+      "def list_invoices():",
+      "    \"\"\"Return every invoice.\"\"\"",
+      "    return []",
+      "",
+      "",
+      "@app.get(\"/invoice/{id}\")",
+      "def get_invoice(id: str):",
+      "    \"\"\"Return one invoice by id.\"\"\"",
+      "    return {\"id\": id}",
+      "",
+      "",
+      "@app.get(\"/health\")",
+      "def health():",
+      "    \"\"\"Liveness check.\"\"\"",
+      "    return {\"status\": \"ok\"}"
+    ],
+    "<root>/code/repo/app/billing.py": [
+      "\"\"\"Charging and refunding a customer's card.\"\"\"",
+      "",
+      "",
+      "def charge(customer_id: int, amount: int) -> str:",
+      "    \"\"\"Charge a customer's card for an invoice.\"\"\"",
+      "    return \"charged\"",
+      "",
+      "",
+      "def refund(customer_id: int, amount: int) -> str:",
+      "    \"\"\"Refund a customer's card.\"\"\"",
+      "    return \"refunded\""
+    ],
+    "<root>/code/repo/app/cli.py": [
+      "\"\"\"Command line entry point for billing operations.\"\"\"",
+      "",
+      "import argparse",
+      "",
+      "",
+      "def main() -> int:",
+      "    \"\"\"Send or retry a billing job, picked from the command line.\"\"\"",
+      "    parser = argparse.ArgumentParser(prog=\"billing\")",
+      "    sub = parser.add_subparsers(dest=\"command\")",
+      "    sub.add_parser(\"send\")",
+      "    sub.add_parser(\"retry\")",
+      "    parser.parse_args()",
+      "    return 0",
+      "",
+      "",
+      "if __name__ == \"__main__\":",
+      "    main()"
+    ],
+    "<root>/code/repo/app/models.py": [
+      "\"\"\"The billing data model.\"\"\"",
+      "",
+      "from sqlalchemy import Column, Integer, String",
+      "from sqlalchemy.orm import declarative_base",
+      "",
+      "Base = declarative_base()",
+      "",
+      "",
+      "class Invoice(Base):",
+      "    \"\"\"An invoice raised for a customer.\"\"\"",
+      "",
+      "    __tablename__ = \"invoices\"",
+      "",
+      "    id = Column(Integer, primary_key=True)",
+      "    customer_id = Column(Integer)",
+      "    amount = Column(Integer)",
+      "",
+      "",
+      "class Customer(Base):",
+      "    \"\"\"A billed customer.\"\"\"",
+      "",
+      "    __tablename__ = \"customers\"",
+      "",
+      "    id = Column(Integer, primary_key=True)",
+      "    name = Column(String)"
+    ]
+  },
+  "feature_links": {},
+  "data_files": [],
+  "testids": {
+    "suite": [],
+    "product": []
+  },
+  "helpers": {},
+  "reporting": {},
+  "hooks": {},
+  "quarantine": {},
+  "product": {
+    "routes": [],
+    "storage_keys": [],
+    "api_paths": []
+  },
+  "locators": {},
+  "timings": {},
+  "behave_config": {},
+  "coverage_docs": {},
+  "env_setup": {},
+  "backend": {
+    "endpoints": [],
+    "tables": [],
+    "seed_scripts": []
+  },
+  "api_tests": [],
+  "conventions": {},
+  "scenario_history": {},
+  "dir_readmes": {},
+  "duplicates": {},
+  "near_duplicates": [],
+  "call_graph": {},
+  "artefacts": {},
+  "unused_steps": {},
+  "unused_api": {},
+  "debts": {},
+  "git_history": {},
+  "ticket_links": {},
+  "dependencies": {},
+  "ci": {},
+  "required_env": [],
+  "auth": {},
+  "concurrency": {
+    "shared_state": [],
+    "serial_tags": [],
+    "notes": []
+  },
+  "failure_signatures": {},
+  "safe_data": {},
+  "slow_steps": {},
+  "tag_meaning": {},
+  "fragile_locators": {},
+  "testid_owners": {},
+  "rules_corpus": [],
+  "ui_strings": [],
+  "infrastructure": {},
+  "schemas": {},
+  "owners": {},
+  "env_differences": {},
+  "past_runs": [],
+  "visual_baselines": [],
+  "feature_style": {},
+  "pytest_tests": {},
+  "fixtures": {},
+  "markers": [],
+  "js_tests": {},
+  "test_config": {},
+  "other_suites": {},
+  "contracts": {
+    "openapi": [],
+    "graphql": [],
+    "migrations": [],
+    "mocks": [],
+    "feature_flags": [],
+    "i18n": [],
+    "images": [],
+    "secret_paths": []
+  },
+  "contract_details": {
+    "endpoints": [],
+    "graphql": [],
+    "migration_tables": [],
+    "i18n_keys": [],
+    "flags": []
+  },
+  "languages": {
+    "Python": 4
+  },
+  "entry": {
+    "make targets": [
+      "test",
+      "lint"
+    ]
+  },
+  "exports": {
+    "app/api.py": [
+      "list_invoices",
+      "get_invoice",
+      "health"
+    ],
+    "app/billing.py": [
+      "charge",
+      "refund"
+    ],
+    "app/models.py": [
+      "Invoice",
+      "Customer"
+    ],
+    "app/cli.py": [
+      "main"
+    ]
+  },
+  "routes_served": [
+    "GET /health  (api.py)",
+    "GET /invoice  (api.py)",
+    "GET /invoice/{id}  (api.py)"
+  ],
+  "models": {
+    "Invoice (models.py)": [
+      "amount",
+      "customer_id",
+      "id",
+      "name"
+    ],
+    "Customer (models.py)": [
+      "amount",
+      "customer_id",
+      "id",
+      "name"
+    ]
+  },
+  "import_graph": {},
+  "workspaces": [],
+  "messaging": {},
+  "grpc": {},
+  "schedules": {},
+  "kubernetes": {},
+  "iac": {},
+  "cache_keys": [],
+  "permissions": {},
+  "observability": {
+    "metrics": [],
+    "log_fields": [],
+    "spans": []
+  },
+  "error_types": {},
+  "cli_commands": {
+    "app/cli.py": [
+      "retry",
+      "send"
+    ]
+  },
+  "frontend": {
+    "components": [],
+    "stores": [],
+    "hooks": []
+  },
+  "adrs": [],
+  "coverage_reports": {},
+  "hotspots": [
+    "app/models.py (0 KB)",
+    "app/cli.py (0 KB)",
+    "app/api.py (0 KB)",
+    "app/billing.py (0 KB)"
+  ],
+  "dependency_licenses": {},
+  "call_graph_files": {},
+  "data_flow": {
+    "app/api.py": {
+      "paths": [
+        "/health",
+        "/invoice",
+        "/invoice/{id}"
+      ],
+      "tables": [
+        "fastapi"
+      ]
+    }
+  },
+  "blame_owners": {},
+  "coverage_by_file": {},
+  "deprecations": {},
+  "api_versions": [],
+  "doc_drift": [],
+  "more_suites": {},
+  "data_stack": {
+    "dbt_models": [],
+    "airflow_dags": {},
+    "spark_jobs": [],
+    "notebooks": []
+  },
+  "build_systems": {},
+  "stores": {},
+  "obs_config": {},
+  "perf_suites": {},
+  "factories": {},
+  "db_constraints": {},
+  "generated": {},
+  "types_declared": {},
+  "env_by_service": {},
+  "client_policies": {},
+  "transactions": {},
+  "logging_config": {},
+  "templates": {},
+  "license_headers": {},
+  "locked": {},
+  "status_codes": {},
+  "outbound": {},
+  "k8s_runtime": {},
+  "assets": {},
+  "topic_schemas": {},
+  "flag_uses": {},
+  "time_assumptions": {},
+  "complexity": [],
+  "clones": {},
+  "loc": {
+    "Python": 76
+  },
+  "comment_lines": {
+    "Python": 0
+  },
+  "dead_files": [
+    "app/api.py",
+    "app/billing.py",
+    "app/cli.py",
+    "app/models.py"
+  ],
+  "cycles": [],
+  "sdks": {},
+  "quality_tools": {},
+  "releases": [],
+  "changelog_entries": [],
+  "docs_site": {},
+  "env_parity": {
+    "in_ci_only": [],
+    "in_example_only": []
+  },
+  "test_ratio": {
+    "code_files": 5,
+    "test_files": 0,
+    "share": "0%"
+  },
+  "binaries_routes": {},
+  "ci_tags": {},
+  "entry_points": {},
+  "docs": {},
+  "module_docs": {},
+  "tags": {},
+  "environment": {},
+  "symbols": {},
+  "steps": {},
+  "features": {},
+  "page_objects": [],
+  "drivers": [],
+  "behave_environment_files": [],
+  "scripts": [],
+  "counts": {
+    "step_modules": 0,
+    "steps": 0,
+    "features": 0,
+    "scenarios": 0
+  }
+}
