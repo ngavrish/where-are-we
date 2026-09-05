@@ -311,27 +311,6 @@ CREATE TABLE customers (
 _BUILDERS = {"suite": _build_suite, "code": _build_code, "poly": _build_poly}
 
 
-def _reset_state() -> None:
-    """Clear mapper's module-level indexes before mapping a fresh repository.
-
-    They are global by design: `--also` merges a service and its client into
-    one map, so a second root's names stay searchable in the first root's
-    map too. Building three unrelated fixtures in one process is the opposite
-    case, and without this reset the second and third fixture's map would
-    carry the first one's definitions, index counts and truncation notes
-    forward, and `regen.py` or the test running twice in one process would not
-    match a fresh process running it once.
-    """
-    mapper.DEFINITIONS.clear()
-    mapper.INDEXED.clear()
-    mapper.LINES.clear()
-    mapper.TRUNCATED.clear()
-    mapper._WALK_CACHE.clear()
-    mapper._IGNORE_CACHE.clear()
-    mapper._FILE_CACHE.clear()
-    mapper._PARSE_CACHE.clear()
-
-
 def build_all(root: str) -> dict:
     """Build the three fixtures under `root`, map each the way `main()` maps a
     repository, and return `{fixture: out_dir}`.
@@ -342,6 +321,14 @@ def build_all(root: str) -> dict:
     three files: the CLI's `--only`/`--skip`/`--max-lines` trimming (all off
     by default) and the git/mtime fingerprint (recorded in the JSON for cache
     invalidation, never read back out of it here).
+
+    Nothing here resets the mapper's module-level indexes between fixtures.
+    It used to, through a private `_reset_state()` that reached into
+    `mapper.DEFINITIONS` and six siblings by hand, because three unrelated
+    fixtures in one process would otherwise each carry the previous one's
+    names, counts and truncation notes. `build()` now clears them itself, so
+    every in-process caller gets what a fresh process would, not only this
+    one.
 
     `redact(m)`, which `main()` also calls, is deliberately skipped: it
     replaces anything shaped like a credential with `[redacted]`, and its
@@ -363,7 +350,6 @@ def build_all(root: str) -> dict:
             os.makedirs(repo, exist_ok=True)
             _BUILDERS[name](repo)
 
-            _reset_state()
             os.environ["AGENT_REPO"] = repo
             # A fixture has no product checked out beside it; without this,
             # `_product_roots()` would look for an `src` sibling of `repo` and,

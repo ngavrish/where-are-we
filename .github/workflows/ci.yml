@@ -226,8 +226,17 @@ jobs:
           rm -rf /tmp/ir/m
           WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/cold.log
           grep -qE "^parsed [1-9][0-9]* files$" /tmp/ir/cold.log
-          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/warm.log
+          # A rebuild of a tree nobody touched parses nothing. The map is
+          # removed rather than passing --force, because --force means "read
+          # nothing from the cache" and would parse everything again on
+          # purpose; without it the fingerprint check would skip the build
+          # entirely and there would be no parse count to look at.
+          rm /tmp/ir/m/framework_map.json
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --quiet 2> /tmp/ir/warm.log
           grep -q "^parsed 0 files$" /tmp/ir/warm.log
+          # And --force really does parse everything again.
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/forced.log
+          grep -qE "^parsed [1-9][0-9]* files$" /tmp/ir/forced.log
           rm -rf /tmp/ir/nocache
           WAWE_NO_CACHE=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/nocache --force --quiet
           for f in framework_map.json framework_map.md framework_map_brief.md; do
@@ -613,3 +622,393 @@ jobs:
           out=$(printf '%s' '{"cwd":"/tmp/ptm","tool_name":"Bash","tool_input":{"command":"grep -rn foo src/"}}' \
             | WAWE_STRICT=1 sh plugin/scripts/prefer-the-map.sh)
           echo "$out" | grep -q permissionDecision
+      - name: every artefact is replaced, never truncated in place
+        run: |
+          rm -rf /tmp/aw
+          mkdir -p /tmp/aw/r/pkg /tmp/aw/m
+          for i in $(seq 1 400); do
+            printf 'C%s = %s\ndef f%s(x):\n    return x\n' "$i" "$i" "$i" > /tmp/aw/r/pkg/m$i.py
+          done
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
+          # A reader polling the three map files while a build runs must never
+          # see a size other than the settled one. On the old in-place writes
+          # every one of them passed through zero bytes.
+          (where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic &)
+          python - <<'EOF'
+          import os, sys, time
+          out = "/tmp/aw/m"
+          names = ["framework_map.json", "framework_map.md", "framework_map_brief.md"]
+          seen = {n: set() for n in names}
+          t0 = time.time()
+          while time.time() - t0 < 6:
+              for n in names:
+                  try:
+                      seen[n].add(os.path.getsize(os.path.join(out, n)))
+                  except OSError:
+                      pass
+          bad = []
+          for n in names:
+              settled = os.path.getsize(os.path.join(out, n))
+              other = sorted(s for s in seen[n] if s != settled)
+              print(n, "settled", settled, "other sizes seen", other)
+              if other:
+                  bad.append(n)
+          sys.exit(1 if bad else 0)
+          EOF
+          # A build killed while it writes leaves the previous three files
+          # exactly as they were, and no half-written JSON.
+          md5_before=$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)
+          printf 'KILLED_BUILD_MARKER = 1\n' > /tmp/aw/r/pkg/late.py
+          python - <<'EOF'
+          import os, signal, subprocess, time
+          out = "/tmp/aw/m"
+          def watched():
+              return {n: os.path.getsize(os.path.join(out, n))
+                      for n in os.listdir(out) if n.startswith("framework_map")}
+          base = watched()
+          p = subprocess.Popen(["where-are-we", "--repo", "/tmp/aw/r", "--out", out,
+                                "--force", "--quiet", "--no-semantic"],
+                               env=dict(os.environ, WAWE_NO_CACHE="1"))
+          t0 = time.time()
+          while time.time() - t0 < 60 and p.poll() is None:
+              if watched() != base:
+                  p.send_signal(signal.SIGTERM)
+                  break
+          p.wait()
+          print("child exit", p.returncode)
+          EOF
+          test "$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)" = "$md5_before"
+          python -c "import json; json.load(open('/tmp/aw/m/framework_map.json'))"
+          ! grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json
+          # The next build sweeps away the temporary the killed one left.
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
+          test -z "$(find /tmp/aw/m -name '*.tmp')"
+          grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json
+
+      - name: a build starts from nothing, whatever ran before it
+        run: |
+          rm -rf /tmp/reset
+          mkdir -p /tmp/reset/a /tmp/reset/b
+          printf 'ONLY_IN_A = 1\ndef shared_name():\n    pass\n' > /tmp/reset/a/alpha.py
+          printf 'ONLY_IN_B = 1\ndef shared_name():\n    pass\n' > /tmp/reset/b/beta.py
+          # Two repositories in one process, in both orders, against what a
+          # fresh process builds. Before the reset, repo B's own map pointed
+          # shared_name at a file in repo A and counted A's files as its own.
+          python - <<'EOF'
+          import json, os, sys
+          from where_are_we import mapper
+          os.environ["PRODUCT_SRC"] = "none"
+          def build(*repos):
+              m = None
+              for r in repos:
+                  os.environ["AGENT_REPO"] = r
+                  out = r + ".out"
+                  os.makedirs(out, exist_ok=True)
+                  m = mapper.build(r, out_dir=out)
+              return {"definitions": m["definitions"], "indexed": m["indexed"],
+                      "lines": sorted(m["lines"])}
+          a, b = "/tmp/reset/a", "/tmp/reset/b"
+          alone_a, alone_b = build(a), build(b)
+          bad = []
+          if build(a, b) != alone_b:
+              bad.append("A then B does not give B's own map")
+          if build(b, a) != alone_a:
+              bad.append("B then A does not give A's own map")
+          # --also is the one caller that keeps what is there.
+          os.environ["AGENT_REPO"] = a
+          mapper.build(a, out_dir=a + ".out")
+          os.environ["AGENT_REPO"] = b
+          merged = mapper.build(b, out_dir=b + ".out", keep_indexes=True)
+          if not {"ONLY_IN_A", "ONLY_IN_B"} <= set(merged["definitions"]):
+              bad.append("--also's keep_indexes lost a root: "
+                         + str(sorted(merged["definitions"])))
+          print("\n".join(bad) or "in-process builds match fresh-process builds")
+          sys.exit(1 if bad else 0)
+          EOF
+          # --also through the CLI still folds the second root in.
+          rm -rf /tmp/reset/m
+          where-are-we --repo /tmp/reset/a --out /tmp/reset/m --also /tmp/reset/b \
+            --product none --force --quiet --no-semantic
+          grep -q ONLY_IN_A /tmp/reset/m/framework_map.json
+          grep -q ONLY_IN_B /tmp/reset/m/framework_map.json
+      - name: --watch on an unchanged tree keeps a constant indexed count
+        run: |
+          rm -rf /tmp/wc2
+          mkdir -p /tmp/wc2/r/pkg /tmp/wc2/m
+          printf 'GONE_SOON = 1\ndef keeper():\n    pass\n' > /tmp/wc2/r/pkg/m.py
+          where-are-we --repo /tmp/wc2/r --out /tmp/wc2/m --product none \
+            --force --quiet --no-semantic
+          PYTHONUNBUFFERED=1 where-are-we --repo /tmp/wc2/r --out /tmp/wc2/m \
+            --product none --watch 1 --no-semantic > /tmp/wc2/watch.log 2>&1 &
+          WP=$!
+          sleep 1
+          for i in 1 2 3 4; do
+            touch /tmp/wc2/r/pkg/m.py
+            sleep 2
+            python -c "import json; print(json.load(open('/tmp/wc2/m/framework_map.json'))['indexed'])" \
+              >> /tmp/wc2/counts.txt
+          done
+          kill $WP || true
+          cat /tmp/wc2/counts.txt
+          test "$(sort -u /tmp/wc2/counts.txt | wc -l)" = "1"
+          grep -q "'suite': 1" /tmp/wc2/counts.txt
+
+      - name: an edit in the same second as the build is still seen
+        run: |
+          rm -rf /tmp/fp
+          mkdir -p /tmp/fp/r /tmp/fp/m
+          # Start on a second boundary so the edit below is certain to land in
+          # the same whole second as the build before it. The fingerprint used
+          # to be int(newest), so that edit was invisible and the CLI printed
+          # "unchanged since it was built" over a map that no longer matched.
+          python -c "import time; [time.sleep(0.005) for _ in iter(lambda: time.time() % 1 > 0.05, False)]"
+          printf 'ORIGINAL_NAME = 1\n' > /tmp/fp/r/m.py
+          where-are-we --repo /tmp/fp/r --out /tmp/fp/m --product none --force --quiet --no-semantic
+          grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json
+          printf 'EDITED_NAME = 1\n' > /tmp/fp/r/m.py
+          where-are-we --repo /tmp/fp/r --out /tmp/fp/m --product none --no-semantic | tee /tmp/fp/second.txt
+          ! grep -q "unchanged since it was built" /tmp/fp/second.txt
+          grep -q EDITED_NAME /tmp/fp/m/framework_map.json
+          ! grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json
+      - name: every pass over a tree is bounded, so a huge root terminates
+        run: |
+          rm -rf /tmp/big
+          mkdir -p /tmp/big/m
+          # 12,000 files across 600 directories, and a cap of 2,000 entries.
+          python - <<'EOF'
+          import os
+          for d in range(600):
+              p = f"/tmp/big/r/d{d:03d}"
+              os.makedirs(p, exist_ok=True)
+              for i in range(20):
+                  open(f"{p}/m{i}.py", "w").write(f"C{d}_{i} = 1\n")
+          EOF
+          # The fingerprint alone: it runs before anything else and used to be
+          # the reason --repo / never returned.
+          WAWE_MAX_FILES=2000 timeout 60 python -c "
+          import os, time
+          os.environ['AGENT_REPO'] = '/tmp/big/r'
+          from where_are_we._mapper.walk import _fingerprint, TRUNCATED
+          t = time.time(); _fingerprint('/tmp/big/r')
+          print('fingerprint in %.2fs' % (time.time() - t))
+          assert TRUNCATED, 'the cap was not reported'
+          print(TRUNCATED[0])"
+          WAWE_MAX_FILES=2000 timeout 60 where-are-we --repo /tmp/big/r --out /tmp/big/m \
+            --product none --force --quiet --no-semantic
+          grep -q "stopped after 2000 entries" /tmp/big/m/framework_map.md
+          # Uncapped, the same tree is mapped whole and says nothing about a stop.
+          rm -rf /tmp/big/m2
+          timeout 120 where-are-we --repo /tmp/big/r --out /tmp/big/m2 \
+            --product none --force --quiet --no-semantic
+          ! grep -q "stopped after" /tmp/big/m2/framework_map.md
+          grep -q C599_19 /tmp/big/m2/framework_map.json
+
+      - name: --force reads nothing from the parse cache and rewrites it
+        run: |
+          rm -rf /tmp/fc
+          mkdir -p /tmp/fc/r /tmp/fc/m
+          printf 'def AAA_fn():\n    pass\n' > /tmp/fc/r/m.py
+          where-are-we --repo /tmp/fc/r --out /tmp/fc/m --product none --force --quiet --no-semantic
+          grep -q AAA_fn /tmp/fc/m/framework_map.json
+          # The same byte count, with the old timestamp put back: what rsync
+          # --times, cp -p and a restore from a build cache leave behind, and
+          # what mtime-and-size cannot tell from no change at all.
+          printf 'def BBB_fn():\n    pass\n' > /tmp/fc/r/m.py
+          python -c "import os; os.utime('/tmp/fc/r/m.py', (1700000000, 1700000000))"
+          where-are-we --repo /tmp/fc/r --out /tmp/fc/m --product none --force --quiet --no-semantic
+          grep -q BBB_fn /tmp/fc/m/framework_map.json
+          ! grep -q AAA_fn /tmp/fc/m/framework_map.json
+          # And the cache is rewritten, so the build after a --force is warm.
+          rm -rf /tmp/fc/big /tmp/fc/bm
+          mkdir -p /tmp/fc/big
+          for i in $(seq 0 29); do printf 'def g%s():\n    return %s\n' "$i" "$i" > /tmp/fc/big/m$i.py; done
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/fc/big --out /tmp/fc/bm \
+            --product none --force --quiet --no-semantic 2> /tmp/fc/force.log
+          grep -qE "^parsed [1-9][0-9]* files$" /tmp/fc/force.log
+          rm /tmp/fc/bm/framework_map.json
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/fc/big --out /tmp/fc/bm \
+            --product none --quiet --no-semantic 2> /tmp/fc/warm.log
+          grep -q "^parsed 0 files$" /tmp/fc/warm.log
+          where-are-we --help | grep -q "read nothing from the parse cache"
+
+      - name: --watch rebuilds whole, writes every file, and survives a failure
+        run: |
+          rm -rf /tmp/w21
+          mkdir -p /tmp/w21/repo/pkg
+          echo 'def one(): pass' > /tmp/w21/repo/pkg/a.py
+          PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo /tmp/w21/repo \
+            --out /tmp/w21/repo/.wawe --watch 1 --no-semantic --html \
+            > /tmp/w21/watch.log 2>&1 &
+          WP=$!
+          sleep 1
+          for i in $(seq 1 20); do
+            echo "def f$i(): pass" > /tmp/w21/repo/pkg/f$i.py
+            sleep 1.2
+          done
+          # Every file added while watching is in the map, and a name deleted
+          # from the tree leaves it. Before, _WALK_CACHE was never cleared, so
+          # 21 rebuilds over 21 files left one name in the map.
+          python - <<'EOF'
+          import json, sys
+          d = json.load(open("/tmp/w21/repo/.wawe/framework_map.json"))
+          names = set(d["definitions"])
+          missing = [f"f{i}" for i in range(1, 21) if f"f{i}" not in names]
+          print(len(names), "names in the map; missing:", missing)
+          sys.exit(1 if missing else 0)
+          EOF
+          rm /tmp/w21/repo/pkg/f20.py
+          sleep 3
+          ! grep -q '"f20"' /tmp/w21/repo/.wawe/framework_map.json
+          # All three map files, plus the ones the flags asked for. The watch
+          # loop used to write only the JSON and the brief, so --ask against a
+          # watched directory said there was no map.
+          test -s /tmp/w21/repo/.wawe/framework_map.md
+          test -s /tmp/w21/repo/.wawe/framework_map.html
+          where-are-we --repo /tmp/w21/repo --out /tmp/w21/repo/.wawe --ask one \
+            | grep -q "Defined here"
+          # One failing iteration is printed and the watcher keeps going.
+          rm -rf /tmp/w21/repo/.wawe && : > /tmp/w21/repo/.wawe
+          echo 'def boom(): pass' > /tmp/w21/repo/pkg/boom.py
+          sleep 3
+          kill -0 $WP
+          grep -q "rebuild failed, still watching" /tmp/w21/watch.log
+          rm -f /tmp/w21/repo/.wawe
+          echo 'def RECOVERED(): pass' > /tmp/w21/repo/pkg/rec.py
+          sleep 3
+          kill $WP || true
+          grep -q RECOVERED /tmp/w21/repo/.wawe/framework_map.json
+
+      - name: a very large file costs the read limit, not its size
+        run: |
+          rm -rf /tmp/huge
+          mkdir -p /tmp/huge/r /tmp/huge/m
+          python -c "open('/tmp/huge/r/huge.py','wb').write(b'x = 1\n' + b'# pad\n'*33000000)"
+          ls -la /tmp/huge/r/huge.py
+          # build.py read the whole file four more times on top of _slurp's
+          # capped read: 198 MB of source cost 800 MB of RSS, which in a
+          # container with a memory limit is an OOM kill with no message.
+          python - <<'EOF'
+          import os, resource, subprocess, sys
+          subprocess.run(["where-are-we", "--repo", "/tmp/huge/r", "--out", "/tmp/huge/m",
+                          "--product", "none", "--force", "--quiet", "--no-semantic"],
+                         check=True)
+          kb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+          print(f"peak child RSS {kb / 1024:.0f} MB")
+          # Generous: the fix measures 44 MB against 800 MB before it, and the
+          # file itself is 198 MB, so anything at or above one whole copy of
+          # it is the old behaviour.
+          sys.exit(1 if kb > 200 * 1024 else 0)
+          EOF
+
+      - name: what changed comes back verbatim, whatever the file is called
+        run: |
+          rm -rf /tmp/cs
+          mkdir -p /tmp/cs/r/pkg /tmp/cs/r/.wawe
+          git -C /tmp/cs/r init -q
+          git -C /tmp/cs/r config user.email t@t
+          git -C /tmp/cs/r config user.name t
+          printf 'x=1\n' > /tmp/cs/r/pkg/plain.py
+          printf 'q=5\n' > "/tmp/cs/r/pkg/x -> y.py"
+          git -C /tmp/cs/r add -A && git -C /tmp/cs/r commit -qm one
+          # The first call only records HEAD; the second is the one that reports.
+          python -c "
+          from where_are_we._mapper.render import changed_since
+          changed_since('/tmp/cs/r', '/tmp/cs/r/.wawe')"
+          printf 'y=2\n' > "/tmp/cs/r/pkg/committed ünicode.py"
+          git -C /tmp/cs/r add -A && git -C /tmp/cs/r commit -qm two
+          git -C /tmp/cs/r mv "pkg/x -> y.py" "pkg/renamed -> z.py"
+          printf 'z=3\n' > "/tmp/cs/r/pkg/café.py"
+          printf 'v=6\n' > "/tmp/cs/r/pkg/a b.py"
+          git -C /tmp/cs/r status --porcelain
+          # Every path named has to be a path that exists. Parsing the text
+          # form of git status kept git's own quoting and octal escapes, so
+          # "pkg/café.py" was reported as the literal "pkg/caf\303\251.py",
+          # and the rename of a file whose name contains " -> " came back as
+          # the fragment 'z.py"'.
+          python - <<'EOF'
+          import os, sys
+          from where_are_we._mapper.render import changed_since
+          got = changed_since("/tmp/cs/r", "/tmp/cs/r/.wawe")
+          missing = [p for p in got if not os.path.exists(os.path.join("/tmp/cs/r", p))]
+          for p in got:
+              print(repr(p))
+          want = {"pkg/a b.py", "pkg/café.py", "pkg/committed ünicode.py",
+                  "pkg/renamed -> z.py"}
+          lost = sorted(want - set(got))
+          print("does not exist:", missing, " not reported:", lost)
+          sys.exit(1 if missing or lost else 0)
+          EOF
+
+      - name: a symlink out of the repository is not read into the map
+        run: |
+          rm -rf /tmp/esc
+          mkdir -p /tmp/esc/r /tmp/esc/outside/secretdir /tmp/esc/m
+          printf 'INSIDE_NAME = 1\n' > /tmp/esc/r/x.py
+          printf 'SIBLING = 2\n' > /tmp/esc/r/sibling.py
+          printf 'OUTSIDE_SECRET = "hunter2"\n' > /tmp/esc/outside/secretdir/creds.py
+          ln -sf /etc/passwd /tmp/esc/r/passwd.py
+          ln -sf /tmp/esc/outside/secretdir/creds.py /tmp/esc/r/linkfile.py
+          ln -sf /tmp/esc/outside/secretdir /tmp/esc/r/linkdir
+          # A link that stays inside the repository is still followed.
+          ln -sf /tmp/esc/r/sibling.py /tmp/esc/r/inside_link.py
+          where-are-we --repo /tmp/esc/r --out /tmp/esc/m --product none \
+            --force --quiet --no-semantic
+          ! grep -q "root:x:0:0" /tmp/esc/m/framework_map.json
+          ! grep -q hunter2 /tmp/esc/m/framework_map.json
+          ! grep -q OUTSIDE_SECRET /tmp/esc/m/framework_map.json
+          grep -q INSIDE_NAME /tmp/esc/m/framework_map.json
+          grep -q SIBLING /tmp/esc/m/framework_map.json
+          grep -q "inside_link.py" /tmp/esc/m/framework_map.json
+          # And the map says it left something out rather than looking complete.
+          grep -q "a symlink in this tree resolves outside the repository" \
+            /tmp/esc/m/framework_map.md
+
+      - name: a broad handler no longer swallows what the parse loop does
+        run: |
+          rm -rf /tmp/nx
+          mkdir -p /tmp/nx/r /tmp/nx/m
+          printf 'def f():\n    pass\n' > /tmp/nx/r/a.py
+          # A runs API that answers with a list holding one string and one
+          # real row. The whole loop used to sit inside `except Exception`, so
+          # row.get on the string raised AttributeError and the section came
+          # back empty on an endpoint that had data in it.
+          python - <<'EOF' &
+          import http.server, json
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = json.dumps(["junk", {"id": "r1", "ticket": "AB-1",
+                                              "verdict": "fail",
+                                              "summary": "a real row"}]).encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def log_message(self, *a):
+                  pass
+          http.server.HTTPServer(("127.0.0.1", 8731), H).serve_forever()
+          EOF
+          SRV=$!
+          sleep 2
+          where-are-we --repo /tmp/nx/r --out /tmp/nx/m --product none --force \
+            --quiet --no-semantic --runs-api http://127.0.0.1:8731
+          kill $SRV || true
+          grep -q "a real row" /tmp/nx/m/framework_map.json
+          # git history and blame still land, and a repository with no git at
+          # all still builds: those are what the narrowed handlers are for.
+          rm -rf /tmp/nx/g /tmp/nx/gm
+          mkdir -p /tmp/nx/g
+          git -C /tmp/nx/g init -q
+          git -C /tmp/nx/g config user.email t@t
+          git -C /tmp/nx/g config user.name "A Person"
+          printf 'def f():\n    pass\n' > /tmp/nx/g/a.py
+          git -C /tmp/nx/g add -A
+          git -C /tmp/nx/g commit -qm "AB-42 first commit"
+          where-are-we --repo /tmp/nx/g --out /tmp/nx/gm --product none --force \
+            --quiet --no-semantic
+          grep -q '"AB-42"' /tmp/nx/gm/framework_map.json
+          grep -q "A Person" /tmp/nx/gm/framework_map.json
+          where-are-we --repo /tmp/nx/r --out /tmp/nx/m --product none --force \
+            --quiet --no-semantic
+          # Only the borderline for-each-ref handler is still a broad one.
+          test "$(grep -c 'except Exception' src/where_are_we/_mapper/build.py)" = "1"

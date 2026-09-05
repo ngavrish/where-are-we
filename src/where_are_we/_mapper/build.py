@@ -20,7 +20,8 @@ from . import extract, state
 from .declare import _step_texts, index_declarations
 from .state import DEFINITIONS, INDEXED, LINES
 from .walk import (SKIP_DIRS, _cached, _lines_matching, _load_parse_cache,
-                   _manifest, _product_roots, _save_parse_cache, _slurp, _walk)
+                   _manifest, _product_roots, _save_parse_cache, _slurp, _tree,
+                   _walk)
 
 
 def _layer_line(paths: list, what: str) -> str:
@@ -33,7 +34,13 @@ def _layer_line(paths: list, what: str) -> str:
     return f"{what} — {len(paths)} files under {where}"
 
 
-def build(repo: str, out_dir: str | None = None) -> dict:
+def build(repo: str, out_dir: str | None = None,
+          keep_indexes: bool = False, force: bool = False) -> dict:
+    # Nothing this build accumulates may come from the build before it. Read
+    # `state.reset` for what that covers and why `--also` is the one caller
+    # that passes keep_indexes.
+    state.reset(keep_indexes=keep_indexes)
+
     # Where the parse cache lives: the run directory a caller names, or
     # $RUN_DIR. Neither given, there is nowhere this build was told is safe
     # to write into, so it runs with no cache rather than guessing ".":
@@ -43,6 +50,12 @@ def build(repo: str, out_dir: str | None = None) -> dict:
     if out_dir is None:
         out_dir = os.getenv("RUN_DIR")
     no_cache = bool(os.environ.get("WAWE_NO_CACHE")) or out_dir is None
+    # `force` distrusts the cache without throwing it away: nothing in it is
+    # believed, every answer is computed again, and what this build found is
+    # written back over the top, so the build after a forced one is warm
+    # again. That is the difference from WAWE_NO_CACHE=1, which also stops
+    # the cache being written and so makes the next build cold as well.
+    state.PARSE_CACHE_READS = not force
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT
@@ -514,9 +527,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
     # A README in a directory is that directory explaining itself, which beats
     # anything inferred from the files in it. Every one of them is carried.
     dir_readmes = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs
-                   if d not in {".git", ".venv", "node_modules", "__pycache__", ".runs"}]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             if fn.lower() not in ("readme.md", "readme.rst", "readme.txt"):
                 continue
@@ -676,27 +687,34 @@ def build(repo: str, out_dir: str | None = None) -> dict:
 
     # Who changed what, and which ticket brought which scenario.
     git_history, ticket_links = {}, {}
+    # Only the call is guarded, and only for what running git can actually do
+    # to it: no git on the path, no repository, a log that takes longer than a
+    # minute. The parse below used to sit inside the same try, so a KeyError
+    # or a ValueError in it returned a silently empty history on a repository
+    # that has one, and nothing said so because main() prints counts, not
+    # sections.
+    log = ""
     try:
         import subprocess
         log = subprocess.run(
             ["git", "-C", repo, "log", "--since=90.days", "--name-only",
              "--pretty=format:%H|%an|%ad|%s", "--date=short"],
             capture_output=True, text=True, timeout=60).stdout
-        cur = None
-        for line in log.splitlines():
-            if "|" in line and len(line.split("|")) >= 4:
-                h, who, when, subj = line.split("|", 3)
-                cur = {"who": who, "when": when, "subject": subj}
-                for t in re.findall(r"\b([A-Z]{2,6}-\d+)\b", subj):
-                    ticket_links.setdefault(t, {"subject": subj, "files": []})
-                    cur["ticket"] = t
-            elif line.strip() and cur:
-                git_history.setdefault(line.strip(), []).append(
-                    f"{cur['when']} {cur['who']}: {cur['subject'][:60]}")
-                if cur.get("ticket"):
-                    ticket_links[cur["ticket"]]["files"].append(line.strip())
-    except Exception:  # noqa: BLE001 — a map without history is still a map
-        pass
+    except (OSError, subprocess.SubprocessError):  # a map without history is still a map
+        log = ""
+    cur = None
+    for line in log.splitlines():
+        if "|" in line and len(line.split("|")) >= 4:
+            h, who, when, subj = line.split("|", 3)
+            cur = {"who": who, "when": when, "subject": subj}
+            for t in re.findall(r"\b([A-Z]{2,6}-\d+)\b", subj):
+                ticket_links.setdefault(t, {"subject": subj, "files": []})
+                cur["ticket"] = t
+        elif line.strip() and cur:
+            git_history.setdefault(line.strip(), []).append(
+                f"{cur['when']} {cur['who']}: {cur['subject'][:60]}")
+            if cur.get("ticket"):
+                ticket_links[cur["ticket"]]["files"].append(line.strip())
     git_history = {k: v[:5] for k, v in
                    sorted(git_history.items(), key=lambda kv: -len(kv[1]))[:40]}
     ticket_links = {k: {"subject": v["subject"], "files": sorted(set(v["files"]))[:8]}
@@ -715,8 +733,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
                 r"^\s*[\"\']?([A-Za-z][\w.-]+)[\"\']?\s*[=><~^]{1,2}\s*[\"\']?([\d][\w.+-]*)",
                 body, re.M)))[:40]
     ci = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         rel = os.path.relpath(base, repo)
         if not any(k in rel for k in (".github", ".gitlab", "ci", "pipelines")):
             continue
@@ -875,8 +892,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
     # The infrastructure the suite talks to: compose files, service names, the
     # ports and health endpoints that decide whether anything can run at all.
     infra = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             if not re.match(r"(docker-)?compose.*\.ya?ml$|Dockerfile.*", fn):
                 continue
@@ -944,18 +960,30 @@ def build(repo: str, out_dir: str | None = None) -> dict:
 
     # What past runs of this pipeline already found in this product.
     past_bugs = []
-    try:
-        import urllib.request as _u
-        base_url = os.getenv("RUNS_API_READ", "")
-        if base_url:
+    base_url = os.getenv("RUNS_API_READ", "")
+    if base_url:
+        # The guard covers the call and the decode of what came back, which is
+        # a stranger's bytes: a network error, a timeout, an HTTP error, or a
+        # body that is not JSON. It used to cover the loop too, so an endpoint
+        # answering ["a", "b"] instead of a list of objects raised an
+        # AttributeError on row.get and the section came back empty with no
+        # message. A row that is not an object is skipped now, and named
+        # types are the ones caught.
+        rows = []
+        try:
+            import urllib.error as _ue
+            import urllib.request as _u
             with _u.urlopen(f"{base_url}/r/runs?limit=40", timeout=10) as resp:
-                for row in json.loads(resp.read().decode() or "[]"):
-                    if row.get("verdict"):
-                        past_bugs.append({"run": row.get("id"), "ticket": row.get("ticket"),
-                                          "verdict": row.get("verdict"),
-                                          "summary": (row.get("summary") or "")[:160]})
-    except Exception:  # noqa: BLE001 — the map is built with or without history
-        pass
+                rows = json.loads(resp.read().decode() or "[]")
+        except (OSError, _ue.URLError, ValueError):  # the map is built with or without history
+            rows = []
+        if not isinstance(rows, list):
+            rows = []
+        for row in rows:
+            if isinstance(row, dict) and row.get("verdict"):
+                past_bugs.append({"run": row.get("id"), "ticket": row.get("ticket"),
+                                  "verdict": row.get("verdict"),
+                                  "summary": (row.get("summary") or "")[:160]})
     past_bugs = past_bugs[:20]
 
     # Visual baselines a comparison could use.
@@ -1241,8 +1269,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
     # Contracts, schemas and the machinery around them.
     contracts = {"openapi": [], "graphql": [], "migrations": [], "mocks": [],
                  "feature_flags": [], "i18n": [], "images": [], "secret_paths": []}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             rel = os.path.relpath(os.path.join(base, fn), repo)
             low = rel.lower()
@@ -1353,8 +1380,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
             ".c": "C", ".h": "C", ".cpp": "C++", ".hpp": "C++", ".sh": "Shell",
             ".sql": "SQL", ".proto": "Protobuf", ".md": "Markdown"}
     languages: dict[str, int] = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             lang = LANG.get(os.path.splitext(fn)[1])
             if lang:
@@ -1526,8 +1552,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
         return _slurp(os.path.join(repo, rel), limit)
 
     code_files = []
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             # Extensionless names count: a Jenkinsfile is the CI, a Rakefile is
             # the build, and neither ends in anything.
@@ -1774,27 +1799,32 @@ def build(repo: str, out_dir: str | None = None) -> dict:
 
     # Who owns a file, by who last touched it most.
     blame_owners = {}
+    # Only the git call is guarded. The accumulation below used to be inside
+    # the same try, and a partial accumulation is worse than none: an
+    # exception half way through left blame_owners holding the first N files
+    # and the map presented that as the answer for the whole repository.
+    out = ""
     try:
         import subprocess
         out = subprocess.run(
             ["git", "-C", repo, "log", "--since=365.days", "--name-only",
              "--pretty=format:%an"], capture_output=True, text=True, timeout=90).stdout
-        who = None
-        counts: dict[str, dict] = {}
-        for line in out.splitlines():
-            if not line.strip():
-                continue
-            if "/" not in line and "." not in line.split()[-1][-6:]:
-                who = line.strip()
-            elif who:
-                counts.setdefault(line.strip(), {})
-                counts[line.strip()][who] = counts[line.strip()].get(who, 0) + 1
-        for f, people in list(counts.items()):
-            top = sorted(people.items(), key=lambda kv: -kv[1])[:2]
-            if top:
-                blame_owners[f] = [f"{n} ({c})" for n, c in top]
-    except Exception:  # noqa: BLE001
-        pass
+    except (OSError, subprocess.SubprocessError):  # a map without owners is still a map
+        out = ""
+    who = None
+    counts: dict[str, dict] = {}
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        if "/" not in line and "." not in line.split()[-1][-6:]:
+            who = line.strip()
+        elif who:
+            counts.setdefault(line.strip(), {})
+            counts[line.strip()][who] = counts[line.strip()].get(who, 0) + 1
+    for f, people in list(counts.items()):
+        top = sorted(people.items(), key=lambda kv: -kv[1])[:2]
+        if top:
+            blame_owners[f] = [f"{n} ({c})" for n, c in top]
     blame_owners = dict(sorted(blame_owners.items(),
                                key=lambda kv: -len(kv[1]))[:40])
 
@@ -1825,8 +1855,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
                  ".jl": "Julia", ".m": "Objective-C", ".fs": "F#",
                  ".vb": "VB.NET", ".sol": "Solidity", ".vue": "Vue",
                  ".svelte": "Svelte", ".ipynb": "Notebook"}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             lang = ext_langs.get(os.path.splitext(fn)[1])
             if lang:
@@ -2055,8 +2084,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
 
     # Assets: what ships that is not code.
     assets: dict[str, int] = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             ext = os.path.splitext(fn)[1].lower()
             if ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
@@ -2098,8 +2126,7 @@ def build(repo: str, out_dir: str | None = None) -> dict:
     # of TypeScript are not the same repository.
     loc: dict[str, int] = {}
     comments: dict[str, int] = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             lang = LANG.get(os.path.splitext(fn)[1]) or ext_langs.get(os.path.splitext(fn)[1])
             if not lang:

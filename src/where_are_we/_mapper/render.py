@@ -11,6 +11,7 @@ import os
 
 from . import state
 from .state import TRUNCATED
+from .walk import _write_atomic
 
 try:
     from ..ask import fit_lines, map_heads
@@ -874,6 +875,18 @@ def changed_since(repo: str, out_dir: str) -> list[str]:
     then overwrites the file with the current HEAD for the call after this
     one. A repository with no git, or a first call with nothing recorded
     yet to compare against, reports nothing changed.
+
+    Known limitation: `.pointer-head` is one slot per output directory, and
+    the plugin gives every session in a repository the same `<repo>/.wawe`.
+    Two sessions starting together therefore share it: the first to call
+    `--pointer` consumes the note, and the second is told the repository
+    has not moved. It is one slot on purpose for now, because the obvious
+    fix (a file per session) needs a session identifier this tool is not
+    given by every harness that runs it, and because the note is a
+    convenience rather than the map. Anyone who needs the two sessions
+    separated can give them separate `--out` directories today. The write
+    itself is atomic, so a reader can no longer catch the file empty and
+    take the "nothing recorded yet" branch by accident.
     """
     import subprocess
 
@@ -899,27 +912,44 @@ def changed_since(repo: str, out_dir: str) -> list[str]:
 
     try:
         os.makedirs(out_dir, exist_ok=True)
-        with open(head_path, "w", encoding="utf-8") as fh:
-            fh.write(head + "\n")
+        # Atomically: a reader inside the truncate window used to read "" and
+        # take the "nothing recorded yet" branch, which reports no change at
+        # all in a repository that has moved.
+        _write_atomic(head_path, head + "\n")
     except OSError:
         pass
 
     if not prev:
         return []
 
+    # Both git commands are read NUL separated. git's text output quotes and
+    # octal-escapes any path with a non-ASCII or special character (default
+    # core.quotePath), so "pkg/café.py" arrived as the literal
+    # '"pkg/caf\303\251.py"' and a session was told to go and read a file of
+    # that name, which does not exist. -z turns quoting off at the source,
+    # and it also settles renames: a rename is two NUL separated records, the
+    # new path then the old one, so nothing has to guess where "old -> new"
+    # splits. It had guessed with rsplit(" -> ", 1), and a file actually
+    # named "pkg/x -> y.py" came back as 'z.py"'.
     changed: set[str] = set()
-    diff = _git("diff", "--name-only", f"{prev}..{head}")
+    diff = _git("diff", "--name-only", "-z", f"{prev}..{head}")
     if diff:
-        changed.update(line for line in diff.splitlines() if line)
-    status = _git("status", "--porcelain")
+        changed.update(path for path in diff.split("\0") if path)
+    status = _git("status", "--porcelain", "-z")
     if status:
-        for line in status.splitlines():
-            code, path = line[:2], line[3:].strip()
-            # A rename or copy (R/C) reports "old -> new"; only the new
-            # path is a file that exists to be read, so that is what goes
-            # in the list, not the arrow notation.
-            if ("R" in code or "C" in code) and " -> " in path:
-                path = path.rsplit(" -> ", 1)[1]
+        records = status.split("\0")
+        i = 0
+        while i < len(records):
+            entry = records[i]
+            i += 1
+            if not entry:
+                continue
+            code, path = entry[:2], entry[3:]
+            if "R" in code or "C" in code:
+                # The record after a rename or a copy is the path it came
+                # from. Only the new path is a file that exists to be read,
+                # so the old one is stepped over rather than reported.
+                i += 1
             if path:
                 changed.add(path)
     return sorted(changed)

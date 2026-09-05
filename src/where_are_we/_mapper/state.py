@@ -69,6 +69,17 @@ CACHE_SCHEMA = 1
 _PARSE_CACHE: dict = {}
 
 
+# Whether this build may answer from the parse cache, as opposed to only
+# writing into it. `--force` sets it False: the cache validates an entry
+# against a file's mtime and size, which cannot tell apart a rewrite of the
+# same byte count that kept its timestamp (rsync --times, cp -p, tar -p, a
+# restore from a build cache), and before this there was no flag that made the
+# tool distrust what it thought it knew. Only the undocumented WAWE_NO_CACHE=1
+# did, and that also stops the cache being written, so the next build paid for
+# a cold parse too.
+PARSE_CACHE_READS = True
+
+
 # Incremented on every parse actually done: an ast.parse, a tree-sitter parse,
 # or an index_declarations regex pass over a file's body. A rebuild of a tree
 # nobody touched should add nothing to it, and WAWE_DEBUG_PARSES=1 prints the
@@ -83,11 +94,58 @@ _WALK_CACHE: dict[tuple, list] = {}
 _IGNORE_CACHE: dict[str, list] = {}
 
 
+# Whether a walked path is a symlink leaving the tree, per (root, path). One
+# build walks the same repository about a dozen times, once per topic, and
+# the answer costs an lstat; asking it once per file instead of once per file
+# per pass is the difference between a measurable slowdown and none.
+_LINK_CACHE: dict[tuple, bool] = {}
+
+
 # What the walk had to leave out. A limit that stops quietly produces a map that
 # looks complete and is not, and the reader has no way to tell — which is worse
 # than a small map, because a small map that says so can be asked to grow. Named
 # in the map itself, where whoever reads it is already looking.
 TRUNCATED: list[str] = []
+
+
+def reset(keep_indexes: bool = False) -> None:
+    """Clear what one build accumulated, so the next one starts from nothing.
+
+    Everything above is module-level by design, and that design assumed one
+    build per process. A second `build()` in the same process inherited the
+    first repository's names: `DEFINITIONS` is filled with `setdefault`, so
+    the first writer of a name kept it, and a second repository's own map
+    pointed a name at a file in the first one, counted the first one's files
+    in `indexed`, and carried its lines. Which answer came back depended on
+    the order the two were built in. `--watch` is the same process building
+    the same repository over and over, so its map only ever grew: a name
+    deleted from the tree stayed in the map for the life of the watcher, and
+    the file counts climbed by one per rebuild.
+
+    `keep_indexes` is for the one caller that means it. `--also` folds a
+    service and its client into one map, so a second root's names have to
+    stay searchable in the first root's map; that path says so here instead
+    of relying on the absence of a reset.
+
+    The four caches always go, `--also` included: they answer "which files
+    are under this root", "what does this file say" and "does this path leave
+    the tree", and a second root is a different question with the same key.
+
+    `_PARSE_CACHE` is deliberately not cleared. It is not this build's
+    working state: it is loaded from `out_dir` at the top of every build and
+    validated per file against mtime and size, and it is the whole reason a
+    rebuild of a tree nobody touched parses nothing.
+    """
+    _WALK_CACHE.clear()
+    _IGNORE_CACHE.clear()
+    _FILE_CACHE.clear()
+    _LINK_CACHE.clear()
+    if keep_indexes:
+        return
+    DEFINITIONS.clear()
+    INDEXED.clear()
+    LINES.clear()
+    TRUNCATED.clear()
 
 
 # What may go in a prompt, in bytes. Not a preference: a prompt is re-sent in

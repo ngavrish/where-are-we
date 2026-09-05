@@ -11,7 +11,8 @@ import os
 import re
 
 from . import state
-from .state import TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _WALK_CACHE
+from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
+                    _WALK_CACHE)
 
 # `CACHE_SCHEMA`, `PARSE_COUNT`, `_PARSE_CACHE` and `__version__` are reached
 # through `state` rather than imported by name: three of them are rebound, and
@@ -22,6 +23,110 @@ SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
 _PARSE_CACHE_FILE = ".wawe-cache.json"
+
+
+def _sweep_stale(path: str) -> None:
+    """Remove temporaries a killed writer left beside `path`.
+
+    A build killed between writing its temporary and renaming it (the plugin's
+    hook timeout does exactly that) leaves the file behind, and nothing else
+    would ever remove it. Only temporaries whose process is gone are touched:
+    a live builder's temporary is a file it is about to rename into place.
+    """
+    import glob
+
+    for tmp in glob.glob(f"{glob.escape(path)}.*.tmp"):
+        try:
+            pid = int(tmp[len(path) + 1:-len(".tmp")])
+        except ValueError:
+            continue
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        except OSError:  # alive, and owned by somebody else
+            continue
+
+
+def _stage_atomic(path: str, text: str) -> str:
+    """Write `text` beside `path` under a temporary name, and return that name.
+
+    The temporary file carries the writing process's pid, so two builders on
+    one output directory never share one, and it sits in the destination
+    directory rather than in the system temp, so the `os.replace` that follows
+    is a rename inside one filesystem, which is the only kind that is atomic.
+    """
+    _sweep_stale(path)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return tmp
+
+
+def _discard(tmps) -> None:
+    """Remove staged temporaries after a write that did not finish."""
+    for tmp in tmps:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _write_atomic(path: str, text: str) -> None:
+    """Write a file so that nothing ever reads a half-written one.
+
+    Every artefact this package writes is read by something else while it is
+    being written: the MCP server answers from `framework_map.json` on every
+    tool call, a git hook rebuilds the map while a session is asking it, two
+    sessions start in one repository at once. `open(path, "w")` truncates the
+    file at open and grows it over the write, so a reader inside that window
+    gets zero bytes or a prefix and answers "not in the map", which is the one
+    wrong answer that sends a reader back to grepping. A build killed in that
+    window (the plugin's hook timeout does exactly this) leaves the truncated
+    file on disk for good.
+
+    Writing to a temporary and renaming it over the target removes both: a
+    reader sees either the whole previous file or the whole new one, and a
+    kill leaves the previous one untouched.
+    """
+    tmp = _stage_atomic(path, text)
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        _discard([tmp])
+        raise
+
+
+def _write_atomic_group(pairs) -> None:
+    """Several files replaced back to back, once all of them are complete.
+
+    `_write_atomic` makes each file whole on its own; this makes a set of them
+    consistent with each other. Every file is written to its temporary first,
+    and only then are the renames done, one after another with no work in
+    between, so the window in which a reader could see a mixture is a few
+    renames wide rather than a whole serialisation wide, and a kill before the
+    first rename leaves the entire previous set in place.
+
+    `pairs` is `[(path, text), ...]` and the renames happen in that order.
+    """
+    staged = []
+    try:
+        for path, text in pairs:
+            staged.append((_stage_atomic(path, text), path))
+    except OSError:
+        _discard([tmp for tmp, _ in staged])
+        raise
+    for i, (tmp, path) in enumerate(staged):
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            _discard([t for t, _ in staged[i:]])
+            raise
 
 
 def _load_parse_cache(out_dir: str) -> None:
@@ -58,8 +163,10 @@ def _save_parse_cache(out_dir: str) -> None:
                 if os.path.exists(k.split("\x1e", 1)[-1])}
         doc = {"schema": state.CACHE_SCHEMA, "version": state.__version__,
                "entries": live}
-        with open(os.path.join(out_dir, _PARSE_CACHE_FILE), "w", encoding="utf-8") as fh:
-            json.dump(doc, fh)
+        # Atomically: a reader that lands mid-write used to see a prefix,
+        # fail to parse it and throw the whole cache away, and re-parse a
+        # tree nobody had touched.
+        _write_atomic(os.path.join(out_dir, _PARSE_CACHE_FILE), json.dumps(doc))
     except OSError:
         pass
 
@@ -74,11 +181,14 @@ def _cached(path: str, kind: str, compute):
     hand back last month's answer for a file the sha changed underneath.
     That check has a blind spot: a file rewritten with the same byte count
     inside the same filesystem timestamp tick keeps its old mtime and size,
-    and the stale value is served. Nothing here detects that; WAWE_NO_CACHE=1
-    is the escape hatch for anyone who suspects it has happened.
+    and the stale value is served. `--force` is the escape hatch: it sets
+    `state.PARSE_CACHE_READS` False for that build, so nothing here is
+    believed and every answer is computed again, and the cache is rewritten
+    from what that build found.
 
-    WAWE_NO_CACHE=1 makes this a plain call to `compute()`, for whoever wants
-    to be certain the cache is not the reason an answer looks a certain way.
+    WAWE_NO_CACHE=1 goes further and makes this a plain call to `compute()`
+    with nothing recorded at all, for whoever wants a build that leaves the
+    cache exactly as it was.
     """
     if os.environ.get("WAWE_NO_CACHE"):
         state.PARSE_COUNT += 1
@@ -89,10 +199,11 @@ def _cached(path: str, kind: str, compute):
         state.PARSE_COUNT += 1
         return compute()
     key = f"{kind}\x1e{path}"
-    entry = state._PARSE_CACHE.get(key)
-    if (entry is not None and entry.get("mtime") == st.st_mtime
-            and entry.get("size") == st.st_size):
-        return entry["value"]
+    if state.PARSE_CACHE_READS:
+        entry = state._PARSE_CACHE.get(key)
+        if (entry is not None and entry.get("mtime") == st.st_mtime
+                and entry.get("size") == st.st_size):
+            return entry["value"]
     value = compute()
     state.PARSE_COUNT += 1
     state._PARSE_CACHE[key] = {"mtime": st.st_mtime, "size": st.st_size, "value": value}
@@ -170,10 +281,22 @@ def _lines_matching(body, words, limit=4):
 
 
 def _slurp(path: str, limit: int = 400000) -> str:
-    """Read a file once per run. The sections each used to walk and re-read the
-    tree for themselves — a hundred sections over a hundred-thousand-file
-    repository is a hundred passes over the same disk for the same bytes."""
-    hit = _FILE_CACHE.get(path)
+    """Read a file once per run, up to `limit` bytes. The sections each used to
+    walk and re-read the tree for themselves, and a hundred sections over a
+    hundred-thousand-file repository is a hundred passes over the same disk for
+    the same bytes.
+
+    The key is the path and the limit together, not the path alone. Callers ask
+    for different amounts of the same file (`build`'s own `_read` takes 200,000,
+    most extractors declare 400,000), and a cache keyed on the path handed the
+    first caller's prefix to every later one: which bytes an extractor saw was
+    decided by whoever reached the file first, and for a file outside
+    `code_files` that was `os.walk` order. Keyed on both, every caller gets the
+    prefix it asked for, and a large file still costs the limit rather than its
+    size, because the read is bounded here and not after the fact.
+    """
+    key = (path, limit)
+    hit = _FILE_CACHE.get(key)
     if hit is not None:
         return hit
     try:
@@ -182,7 +305,7 @@ def _slurp(path: str, limit: int = 400000) -> str:
     except OSError:
         body = ""
     if len(_FILE_CACHE) < 20000:
-        _FILE_CACHE[path] = body
+        _FILE_CACHE[key] = body
     return body
 
 
@@ -213,6 +336,81 @@ def _ignores(root: str) -> list:
     return pats
 
 
+_ESCAPED_NOTE = ("a symlink in this tree resolves outside the repository and was "
+                 "not read: a link that leaves the repository is not part of it, "
+                 "and what is on the other end has no business in a map that gets "
+                 "committed and pasted into prompts")
+
+
+def _leaves_tree(path: str, real_root: str) -> bool:
+    """Whether `path` is a symlink whose target lives outside `real_root`.
+
+    `os.walk` is called without `followlinks` anywhere in this package, so a
+    symlinked *directory* is never descended into and a link loop terminates.
+    A symlinked *file* is still listed, and was still read: a `passwd.py`
+    pointing at `/etc/passwd` put the whole of `/etc/passwd` into the map's
+    line index, and a link to a file in a sibling checkout put that file's
+    contents there. The path recorded stays inside the repository, which
+    makes the leak harder to notice rather than easier.
+
+    Only links are resolved, and the answer is remembered for the length of
+    the build, because one build walks the same tree about a dozen times and
+    the `lstat` per file per pass was measurable where one per file is not.
+    """
+    key = (real_root, path)
+    hit = _LINK_CACHE.get(key)
+    if hit is not None:
+        return hit
+    out = False
+    if os.path.islink(path):
+        try:
+            real = os.path.realpath(path)
+        except OSError:
+            out = True
+        else:
+            out = not (real == real_root or real.startswith(real_root + os.sep))
+    _LINK_CACHE[key] = out
+    return out
+
+
+def _tree(root: str):
+    """`os.walk(root)` with the directories this project never reads pruned,
+    files that link out of the tree dropped, and a bound on how much of a
+    tree one pass will look at.
+
+    Yields the same `(base, dirs, files)` triples in the same order, so a
+    caller reads exactly as it did before. What it adds is the `SKIP_DIRS`
+    pruning that every caller was repeating by hand, and a stop.
+
+    The stop counts entries examined, not files kept. A cap on files kept
+    bounds nothing on a tree that is mostly directories: `--repo /` is one
+    keystroke away from `--repo .`, and a walk of `/` on the machine this was
+    measured on passed 380,000 directories in thirty seconds having matched
+    5,500 files, so a cap of forty thousand hits would have let it run for
+    hours. Counting entries stops it in a fraction of a second and leaves
+    every tree smaller than the cap walked exactly as it was before.
+
+    `WAWE_MAX_FILES` raises it, which is what the note in the map says to do.
+    """
+    real_root = os.path.realpath(root)
+    seen = 0
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        kept = [f for f in files if not _leaves_tree(os.path.join(base, f), real_root)]
+        if len(kept) != len(files) and _ESCAPED_NOTE not in TRUNCATED:
+            TRUNCATED.append(_ESCAPED_NOTE)
+        files = kept
+        seen += len(dirs) + len(files)
+        yield base, dirs, files
+        if seen >= MAX_FILES:
+            note = (f"a tree walk stopped after {MAX_FILES} entries under "
+                    f"{root}: raise WAWE_MAX_FILES or add to .wawe-ignore; "
+                    f"what was reached is mapped and the rest is not")
+            if note not in TRUNCATED:
+                TRUNCATED.append(note)
+            return
+
+
 def _ignored(rel: str, pats: list) -> bool:
     import fnmatch
     for p in pats:
@@ -229,9 +427,7 @@ def _walk(root: str, want: str) -> list[str]:
     hits = []
     base_repo = os.getenv("AGENT_REPO", root)
     pats = _ignores(base_repo)
-    for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs
-                   if d not in {".git", ".venv", "node_modules", "__pycache__", ".runs"}]
+    for base, dirs, files in _tree(root):
         for f in files:
             if not f.endswith(want):
                 continue
@@ -262,7 +458,23 @@ def _fingerprint(repo: str) -> str:
 
     A map is only worth rebuilding when the thing it describes has moved. The
     commit catches every committed change; the newest mtime catches the working
-    tree, which is where a run's own edits live."""
+    tree, which is where a run's own edits live.
+
+    The mtime is kept to the nanosecond the filesystem reports. It used to be
+    truncated to a whole second, which left a one-second window in which an
+    edit was invisible: a build at T.1 recorded T, a file saved at T.9 was still
+    T, and the next build compared equal and printed "unchanged since it was
+    built" over a map that no longer described the tree. Nothing recovered from
+    that until some other file changed. A session's own edits land inside the
+    same second as the build that follows them all the time.
+
+    The walk goes through `_tree`, so it is bounded and pruned the same way
+    every other pass over the repository is, and it honours the repository's
+    `.wawe-ignore`/`.gitignore` patterns. It runs before anything else, so
+    while it was unbounded `--repo /` - one keystroke away from `--repo .` -
+    never returned at all, and the file cap that does exist never got a
+    chance to apply.
+    """
     head = ""
     try:
         import subprocess
@@ -270,17 +482,23 @@ def _fingerprint(repo: str) -> str:
                               capture_output=True, text=True, timeout=15).stdout.strip()
     except Exception:  # noqa: BLE001 — a repository without git still gets a map
         pass
-    newest = 0.0
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    pats = _ignores(repo)
+    newest = 0
+    for base, dirs, files in _tree(repo):
+        if pats:
+            dirs[:] = [d for d in dirs
+                       if not _ignored(os.path.relpath(os.path.join(base, d), repo), pats)]
         for fn in files:
             if not fn.endswith((".py", ".feature", ".sh", ".ts", ".js", ".json", ".md")):
                 continue
+            full = os.path.join(base, fn)
+            if pats and _ignored(os.path.relpath(full, repo), pats):
+                continue
             try:
-                newest = max(newest, os.path.getmtime(os.path.join(base, fn)))
+                newest = max(newest, os.stat(full).st_mtime_ns)
             except OSError:
                 continue
-    return f"{head}:{int(newest)}"
+    return f"{head}:{newest}"
 
 
 def _manifest(repo: str) -> dict:
