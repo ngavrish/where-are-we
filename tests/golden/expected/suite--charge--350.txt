@@ -1,8 +1,9 @@
-## Defined here
-
-- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+(also matched: payment, pay, checkout)
 
 ## How a feature file is written here
+Sample: `features/checkout/pay.feature`
+Feature: Pay for an order
+  Scenario: Customer pays with a saved card
+    When they pay for the invoice
     Then the payment is charged
-  Scenario: Customer pays and the charge is declined
-… 2 more matching rows; 14 rows in this section do not mention these words
+… 6 more matching rows; 7 rows in this section do not mention these words

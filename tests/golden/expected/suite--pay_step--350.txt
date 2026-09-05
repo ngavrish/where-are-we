@@ -1,7 +1,17 @@
-## Defined here
+### `steps/pay_steps.py` — 40 steps
+- pay step 1
+- pay step 2
+- pay step 3
+- pay step 4
+- pay step 5
+- pay step 6
+- pay step 7
+- pay step 8
+- pay step 9
+- pay step 10
+- pay step 11
+- pay step 12
+- pay step 13
+… 27 more matching rows
 
-- `def step_pay_10` — <root>/suite/repo/steps/pay_steps.py:47
-- `def step_pay_11` — <root>/suite/repo/steps/pay_steps.py:51
-- `def step_pay_12` — <root>/suite/repo/steps/pay_steps.py:55
-- `def step_pay_13` — <root>/suite/repo/steps/pay_steps.py:59
-… 36 more definitions
+… more sections match; ask for something narrower

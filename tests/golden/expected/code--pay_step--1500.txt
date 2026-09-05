@@ -1,5 +1,15 @@
+(also matched: charge)
+
+## Defined here
+
+- `charge` — <root>/code/repo/app/billing.py:4
+
 # Framework map
 Built from `<root>/code/repo` at the start of this run: 0 step modules, 0 step phrases, 0 feature files, 0 scenarios.
+
+## Public surface of the code
+- `app/billing.py`: charge, refund
+… 3 rows in this section do not mention these words
 
 ## How this suite is built
 - **steps** — step definitions the features bind to: none found

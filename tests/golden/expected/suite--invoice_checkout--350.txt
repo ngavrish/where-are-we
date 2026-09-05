@@ -1,8 +1,8 @@
+(also matched: pay)
+
 ## How a feature file is written here
 Sample: `features/checkout/pay.feature`
+Feature: Pay for an order
+  Scenario: Customer pays with a saved card
     When they pay for the invoice
-    When they pay for the invoice
-    When they add a new card and pay for the invoice
-… 14 rows in this section do not mention these words
-
-… more sections match; ask for something narrower
+… 7 more matching rows; 7 rows in this section do not mention these words

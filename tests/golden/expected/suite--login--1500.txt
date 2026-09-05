@@ -1,13 +1,7 @@
-## Defined here
+(also matched: auth, authenticate)
 
-- `Failed login` — <root>/suite/repo/features/login.feature:8
-- `Successful login` — <root>/suite/repo/features/login.feature:3
-- `def step_login_error` — <root>/suite/repo/steps/login_steps.py:27
-- `def step_login_invalid` — <root>/suite/repo/steps/login_steps.py:17
-- `def step_login_valid` — <root>/suite/repo/steps/login_steps.py:12
-- `step_login_error` — <root>/suite/repo/steps/login_steps.py:27
-- `step_login_invalid` — <root>/suite/repo/steps/login_steps.py:17
-- `step_login_valid` — <root>/suite/repo/steps/login_steps.py:12
+## How a test authenticates
+- `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
 
 ### `steps/login_steps.py` — 5 steps
 … 5 rows in this section do not mention these words
@@ -15,9 +9,6 @@
 ## Feature files
 - `features/login.feature` — 2 scenarios
 … 1 rows in this section do not mention these words
-
-## How a test authenticates
-- `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
 
 ## Files nothing imports
 - `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
@@ -32,5 +23,10 @@
 ## Largest files
 - steps/pay_steps.py (2 KB), pages/checkout.py (1 KB), steps/login_steps.py (0 KB)
 
+## Biggest feature files (scenario line numbers are in the full map)
+- `features/login.feature` — 2 scenarios
+… 1 rows in this section do not mention these words
+
 ## What each module says it is for
-… 1 more matching rows; 2 rows in this section do not mention these words
+- `steps/login_steps.py` — Step definitions for logging in.
+… 2 rows in this section do not mention these words

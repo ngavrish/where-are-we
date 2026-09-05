@@ -28,8 +28,10 @@ except ImportError:  # run as a plain file, with no package around it
     import specs  # type: ignore[no-redef]
 
 try:
+    from . import ask as _ask
     from .ask import ask, fit_lines, map_heads, log_answer
 except ImportError:  # run as a plain file, with no package around it
+    import ask as _ask  # type: ignore[no-redef]
     from ask import ask, fit_lines, map_heads, log_answer  # type: ignore[no-redef]
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
@@ -327,7 +329,14 @@ def _config(repo: str) -> dict:
     try:
         import tomllib
         data = tomllib.loads(body)
-        return data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
+        out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
+        # `[synonyms]` is its own top-level table, named once for the project
+        # even when the rest of its config sits under `[where-are-we]` or
+        # `[tool.where-are-we]`; folded in here so it is never lost to
+        # whichever of those three branches `out` ended up as.
+        if isinstance(data.get("synonyms"), dict) and "synonyms" not in out:
+            out = {**out, "synonyms": data["synonyms"]}
+        return out
     except Exception:  # noqa: BLE001 — python 3.10, or a file with a typo in it
         out = {}
         for line in body.splitlines():
@@ -4538,6 +4547,8 @@ def main() -> int:
             from . import mcp as _mcp
         except ImportError:  # run as a plain file, with no package around it
             import mcp as _mcp  # type: ignore[no-redef]
+        syn = _config(os.path.abspath(args.repo)).get("synonyms")
+        _ask.set_synonyms(syn if isinstance(syn, dict) else {})
         return _mcp.serve(os.path.abspath(args.out))
 
     if args.lsp:
@@ -4597,6 +4608,11 @@ def main() -> int:
                 print(f"no map at {map_path}: {exc}", file=sys.stderr)
                 return 1
             return 0
+        # `--ask` answers from a map already on disk and never builds one, so
+        # this is the one path that skips `conf = _config(repo)` below; a
+        # project's `[synonyms]` still has to reach `ask()` from here.
+        syn = _config(os.path.abspath(args.repo)).get("synonyms")
+        _ask.set_synonyms(syn if isinstance(syn, dict) else {})
         answer = ask(map_path, args.ask)
         if os.path.exists(spec_path):
             answer += "\n\n" + ask(spec_path, args.ask)

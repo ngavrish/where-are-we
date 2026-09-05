@@ -1,10 +1,76 @@
-## Defined here
-
-- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+(also matched: payment, pay, checkout)
 
 ## How a feature file is written here
+Sample: `features/checkout/pay.feature`
+Feature: Pay for an order
+  Scenario: Customer pays with a saved card
+    When they pay for the invoice
     Then the payment is charged
   Scenario: Customer pays and the charge is declined
+    When they pay for the invoice
     Then the charge is declined
+  Scenario: Customer pays with a new card
+    When they add a new card and pay for the invoice
     Then the payment is charged
-… 14 rows in this section do not mention these words
+… 7 rows in this section do not mention these words
+
+### `steps/pay_steps.py` — 40 steps
+- pay step 1
+- pay step 2
+- pay step 3
+- pay step 4
+- pay step 5
+- pay step 6
+- pay step 7
+- pay step 8
+- pay step 9
+- pay step 10
+- pay step 11
+- pay step 12
+- pay step 13
+- pay step 14
+- pay step 15
+- pay step 16
+- pay step 17
+- pay step 18
+- pay step 19
+- pay step 20
+- pay step 21
+- pay step 22
+- pay step 23
+- pay step 24
+- pay step 25
+- pay step 26
+- pay step 27
+- pay step 28
+- pay step 29
+- pay step 30
+- pay step 31
+- pay step 32
+- pay step 33
+- pay step 34
+- pay step 35
+- pay step 36
+- pay step 37
+- pay step 38
+- pay step 39
+- pay step 40
+
+## What you can already write with (85)
+- pay step 1
+- pay step 10
+- pay step 11
+- pay step 12
+- pay step 13
+- pay step 14
+- pay step 15
+- pay step 16
+- pay step 17
+- pay step 18
+- pay step 19
+- pay step 2
+- pay step 20
+- pay step 21
+- pay step 22
+- pay step 23
+… 64 more matching rows; 6 rows in this section do not mention these words

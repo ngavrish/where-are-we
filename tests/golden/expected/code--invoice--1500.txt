@@ -1,8 +1,21 @@
+(also matched: bill, billing)
+
 ## Defined here
 
 - `Invoice` — <root>/code/repo/app/models.py:9
-- `get_invoice` — <root>/code/repo/app/api.py:15
-- `list_invoices` — <root>/code/repo/app/api.py:9
+
+## Public surface of the code
+- `app/`
+  - `api.py`: list_invoices, get_invoice, health
+  - `billing.py`: charge, refund
+  - `models.py`: Invoice, Customer
+… 1 rows in this section do not mention these words
+
+## Files nothing imports
+- `app/api.py`, `app/billing.py`, `app/cli.py`, `app/models.py`
+
+## Largest files
+- app/models.py (0 KB), app/cli.py (0 KB), app/api.py (0 KB), app/billing.py (0 KB)
 
 ## Which code touches which table
 - `api.py`: /health, /invoice, /invoice/{id} ↔ fastapi
@@ -15,9 +28,3 @@
 ## Data model
 - `Invoice (models.py)`: amount, customer_id, id, name
 … 1 rows in this section do not mention these words
-
-## Public surface of the code
-- `app/`
-  - `api.py`: list_invoices, get_invoice, health
-  - `models.py`: Invoice, Customer
-… 2 rows in this section do not mention these words

@@ -1,10 +1,10 @@
+(also matched: bill, billing, charge)
+
 ## Defined here
 
 - `Invoice` — <root>/code/repo/app/models.py:9
+- `charge` — <root>/code/repo/app/billing.py:4
 
-## Which code touches which table
-- `api.py`: /health, /invoice, /invoice/{id} ↔ fastapi
-
-## HTTP routes this codebase serves (3)
-- GET /invoice  (api.py)
-… 1 more matching rows; 1 rows in this section do not mention these words
+## Public surface of the code
+- `app/billing.py`: charge, refund
+… 2 more matching rows; 1 rows in this section do not mention these words

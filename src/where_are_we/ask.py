@@ -22,6 +22,117 @@ RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 _ROW_PATH = re.compile(r"^- `([^`]*/)([^`/]+)`(.*)$")
 
 
+# Synonyms and stemming: the map says "signin()", the question says "login",
+# and neither side is wrong. Groups are the words a reader means the same
+# thing by; the stem catches the plural or the "-ing" the question happened
+# to type. Both feed `_expand`, which is what `ask()` actually searches with.
+SYNONYMS: dict = {
+    "login": ["login", "signin", "sign_in", "sign-in", "auth", "authenticate", "authentication"],
+    "logout": ["logout", "signout", "sign_out"],
+    "invoice": ["invoice", "bill", "billing"],
+    "payment": ["payment", "pay", "charge", "checkout"],
+    "user": ["user", "account", "customer", "member"],
+    "config": ["config", "configuration", "settings", "setup"],
+    "error": ["error", "exception", "failure", "fault"],
+    "endpoint": ["endpoint", "route", "handler", "api"],
+    "test": ["test", "spec", "scenario", "case"],
+    "db": ["db", "database", "table", "model", "schema"],
+    "delete": ["delete", "remove", "destroy", "drop"],
+    "create": ["create", "add", "insert", "new"],
+    "update": ["update", "edit", "modify", "patch", "change"],
+    "fetch": ["fetch", "get", "load", "read", "retrieve"],
+    "queue": ["queue", "topic", "subject", "message", "event"],
+    "deploy": ["deploy", "release", "ship", "rollout"],
+    "cache": ["cache", "memo", "memoize"],
+    "cron": ["cron", "schedule", "job", "task"],
+    "permission": ["permission", "role", "scope", "guard", "acl"],
+    "secret": ["secret", "credential", "token", "key", "password"],
+}
+
+_user_synonyms: dict = {}
+
+
+def set_synonyms(mapping: dict) -> None:
+    """Replace the extra groups read from `.wawe.toml`'s `[synonyms]` table.
+
+    Called once by `mapper.main()` before `ask()` runs, with whatever that
+    file names; an empty mapping goes back to only the built-in groups above.
+    A module setter rather than a parameter on `ask()`, because `--ask` and
+    the MCP tool both call `ask()` the same way, and neither should have to
+    thread a project's config through every call to reach this one.
+    """
+    global _user_synonyms
+    _user_synonyms = dict(mapping or {})
+
+
+def _groups() -> list:
+    """Every synonym group: the built-in ones above, plus `.wawe.toml`'s
+    `[synonyms]` merged in, one project's word added to the group its key
+    already belongs to, or as a new group of its own when no group has it."""
+    groups = [list(g) for g in SYNONYMS.values()]
+    for key, extra in _user_synonyms.items():
+        key = str(key).lower()
+        extra = [str(e).lower() for e in extra]
+        for g in groups:
+            if key in g:
+                g.extend(e for e in extra if e not in g)
+                break
+        else:
+            groups.append([key] + extra)
+    return groups
+
+
+def _stem(word: str) -> str:
+    """A search stem, not a linguistic one: lowercase, one suffix off, never
+    down to fewer than 3 letters, and left alone under 5.
+
+    Plurals in "-ies" become "-y" ("categories" becomes "category"). "-es" is
+    stripped only after a sibilant ("boxes" becomes "box"), because English
+    spells a plain "-s" plural the same way when the word already ends in a
+    silent "e" ("invoices" becomes "invoice", not "invoic"). Then "-ing",
+    "-ed", a bare "-s", in that order, first one that fits.
+    """
+    w = word.lower()
+    if len(w) < 5:
+        return w
+    if w.endswith("ies") and len(w) - 2 >= 3:
+        return w[:-3] + "y"
+    if (w.endswith("es") and len(w) - 2 >= 3
+            and (w[-3] in "sxz" or w[-4:-2] in ("ch", "sh"))):
+        return w[:-2]
+    for suf in ("ing", "ed", "s"):
+        if w.endswith(suf) and len(w) - len(suf) >= 3:
+            return w[:-len(suf)]
+    return w
+
+
+def _expand(terms: list) -> list:
+    """`terms`, in order, plus each term's stem and every member of a group
+    that contains the term or its stem, each word added once.
+
+    The literal terms stay first and unchanged, so a caller can still tell
+    what was asked from what this turned up besides it, by set difference.
+    """
+    groups = _groups()
+    out = list(terms)
+    seen = set(out)
+
+    def add(word):
+        if word not in seen:
+            out.append(word)
+            seen.add(word)
+
+    for t in terms:
+        stem = _stem(t)
+        if stem != t:
+            add(stem)
+        for g in groups:
+            if t in g or stem in g:
+                for member in g:
+                    add(member)
+    return out
+
+
 def fit_lines(lines: list, budget: int, cost=len, sep: int = 1) -> tuple:
     """Whole lines, in order, while `used + cost(line) + sep <= budget`.
 
@@ -119,11 +230,19 @@ _BM25_K1 = 1.5
 _BM25_B = 0.75
 
 
-def _rank(blocks, terms):
-    """Sections that mention these words, best first."""
+def _rank(blocks, terms, half=None):
+    """Sections that mention these words, best first.
+
+    `half`, when given, is the terms `_expand` added that were not asked for
+    literally: a synonym or a stem earns a section a place, but at half the
+    weight of a word the reader actually typed, so a section that only
+    matches through an expansion never outranks one that matches the words
+    themselves.
+    """
     import collections
     import math
 
+    half = half or ()
     docs = []
     for head, body in blocks:
         words = re.findall(r"[a-z][a-z_]{1,}",
@@ -151,7 +270,8 @@ def _rank(blocks, terms):
                 else:
                     continue
             idf = math.log(1 + (n - seen[t] + 0.5) / (seen[t] + 0.5))
-            score += idf * (f * (_BM25_K1 + 1)) / (
+            weight = 0.5 if t in half else 1.0
+            score += weight * idf * (f * (_BM25_K1 + 1)) / (
                 f + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl))
         if score <= 0:
             continue
@@ -312,11 +432,19 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     terms = [w.lower() for w in re.split(r"[\s,]+", words) if len(w) > 1]
     if not terms:
         return "ask what?"
+    expanded = _expand(terms)
+    half = set(expanded) - set(terms)
+    # Every word `_expand` added beyond what was typed, in order, deduped:
+    # the largest an "also matched" line could possibly be, reserved from
+    # `room` up front so that line never pushes an answer past `limit` -
+    # `limit` is a ceiling for everyone who calls `ask()`, this note included.
+    candidates = list(dict.fromkeys(t for t in expanded if t not in terms))
+    note_room = len(f"(also matched: {', '.join(candidates)})") + 2 if candidates else 0
 
     blocks = _blocks(text)
-    scored = _rank(blocks, terms)
+    scored = _rank(blocks, expanded, half)
     if not scored:
-        block = _definitions_block(map_path, terms, limit)
+        block = _definitions_block(map_path, expanded, limit)
         if block:
             return block
         # What was indexed, said out loud. The old wording promised more than
@@ -342,14 +470,14 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         return f"no match for {words!r}.{looked}"
 
     scored.sort(key=lambda x: -x[0])
-    out, room = [], limit
-    block = _definitions_block(map_path, terms, room)
+    out, room = [], limit - note_room
+    block = _definitions_block(map_path, expanded, room)
     if block:
         out.append(block)
         room -= len(block) + 2
     seen = 0
     for hits, h, b in scored:
-        chunk, attempted = _section_answer(h, b, terms, room)
+        chunk, attempted = _section_answer(h, b, expanded, room)
         if attempted:
             seen += 1
         if chunk:
@@ -362,7 +490,15 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         note = _more_note(room)
         if note:
             out.append(note)
-    return "\n\n".join(out)
+    answer = "\n\n".join(out)
+    # Said once, up front, only when it earned its place: a synonym or a stem
+    # that turned up nothing beyond what the literal words already found is
+    # not worth a line, so this checks the answer itself rather than assuming
+    # every expansion mattered.
+    extra = [t for t in candidates if t in answer.lower()]
+    if extra:
+        answer = f"(also matched: {', '.join(extra)})\n\n" + answer
+    return answer
 
 
 LOG_NAME = ".wawe-ask.log"
