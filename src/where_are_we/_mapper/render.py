@@ -898,13 +898,22 @@ def changed_since(repo: str, out_dir: str) -> list[str]:
 
     def _git(*args: str) -> str | None:
         try:
+            # The codec is named, and it replaces: two of these three calls
+            # ask for `-z` output, which carries a path exactly as it is on
+            # disk, and `text=True` alone decodes with the locale's codec.
+            # Under LC_ALL=C that is ascii, so one accented filename in a
+            # repository raised UnicodeDecodeError out of subprocess itself
+            # and took `--pointer` down with it.
             r = subprocess.run(["git", "-C", repo, *args], capture_output=True,
-                               text=True, timeout=15)
+                               text=True, encoding="utf-8", errors="replace",
+                               timeout=15)
             return r.stdout if r.returncode == 0 else None
-        except (OSError, subprocess.SubprocessError):
-            # No git on the machine, no repository here, or a call that
-            # outlived its timeout: nothing changed since, as far as this can
-            # tell.
+        except (OSError, subprocess.SubprocessError, ValueError):
+            # No git on the machine, no repository here, a call that outlived
+            # its timeout, or output this cannot decode: nothing changed
+            # since, as far as this can tell. ValueError is the family
+            # UnicodeDecodeError belongs to, and is the belt to the named
+            # codec's braces.
             return None
 
     head = _git("rev-parse", "HEAD")
