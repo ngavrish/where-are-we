@@ -13,13 +13,20 @@ README.
 
 Nothing here reads a whole transcript into memory at once beyond one file's
 lines; a session can run to tens of thousands of lines.
+
+`ask_log_summary()` is a second, unrelated report over a different file:
+`ask.log_answer` writes one line per map answer to `.wawe-ask.log`, and this
+reduces that log to the numbers a README row can quote instead of promising -
+median, worst case, and which tool asked for it. `--ask-log DIR` prints it.
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
 import glob
 import json
+import math
 import os
 import re
 import statistics
@@ -172,6 +179,51 @@ def _print_table(rows: list[dict]) -> None:
         print(fmt(row))
 
 
+def _percentile(sorted_vals: list, pct: float) -> float:
+    """Linear-interpolation percentile, the way most stats libraries define
+    it, without pulling one in for four lines of arithmetic."""
+    if not sorted_vals:
+        return 0.0
+    k = (len(sorted_vals) - 1) * pct
+    lo, hi = math.floor(k), math.ceil(k)
+    if lo == hi:
+        return float(sorted_vals[int(k)])
+    return (sorted_vals[lo] * (hi - k)) + (sorted_vals[hi] * (k - lo))
+
+
+def ask_log_summary(path: str) -> dict:
+    """Median, p95 and max token size of every logged answer, plus how many
+    came from each tool. A missing or empty log summarises to all zeros -
+    there is nothing wrong with a run that never asked."""
+    tokens, by_tool = [], collections.Counter()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            lines = fh.readlines()
+    except OSError:
+        lines = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            row = json.loads(line)
+        except ValueError:
+            continue
+        tokens.append(row.get("tokens", 0))
+        by_tool[row.get("tool", "?")] += 1
+    if not tokens:
+        return {"n": 0, "median_tokens": 0, "p95_tokens": 0, "max_tokens": 0,
+                "by_tool": {}}
+    ordered = sorted(tokens)
+    return {
+        "n": len(tokens),
+        "median_tokens": int(round(statistics.median(ordered))),
+        "p95_tokens": int(round(_percentile(ordered, 0.95))),
+        "max_tokens": max(ordered),
+        "by_tool": dict(by_tool),
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="wawe-measure",
@@ -187,13 +239,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--json", action="store_true", help="print the rows as JSON, no table")
     parser.add_argument(
-        "--ask-log", default=None,
-        help="path to an ask log (Task 3); accepted here but not read yet",
+        "--ask-log", default=None, metavar="DIR",
+        help="print the size of every map answer logged under DIR/.wawe-ask.log "
+             "instead: n, median/p95/max tokens, and how many came from each tool",
     )
     args = parser.parse_args(argv)
 
     if args.ask_log:
-        print("ask log: not implemented yet")
+        summary = ask_log_summary(os.path.join(args.ask_log, ".wawe-ask.log"))
+        if args.json:
+            print(json.dumps(summary))
+        else:
+            print(f"n={summary['n']}  median_tokens={summary['median_tokens']}  "
+                  f"p95_tokens={summary['p95_tokens']}  max_tokens={summary['max_tokens']}  "
+                  f"by_tool={summary['by_tool']}")
+        return 0
 
     paths = sorted(_session_files(args.sessions))
     if args.since:

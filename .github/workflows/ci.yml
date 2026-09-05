@@ -97,3 +97,17 @@ jobs:
             --specs '#12' --spec-source github --quiet
           grep -q '#12' /tmp/ghmap/spec_map.md
           grep -q '#7' /tmp/ghmap/spec_map.md
+      - name: every map answer is logged
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask","arguments":{"words":"charge"}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"charge"}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"defines","arguments":{"name":"charge"}}}' \
+            '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"sections","arguments":{}}}' \
+            | where-are-we --out /tmp/map --mcp
+          grep -q '"tool": "ask"' /tmp/map/.wawe-ask.log
+          grep -q '"tool": "find"' /tmp/map/.wawe-ask.log
+          grep -q '"tool": "defines"' /tmp/map/.wawe-ask.log
+          grep -q '"tool": "sections"' /tmp/map/.wawe-ask.log
+          wawe-measure --ask-log /tmp/map | tee /tmp/ask-log-summary.txt
+          grep -q "^n=" /tmp/ask-log-summary.txt

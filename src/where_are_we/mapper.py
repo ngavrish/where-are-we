@@ -28,9 +28,9 @@ except ImportError:  # run as a plain file, with no package around it
     import specs  # type: ignore[no-redef]
 
 try:
-    from .ask import ask, fit_lines, map_heads
+    from .ask import ask, fit_lines, map_heads, log_answer
 except ImportError:  # run as a plain file, with no package around it
-    from ask import ask, fit_lines, map_heads  # type: ignore[no-redef]
+    from ask import ask, fit_lines, map_heads, log_answer  # type: ignore[no-redef]
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
 
@@ -4562,6 +4562,7 @@ def main() -> int:
         if os.path.exists(spec_path):
             answer += "\n\n" + ask(spec_path, args.ask)
         answer += meaning_tail(out_dir, args.ask, answer)
+        log_answer(out_dir, "ask", args.ask, answer, 12000)  # ask()'s own default limit
         print(answer)
         return 0
 
