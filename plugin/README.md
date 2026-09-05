@@ -7,7 +7,7 @@ grepped.
   commit) and puts the map's ~600-byte pointer into the session's context. The
   map itself stays on disk.
 - **MCP server** `where-are-we` exposes the map as tools: `ask`, `find`,
-  `defines`, `sections`.
+  `defines`, `sections`, `callers`.
 - **Skills**: `orient`, `ask`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`find` in Bash over a mapped repository are refused with the

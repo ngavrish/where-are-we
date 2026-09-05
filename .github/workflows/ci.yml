@@ -70,6 +70,17 @@ jobs:
           grep -qF '`Billing` — /tmp/langs/pay.rb:1' /tmp/langsmap/framework_map*.md
           grep -qF '`charge?` — /tmp/langs/pay.rb:3' /tmp/langsmap/framework_map*.md
           ! grep -q "commented" /tmp/langsmap/framework_map*.md
+      - name: who calls X
+        run: |
+          mkdir -p /tmp/wc
+          printf 'def f():\n    return 1\n' > /tmp/wc/x.py
+          printf 'from x import f\n\ndef g():\n    return f()\n' > /tmp/wc/y.py
+          where-are-we --repo /tmp/wc --out /tmp/wcmap
+          where-are-we --out /tmp/wcmap --callers f | grep -qx "y.py:g"
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"callers","arguments":{"name":"f"}}}' \
+            | where-are-we --out /tmp/wcmap --mcp \
+            | grep -q "f: y.py:g"
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
@@ -142,11 +153,13 @@ jobs:
             '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"charge"}}}' \
             '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"defines","arguments":{"name":"charge"}}}' \
             '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"sections","arguments":{}}}' \
+            '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"callers","arguments":{"name":"charge"}}}' \
             | where-are-we --out /tmp/map --mcp
           grep -q '"tool": "ask"' /tmp/map/.wawe-ask.log
           grep -q '"tool": "find"' /tmp/map/.wawe-ask.log
           grep -q '"tool": "defines"' /tmp/map/.wawe-ask.log
           grep -q '"tool": "sections"' /tmp/map/.wawe-ask.log
+          grep -q '"tool": "callers"' /tmp/map/.wawe-ask.log
           wawe-measure --ask-log /tmp/map | tee /tmp/ask-log-summary.txt
           grep -q "^n=" /tmp/ask-log-summary.txt
       - name: pointer says what changed since the last session

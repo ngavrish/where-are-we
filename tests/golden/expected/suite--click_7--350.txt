@@ -8,3 +8,6 @@
 … 24 rows in this section do not mention these words
 
 … more sections match; ask for something narrower
+
+## Called by `click_7`
+- pay_steps.py:step_pay_7

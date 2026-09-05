@@ -28,9 +28,9 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import log_answer
+    from .ask import log_answer, callers
 except ImportError:  # run as a plain file, with no package around it
-    from ask import log_answer  # type: ignore[no-redef]
+    from ask import log_answer, callers  # type: ignore[no-redef]
 
 PROTOCOL = "2024-11-05"
 
@@ -86,6 +86,22 @@ TOOLS = [
         "name": "sections",
         "description": "List what the map contains, by section heading.",
         "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "callers",
+        "description": (
+            "Who calls a function or step, by name: every `<file>:<func>` "
+            "whose call graph mentions it. Reads the same call graphs `ask` "
+            "draws its 'Called by' block from, across Python, TypeScript, "
+            "JavaScript and Go, and behave step functions. Matching is "
+            "case-sensitive and exact, like the identifier itself. `name` "
+            "takes a list; ask for several callees in one call."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": ["string", "array"],
+                                    "items": {"type": "string"}}},
+            "required": ["name"],
+        },
     },
     {
         "name": "defines",
@@ -230,6 +246,18 @@ def serve(out_dir: str) -> int:
                                + ", ".join(repr(w) for w in wanted)
                                + " in the map")
                 log_answer(out_dir, "defines", ", ".join(wanted), answer,
+                           len(answer))
+                _reply(_text(answer), ident)
+            elif name == "callers":
+                json_path = os.path.join(out_dir, "framework_map.json")
+                wanted = _each(args.get("name"))
+                lines = []
+                for w in wanted:
+                    hits = callers(json_path, w)
+                    lines.append(f"{w}: " + ", ".join(hits) if hits
+                                 else f"nothing in the map calls {w}")
+                answer = "\n".join(lines)
+                log_answer(out_dir, "callers", ", ".join(wanted), answer,
                            len(answer))
                 _reply(_text(answer), ident)
             elif name == "find":

@@ -24,3 +24,16 @@ returns, per name:
   indexed. Names in files past the walk's bounds, or in languages the indexer
   does not parse, are not there - check `## This map is incomplete` in the map
   before concluding the name does not exist, and only then grep the repository.
+
+Once you know where a name is defined, `callers(name=["click_pay"])` says who
+calls it: every `<file>:<func>` from the call graph, exact and case-sensitive.
+
+    callers(name="charge")
+
+returns:
+
+    charge: b.ts:pay, y.py:g
+
+or, when nothing in the map calls it, `nothing in the map calls charge`. Use
+it instead of grepping for a call site: the graph was already built from the
+same files `defines` reads.
