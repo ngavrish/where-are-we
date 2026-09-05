@@ -44,7 +44,11 @@ jobs:
           #!/bin/sh
           exec python3 -c 'import sys; sys.path.insert(0, "/usr/lib/where-are-we"); from where_are_we.readmes import main; sys.exit(main())' "$@"
           SH
-          chmod 755 $ROOT/usr/bin/where-are-we $ROOT/usr/bin/wawe-readmes
+          cat > $ROOT/usr/bin/wawe-measure <<'SH'
+          #!/bin/sh
+          exec python3 -c 'import sys; sys.path.insert(0, "/usr/lib/where-are-we"); from where_are_we.measure import main; sys.exit(main())' "$@"
+          SH
+          chmod 755 $ROOT/usr/bin/where-are-we $ROOT/usr/bin/wawe-readmes $ROOT/usr/bin/wawe-measure
           cat > $ROOT/DEBIAN/control <<CTRL
           Package: where-are-we
           Version: $V
@@ -101,7 +105,7 @@ jobs:
           # would ship it with nothing behind it.
           cp -R src/where_are_we/. pkg/usr/lib/where-are-we/where_are_we/
           find pkg/usr/lib/where-are-we -name __pycache__ -type d -exec rm -rf {} +
-          for cmd in where-are-we:mapper wawe-readmes:readmes; do
+          for cmd in where-are-we:mapper wawe-readmes:readmes wawe-measure:measure; do
             name=${cmd%%:*}; mod=${cmd##*:}
             printf '#!/bin/sh\nexec python3 -c '"'"'import sys; sys.path.insert(0, "/usr/lib/where-are-we"); from where_are_we.%s import main; sys.exit(main())'"'"' "$@"\n' "$mod" > pkg/usr/bin/$name
             chmod 755 pkg/usr/bin/$name
@@ -125,6 +129,7 @@ jobs:
           %files
           /usr/bin/where-are-we
           /usr/bin/wawe-readmes
+          /usr/bin/wawe-measure
           /usr/lib/where-are-we
           %changelog
           SPEC
