@@ -11,6 +11,7 @@ import os
 
 from . import state
 from .state import TRUNCATED
+from .walk import _write_atomic
 
 try:
     from ..ask import fit_lines, map_heads
@@ -899,8 +900,10 @@ def changed_since(repo: str, out_dir: str) -> list[str]:
 
     try:
         os.makedirs(out_dir, exist_ok=True)
-        with open(head_path, "w", encoding="utf-8") as fh:
-            fh.write(head + "\n")
+        # Atomically: a reader inside the truncate window used to read "" and
+        # take the "nothing recorded yet" branch, which reports no change at
+        # all in a repository that has moved.
+        _write_atomic(head_path, head + "\n")
     except OSError:
         pass
 

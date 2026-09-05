@@ -24,6 +24,110 @@ SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 _PARSE_CACHE_FILE = ".wawe-cache.json"
 
 
+def _sweep_stale(path: str) -> None:
+    """Remove temporaries a killed writer left beside `path`.
+
+    A build killed between writing its temporary and renaming it (the plugin's
+    hook timeout does exactly that) leaves the file behind, and nothing else
+    would ever remove it. Only temporaries whose process is gone are touched:
+    a live builder's temporary is a file it is about to rename into place.
+    """
+    import glob
+
+    for tmp in glob.glob(f"{glob.escape(path)}.*.tmp"):
+        try:
+            pid = int(tmp[len(path) + 1:-len(".tmp")])
+        except ValueError:
+            continue
+        if pid == os.getpid():
+            continue
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        except OSError:  # alive, and owned by somebody else
+            continue
+
+
+def _stage_atomic(path: str, text: str) -> str:
+    """Write `text` beside `path` under a temporary name, and return that name.
+
+    The temporary file carries the writing process's pid, so two builders on
+    one output directory never share one, and it sits in the destination
+    directory rather than in the system temp, so the `os.replace` that follows
+    is a rename inside one filesystem, which is the only kind that is atomic.
+    """
+    _sweep_stale(path)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return tmp
+
+
+def _discard(tmps) -> None:
+    """Remove staged temporaries after a write that did not finish."""
+    for tmp in tmps:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _write_atomic(path: str, text: str) -> None:
+    """Write a file so that nothing ever reads a half-written one.
+
+    Every artefact this package writes is read by something else while it is
+    being written: the MCP server answers from `framework_map.json` on every
+    tool call, a git hook rebuilds the map while a session is asking it, two
+    sessions start in one repository at once. `open(path, "w")` truncates the
+    file at open and grows it over the write, so a reader inside that window
+    gets zero bytes or a prefix and answers "not in the map", which is the one
+    wrong answer that sends a reader back to grepping. A build killed in that
+    window (the plugin's hook timeout does exactly this) leaves the truncated
+    file on disk for good.
+
+    Writing to a temporary and renaming it over the target removes both: a
+    reader sees either the whole previous file or the whole new one, and a
+    kill leaves the previous one untouched.
+    """
+    tmp = _stage_atomic(path, text)
+    try:
+        os.replace(tmp, path)
+    except OSError:
+        _discard([tmp])
+        raise
+
+
+def _write_atomic_group(pairs) -> None:
+    """Several files replaced back to back, once all of them are complete.
+
+    `_write_atomic` makes each file whole on its own; this makes a set of them
+    consistent with each other. Every file is written to its temporary first,
+    and only then are the renames done, one after another with no work in
+    between, so the window in which a reader could see a mixture is a few
+    renames wide rather than a whole serialisation wide, and a kill before the
+    first rename leaves the entire previous set in place.
+
+    `pairs` is `[(path, text), ...]` and the renames happen in that order.
+    """
+    staged = []
+    try:
+        for path, text in pairs:
+            staged.append((_stage_atomic(path, text), path))
+    except OSError:
+        _discard([tmp for tmp, _ in staged])
+        raise
+    for i, (tmp, path) in enumerate(staged):
+        try:
+            os.replace(tmp, path)
+        except OSError:
+            _discard([t for t, _ in staged[i:]])
+            raise
+
+
 def _load_parse_cache(out_dir: str) -> None:
     """Every `(kind, path)` -> `{"mtime", "size", "value"}` entry a previous
     build persisted, if it was written by this schema and this version of
@@ -58,8 +162,10 @@ def _save_parse_cache(out_dir: str) -> None:
                 if os.path.exists(k.split("\x1e", 1)[-1])}
         doc = {"schema": state.CACHE_SCHEMA, "version": state.__version__,
                "entries": live}
-        with open(os.path.join(out_dir, _PARSE_CACHE_FILE), "w", encoding="utf-8") as fh:
-            json.dump(doc, fh)
+        # Atomically: a reader that lands mid-write used to see a prefix,
+        # fail to parse it and throw the whole cache away, and re-parse a
+        # tree nobody had touched.
+        _write_atomic(os.path.join(out_dir, _PARSE_CACHE_FILE), json.dumps(doc))
     except OSError:
         pass
 

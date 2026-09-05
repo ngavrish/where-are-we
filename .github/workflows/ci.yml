@@ -345,3 +345,66 @@ jobs:
           printf 'z=3\n' > /tmp/pd/r/c.py
           where-are-we --out /tmp/pd/m --pointer > /tmp/pd/second.txt
           grep -q "2 files changed" /tmp/pd/second.txt
+
+      - name: every artefact is replaced, never truncated in place
+        run: |
+          rm -rf /tmp/aw
+          mkdir -p /tmp/aw/r/pkg /tmp/aw/m
+          for i in $(seq 1 400); do
+            printf 'C%s = %s\ndef f%s(x):\n    return x\n' "$i" "$i" "$i" > /tmp/aw/r/pkg/m$i.py
+          done
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
+          # A reader polling the three map files while a build runs must never
+          # see a size other than the settled one. On the old in-place writes
+          # every one of them passed through zero bytes.
+          (where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic &)
+          python - <<'EOF'
+          import os, sys, time
+          out = "/tmp/aw/m"
+          names = ["framework_map.json", "framework_map.md", "framework_map_brief.md"]
+          seen = {n: set() for n in names}
+          t0 = time.time()
+          while time.time() - t0 < 6:
+              for n in names:
+                  try:
+                      seen[n].add(os.path.getsize(os.path.join(out, n)))
+                  except OSError:
+                      pass
+          bad = []
+          for n in names:
+              settled = os.path.getsize(os.path.join(out, n))
+              other = sorted(s for s in seen[n] if s != settled)
+              print(n, "settled", settled, "other sizes seen", other)
+              if other:
+                  bad.append(n)
+          sys.exit(1 if bad else 0)
+          EOF
+          # A build killed while it writes leaves the previous three files
+          # exactly as they were, and no half-written JSON.
+          md5_before=$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)
+          printf 'KILLED_BUILD_MARKER = 1\n' > /tmp/aw/r/pkg/late.py
+          python - <<'EOF'
+          import os, signal, subprocess, time
+          out = "/tmp/aw/m"
+          def watched():
+              return {n: os.path.getsize(os.path.join(out, n))
+                      for n in os.listdir(out) if n.startswith("framework_map")}
+          base = watched()
+          p = subprocess.Popen(["where-are-we", "--repo", "/tmp/aw/r", "--out", out,
+                                "--force", "--quiet", "--no-semantic"],
+                               env=dict(os.environ, WAWE_NO_CACHE="1"))
+          t0 = time.time()
+          while time.time() - t0 < 60 and p.poll() is None:
+              if watched() != base:
+                  p.send_signal(signal.SIGTERM)
+                  break
+          p.wait()
+          print("child exit", p.returncode)
+          EOF
+          test "$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)" = "$md5_before"
+          python -c "import json; json.load(open('/tmp/aw/m/framework_map.json'))"
+          ! grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json
+          # The next build sweeps away the temporary the killed one left.
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
+          test -z "$(find /tmp/aw/m -name '*.tmp')"
+          grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json

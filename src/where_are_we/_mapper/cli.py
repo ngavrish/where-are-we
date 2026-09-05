@@ -27,7 +27,27 @@ from .build import build
 from .render import (_as_dict, _cap_sections, brief, changed_since, digest,
                      for_audience, meaning_tail, pointer)
 from .state import DEFINITIONS, INDEXED, _IGNORE_CACHE, _WALK_CACHE
-from .walk import SKIP_DIRS, _config, _fingerprint, _product_roots, redact
+from .walk import (SKIP_DIRS, _config, _fingerprint, _product_roots,
+                   _write_atomic, _write_atomic_group, redact)
+
+
+# The three map files, in the order they are renamed into place once all three
+# have been written to their temporaries.
+#
+# `framework_map.md` is renamed last on purpose. It is the file every read path
+# opens first: `--ask`, `--sections`, `--pointer`, the MCP server, the language
+# server, and `hooks._ensure_map`, which treats its presence as "this directory
+# has a map". Renaming it last means a reader that has the new Markdown always
+# has the new JSON behind it, so a name `ask` has just shown can always be
+# located by `defines`. The other order gives the opposite, and worse, window:
+# `ask` naming something that `defines` then says is not in the map.
+def _write_map_files(out_dir: str, json_text: str, md_text: str,
+                     brief_text: str) -> None:
+    _write_atomic_group([
+        (os.path.join(out_dir, "framework_map.json"), json_text),
+        (os.path.join(out_dir, "framework_map_brief.md"), brief_text),
+        (os.path.join(out_dir, "framework_map.md"), md_text),
+    ])
 
 
 def init_manifest(repo: str, m: dict) -> str:
@@ -51,8 +71,7 @@ def init_manifest(repo: str, m: dict) -> str:
         "conventions": ["TODO: the rules a newcomer must not break."],
         "notes": "",
     }
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(skeleton, fh, indent=2, ensure_ascii=False)
+    _write_atomic(path, json.dumps(skeleton, indent=2, ensure_ascii=False))
     return f"wrote {path}"
 
 
@@ -142,8 +161,7 @@ def propose_docs(repo: str, m: dict, apply: bool = False) -> list:
         for rel, text, _why in planned:
             path = os.path.join(repo, rel)
             os.makedirs(os.path.dirname(path) or repo, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(text)
+            _write_atomic(path, text)
 
     return planned
 
@@ -354,10 +372,13 @@ def main() -> int:
                           depth=args.spec_depth or specs.DEFAULT_DEPTH,
                           limit=args.spec_limit or specs.DEFAULT_LIMIT, say=say,
                           key_re=key_re, stdin=spec_stdin)
-        with open(os.path.join(out_dir, "spec_map.json"), "w", encoding="utf-8") as fh:
-            json.dump(spec, fh, indent=2, ensure_ascii=False)
-        with open(os.path.join(out_dir, "spec_map.md"), "w", encoding="utf-8") as fh:
-            fh.write(specs.digest(spec))
+        # Both replaced only once both are written, so nothing reads a new
+        # spec_map.json beside the previous spec_map.md.
+        _write_atomic_group([
+            (os.path.join(out_dir, "spec_map.json"),
+             json.dumps(spec, indent=2, ensure_ascii=False)),
+            (os.path.join(out_dir, "spec_map.md"), specs.digest(spec)),
+        ])
         if not args.quiet:
             print(f"spec map: {len(spec['tickets'])} ticket(s) -> "
                   f"{os.path.join(out_dir, 'spec_map.md')}")
@@ -465,12 +486,11 @@ def main() -> int:
                 os.makedirs(out_dir, exist_ok=True)
                 m2 = build(repo, out_dir=out_dir)
                 m2["fingerprint"] = now_fp
-                with open(os.path.join(out_dir, "framework_map.json"), "w",
-                          encoding="utf-8") as fh:
-                    json.dump(redact(m2), fh, indent=2)
-                with open(os.path.join(out_dir, "framework_map_brief.md"), "w",
-                          encoding="utf-8") as fh:
-                    fh.write(brief(m2))
+                _write_atomic_group([
+                    (os.path.join(out_dir, "framework_map.json"),
+                     json.dumps(redact(m2), indent=2)),
+                    (os.path.join(out_dir, "framework_map_brief.md"), brief(m2)),
+                ])
                 c2 = m2["counts"]
                 print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
             _t.sleep(args.watch)
@@ -568,10 +588,8 @@ def main() -> int:
         print(init_manifest(repo, m))
         return 0
     os.makedirs(out_dir, exist_ok=True)
-    with open(os.path.join(out_dir, "framework_map.json"), "w", encoding="utf-8") as fh:
-        json.dump(m, fh, indent=2)
-    with open(os.path.join(out_dir, "framework_map.md"), "w", encoding="utf-8") as fh:
-        fh.write(digest(m))
+    map_json = json.dumps(m, indent=2)
+    map_md = digest(m)
     text = for_audience(brief(m), args.audience)
 
     if args.only or args.skip:
@@ -590,8 +608,9 @@ def main() -> int:
         text = "\n".join(out_lines) + "\n"
     if args.max_lines and text.count("\n") > args.max_lines:
         text = _cap_sections(text, args.max_lines)
-    with open(os.path.join(out_dir, "framework_map_brief.md"), "w", encoding="utf-8") as fh:
-        fh.write(text)
+    # All three at once, and only now: the brief is trimmed by --only/--skip
+    # and --max-lines above, so the set is not complete until here.
+    _write_map_files(out_dir, map_json, map_md, text)
     if args.html:
         # Deliberately one file with no assets: it gets opened from a terminal,
         # not served.
@@ -614,8 +633,7 @@ def main() -> int:
                 "@media(prefers-color-scheme:dark){body{background:#111;color:#eee}"
                 "h2{border-color:#333}code{background:#222}}</style>"
                 + "\n".join(body_html))
-        with open(os.path.join(out_dir, "framework_map.html"), "w", encoding="utf-8") as fh:
-            fh.write(html)
+        _write_atomic(os.path.join(out_dir, "framework_map.html"), html)
     if args.agent_file:
         # Between markers, because these files are shared: whatever a human or
         # another tool put there is not this tool's to delete.
@@ -632,8 +650,7 @@ def main() -> int:
         else:
             cur = (cur.rstrip() + "\n\n" if cur.strip() else "") + block
         os.makedirs(os.path.dirname(os.path.abspath(args.agent_file)), exist_ok=True)
-        with open(args.agent_file, "w", encoding="utf-8") as fh:
-            fh.write(cur)
+        _write_atomic(args.agent_file, cur)
 
     # The semantic index, built from the map just written plus whatever
     # corpora the caller named. Free when nothing changed (content hash),
