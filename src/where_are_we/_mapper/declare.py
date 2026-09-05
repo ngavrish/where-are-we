@@ -293,15 +293,23 @@ def _mostly_printable(text: str, sample: int = 2048) -> bool:
     what `errors="replace"` leaves where the bytes were not valid, and an
     unassigned or private-use code point is what random bytes decode to, so
     neither counts as printable here even though `str.isprintable` says the
-    first one is. Real text clears 95 per cent easily; the random fixture
-    scores under half.
+    first one is.
+
+    The gap is narrower than it looks, which is why the threshold is where it
+    is. Measured: four kilobytes of random bytes behind an FF FE mark scores
+    83.8 to 85.4 per cent over six seeds, because most of the UTF-16 plane is
+    assigned and decodes to a real character. UTF-16, UTF-16BE, UTF-32 and
+    UTF-8-sig files of ASCII source and of mixed-script prose (Greek,
+    Cyrillic, Japanese, Korean, Arabic, accented Latin) all score 100. The
+    gate is 97 per cent: twelve points clear of the noise and three points of
+    slack for a real file with something odd in it.
     """
     head = text[:sample]
     if not head:
         return True
     good = sum(1 for ch in head
                if (ch in "\t\n\r") or (ch.isprintable() and ch != "\ufffd"))
-    return good * 100 >= len(head) * 95
+    return good * 100 >= len(head) * 97
 
 
 def _decode(raw: bytes):
