@@ -856,74 +856,186 @@ jobs:
 
       - name: --watch rebuilds whole, writes every file, and survives a failure
         run: |
-          rm -rf /tmp/w21
-          mkdir -p /tmp/w21/repo/pkg
-          echo 'def one(): pass' > /tmp/w21/repo/pkg/a.py
-          PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo /tmp/w21/repo \
-            --out /tmp/w21/repo/.wawe --watch 1 --no-semantic --html \
-            > /tmp/w21/watch.log 2>&1 &
+          # A directory of this run's own, not a fixed /tmp path. A watcher
+          # left running by an earlier job on a reused runner would otherwise
+          # rebuild this step's output directory every second and make the
+          # step pass whatever the code does. That is not hypothetical: it
+          # happened on the machine this step was written on, and the step
+          # reported a pass against code that fails it.
+          W=$(mktemp -d)
+          echo "fixture at $W"
+          mkdir -p "$W/repo/pkg"
+          echo 'def one(): pass' > "$W/repo/pkg/a.py"
+          # Every wait is a poll for the condition, never a fixed sleep. A
+          # watcher on a loaded runner can be seconds behind, and a sleep long
+          # enough to be safe is a sleep that hides a regression making it slow.
+          cat > "$W/waitfor.py" <<'PY'
+          import json, os, sys, time
+          what, deadline = sys.argv[1], time.time() + 30
+          js = os.path.join(os.environ["W"], "repo", ".wawe", "framework_map.json")
+          while time.time() < deadline:
+              try:
+                  names = set(json.load(open(js))["definitions"])
+              except (OSError, ValueError):
+                  names = set()
+              if what.startswith("-"):
+                  if what[1:] not in names:
+                      sys.exit(0)
+              elif what in names:
+                  sys.exit(0)
+              time.sleep(0.2)
+          print(f"timed out waiting for {what}", file=sys.stderr)
+          try:
+              print("names now:", sorted(json.load(open(js))["definitions"]), file=sys.stderr)
+          except (OSError, ValueError) as exc:
+              print("no readable map:", exc, file=sys.stderr)
+          sys.exit(1)
+          PY
+          export W
+          PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo "$W/repo" \
+            --out "$W/repo/.wawe" --watch 1 --no-semantic --html \
+            > "$W/watch.log" 2>&1 &
           WP=$!
-          sleep 1
+          python "$W/waitfor.py" one
           for i in $(seq 1 20); do
-            echo "def f$i(): pass" > /tmp/w21/repo/pkg/f$i.py
-            sleep 1.2
+            echo "def f$i(): pass" > "$W/repo/pkg/f$i.py"
           done
-          # Every file added while watching is in the map, and a name deleted
-          # from the tree leaves it. Before, _WALK_CACHE was never cleared, so
-          # 21 rebuilds over 21 files left one name in the map.
+          # Every file added while watching is in the map. Before, _WALK_CACHE
+          # was never cleared, so 21 rebuilds over 21 files left one name.
+          python "$W/waitfor.py" f20
           python - <<'EOF'
-          import json, sys
-          d = json.load(open("/tmp/w21/repo/.wawe/framework_map.json"))
+          import json, os, sys
+          d = json.load(open(os.path.join(os.environ["W"], "repo", ".wawe",
+                                          "framework_map.json")))
           names = set(d["definitions"])
           missing = [f"f{i}" for i in range(1, 21) if f"f{i}" not in names]
           print(len(names), "names in the map; missing:", missing)
           sys.exit(1 if missing else 0)
           EOF
-          rm /tmp/w21/repo/pkg/f20.py
-          sleep 3
-          if grep -q '"f20"' /tmp/w21/repo/.wawe/framework_map.json; then
-            echo "unexpected match: grep -q ''f20'' /tmp/w21/repo/.wawe/framework_map.json"; exit 1
-          fi
+          # A name deleted from the tree leaves the map.
+          rm "$W/repo/pkg/f20.py"
+          python "$W/waitfor.py" -f20
           # All three map files, plus the ones the flags asked for. The watch
           # loop used to write only the JSON and the brief, so --ask against a
           # watched directory said there was no map.
-          test -s /tmp/w21/repo/.wawe/framework_map.md
-          test -s /tmp/w21/repo/.wawe/framework_map.html
-          where-are-we --repo /tmp/w21/repo --out /tmp/w21/repo/.wawe --ask one \
+          test -s "$W/repo/.wawe/framework_map.md"
+          test -s "$W/repo/.wawe/framework_map.html"
+          where-are-we --repo "$W/repo" --out "$W/repo/.wawe" --ask one \
             | grep -q "Defined here"
           # One failing iteration is printed and the watcher keeps going.
-          rm -rf /tmp/w21/repo/.wawe && : > /tmp/w21/repo/.wawe
-          echo 'def boom(): pass' > /tmp/w21/repo/pkg/boom.py
-          sleep 3
+          rm -rf "$W/repo/.wawe" && : > "$W/repo/.wawe"
+          echo 'def boom(): pass' > "$W/repo/pkg/boom.py"
+          python - <<'EOF'
+          import os, sys, time
+          log = os.path.join(os.environ["W"], "watch.log")
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              if "rebuild failed, still watching" in open(log).read():
+                  sys.exit(0)
+              time.sleep(0.2)
+          print("the watcher never reported a failed iteration", file=sys.stderr)
+          print(open(log).read(), file=sys.stderr)
+          sys.exit(1)
+          EOF
+          # Alive, and it is still our watcher that is doing the work.
           kill -0 $WP
-          grep -q "rebuild failed, still watching" /tmp/w21/watch.log
-          rm -f /tmp/w21/repo/.wawe
-          echo 'def RECOVERED(): pass' > /tmp/w21/repo/pkg/rec.py
-          sleep 3
+          rm -f "$W/repo/.wawe"
+          echo 'def RECOVERED(): pass' > "$W/repo/pkg/rec.py"
+          python "$W/waitfor.py" RECOVERED
           kill $WP || true
-          grep -q RECOVERED /tmp/w21/repo/.wawe/framework_map.json
 
       - name: a very large file costs the read limit, not its size
         run: |
           rm -rf /tmp/huge
           mkdir -p /tmp/huge/r /tmp/huge/m
+          # Two of them: build.py's whole-file reads were spread across every
+          # language it knows, so a .py fixture alone measured four of the
+          # sixty-six and left a huge .ts costing 590 MB.
           python -c "open('/tmp/huge/r/huge.py','wb').write(b'x = 1\n' + b'# pad\n'*33000000)"
-          ls -la /tmp/huge/r/huge.py
-          # build.py read the whole file four more times on top of _slurp's
-          # capped read: 198 MB of source cost 800 MB of RSS, which in a
-          # container with a memory limit is an OOM kill with no message.
+          python -c "open('/tmp/huge/r/huge.ts','wb').write(b'const x = 1\n' + b'// pad\n'*28000000)"
+          ls -la /tmp/huge/r/
           python - <<'EOF'
-          import os, resource, subprocess, sys
+          import resource, subprocess, sys
           subprocess.run(["where-are-we", "--repo", "/tmp/huge/r", "--out", "/tmp/huge/m",
                           "--product", "none", "--force", "--quiet", "--no-semantic"],
                          check=True)
           kb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+          # ru_maxrss is kilobytes on Linux and bytes on macOS, and this has to
+          # mean the same number on a developer's laptop as on the runner.
+          if sys.platform == "darwin":
+              kb //= 1024
           print(f"peak child RSS {kb / 1024:.0f} MB")
-          # Generous: the fix measures 44 MB against 800 MB before it, and the
-          # file itself is 198 MB, so anything at or above one whole copy of
-          # it is the old behaviour.
-          sys.exit(1 if kb > 200 * 1024 else 0)
+          # The fixture is 198 MB of .py plus 196 MB of .ts. Measured 30 MB
+          # after the fix and 785 MB before it, so one whole copy of the
+          # smaller file is a threshold with room on both sides.
+          sys.exit(1 if kb > 190 * 1024 else 0)
           EOF
+
+      - name: a large module is parsed, not silently dropped
+        run: |
+          rm -rf /tmp/pl
+          mkdir -p /tmp/pl/a /tmp/pl/b /tmp/pl/c /tmp/pl/broken
+          # 405 KB, with byte 400,000 inside a triple-quoted string. The read
+          # cap for a parser used to be _slurp's 400,000, so the cut landed
+          # mid-string, ast.parse raised SyntaxError, and the file lost even
+          # the names on its first line.
+          python - <<'EOF'
+          head = 'def FIRST_NAME():\n    return 1\n\n\nDOC = """\n'
+          tail = '"""\n\n\ndef LAST_NAME():\n    return 2\n'
+          line = "filler line that is inside the docstring\n"
+          n = (405 * 1024 - len(head) - len(tail)) // len(line)
+          body = head + line * n + tail
+          open("/tmp/pl/a/mod.py", "w").write(body)
+          b = body.encode()
+          assert len(b) > 400000, len(b)
+          assert b[:400000].count(b'"""') % 2 == 1, "the cut is not inside the string"
+          # 508 KB of small defs: a cut there parses and silently yields fewer
+          # names than the file declares.
+          out, i = [], 0
+          while sum(len(x) for x in out) < 508 * 1024:
+              out.append(f"def gen_{i:05d}():\n    return {i}\n")
+              i += 1
+          open("/tmp/pl/b/mod.py", "w").write("".join(out))
+          # Over the 2 MB parser bound, with the cut inside a string: the file
+          # is reported as cut and the names before the string are still read.
+          head = 'def EARLY_NAME():\n    return 1\n\n\nDOC = """\n'
+          n = (2 * 1024 * 1024 - len(head)) // len(line) + 40000
+          open("/tmp/pl/c/mod.py", "w").write(
+              head + line * n + '"""\n\n\ndef LATE_NAME():\n    return 2\n')
+          # A file that genuinely does not compile still yields nothing.
+          open("/tmp/pl/broken/mod.py", "w").write(
+              "def ok_name():\n    return 1\n\ndef broken(:\n    pass\n")
+          EOF
+          for d in a b c broken; do
+            where-are-we --repo /tmp/pl/$d --out /tmp/pl/$d.out --product none \
+              --force --quiet --no-semantic
+          done
+          python - <<'EOF'
+          import json, sys
+          def names(d):
+              m = json.load(open(f"/tmp/pl/{d}.out/framework_map.json"))
+              return {n for v in (m.get("exports") or {}).values() for n in v}
+          bad = []
+          a = names("a")
+          if not {"FIRST_NAME", "LAST_NAME"} <= a:
+              bad.append(f"405 KB module: exports {sorted(a)}")
+          b = names("b")
+          if "gen_00000" not in b:
+              bad.append(f"508 KB module: exports {sorted(b)[:4]}")
+          c = names("c")
+          if "EARLY_NAME" not in c:
+              bad.append(f"over 2 MB module: exports {sorted(c)}")
+          if names("broken"):
+              bad.append("a file that does not compile yielded names")
+          print("\n".join(bad) or "every large module keeps its names")
+          sys.exit(1 if bad else 0)
+          EOF
+          # Only the file actually over the parser bound is called out, and the
+          # map names it rather than looking complete.
+          grep -q "only the first 2 MB was parsed of: /tmp/pl/c/mod.py" \
+            /tmp/pl/c.out/framework_map.md
+          ! grep -q "only the first 2 MB was parsed" /tmp/pl/a.out/framework_map.md
+          ! grep -q "only the first 2 MB was parsed" /tmp/pl/b.out/framework_map.md
 
       - name: what changed comes back verbatim, whatever the file is called
         run: |
@@ -1384,3 +1496,178 @@ jobs:
               sys.exit(1)
           print("documented:", len(names), "variables")
           EOF
+      - name: an optional source that misbehaves does not end the build
+        run: |
+          rm -rf /tmp/opt
+          mkdir -p /tmp/opt/r /tmp/opt/m
+          printf 'def f():\n    pass\n' > /tmp/opt/r/a.py
+          # --runs-api pointed at a socket that answers something that is not
+          # HTTP. http.client.BadStatusLine is an HTTPException, which is not
+          # an OSError, so it escaped every handler and ended a build over a
+          # flag whose whole purpose is optional history.
+          python - <<'EOF'
+          import socket, subprocess, sys, threading
+          srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          srv.bind(("127.0.0.1", 0))
+          port = srv.getsockname()[1]
+          srv.listen(5)
+          def serve():
+              while True:
+                  try:
+                      c, _ = srv.accept()
+                  except OSError:
+                      return
+                  try:
+                      c.recv(4096)
+                      c.sendall(b"GARBAGE NOT HTTP\r\n\r\n")
+                  finally:
+                      c.close()
+          threading.Thread(target=serve, daemon=True).start()
+          r = subprocess.run(["where-are-we", "--repo", "/tmp/opt/r", "--out", "/tmp/opt/m",
+                              "--product", "none", "--force", "--quiet", "--no-semantic",
+                              "--runs-api", f"http://127.0.0.1:{port}"],
+                             capture_output=True, text=True)
+          print("exit:", r.returncode)
+          print(r.stderr[-400:])
+          sys.exit(0 if r.returncode == 0 else 1)
+          EOF
+          test -s /tmp/opt/m/framework_map.md
+          # A git author whose name is not ASCII, read under a C locale.
+          # text=True decodes with the locale, so this raised UnicodeDecodeError
+          # out of subprocess itself and no handler named it.
+          rm -rf /tmp/opt/g /tmp/opt/gm
+          mkdir -p /tmp/opt/g
+          git -C /tmp/opt/g init -q
+          git -C /tmp/opt/g config user.email t@t
+          git -C /tmp/opt/g config user.name "Renée Müller"
+          printf 'def f():\n    pass\n' > /tmp/opt/g/a.py
+          git -C /tmp/opt/g add -A
+          git -C /tmp/opt/g commit -qm "AB-42 café support"
+          LC_ALL=C LANG=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 \
+            where-are-we --repo /tmp/opt/g --out /tmp/opt/gm --product none \
+            --force --quiet --no-semantic
+          # git emits UTF-8 whatever the locale is, so the name is not merely
+          # survived, it is exact.
+          python -c "
+          import json
+          d = json.load(open('/tmp/opt/gm/framework_map.json'))
+          assert d['blame_owners'] == {'a.py': ['Renée Müller (1)']}, d['blame_owners']
+          assert 'AB-42' in d['ticket_links'], d['ticket_links']
+          print('blame and tickets intact under LC_ALL=C:', d['blame_owners'])"
+          # And no handler reaches for a module that only its try block imports.
+          grep -n "^import subprocess" src/where_are_we/_mapper/build.py
+          grep -n "^import http.client" src/where_are_we/_mapper/build.py
+          test "$(grep -c '        import subprocess' src/where_are_we/_mapper/build.py)" = "0"
+
+      - name: the fingerprint watches exactly the files the map indexes
+        run: |
+          rm -rf /tmp/fpx
+          mkdir -p /tmp/fpx/r /tmp/fpx/m
+          # Nine languages the map indexes and the fingerprint used to ignore.
+          # Editing one of them moved the map's contents and not its
+          # fingerprint, so the next build said "unchanged since it was built"
+          # and served the old answer.
+          printf 'package m\n\nfunc ORIGINAL_GO() {}\n' > /tmp/fpx/r/main.go
+          printf 'pub fn ORIGINAL_RS() {}\n' > /tmp/fpx/r/lib.rs
+          printf 'fun ORIGINAL_KT() {}\n' > /tmp/fpx/r/App.kt
+          printf 'public class ORIGINAL_CS {}\n' > /tmp/fpx/r/App.cs
+          printf 'def ORIGINAL_RB\nend\n' > /tmp/fpx/r/app.rb
+          where-are-we --repo /tmp/fpx/r --out /tmp/fpx/m --product none \
+            --force --quiet --no-semantic
+          grep -q ORIGINAL_GO /tmp/fpx/m/framework_map.json
+          for pair in "main.go:package m\n\nfunc EDITED_GO() {}\n:EDITED_GO:ORIGINAL_GO" \
+                      "lib.rs:pub fn EDITED_RS() {}\n:EDITED_RS:ORIGINAL_RS" \
+                      "App.kt:fun EDITED_KT() {}\n:EDITED_KT:ORIGINAL_KT" \
+                      "App.cs:public class EDITED_CS {}\n:EDITED_CS:ORIGINAL_CS" \
+                      "app.rb:def EDITED_RB\nend\n:EDITED_RB:ORIGINAL_RB"; do
+            file=${pair%%:*}; rest=${pair#*:}
+            body=${rest%%:*}; rest=${rest#*:}
+            want=${rest%%:*}; gone=${rest#*:}
+            sleep 1.1
+            printf "$body" > /tmp/fpx/r/$file
+            where-are-we --repo /tmp/fpx/r --out /tmp/fpx/m --product none \
+              --no-semantic | tee /tmp/fpx/out.txt
+            ! grep -q "unchanged since it was built" /tmp/fpx/out.txt
+            grep -q "$want" /tmp/fpx/m/framework_map.json
+            ! grep -q "$gone" /tmp/fpx/m/framework_map.json
+          done
+          # A tree nobody touched still does not rebuild.
+          where-are-we --repo /tmp/fpx/r --out /tmp/fpx/m --product none --no-semantic \
+            | grep -q "unchanged since it was built"
+          # And an ignored directory is pruned by the walk as well as by the
+          # fingerprint, so a bare directory name in .gitignore means what it
+          # means to git: at any depth. But nothing git already tracks is
+          # dropped, because git would not drop it either: an ignore rule says
+          # what to start tracking, not what to forget.
+          rm -rf /tmp/fpx/ig /tmp/fpx/igm
+          mkdir -p /tmp/fpx/ig/pkg/build_output /tmp/fpx/ig/other/build_output
+          git -C /tmp/fpx/ig init -q
+          git -C /tmp/fpx/ig config user.email t@t
+          git -C /tmp/fpx/ig config user.name t
+          printf 'build_output/\n' > /tmp/fpx/ig/.gitignore
+          printf 'KEPT_NAME = 1\n' > /tmp/fpx/ig/pkg/a.py
+          printf 'TRACKED_ANYWAY = 1\n' > /tmp/fpx/ig/pkg/build_output/tracked.py
+          printf 'UNTRACKED_IGNORED = 1\n' > /tmp/fpx/ig/other/build_output/untracked.py
+          git -C /tmp/fpx/ig add .gitignore pkg/a.py
+          git -C /tmp/fpx/ig add -f pkg/build_output/tracked.py
+          git -C /tmp/fpx/ig commit -qm one
+          where-are-we --repo /tmp/fpx/ig --out /tmp/fpx/igm --product none \
+            --force --quiet --no-semantic
+          grep -q KEPT_NAME /tmp/fpx/igm/framework_map.json
+          grep -q TRACKED_ANYWAY /tmp/fpx/igm/framework_map.json
+          ! grep -q UNTRACKED_IGNORED /tmp/fpx/igm/framework_map.json
+          # A repository that commits something its own .gitignore names keeps
+          # it in the map. This one does: it says `.wawe/` and tracks three
+          # example maps under docs/examples/*/.wawe/.
+          rm -rf /tmp/fpx/selfm
+          where-are-we --repo . --out /tmp/fpx/selfm --product none --force \
+            --quiet --no-semantic
+          python - <<'EOF'
+          import json, subprocess, sys
+          d = json.load(open("/tmp/fpx/selfm/framework_map.json"))
+          indexed = set(d["lines"])
+          tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True,
+                                   check=True).stdout.split(b"\0")
+          want = [p.decode() for p in tracked if p.endswith(b"/.wawe/framework_map.md")]
+          import os
+          missing = [w for w in want
+                     if os.path.abspath(w) not in indexed]
+          print(f"{len(want)} tracked example maps, missing from the index: {missing}")
+          sys.exit(1 if not want or missing else 0)
+          EOF
+
+      - name: a pipe does not hang the build, and dead temporaries are swept
+        run: |
+          rm -rf /tmp/nr
+          mkdir -p /tmp/nr/r /tmp/nr/m
+          printf 'KEPT = 1\n' > /tmp/nr/r/ok.py
+          # os.walk lists a FIFO like any other file, and open() on one with no
+          # writer blocks forever, so the build stopped there and never came
+          # back. There is no timeout to reach for: a pipe is not source code.
+          mkfifo /tmp/nr/r/x.py
+          timeout 60 where-are-we --repo /tmp/nr/r --out /tmp/nr/m --product none \
+            --force --quiet --no-semantic
+          grep -q KEPT /tmp/nr/m/framework_map.json
+          grep -q "not a regular file" /tmp/nr/m/framework_map.md
+          # Every artefact name is swept at the start of a build, not only the
+          # ones this build writes: a kill during --html left its temporary
+          # behind for good if the next build was run without --html.
+          for n in framework_map.html spec_map.json spec_map.md \
+                   semantic_index.npy .pointer-head; do
+            : > "/tmp/nr/m/$n.99999.tmp"
+          done
+          : > "/tmp/nr/m/framework_map.md.$$.tmp"
+          : > "/tmp/nr/m/notes.txt.99999.tmp"
+          sleep 1.1
+          printf 'KEPT = 2\n' > /tmp/nr/r/ok.py
+          where-are-we --repo /tmp/nr/r --out /tmp/nr/m --product none --quiet --no-semantic
+          # Gone: staged by a pid that no longer exists, under a name this
+          # package writes.
+          test -z "$(find /tmp/nr/m -name '*.99999.tmp' -name 'framework_map*')"
+          test -z "$(find /tmp/nr/m -name 'spec_map*.99999.tmp')"
+          test -z "$(find /tmp/nr/m -name 'semantic_index*.99999.tmp')"
+          # Left alone: a live writer's temporary, and a name this package
+          # never writes.
+          test -f "/tmp/nr/m/framework_map.md.$$.tmp"
+          test -f /tmp/nr/m/notes.txt.99999.tmp

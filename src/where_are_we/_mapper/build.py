@@ -11,17 +11,80 @@ topics that are a function of `(repo, code_files, read)` and of nothing else.
 """
 
 import ast
+import http.client
 import json
 import os
 import re
+import subprocess
 import sys
+import urllib.request
 
 from . import extract, state
 from .declare import _step_texts, index_declarations
-from .state import DEFINITIONS, INDEXED, LINES
+from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
 from .walk import (SKIP_DIRS, _cached, _lines_matching, _load_parse_cache,
-                   _manifest, _product_roots, _save_parse_cache, _slurp, _tree,
-                   _walk)
+                   _manifest, _product_roots, _save_parse_cache, _slurp,
+                   _slurp_source, _tree, _walk, sweep_out_dir)
+
+
+def _parse_source(path: str):
+    """`ast.parse` of as much of `path` as a parser can be given, or None.
+
+    None is what every caller here already treats as "no names in this file",
+    so nothing downstream changes shape.
+
+    A file under the limit is parsed exactly as it always was, and a genuine
+    syntax error in one still yields nothing: this does not go looking for
+    names in code that does not compile. The retreat below is only ever tried
+    on a file this package itself cut.
+    """
+    src, was_cut = _slurp_source(path)
+    if not src:
+        return None
+    try:
+        return ast.parse(src)
+    except (SyntaxError, ValueError) as exc:
+        if not was_cut:
+            return None
+        blamed = exc
+    for cut in _retreats(src, blamed):
+        try:
+            return ast.parse(src[:cut])
+        except (SyntaxError, ValueError):
+            continue
+    return None
+
+
+def _retreats(src: str, exc: BaseException) -> list:
+    """Exclusive end offsets to retry a truncated source at, best first.
+
+    The parser's own diagnosis comes first. When a cut lands inside a
+    triple-quoted string, an open bracket or a continuation, `SyntaxError`
+    names the line where that thing opened, so dropping that line and
+    everything after it closes the grammar exactly, and does it in one attempt
+    however many lines the unterminated thing swallowed.
+
+    The last top-level `def` or `class` is the fallback, for a failure that
+    carries no usable line number. Both are cheap, both are bounded, and a
+    truncated file that neither rescues is one this package reports as cut and
+    otherwise leaves alone.
+    """
+    out = []
+    lineno = getattr(exc, "lineno", None)
+    if isinstance(lineno, int) and lineno > 1:
+        at, ok = 0, True
+        for _ in range(lineno - 1):
+            nxt = src.find("\n", at)
+            if nxt < 0:
+                ok = False
+                break
+            at = nxt + 1
+        if ok and at > 0:
+            out.append(at)
+    for boundary in (src.rfind("\ndef "), src.rfind("\nclass ")):
+        if boundary > 0 and boundary + 1 not in out:
+            out.append(boundary + 1)
+    return out
 
 
 def _layer_line(paths: list, what: str) -> str:
@@ -56,6 +119,12 @@ def build(repo: str, out_dir: str | None = None,
     # again. That is the difference from WAWE_NO_CACHE=1, which also stops
     # the cache being written and so makes the next build cold as well.
     state.PARSE_CACHE_READS = not force
+    if out_dir is not None:
+        # Before anything is written: a build killed mid-write leaves a
+        # temporary behind, and _stage_atomic only ever sweeps the one name it
+        # is about to write, which never clears an artefact this build does
+        # not produce.
+        sweep_out_dir(out_dir)
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT
@@ -73,7 +142,7 @@ def build(repo: str, out_dir: str | None = None,
     for p in _walk(repo, ".feature"):
         rel = os.path.relpath(p, repo)
         try:
-            body = open(p, encoding="utf-8", errors="replace").read()
+            body = _slurp(p)
         except OSError:
             continue
         scenarios = []
@@ -96,10 +165,7 @@ def build(repo: str, out_dir: str | None = None,
         rel = os.path.relpath(p2, repo)
         if "/steps/" in "/" + rel:
             continue
-        try:
-            src = open(p2, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
+        src = _slurp(p2)
         looks_like_page = (
             os.path.basename(p2).lower().endswith(("page.py", "_page.py"))
             or "/pages/" in "/" + rel.lower() or "/page_objects/" in "/" + rel.lower()
@@ -121,7 +187,7 @@ def build(repo: str, out_dir: str | None = None,
     for p in _walk(repo, ".envrc") + _walk(repo, "environment.py") + _walk(repo, ".sh"):
         rel = os.path.relpath(p, repo)
         try:
-            body = open(p, encoding="utf-8", errors="replace").read()
+            body = _slurp(p)
         except OSError:
             continue
         for name in set(re.findall(r"\b([A-Z][A-Z0-9]{1,}_[A-Z0-9_]{2,}|ENV|HEADLESS)\b", body)):
@@ -136,9 +202,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _symbols_of(full=full):
-            try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return None
             consts, funcs = [], []
             for node in tree.body:
@@ -161,9 +226,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _api_of(full=full, rel=rel):
-            try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return {"api": [], "defs": []}
             out, defs = [], []
             for node in ast.walk(tree):
@@ -206,8 +270,7 @@ def build(repo: str, out_dir: str | None = None,
         if "/docs/" not in "/" + rel and not rel.lower().startswith("readme"):
             continue
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8",
-                        errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         docs[rel] = {"headings": re.findall(r"^#{1,3}\s+(.+)$", body, re.M)[:30],
@@ -218,9 +281,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _doc_of(full=full):
-            try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return None
             return ast.get_docstring(tree)
 
@@ -237,7 +299,7 @@ def build(repo: str, out_dir: str | None = None,
     feature_links: dict[str, dict] = {}
     for rel in features:
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         mods = set()
@@ -253,7 +315,7 @@ def build(repo: str, out_dir: str | None = None,
         pages = set()
         for mod in mods:
             try:
-                src = open(os.path.join(repo, mod), encoding="utf-8", errors="replace").read()
+                src = _slurp(os.path.join(repo, mod))
             except OSError:
                 continue
             for po in page_objects:
@@ -272,7 +334,7 @@ def build(repo: str, out_dir: str | None = None,
     testids: dict[str, list[str]] = {"suite": [], "product": []}
     for po in page_objects + list(steps):
         try:
-            src = open(os.path.join(repo, po), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, po))
         except OSError:
             continue
         testids["suite"] += re.findall(r"data-testid=[\"\']([\w:.-]+)", src)
@@ -281,7 +343,7 @@ def build(repo: str, out_dir: str | None = None,
             continue
         for p2 in _walk(root, ".tsx") + _walk(root, ".ts"):
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             testids["product"] += re.findall(r"data-testid=[\"\'{]{1,2}([\w:.-]+)", src)
@@ -305,7 +367,7 @@ def build(repo: str, out_dir: str | None = None,
     reporting = {}
     for rel in list(steps) + envs + scripts:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for kw in ("allure", "REPORT_PORTAL", "reportportal", "junit", "screenshot",
@@ -322,9 +384,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _hooks_of(full=full, rel=rel):
-            try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return {}
             found = {}
             for node in tree.body:
@@ -358,7 +419,7 @@ def build(repo: str, out_dir: str | None = None,
             index_declarations(p3, "product")
         for p2 in _walk(src_root, ".tsx") + _walk(src_root, ".ts"):
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             product["routes"] += re.findall(r"path=[\"\']([/][\w/:-]*)", src)
@@ -397,7 +458,7 @@ def build(repo: str, out_dir: str | None = None,
         index_declarations(_p, "suite")
     for rel in page_objects + list(steps) + drivers:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         loc = re.findall(r"^([A-Z_0-9]*(?:XPATH|SELECTOR|LOCATOR|CSS)[A-Z_0-9]*)\s*=\s*(.+)$",
@@ -415,7 +476,7 @@ def build(repo: str, out_dir: str | None = None,
         fp = os.path.join(repo, name)
         if os.path.exists(fp):
             try:
-                behave_cfg[name] = open(fp, encoding="utf-8", errors="replace").read()[:2000]
+                behave_cfg[name] = _slurp(fp)[:2000]
             except OSError:
                 continue
 
@@ -427,7 +488,7 @@ def build(repo: str, out_dir: str | None = None,
         if "coverage" not in rel.lower():
             continue
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         coverage_docs[rel] = {
@@ -443,7 +504,7 @@ def build(repo: str, out_dir: str | None = None,
                                        "reset_env", "watchdog")):
             continue
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         env_setup[rel] = {
@@ -456,7 +517,7 @@ def build(repo: str, out_dir: str | None = None,
     backend = {"endpoints": [], "tables": [], "seed_scripts": []}
     for rel in list(steps) + list(helpers if "helpers" in dir() else []):
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         backend["endpoints"] += re.findall(r"[\"\'`](/api/v\d[\w/{}.-]*)", src)
@@ -477,7 +538,7 @@ def build(repo: str, out_dir: str | None = None,
         fp = os.path.join(repo, name)
         if os.path.exists(fp):
             try:
-                conventions[name] = open(fp, encoding="utf-8", errors="replace").read()[:1500]
+                conventions[name] = _slurp(fp)[:1500]
             except OSError:
                 continue
 
@@ -533,8 +594,7 @@ def build(repo: str, out_dir: str | None = None,
                 continue
             rel = os.path.relpath(os.path.join(base, fn), repo)
             try:
-                body = open(os.path.join(base, fn), encoding="utf-8",
-                            errors="replace").read()
+                body = _slurp(os.path.join(base, fn))
             except OSError:
                 continue
             first = next((ln.strip() for ln in body.splitlines()
@@ -612,9 +672,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _call_graph_of(full=full, rel=rel):
-            try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return {}
             found = {}
             for node in tree.body:
@@ -633,7 +692,7 @@ def build(repo: str, out_dir: str | None = None,
     artefacts = {}
     for rel in list(steps) + envs + scripts + drivers:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for m2 in re.findall(r"[\"\']([\w./-]*(?:report|screenshot|junit|allure|video|trace|log)[\w./-]*)[\"\']",
@@ -649,8 +708,7 @@ def build(repo: str, out_dir: str | None = None,
     feature_text = ""
     for rel in features:
         try:
-            feature_text += open(os.path.join(repo, rel), encoding="utf-8",
-                                 errors="replace").read().lower()
+            feature_text += _slurp(os.path.join(repo, rel)).lower()
         except OSError:
             continue
     unused_steps = {}
@@ -663,8 +721,7 @@ def build(repo: str, out_dir: str | None = None,
     suite_src = feature_text
     for rel in list(steps) + page_objects + drivers:
         try:
-            suite_src += open(os.path.join(repo, rel), encoding="utf-8",
-                              errors="replace").read()
+            suite_src += _slurp(os.path.join(repo, rel))
         except OSError:
             continue
     unused_api = {}
@@ -678,7 +735,7 @@ def build(repo: str, out_dir: str | None = None,
     debts = {}
     for rel in list(steps) + page_objects + list(features) + drivers + envs:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         found = _lines_matching(src, ('@skip', '@wip', 'fixme', 'hack', 'todo', 'xxx'), 6)
@@ -695,12 +752,18 @@ def build(repo: str, out_dir: str | None = None,
     # sections.
     log = ""
     try:
-        import subprocess
+        # Decoded here rather than by the locale. text=True alone decodes with
+        # locale.getpreferredencoding(), so under LC_ALL=C a commit by an
+        # author whose name is not ASCII raised UnicodeDecodeError out of
+        # subprocess itself, which no handler named and which ended the build.
+        # A name this cannot decode is worth a replacement character in the
+        # map, not the loss of the map.
         log = subprocess.run(
             ["git", "-C", repo, "log", "--since=90.days", "--name-only",
              "--pretty=format:%H|%an|%ad|%s", "--date=short"],
-            capture_output=True, text=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):  # a map without history is still a map
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60).stdout
+    except (OSError, subprocess.SubprocessError, ValueError):  # a map without history is still a map
         log = ""
     cur = None
     for line in log.splitlines():
@@ -726,7 +789,7 @@ def build(repo: str, out_dir: str | None = None,
         fp = os.path.join(repo, name)
         if os.path.exists(fp):
             try:
-                body = open(fp, encoding="utf-8", errors="replace").read()
+                body = _slurp(fp)
             except OSError:
                 continue
             deps[name] = sorted(set(re.findall(
@@ -741,8 +804,7 @@ def build(repo: str, out_dir: str | None = None,
             if not fn.endswith((".yml", ".yaml")):
                 continue
             try:
-                body = open(os.path.join(base, fn), encoding="utf-8",
-                            errors="replace").read()
+                body = _slurp(os.path.join(base, fn))
             except OSError:
                 continue
             ci[os.path.join(rel, fn)] = {
@@ -761,7 +823,7 @@ def build(repo: str, out_dir: str | None = None,
     auth = {}
     for rel in list(steps) + envs + page_objects + drivers + helpers_paths:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         hits = _lines_matching(src, ('auth', 'cognito', 'cookie', 'log_in', 'login', 'okta', 'session', 'sign_in', 'sso', 'token'), 4)
@@ -774,7 +836,7 @@ def build(repo: str, out_dir: str | None = None,
     concurrency = {"shared_state": [], "serial_tags": [], "notes": []}
     for rel in list(steps) + envs + page_objects:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for m2 in re.findall(r"^([A-Z_0-9]+)\s*=\s*(?:\{|\[|dict\(|list\()", src, re.M):
@@ -790,7 +852,7 @@ def build(repo: str, out_dir: str | None = None,
     failure_signatures = {}
     for rel in list(steps) + page_objects + drivers + envs:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for msg in re.findall(r"(?:assert[^,\n]*,\s*|raise \w+\(\s*)f?[\"\']([^\"\']{25,140})",
@@ -812,7 +874,7 @@ def build(repo: str, out_dir: str | None = None,
             safe_data[rel] = sorted(set(ids))[:20]
     for rel in list(features)[:60]:
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         nums = re.findall(r"\b(\d{4,7})\b", body)
@@ -838,7 +900,7 @@ def build(repo: str, out_dir: str | None = None,
     tag_meaning = {}
     for rel, meta in (docs or {}).items():
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for tag, sense in re.findall(r"[`@](\w[\w.-]{2,})[`]?\s*[—:-]\s*([^\n]{10,120})", body)[:40]:
@@ -859,7 +921,7 @@ def build(repo: str, out_dir: str | None = None,
             continue
         for p2 in _walk(root, ".tsx"):
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             for tid in set(re.findall(r"data-testid=[\"\'{]{1,2}([\w:.-]+)", src)):
@@ -883,7 +945,7 @@ def build(repo: str, out_dir: str | None = None,
             continue
         for p2 in (_walk(root, ".tsx") + _walk(root, ".ts"))[:400]:
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             ui_strings += re.findall(r">\s*([A-Z][A-Za-z ]{4,40})\s*<", src)
@@ -898,7 +960,7 @@ def build(repo: str, out_dir: str | None = None,
                 continue
             rel = os.path.relpath(os.path.join(base, fn), repo)
             try:
-                body = open(os.path.join(base, fn), encoding="utf-8", errors="replace").read()
+                body = _slurp(os.path.join(base, fn))
             except OSError:
                 continue
             infra[rel] = {
@@ -908,7 +970,7 @@ def build(repo: str, out_dir: str | None = None,
             }
     for rel in scripts:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         health = re.findall(r"https?://[\w.:%-]*/(?:health|healthz|health_check|ping)[\w/]*", src)
@@ -922,7 +984,7 @@ def build(repo: str, out_dir: str | None = None,
     for rel in list(steps) + [r for r in _walk(repo, ".sql")]:
         rel = os.path.relpath(rel, repo) if os.path.isabs(rel) else rel
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for tbl, cols in re.findall(r"SELECT\s+(.{5,300}?)\s+FROM\s+([a-z_][\w.]*)",
@@ -950,7 +1012,7 @@ def build(repo: str, out_dir: str | None = None,
     env_differences = {}
     for rel in list(steps) + envs + scripts:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         hits = _lines_matching(src, ('dev', 'envs==s"\':uat', 'local', 'prod'), 4)
@@ -971,11 +1033,14 @@ def build(repo: str, out_dir: str | None = None,
         # types are the ones caught.
         rows = []
         try:
-            import urllib.error as _ue
-            import urllib.request as _u
-            with _u.urlopen(f"{base_url}/r/runs?limit=40", timeout=10) as resp:
+            with urllib.request.urlopen(f"{base_url}/r/runs?limit=40",
+                                        timeout=10) as resp:
                 rows = json.loads(resp.read().decode() or "[]")
-        except (OSError, _ue.URLError, ValueError):  # the map is built with or without history
+        # URLError is an OSError, so naming it added nothing. HTTPException is
+        # not, and it is what an endpoint that answers something other than
+        # HTTP raises: a BadStatusLine from a socket on the wrong port ended
+        # the whole build, on a flag whose entire purpose is optional history.
+        except (OSError, http.client.HTTPException, ValueError):  # the map is built with or without history
             rows = []
         if not isinstance(rows, list):
             rows = []
@@ -996,7 +1061,7 @@ def build(repo: str, out_dir: str | None = None,
     feature_style = {}
     for rel in list(features)[:1]:
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         feature_style = {
@@ -1020,9 +1085,8 @@ def build(repo: str, out_dir: str | None = None,
             continue
 
         def _pytest_of(p2=p2):
-            try:
-                tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+            tree = _parse_source(p2)
+            if tree is None:
                 return {"cases": [], "fixs": [], "markers": []}
             cases, fixs, marks = [], [], []
             for node in ast.walk(tree):
@@ -1051,7 +1115,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             names = re.findall(r"(?:describe|it|test)\s*\(\s*[\"\'`]([^\"\'`]{3,80})", body)
@@ -1065,7 +1129,7 @@ def build(repo: str, out_dir: str | None = None,
         if not os.path.exists(fp):
             continue
         try:
-            body = open(fp, encoding="utf-8", errors="replace").read()
+            body = _slurp(fp)
         except OSError:
             continue
         hits = [ln.strip() for ln in body.splitlines()
@@ -1084,7 +1148,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cypress[rel] = re.findall(r"(?:describe|it|context)\s*\(\s*[\"\'`]([^\"\'`]{3,80})",
@@ -1096,7 +1160,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".robot"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"^(\S.+)$", body.split("*** Test Cases ***")[-1], re.M)[:20] \
@@ -1113,7 +1177,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cases = re.findall(r"@(?:Test|ParameterizedTest)[^\n]*\n\s*(?:public\s+)?\w[\w<>\[\] ]*\s+(\w+)\s*\(",
@@ -1129,7 +1193,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cases = re.findall(r'(?:test|it|should)\s*\(\s*[\"\']([^\"\']{3,90})', body)
@@ -1147,7 +1211,7 @@ def build(repo: str, out_dir: str | None = None,
             if any(k in "/" + rel.lower() for k in ("node_modules", "/dist/", "/build/")):
                 continue
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             glue = re.findall(
@@ -1163,7 +1227,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, "_test.go"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         go_tests[rel] = re.findall(r"^func\s+(Test\w+|Benchmark\w+|Fuzz\w+)\s*\(", body, re.M)[:25]
@@ -1174,7 +1238,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, "_spec.rb"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         rspec[rel] = re.findall(r"(?:describe|context|it)\s+[\"\']([^\"\']{3,80})", body)[:20]
@@ -1188,7 +1252,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cases = re.findall(r"\[(?:Fact|Theory|Test|TestMethod)\][\s\S]{0,200}?\b(\w+)\s*\(", body)[:20]
@@ -1202,7 +1266,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".php"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"function\s+(test\w+)\s*\(", body)[:20]
@@ -1216,7 +1280,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".rs"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"#\[(?:test|tokio::test)\]\s*(?:async\s+)?fn\s+(\w+)", body)[:20]
@@ -1229,7 +1293,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".swift"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"func\s+(test\w+)\s*\(", body)[:20]
@@ -1242,7 +1306,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".rb"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         glue = re.findall(r"^(?:Given|When|Then)\s*[(/]\s*[\"\'/]?([^\"\'/\n]{5,90})", body, re.M)[:20]
@@ -1289,13 +1353,13 @@ def build(repo: str, out_dir: str | None = None,
                 contracts["i18n"].append(rel)
             if fn.startswith("docker-compose") or fn == "Dockerfile":
                 try:
-                    body = open(full, encoding="utf-8", errors="replace").read()
+                    body = _slurp(full)
                 except OSError:
                     continue
                 contracts["images"] += re.findall(r"(?:image|FROM)\s*:?\s*([\w./-]+:[\w.-]+)", body)[:20]
     for rel in list(steps) + scripts + envs:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         contracts["secret_paths"] += re.findall(
@@ -1308,7 +1372,7 @@ def build(repo: str, out_dir: str | None = None,
                         "i18n_keys": [], "flags": []}
     for rel in contracts.get("openapi", []):
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         if rel.endswith(".json"):
@@ -1330,14 +1394,14 @@ def build(repo: str, out_dir: str | None = None,
                         f"{line.strip().rstrip(':').upper()} {cur}")
     for rel in contracts.get("graphql", []):
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         contract_details["graphql"] += re.findall(
             r"^\s*(?:type|input|enum|interface)\s+(\w+)", body, re.M)[:40]
     for rel in contracts.get("migrations", []):
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for tbl, cols in re.findall(r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([\w.\"]+)\s*\(([^;]{0,600})",
@@ -1362,7 +1426,7 @@ def build(repo: str, out_dir: str | None = None,
     ci_tags = {}
     for path, meta in (ci or {}).items():
         try:
-            body = open(os.path.join(repo, path), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, path))
         except OSError:
             continue
         tg2 = re.findall(r"--tags[= ]+([^\s\"\']+)", body)
@@ -1397,19 +1461,19 @@ def build(repo: str, out_dir: str | None = None,
             continue
         if rel == "package.json":
             try:
-                pkg = json.load(open(fp, encoding="utf-8", errors="replace"))
+                pkg = json.loads(_slurp(fp))
                 entry["package.json scripts"] = list((pkg.get("scripts") or {}).items())[:15]
             except (OSError, ValueError):
                 pass
         elif rel == "Makefile":
             try:
-                body = open(fp, encoding="utf-8", errors="replace").read()
+                body = _slurp(fp)
             except OSError:
                 body = ""
             entry["make targets"] = re.findall(r"^([a-zA-Z][\w.-]*):(?!=)", body, re.M)[:20]
         elif rel == "Dockerfile":
             try:
-                body = open(fp, encoding="utf-8", errors="replace").read()
+                body = _slurp(fp)
             except OSError:
                 body = ""
             cmds = re.findall(r"^(?:CMD|ENTRYPOINT)\s+(.+)$", body, re.M)[:4]
@@ -1431,9 +1495,8 @@ def build(repo: str, out_dir: str | None = None,
             continue
 
         def _exports_of(p2=p2):
-            try:
-                tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+            tree = _parse_source(p2)
+            if tree is None:
                 return []
             return [n.name for n in tree.body
                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -1448,7 +1511,7 @@ def build(repo: str, out_dir: str | None = None,
             if any(k in "/" + rel for k in ("node_modules", "/dist/", ".spec.", ".test.")):
                 continue
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             names = re.findall(r"export\s+(?:default\s+)?(?:async\s+)?"
@@ -1458,7 +1521,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".go"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         names = re.findall(r"^func\s+(?:\([^)]*\)\s*)?([A-Z]\w+)", body, re.M)
@@ -1474,10 +1537,7 @@ def build(repo: str, out_dir: str | None = None,
         rel = os.path.relpath(p2, repo)
         if any(k in "/" + rel for k in ("node_modules", "/dist/")):
             continue
-        try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
+        body = _slurp(p2)
         for m2 in re.findall(r"@(?:app|router|blueprint|bp)\.(get|post|put|patch|delete)\(\s*[\"\']([^\"\']+)",
                              body, re.I):
             routes_served.append(f"{m2[0].upper()} {m2[1]}  ({os.path.basename(rel)})")
@@ -1497,16 +1557,13 @@ def build(repo: str, out_dir: str | None = None,
     models = {}
     for p2 in _walk(repo, ".py"):
         rel = os.path.relpath(p2, repo)
-        try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
+        body = _slurp(p2)
         for cls in re.findall(r"class\s+(\w+)\s*\((?:[\w.]*(?:Base|Model|Document)[\w.]*)\)", body):
             fields = re.findall(r"^\s{4}(\w+)\s*[:=]\s*(?:Column|models\.|Field|mapped_column)", body, re.M)
             models[f"{cls} ({os.path.basename(rel)})"] = sorted(set(fields))[:15]
     for p2 in _walk(repo, ".prisma"):
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         for name, fields in re.findall(r"model\s+(\w+)\s*\{([^}]*)\}", body):
@@ -1523,7 +1580,7 @@ def build(repo: str, out_dir: str | None = None,
         if top not in tops:
             continue
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         for mod in re.findall(r"(?:^from\s+([\w.]+)|^import\s+([\w.]+)|from\s+[\"\']([^\"\']+))",
@@ -1538,7 +1595,7 @@ def build(repo: str, out_dir: str | None = None,
     pkg_json = os.path.join(repo, "package.json")
     if os.path.exists(pkg_json):
         try:
-            pkg = json.load(open(pkg_json, encoding="utf-8", errors="replace"))
+            pkg = json.loads(_slurp(pkg_json))
             ws = pkg.get("workspaces")
             workspaces = (ws.get("packages") if isinstance(ws, dict) else ws) or []
         except (OSError, ValueError):
@@ -1805,11 +1862,13 @@ def build(repo: str, out_dir: str | None = None,
     # and the map presented that as the answer for the whole repository.
     out = ""
     try:
-        import subprocess
+        # encoding and errors for the same reason as git_history above: an
+        # author name the locale cannot decode must not end the build.
         out = subprocess.run(
             ["git", "-C", repo, "log", "--since=365.days", "--name-only",
-             "--pretty=format:%an"], capture_output=True, text=True, timeout=90).stdout
-    except (OSError, subprocess.SubprocessError):  # a map without owners is still a map
+             "--pretty=format:%an"], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=90).stdout
+    except (OSError, subprocess.SubprocessError, ValueError):  # a map without owners is still a map
         out = ""
     who = None
     counts: dict[str, dict] = {}
@@ -2187,11 +2246,11 @@ def build(repo: str, out_dir: str | None = None,
     # Release history: the tags and what the changelog says about them.
     releases = []
     try:
-        import subprocess
         out = subprocess.run(["git", "-C", repo, "for-each-ref", "--sort=-creatordate",
                               "--format=%(refname:short) %(creatordate:short)",
                               "refs/tags", "--count=25"],
-                             capture_output=True, text=True, timeout=30).stdout
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=30).stdout
         releases = [l.strip() for l in out.splitlines() if l.strip()][:25]
     except Exception:  # noqa: BLE001
         pass
@@ -2423,6 +2482,20 @@ def build(repo: str, out_dir: str | None = None,
             "scenarios": sum(len(v["scenarios"]) for v in features.values()),
         },
     }
+
+    # Every file a parser was only handed the first AST_LIMIT bytes of, named
+    # once, sorted, and bounded: a repository of very large modules should not
+    # push the rest of the map's head off the screen with one bullet each.
+    if state.CUT_FILES:
+        shown = sorted(state.CUT_FILES)
+        more = len(shown) - 8
+        note = ("only the first 2 MB was parsed of: "
+                + ", ".join(shown[:8])
+                + (f", and {more} more" if more > 0 else "")
+                + ". Whole lines up to that point are in the map and nothing "
+                  "after it is")
+        if note not in TRUNCATED:
+            TRUNCATED.append(note)
 
     if not no_cache:
         _save_parse_cache(out_dir)

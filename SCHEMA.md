@@ -2,13 +2,14 @@
 
 Stable contract. Sections may be added within a major version; a section that
 exists keeps its shape. `schema` names the version; `fingerprint` is what the map
-was built from (commit and newest mtime) and is how staleness is decided.
+was built from (the commit, and the newest mtime in the tree in nanoseconds
+since the epoch) and is how staleness is decided.
 
 | key | shape | what it is |
 |---|---|---|
 | `schema` | string | `where-are-we/<major>` |
 | `repo` | string | absolute path indexed |
-| `fingerprint` | string | `<commit>:<newest mtime>` |
+| `fingerprint` | string | `<commit>:<newest mtime in nanoseconds>`. Whole seconds until 1.1.1: an edit inside the same second as the build before it was invisible. The mtime covers every file the map indexes, not a fixed list of extensions |
 | `stated` | object | what `.framework-map.json` declared, verbatim |
 | `languages` | {lang: count} | files per language |
 | `entry` | {what: [lines]} | entry points, make targets, npm scripts, container CMD |

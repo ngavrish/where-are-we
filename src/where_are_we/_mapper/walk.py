@@ -9,10 +9,12 @@ last build", and the rest of the package is built on those answers.
 import json
 import os
 import re
+import stat
+import subprocess
 
 from . import state
 from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
-                    _WALK_CACHE)
+                    _TRACKED_CACHE, _WALK_CACHE)
 
 # `CACHE_SCHEMA`, `PARSE_COUNT`, `_PARSE_CACHE` and `__version__` are reached
 # through `state` rather than imported by name: three of them are rebound, and
@@ -25,32 +27,67 @@ SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 _PARSE_CACHE_FILE = ".wawe-cache.json"
 
 
-def _sweep_stale(path: str) -> None:
-    """Remove temporaries a killed writer left beside `path`.
+def _drop_if_dead(tmp: str, stem_len: int) -> None:
+    """Remove one staged temporary if the process that staged it is gone.
 
-    A build killed between writing its temporary and renaming it (the plugin's
-    hook timeout does exactly that) leaves the file behind, and nothing else
-    would ever remove it. Only temporaries whose process is gone are touched:
-    a live builder's temporary is a file it is about to rename into place.
+    A live builder's temporary is a file it is about to rename into place, so
+    it is left exactly alone. A pid that has been reused belongs to some other
+    live process, which costs one temporary that outlives its writer and is
+    swept the next time that pid is free.
     """
+    try:
+        pid = int(tmp[stem_len + 1:-len(".tmp")])
+    except ValueError:
+        return
+    if pid == os.getpid():
+        return
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    except OSError:  # alive, and owned by somebody else
+        pass
+
+
+def _sweep_stale(path: str) -> None:
+    """Remove temporaries a killed writer left beside `path`."""
     import glob
 
     for tmp in glob.glob(f"{glob.escape(path)}.*.tmp"):
-        try:
-            pid = int(tmp[len(path) + 1:-len(".tmp")])
-        except ValueError:
-            continue
-        if pid == os.getpid():
-            continue
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-        except OSError:  # alive, and owned by somebody else
-            continue
+        _drop_if_dead(tmp, len(path))
+
+
+# Everything this package stages beside its final name in an output directory.
+# Named here rather than discovered by pattern, so a sweep never removes a file
+# that merely happens to end in `.<digits>.tmp`.
+ARTEFACTS = ("framework_map.json", "framework_map.md", "framework_map_brief.md",
+             "framework_map.html", "spec_map.json", "spec_map.md",
+             _PARSE_CACHE_FILE, ".pointer-head",
+             "semantic_index.npy", "semantic_index.json")
+
+
+def sweep_out_dir(out_dir: str) -> None:
+    """Remove every dead writer's temporary in `out_dir`, at the start of a build.
+
+    `_stage_atomic` sweeps the one name it is about to write, which is enough
+    for an artefact this build writes and no help at all for one it does not.
+    A build killed while writing `framework_map.html` leaves that temporary
+    behind for good if the next build is run without `--html`, and the same
+    for `spec_map.*`, the semantic index, and a `.pointer-head` staged by a
+    `--pointer` call that never came back. Sweeping the whole known set once
+    per build is the only thing that clears those.
+    """
+    import glob
+
+    if not os.path.isdir(out_dir):
+        return
+    for name in ARTEFACTS:
+        stem = os.path.join(out_dir, name)
+        for tmp in glob.glob(f"{glob.escape(stem)}.*.tmp"):
+            _drop_if_dead(tmp, len(stem))
 
 
 def _stage_atomic(path: str, text: str) -> str:
@@ -535,6 +572,44 @@ def _slurp(path: str, limit: int = 400000) -> str:
 MAX_FILES = int(os.getenv("WAWE_MAX_FILES", "40000"))
 
 
+# What a parser may be given, and the same bound `declare.py` puts on a file
+# before it stops indexing its declarations at all. Past this a file is already
+# outside `definitions`, so there is nothing for a parse to stay consistent
+# with.
+AST_LIMIT = 2 * 1024 * 1024
+
+
+def _slurp_source(path: str, limit: int = AST_LIMIT) -> tuple[str, bool]:
+    """A file's text for a parser, cut on a line boundary, and whether it was
+    cut.
+
+    `_slurp`'s plain byte cap is right for a regex scan over a body and wrong
+    for a parser. A cut at an arbitrary byte lands mid-token as often as not,
+    `ast.parse` raises `SyntaxError`, and every caller here treats that as
+    "this file declares nothing": a 405 KB module lost even the names on its
+    first line, and the map said nothing about it having happened.
+
+    So the read goes to `AST_LIMIT`, the cut is moved back to the last newline
+    so no line is half a line, and the file is named in `state.CUT_FILES`,
+    which `build()` turns into a note in the map's own
+    `## This map is incomplete` section. A bound that stops quietly produces a
+    map that looks complete and is not.
+    """
+    body = _slurp(path, limit)
+    try:
+        cut = os.path.getsize(path) > limit
+    except OSError:
+        cut = False
+    if not cut:
+        return body, False
+    nl = body.rfind("\n")
+    if nl > 0:
+        body = body[:nl + 1]
+    if path not in state.CUT_FILES:
+        state.CUT_FILES.append(path)
+    return body, True
+
+
 def _ignores(root: str) -> list:
     """Patterns from `.wawe-ignore`, one per line, fnmatch against the relative
     path. A hundred-thousand-file monorepo does not want its build output read,
@@ -559,14 +634,18 @@ def _ignores(root: str) -> list:
     return pats
 
 
-_ESCAPED_NOTE = ("a symlink in this tree resolves outside the repository and was "
-                 "not read: a link that leaves the repository is not part of it, "
-                 "and what is on the other end has no business in a map that gets "
-                 "committed and pasted into prompts")
+_ESCAPED_NOTE = ("something in this tree was not read: a symlink that resolves "
+                 "outside the repository (a link that leaves the repository is "
+                 "not part of it, and what is on the other end has no business "
+                 "in a map that gets committed and pasted into prompts), or a "
+                 "file that is not a regular file, such as a pipe or a device")
 
 
-def _leaves_tree(path: str, real_root: str) -> bool:
-    """Whether `path` is a symlink whose target lives outside `real_root`.
+def _unreadable(path: str, real_root: str) -> bool:
+    """Whether the walk should refuse to open `path` at all.
+
+    Two reasons. A symlink whose target lives outside `real_root`, and
+    anything that is not a regular file.
 
     `os.walk` is called without `followlinks` anywhere in this package, so a
     symlinked *directory* is never descended into and a link loop terminates.
@@ -576,30 +655,46 @@ def _leaves_tree(path: str, real_root: str) -> bool:
     contents there. The path recorded stays inside the repository, which
     makes the leak harder to notice rather than easier.
 
-    Only links are resolved, and the answer is remembered for the length of
-    the build, because one build walks the same tree about a dozen times and
-    the `lstat` per file per pass was measurable where one per file is not.
+    The second is the reason a FIFO named `x.py` was fatal: `os.walk` lists
+    it like any other file, and `open()` on a FIFO with no writer blocks
+    forever, so the build stopped at that file and never came back. There is
+    no timeout to reach for and no partial answer to give; a pipe, a socket
+    or a device is not source code, and the map is better off not knowing it
+    is there. The same `lstat` answers both questions.
+
+    The answer is remembered for the length of the build, because one build
+    walks the same tree about a dozen times and an `lstat` per file per pass
+    was measurable where one per file is not.
     """
     key = (real_root, path)
     hit = _LINK_CACHE.get(key)
     if hit is not None:
         return hit
     out = False
-    if os.path.islink(path):
-        try:
-            real = os.path.realpath(path)
-        except OSError:
-            out = True
+    try:
+        st = os.lstat(path)
+    except OSError:
+        out = True
+    else:
+        if stat.S_ISLNK(st.st_mode):
+            try:
+                real = os.path.realpath(path)
+                out = not (real == real_root
+                           or real.startswith(real_root + os.sep))
+                if not out:
+                    out = not stat.S_ISREG(os.stat(path).st_mode)
+            except OSError:
+                out = True
         else:
-            out = not (real == real_root or real.startswith(real_root + os.sep))
+            out = not stat.S_ISREG(st.st_mode)
     _LINK_CACHE[key] = out
     return out
 
 
 def _tree(root: str):
     """`os.walk(root)` with the directories this project never reads pruned,
-    files that link out of the tree dropped, and a bound on how much of a
-    tree one pass will look at.
+    files that link out of the tree or are not regular files dropped, and a
+    bound on how much of a tree one pass will look at.
 
     Yields the same `(base, dirs, files)` triples in the same order, so a
     caller reads exactly as it did before. What it adds is the `SKIP_DIRS`
@@ -613,13 +708,22 @@ def _tree(root: str):
     hours. Counting entries stops it in a fraction of a second and leaves
     every tree smaller than the cap walked exactly as it was before.
 
+    What counts against the budget is what this walk looked at, and pruning a
+    directory does not always mean not having looked at it. The count is taken
+    after `SKIP_DIRS` and after a non-regular or escaping file is dropped, so
+    those cost nothing, and before the caller has applied the repository's
+    ignore rules, so a directory `_indexable` is about to prune still costs the
+    one entry it took to see it. That is deliberate: a tree of a million
+    ignored directories is still a million directories to walk past, and the
+    budget exists to bound the walking. What pruning saves is descending them.
+
     `WAWE_MAX_FILES` raises it, which is what the note in the map says to do.
     """
     real_root = os.path.realpath(root)
     seen = 0
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        kept = [f for f in files if not _leaves_tree(os.path.join(base, f), real_root)]
+        kept = [f for f in files if not _unreadable(os.path.join(base, f), real_root)]
         if len(kept) != len(files) and _ESCAPED_NOTE not in TRUNCATED:
             TRUNCATED.append(_ESCAPED_NOTE)
         files = kept
@@ -643,31 +747,103 @@ def _ignored(rel: str, pats: list) -> bool:
     return False
 
 
+def _tracked(root: str) -> tuple:
+    """What git already tracks under `root`: (files, directories holding one),
+    as paths relative to `root`.
+
+    git does not ignore a file it already tracks, and neither may this. A
+    `.gitignore` line is a rule about what to start tracking, so a repository
+    that has committed something its own ignore file names keeps it. This
+    repository is one: it says `.wawe/` and commits three example maps under
+    `docs/examples/*/.wawe/`, and pruning by ignore rules alone dropped all
+    nine of them out of its own map.
+
+    One `git ls-files` per root per build. Empty for a root with no git, where
+    "tracked" means nothing and the ignore rules stand on their own.
+    """
+    if root in _TRACKED_CACHE:
+        return _TRACKED_CACHE[root]
+    files: set = set()
+    dirs: set = set()
+    try:
+        out = subprocess.run(["git", "-C", root, "ls-files", "-z"],
+                             capture_output=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = b""
+    for raw in out.split(b"\0"):
+        if not raw:
+            continue
+        rel = raw.decode("utf-8", "replace")
+        files.add(rel)
+        parent = os.path.dirname(rel)
+        while parent:
+            if parent in dirs:
+                break
+            dirs.add(parent)
+            parent = os.path.dirname(parent)
+    _TRACKED_CACHE[root] = (frozenset(files), frozenset(dirs))
+    return _TRACKED_CACHE[root]
+
+
+def _indexable(root: str):
+    """Every file under `root` that this map would index, as full paths.
+
+    One definition of "the files this map covers", so that the walk that
+    builds the map and the fingerprint that decides whether to rebuild it are
+    asking about the same set. They used to disagree: the fingerprint looked
+    at seven extensions and the walk at all of them, so editing a .go, .rs,
+    .kt, .cs, .rb, .java, .yaml, .tf or .proto file moved the map's contents
+    and not its fingerprint, and the next build printed "unchanged since it
+    was built" over a map that no longer described the tree.
+
+    An ignored directory is pruned rather than descended and filtered file by
+    file. That is the same set of files by the patterns that name a path, and
+    a smaller one by a pattern that names a bare directory at any depth, which
+    is what such a pattern means in a .gitignore. It also stops an ignored
+    directory spending the entry budget `_tree` counts.
+
+    Nothing git already tracks is dropped either way, because git would not
+    drop it: see `_tracked`. An ignored path that is untracked still goes.
+    """
+    base_repo = os.getenv("AGENT_REPO", root)
+    pats = _ignores(base_repo)
+    keep_files, keep_dirs = _tracked(base_repo) if pats else (frozenset(), frozenset())
+    for base, dirs, files in _tree(root):
+        if pats:
+            kept = []
+            for d in dirs:
+                rel = os.path.relpath(os.path.join(base, d), base_repo)
+                if not _ignored(rel, pats) or rel in keep_dirs:
+                    kept.append(d)
+            dirs[:] = kept
+        for f in files:
+            full = os.path.join(base, f)
+            if pats:
+                rel = os.path.relpath(full, base_repo)
+                if _ignored(rel, pats) and rel not in keep_files:
+                    continue
+            yield full
+
+
 def _walk(root: str, want: str) -> list[str]:
     key = (root, want)
     if key in _WALK_CACHE:
         return _WALK_CACHE[key]
     hits = []
     base_repo = os.getenv("AGENT_REPO", root)
-    pats = _ignores(base_repo)
-    for base, dirs, files in _tree(root):
-        for f in files:
-            if not f.endswith(want):
-                continue
-            full = os.path.join(base, f)
-            rel = os.path.relpath(full, base_repo)
-            if pats and _ignored(rel, pats):
-                continue
-            hits.append(full)
-            if len(hits) >= MAX_FILES:
-                note = (f"the file walk stopped at {MAX_FILES} files under "
-                        f"{base_repo} — raise WAWE_MAX_FILES or add to "
-                        f".wawe-ignore; what is below that count is mapped and "
-                        f"the rest is not")
-                if note not in TRUNCATED:
-                    TRUNCATED.append(note)
-                _WALK_CACHE[key] = sorted(hits)
-                return _WALK_CACHE[key]
+    for full in _indexable(root):
+        if not os.path.basename(full).endswith(want):
+            continue
+        hits.append(full)
+        if len(hits) >= MAX_FILES:
+            note = (f"the file walk stopped at {MAX_FILES} files under "
+                    f"{base_repo}: raise WAWE_MAX_FILES or add to "
+                    f".wawe-ignore; what is below that count is mapped and "
+                    f"the rest is not")
+            if note not in TRUNCATED:
+                TRUNCATED.append(note)
+            _WALK_CACHE[key] = sorted(hits)
+            return _WALK_CACHE[key]
     _WALK_CACHE[key] = sorted(hits)
     return _WALK_CACHE[key]
 
@@ -691,36 +867,33 @@ def _fingerprint(repo: str) -> str:
     that until some other file changed. A session's own edits land inside the
     same second as the build that follows them all the time.
 
-    The walk goes through `_tree`, so it is bounded and pruned the same way
-    every other pass over the repository is, and it honours the repository's
-    `.wawe-ignore`/`.gitignore` patterns. It runs before anything else, so
-    while it was unbounded `--repo /` - one keystroke away from `--repo .` -
-    never returned at all, and the file cap that does exist never got a
-    chance to apply.
+    The files considered are exactly `_indexable`'s, which is exactly what the
+    walk indexes. This used to be its own list of seven extensions, and a
+    repository whose code is none of them had a fingerprint that could not
+    move: editing a .go, .rs, .kt, .cs, .rb, .java, .yaml, .tf or .proto file
+    changed what the map should say and not what the fingerprint said, so the
+    next build reported "unchanged since it was built" and served the old
+    answer until some .py or .md file happened to change.
+
+    Going through `_indexable` also means `_tree`'s bound and pruning and the
+    repository's `.wawe-ignore`/`.gitignore` patterns apply here. This runs
+    before anything else, so while it was unbounded `--repo /`, one keystroke
+    away from `--repo .`, never returned at all and the file cap that does
+    exist never got a chance to apply.
     """
     head = ""
     try:
-        import subprocess
         head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
-                              capture_output=True, text=True, timeout=15).stdout.strip()
-    except Exception:  # noqa: BLE001 — a repository without git still gets a map
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=15).stdout.strip()
+    except Exception:  # noqa: BLE001 - a repository without git still gets a map
         pass
-    pats = _ignores(repo)
     newest = 0
-    for base, dirs, files in _tree(repo):
-        if pats:
-            dirs[:] = [d for d in dirs
-                       if not _ignored(os.path.relpath(os.path.join(base, d), repo), pats)]
-        for fn in files:
-            if not fn.endswith((".py", ".feature", ".sh", ".ts", ".js", ".json", ".md")):
-                continue
-            full = os.path.join(base, fn)
-            if pats and _ignored(os.path.relpath(full, repo), pats):
-                continue
-            try:
-                newest = max(newest, os.stat(full).st_mtime_ns)
-            except OSError:
-                continue
+    for full in _indexable(repo):
+        try:
+            newest = max(newest, os.stat(full).st_mtime_ns)
+        except OSError:
+            continue
     return f"{head}:{newest}"
 
 
