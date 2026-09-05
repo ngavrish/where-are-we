@@ -2028,3 +2028,25 @@ jobs:
           test -s /tmp/cfg/m/.wawe-ask.log
           WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cfg/r --out /tmp/cfg/m \
             --product none --force --quiet --no-semantic 2>&1 | grep -q "parsed .* files"
+
+      - name: SCHEMA.md documents every key the map emits
+        run: |
+          set -o pipefail
+          rm -rf /tmp/schema
+          where-are-we --repo . --out /tmp/schema --product none --force \
+            --quiet --no-semantic
+          # CONTRIBUTING.md calls framework_map.json a contract and says
+          # something depends on every key in it. SCHEMA.md documented 41 of
+          # the 145 the build emits.
+          python - <<'EOF'
+          import json, pathlib, re, sys
+          m = json.load(open("/tmp/schema/framework_map.json"))
+          doc = pathlib.Path("SCHEMA.md").read_text()
+          rows = dict(re.findall(r"^\| `([a-z_0-9]+)` \| ([^|]+) \|", doc, re.M))
+          missing = [k for k in m if k not in rows]
+          extra = [k for k in rows if k not in m]
+          blank = [k for k, shape in rows.items() if not shape.strip()]
+          print(f"{len(m)} keys in the map, {len(rows)} rows in SCHEMA.md, "
+                f"undocumented: {missing}, documented but never emitted: {extra}")
+          sys.exit(1 if (missing or extra or blank) else 0)
+          EOF
