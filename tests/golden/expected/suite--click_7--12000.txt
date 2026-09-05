@@ -7,10 +7,6 @@
 - `pay_steps.py:step_pay_7` → click_7
 … 24 rows in this section do not mention these words
 
-## Who calls whom, across files
-- `pay_steps.py:step_pay_7` → click_7 (checkout.py)
-… 19 rows in this section do not mention these words
-
 ## What you can already write with (85)
 - CheckoutPage.click_7()
 … 85 rows in this section do not mention these words

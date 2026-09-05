@@ -7,14 +7,6 @@ Sample: `features/checkout/pay.feature`
 
 ## Who calls whom, across files
 - `pay_steps.py:step_pay_1` → click_1 (checkout.py)
-- `pay_steps.py:step_pay_2` → click_2 (checkout.py)
-- `pay_steps.py:step_pay_3` → click_3 (checkout.py)
-- `pay_steps.py:step_pay_4` → click_4 (checkout.py)
-- `pay_steps.py:step_pay_5` → click_5 (checkout.py)
-- `pay_steps.py:step_pay_6` → click_6 (checkout.py)
-- `pay_steps.py:step_pay_7` → click_7 (checkout.py)
-- `pay_steps.py:step_pay_8` → click_8 (checkout.py)
-- `pay_steps.py:step_pay_9` → click_9 (checkout.py)
 - `pay_steps.py:step_pay_10` → click_10 (checkout.py)
 - `pay_steps.py:step_pay_11` → click_11 (checkout.py)
 - `pay_steps.py:step_pay_12` → click_12 (checkout.py)
@@ -25,7 +17,15 @@ Sample: `features/checkout/pay.feature`
 - `pay_steps.py:step_pay_17` → click_17 (checkout.py)
 - `pay_steps.py:step_pay_18` → click_18 (checkout.py)
 - `pay_steps.py:step_pay_19` → click_19 (checkout.py)
+- `pay_steps.py:step_pay_2` → click_2 (checkout.py)
 - `pay_steps.py:step_pay_20` → click_20 (checkout.py)
+- `pay_steps.py:step_pay_21` → click_21 (checkout.py)
+- `pay_steps.py:step_pay_22` → click_22 (checkout.py)
+- `pay_steps.py:step_pay_23` → click_23 (checkout.py)
+- `pay_steps.py:step_pay_24` → click_24 (checkout.py)
+- `pay_steps.py:step_pay_25` → click_25 (checkout.py)
+- `pay_steps.py:step_pay_26` → click_26 (checkout.py)
+- `pay_steps.py:step_pay_27` → click_27 (checkout.py)
 
 ## What each module says it is for
 - `steps/pay_steps.py` — Step definitions for paying at checkout.

@@ -2,6 +2,9 @@
 
 - `payInvoice` — <root>/poly/repo/b.ts:3
 
+## Who calls whom, across files
+- `b.ts:payInvoice` → charge (a.ts)
+
 ## Public surface of the code
 - `b.ts`: payInvoice
 … 2 rows in this section do not mention these words
