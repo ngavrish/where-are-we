@@ -23,8 +23,8 @@ from . import extract, state
 from .declare import _step_texts, index_declarations
 from .state import DEFINITIONS, INDEXED, LINES
 from .walk import (SKIP_DIRS, _cached, _lines_matching, _load_parse_cache,
-                   _manifest, _product_roots, _save_parse_cache, _slurp, _tree,
-                   _walk)
+                   _manifest, _product_roots, _save_parse_cache, _slurp,
+                   _tree, _walk, sweep_out_dir)
 
 
 def _layer_line(paths: list, what: str) -> str:
@@ -59,6 +59,12 @@ def build(repo: str, out_dir: str | None = None,
     # again. That is the difference from WAWE_NO_CACHE=1, which also stops
     # the cache being written and so makes the next build cold as well.
     state.PARSE_CACHE_READS = not force
+    if out_dir is not None:
+        # Before anything is written: a build killed mid-write leaves a
+        # temporary behind, and _stage_atomic only ever sweeps the one name it
+        # is about to write, which never clears an artefact this build does
+        # not produce.
+        sweep_out_dir(out_dir)
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT

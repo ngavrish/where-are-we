@@ -1130,3 +1130,38 @@ jobs:
             --force --quiet --no-semantic
           grep -q KEPT_NAME /tmp/fpx/igm/framework_map.json
           ! grep -q IGNORED_NAME /tmp/fpx/igm/framework_map.json
+
+      - name: a pipe does not hang the build, and dead temporaries are swept
+        run: |
+          rm -rf /tmp/nr
+          mkdir -p /tmp/nr/r /tmp/nr/m
+          printf 'KEPT = 1\n' > /tmp/nr/r/ok.py
+          # os.walk lists a FIFO like any other file, and open() on one with no
+          # writer blocks forever, so the build stopped there and never came
+          # back. There is no timeout to reach for: a pipe is not source code.
+          mkfifo /tmp/nr/r/x.py
+          timeout 60 where-are-we --repo /tmp/nr/r --out /tmp/nr/m --product none \
+            --force --quiet --no-semantic
+          grep -q KEPT /tmp/nr/m/framework_map.json
+          grep -q "not a regular file" /tmp/nr/m/framework_map.md
+          # Every artefact name is swept at the start of a build, not only the
+          # ones this build writes: a kill during --html left its temporary
+          # behind for good if the next build was run without --html.
+          for n in framework_map.html spec_map.json spec_map.md \
+                   semantic_index.npy .pointer-head; do
+            : > "/tmp/nr/m/$n.99999.tmp"
+          done
+          : > "/tmp/nr/m/framework_map.md.$$.tmp"
+          : > "/tmp/nr/m/notes.txt.99999.tmp"
+          sleep 1.1
+          printf 'KEPT = 2\n' > /tmp/nr/r/ok.py
+          where-are-we --repo /tmp/nr/r --out /tmp/nr/m --product none --quiet --no-semantic
+          # Gone: staged by a pid that no longer exists, under a name this
+          # package writes.
+          test -z "$(find /tmp/nr/m -name '*.99999.tmp' -name 'framework_map*')"
+          test -z "$(find /tmp/nr/m -name 'spec_map*.99999.tmp')"
+          test -z "$(find /tmp/nr/m -name 'semantic_index*.99999.tmp')"
+          # Left alone: a live writer's temporary, and a name this package
+          # never writes.
+          test -f "/tmp/nr/m/framework_map.md.$$.tmp"
+          test -f /tmp/nr/m/notes.txt.99999.tmp

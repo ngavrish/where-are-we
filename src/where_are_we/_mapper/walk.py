@@ -9,6 +9,7 @@ last build", and the rest of the package is built on those answers.
 import json
 import os
 import re
+import stat
 import subprocess
 
 from . import state
@@ -26,32 +27,67 @@ SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 _PARSE_CACHE_FILE = ".wawe-cache.json"
 
 
-def _sweep_stale(path: str) -> None:
-    """Remove temporaries a killed writer left beside `path`.
+def _drop_if_dead(tmp: str, stem_len: int) -> None:
+    """Remove one staged temporary if the process that staged it is gone.
 
-    A build killed between writing its temporary and renaming it (the plugin's
-    hook timeout does exactly that) leaves the file behind, and nothing else
-    would ever remove it. Only temporaries whose process is gone are touched:
-    a live builder's temporary is a file it is about to rename into place.
+    A live builder's temporary is a file it is about to rename into place, so
+    it is left exactly alone. A pid that has been reused belongs to some other
+    live process, which costs one temporary that outlives its writer and is
+    swept the next time that pid is free.
     """
+    try:
+        pid = int(tmp[stem_len + 1:-len(".tmp")])
+    except ValueError:
+        return
+    if pid == os.getpid():
+        return
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    except OSError:  # alive, and owned by somebody else
+        pass
+
+
+def _sweep_stale(path: str) -> None:
+    """Remove temporaries a killed writer left beside `path`."""
     import glob
 
     for tmp in glob.glob(f"{glob.escape(path)}.*.tmp"):
-        try:
-            pid = int(tmp[len(path) + 1:-len(".tmp")])
-        except ValueError:
-            continue
-        if pid == os.getpid():
-            continue
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
-        except OSError:  # alive, and owned by somebody else
-            continue
+        _drop_if_dead(tmp, len(path))
+
+
+# Everything this package stages beside its final name in an output directory.
+# Named here rather than discovered by pattern, so a sweep never removes a file
+# that merely happens to end in `.<digits>.tmp`.
+ARTEFACTS = ("framework_map.json", "framework_map.md", "framework_map_brief.md",
+             "framework_map.html", "spec_map.json", "spec_map.md",
+             _PARSE_CACHE_FILE, ".pointer-head",
+             "semantic_index.npy", "semantic_index.json")
+
+
+def sweep_out_dir(out_dir: str) -> None:
+    """Remove every dead writer's temporary in `out_dir`, at the start of a build.
+
+    `_stage_atomic` sweeps the one name it is about to write, which is enough
+    for an artefact this build writes and no help at all for one it does not.
+    A build killed while writing `framework_map.html` leaves that temporary
+    behind for good if the next build is run without `--html`, and the same
+    for `spec_map.*`, the semantic index, and a `.pointer-head` staged by a
+    `--pointer` call that never came back. Sweeping the whole known set once
+    per build is the only thing that clears those.
+    """
+    import glob
+
+    if not os.path.isdir(out_dir):
+        return
+    for name in ARTEFACTS:
+        stem = os.path.join(out_dir, name)
+        for tmp in glob.glob(f"{glob.escape(stem)}.*.tmp"):
+            _drop_if_dead(tmp, len(stem))
 
 
 def _stage_atomic(path: str, text: str) -> str:
@@ -337,14 +373,18 @@ def _ignores(root: str) -> list:
     return pats
 
 
-_ESCAPED_NOTE = ("a symlink in this tree resolves outside the repository and was "
-                 "not read: a link that leaves the repository is not part of it, "
-                 "and what is on the other end has no business in a map that gets "
-                 "committed and pasted into prompts")
+_ESCAPED_NOTE = ("something in this tree was not read: a symlink that resolves "
+                 "outside the repository (a link that leaves the repository is "
+                 "not part of it, and what is on the other end has no business "
+                 "in a map that gets committed and pasted into prompts), or a "
+                 "file that is not a regular file, such as a pipe or a device")
 
 
-def _leaves_tree(path: str, real_root: str) -> bool:
-    """Whether `path` is a symlink whose target lives outside `real_root`.
+def _unreadable(path: str, real_root: str) -> bool:
+    """Whether the walk should refuse to open `path` at all.
+
+    Two reasons. A symlink whose target lives outside `real_root`, and
+    anything that is not a regular file.
 
     `os.walk` is called without `followlinks` anywhere in this package, so a
     symlinked *directory* is never descended into and a link loop terminates.
@@ -354,30 +394,46 @@ def _leaves_tree(path: str, real_root: str) -> bool:
     contents there. The path recorded stays inside the repository, which
     makes the leak harder to notice rather than easier.
 
-    Only links are resolved, and the answer is remembered for the length of
-    the build, because one build walks the same tree about a dozen times and
-    the `lstat` per file per pass was measurable where one per file is not.
+    The second is the reason a FIFO named `x.py` was fatal: `os.walk` lists
+    it like any other file, and `open()` on a FIFO with no writer blocks
+    forever, so the build stopped at that file and never came back. There is
+    no timeout to reach for and no partial answer to give; a pipe, a socket
+    or a device is not source code, and the map is better off not knowing it
+    is there. The same `lstat` answers both questions.
+
+    The answer is remembered for the length of the build, because one build
+    walks the same tree about a dozen times and an `lstat` per file per pass
+    was measurable where one per file is not.
     """
     key = (real_root, path)
     hit = _LINK_CACHE.get(key)
     if hit is not None:
         return hit
     out = False
-    if os.path.islink(path):
-        try:
-            real = os.path.realpath(path)
-        except OSError:
-            out = True
+    try:
+        st = os.lstat(path)
+    except OSError:
+        out = True
+    else:
+        if stat.S_ISLNK(st.st_mode):
+            try:
+                real = os.path.realpath(path)
+                out = not (real == real_root
+                           or real.startswith(real_root + os.sep))
+                if not out:
+                    out = not stat.S_ISREG(os.stat(path).st_mode)
+            except OSError:
+                out = True
         else:
-            out = not (real == real_root or real.startswith(real_root + os.sep))
+            out = not stat.S_ISREG(st.st_mode)
     _LINK_CACHE[key] = out
     return out
 
 
 def _tree(root: str):
     """`os.walk(root)` with the directories this project never reads pruned,
-    files that link out of the tree dropped, and a bound on how much of a
-    tree one pass will look at.
+    files that link out of the tree or are not regular files dropped, and a
+    bound on how much of a tree one pass will look at.
 
     Yields the same `(base, dirs, files)` triples in the same order, so a
     caller reads exactly as it did before. What it adds is the `SKIP_DIRS`
@@ -397,7 +453,7 @@ def _tree(root: str):
     seen = 0
     for base, dirs, files in os.walk(root):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        kept = [f for f in files if not _leaves_tree(os.path.join(base, f), real_root)]
+        kept = [f for f in files if not _unreadable(os.path.join(base, f), real_root)]
         if len(kept) != len(files) and _ESCAPED_NOTE not in TRUNCATED:
             TRUNCATED.append(_ESCAPED_NOTE)
         files = kept
