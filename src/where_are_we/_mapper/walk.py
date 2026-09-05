@@ -282,7 +282,7 @@ def _lines_matching(body, words, limit=4):
 
 def _slurp(path: str, limit: int = 400000) -> str:
     """Read a file once per run, up to `limit` bytes. The sections each used to
-    walk and re-read the tree for themselves — a hundred sections over a
+    walk and re-read the tree for themselves, and a hundred sections over a
     hundred-thousand-file repository is a hundred passes over the same disk for
     the same bytes.
 
@@ -404,7 +404,7 @@ def _tree(root: str):
         yield base, dirs, files
         if seen >= MAX_FILES:
             note = (f"a tree walk stopped after {MAX_FILES} entries under "
-                    f"{root} — raise WAWE_MAX_FILES or add to .wawe-ignore; "
+                    f"{root}: raise WAWE_MAX_FILES or add to .wawe-ignore; "
                     f"what was reached is mapped and the rest is not")
             if note not in TRUNCATED:
                 TRUNCATED.append(note)
