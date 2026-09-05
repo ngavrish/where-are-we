@@ -363,7 +363,7 @@ def _definitions_block(map_path: str, terms: list, room: int,
     """`## Defined here`, bounded to `room`; empty when nothing was defined
     under these terms.
 
-    `terms` keeps `_definitions_for`'s AND semantics: a name counts when it
+    `terms` keeps `definitions_for`'s AND semantics: a name counts when it
     holds every literal word, or is exactly one of them. `extra`, when
     given, is synonym and stem words from `_expand`; any one of them is
     enough on its own, and a name that only matches through `extra` is
@@ -373,7 +373,7 @@ def _definitions_block(map_path: str, terms: list, room: int,
     # module rather than pull a name out of it. mapper.py imports this module
     # at load time with a plain top-level `from .ask import ask, fit_lines`,
     # so a module-level or name-extracting import here
-    # (`from .mapper import _definitions_for`) raises "cannot import name
+    # (`from .mapper import definitions_for`) raises "cannot import name
     # from partially initialized module" whenever `where_are_we.ask` is
     # imported before `where_are_we.mapper`. Deferring the import to call
     # time, and only binding the module object, sidesteps that: by the time
@@ -382,7 +382,7 @@ def _definitions_block(map_path: str, terms: list, room: int,
         from . import mapper as _mapper
     except ImportError:  # run as a plain file, with no package around it
         import mapper as _mapper  # type: ignore[no-redef]
-    exact = _mapper._definitions_for(map_path, terms, extra)
+    exact = _mapper.definitions_for(map_path, terms, extra)
     if not exact:
         return ""
     return _defined_here(exact, room)
@@ -480,7 +480,7 @@ def _also_matched(def_block: str, section_chunks: list, terms: list, candidates:
 
     A candidate earns a place only for a row (or a defined name) the literal
     words did not already match on their own - riding along in a row the
-    literal words earned does not count. `_definitions_for`'s AND semantics
+    literal words earned does not count. `definitions_for`'s AND semantics
     apply to a name; `_split_rows`'s OR semantics apply to a section row, so
     each is checked the way it was matched.
     """

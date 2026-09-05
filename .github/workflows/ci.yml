@@ -1693,3 +1693,32 @@ jobs:
           # never writes.
           test -f "/tmp/nr/m/framework_map.md.$$.tmp"
           test -f /tmp/nr/m/notes.txt.99999.tmp
+
+      - name: the names two public modules call are public names
+        run: |
+          set -o pipefail
+          rm -rf /tmp/pub
+          mkdir -p /tmp/pub
+          printf 'def charge(x):\n    return x\n' > /tmp/pub/billing.py
+          # ask.py, lsp.py, mcp.py and hooks.py reached into the facade for
+          # `_definitions_for` and `_fingerprint`: two underscore names that
+          # four modules and a language server's documented line format
+          # already depended on. They are public names now, and the old ones
+          # are aliases of the same objects for one release.
+          python - <<'EOF'
+          from where_are_we import mapper
+          for name in ("definitions_for", "fingerprint"):
+              assert hasattr(mapper, name), name
+          assert mapper.definitions_for is mapper._definitions_for
+          assert mapper.fingerprint is mapper._fingerprint
+          assert mapper.fingerprint("/tmp/pub").endswith(tuple("0123456789"))
+          EOF
+          # And the callers really call the public ones: no module outside the
+          # facade and its aliases mentions the underscore spellings.
+          if grep -rn "_definitions_for\|_fingerprint" src/where_are_we \
+               --include='*.py' | grep -v "src/where_are_we/mapper.py" \
+               | grep -v "_definitions_for = definitions_for" \
+               | grep -v "_fingerprint = fingerprint" \
+               | grep -v "^src/where_are_we/_mapper/walk.py:.*# " ; then
+            echo "a caller still uses the deprecated underscore name"; exit 1
+          fi

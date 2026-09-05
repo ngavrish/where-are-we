@@ -885,7 +885,7 @@ def _walk(root: str, want: str) -> list[str]:
 
 
 
-def _fingerprint(repo: str) -> str:
+def fingerprint(repo: str) -> str:
     """What the map was built from: the commit, and the newest file in the tree.
 
     A map is only worth rebuilding when the thing it describes has moved. The
@@ -928,6 +928,11 @@ def _fingerprint(repo: str) -> str:
         except OSError:
             continue
     return f"{head}:{newest}"
+
+
+# The name this was called for its first eight releases, kept so a caller
+# that already imported it does not break. Deprecated: use `fingerprint`.
+_fingerprint = fingerprint
 
 
 def _manifest(repo: str) -> dict:

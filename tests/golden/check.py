@@ -58,7 +58,7 @@ def _normalized(text: str, root: str) -> str:
     """`text` with the fixtures' own temp root replaced by a fixed marker.
 
     `## Defined here` rows carry the absolute path a name was declared at
-    (`ask.py`'s `_definitions_for` reads it straight from the map's own
+    (`ask.py`'s `definitions_for` reads it straight from the map's own
     `definitions` index), so every case built from a match on a defined name
     carries this run's temp directory. Stripped here rather than avoided
     upstream: `build_fixtures` cannot know what path the caller will build

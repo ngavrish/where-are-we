@@ -267,11 +267,11 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         if name_field is not None and not _is_str_or_str_list(name_field):
             raise _BadParams("name must be a string or a list of strings")
         wanted = _each(name_field)
-        # One pass over the map for the whole list: _definitions_for
+        # One pass over the map for the whole list: definitions_for
         # already takes several names, and reading the map once per name
         # is the cost this batching exists to remove.
-        hits = mapper._definitions_for(map_path,
-                                       [w.lower() for w in wanted])
+        hits = mapper.definitions_for(map_path,
+                                      [w.lower() for w in wanted])
         answer = ("\n".join(hits) if hits
                   else "no declaration of "
                        + ", ".join(repr(w) for w in wanted)

@@ -58,7 +58,7 @@ try:
                                _ignored, _ignores, _lines_matching,
                                _load_parse_cache, _looks_like_suite, _manifest,
                                _product_roots, _save_parse_cache, _slurp,
-                               _walk, redact)
+                               _walk, fingerprint, redact)
     from ._mapper.declare import (DECLARATIONS, STEP_DECORATORS,
                                   TS_LANG_BY_EXT, _DECLARES, _PER_FILE_CAP,
                                   _TS_PARSERS, _declared_names, _line_for_name,
@@ -68,8 +68,8 @@ try:
                                   find_text, index_declarations, index_lines)
     from ._mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
                                  _cap_sections, _definitions_for, brief,
-                                 changed_since, digest, for_audience,
-                                 meaning_tail, pointer)
+                                 changed_since, definitions_for, digest,
+                                 for_audience, meaning_tail, pointer)
     from ._mapper.build import _layer_line, build
     from ._mapper.cli import init_manifest, install_hook, main, propose_docs
 except ImportError:  # run as a plain file, with no package around it
@@ -80,7 +80,7 @@ except ImportError:  # run as a plain file, with no package around it
                               _ignored, _ignores, _lines_matching,
                               _load_parse_cache, _looks_like_suite, _manifest,
                               _product_roots, _save_parse_cache, _slurp, _walk,
-                              redact)
+                              fingerprint, redact)
     from _mapper.declare import (DECLARATIONS, STEP_DECORATORS, TS_LANG_BY_EXT,
                                  _DECLARES, _PER_FILE_CAP, _TS_PARSERS,
                                  _declared_names, _line_for_name,
@@ -90,8 +90,8 @@ except ImportError:  # run as a plain file, with no package around it
                                  index_declarations, index_lines)
     from _mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
                                 _cap_sections, _definitions_for, brief,
-                                changed_since, digest, for_audience,
-                                meaning_tail, pointer)
+                                changed_since, definitions_for, digest,
+                                for_audience, meaning_tail, pointer)
     from _mapper.build import _layer_line, build
     from _mapper.cli import init_manifest, install_hook, main, propose_docs
 

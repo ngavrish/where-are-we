@@ -340,7 +340,7 @@ def brief(m: dict) -> str:
     # these languages at all before it ever needs to ask about one of them.
     # The brief is what `--agent-file` writes straight into a prompt, so this
     # list is capped hard: a large repository's full name table belongs in
-    # framework_map.json (`_definitions_for` reads it there, uncapped), not
+    # framework_map.json (`definitions_for` reads it there, uncapped), not
     # in the tens of thousands of tokens a prompt actually pays for.
     defs = _as_dict(m.get("definitions"))
     if defs:
@@ -1028,8 +1028,8 @@ def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = Non
     return "\n".join(lines) + "\n"
 
 
-def _definitions_for(map_path: str, terms: list[str],
-                     extra: list[str] | None = None) -> list[str]:
+def definitions_for(map_path: str, terms: list[str],
+                    extra: list[str] | None = None) -> list[str]:
     """Exact places, from the map's own index of what was defined where.
 
     Answered before any prose, because this is the question actually being
@@ -1062,6 +1062,12 @@ def _definitions_for(map_path: str, terms: list[str],
         elif any(t in low for t in extra):
             expansion.append(row)
     return (sorted(literal) + sorted(expansion))[:40]
+
+
+# The name this was called before it was admitted to be public, kept so a
+# caller that already imported it does not break. Deprecated: use
+# `definitions_for`.
+_definitions_for = definitions_for
 
 
 def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,

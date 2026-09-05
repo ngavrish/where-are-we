@@ -28,8 +28,8 @@ from .build import build
 from .render import (_as_dict, _cap_sections, brief, changed_since, digest,
                      for_audience, meaning_tail, pointer)
 from .state import DEFINITIONS, INDEXED
-from .walk import (SKIP_DIRS, _config, _fingerprint, _product_roots,
-                   _write_atomic, _write_atomic_group, redact)
+from .walk import (SKIP_DIRS, _config, _product_roots, _write_atomic,
+                   _write_atomic_group, fingerprint, redact)
 
 
 def _write_error(exc: OSError, fallback: str = "") -> int:
@@ -656,7 +656,7 @@ def main() -> int:
         print(f"watching {repo}, every {args.watch}s — Ctrl-C to stop")
         while True:
             try:
-                now_fp = _fingerprint(repo)
+                now_fp = fingerprint(repo)
                 if now_fp != last:
                     last = now_fp
                     # Before the build, same reasoning as the primary path:
@@ -696,7 +696,7 @@ def main() -> int:
             return 2
         return 0
 
-    stamp_now = _fingerprint(repo)
+    stamp_now = fingerprint(repo)
     existing = os.path.join(out_dir, "framework_map.json")
     if not args.force and not args.init and os.path.exists(existing):
         try:
