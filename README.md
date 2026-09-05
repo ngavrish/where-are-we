@@ -191,7 +191,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | GitHub Action (`ngavrish/where-are-we@v1`): inputs `repo`, `product`, `out`, `agent-file`, `comment`; outputs `brief`, `summary` | Map on CI, optional PR comment | Not measured | — |
 | pre-commit hook | Rebuild on commit so a map is never stale | Not measured | — |
 | `--install-hook git|claude|cursor|codex|gemini` | `git`: post-checkout/merge/commit hooks that rebuild; `claude` (`agent` is the same thing): a SessionStart hook for an agent harness (distinct from `--agent-file`, which writes the brief into a file); `cursor`: a Cursor rule at `.cursor/rules/where-are-we.mdc` plus `.cursor/mcp.json`; `codex`: an `AGENTS.md` block plus `~/.codex/config.toml`; `gemini`: a `GEMINI.md` block plus `.gemini/settings.json`. `cursor`, `codex` and `gemini` build the map into `.wawe` first if it is not already there; `git` and `claude` do not, since they already build into whatever `--out` was passed on their own first trigger, and a pre-build for them would be a second map in a different place | Not measured | — |
-| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the four tools over MCP; skills `orient`, `ask`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,sections}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
+| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the five tools over MCP; skills `orient`, `ask`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,sections,callers}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
 | Packages: PyPI wheel + sdist, deb (apt repo with key), rpm, Homebrew tap, GitHub release with SBOM (SPDX) and sigstore signatures | Install anywhere | — | — |
 
 ### Honesty features (not savings, guarantees)
@@ -360,7 +360,7 @@ brew tap ngavrish/tap && brew install where-are-we
 curl -fsSL https://ngavrish.github.io/where-are-we/install.sh | sh
 ```
 
-macOS, Debian, Ubuntu, Fedora, RHEL. Or `ghcr.io/ngavrish/where-are-we`. The
+macOS, Debian 13, Ubuntu 24.04, Fedora, RHEL (any of them with Python 3.12 or newer). Or `ghcr.io/ngavrish/where-are-we`. The
 `[semantic]` extra adds fastembed (ONNX on CPU, no service, no database); without
 it `--ask` still answers by keyword.
 

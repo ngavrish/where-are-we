@@ -331,10 +331,10 @@ jobs:
           where-are-we --repo /tmp/pd/r --out /tmp/pd/m --force
           export AGENT_REPO=/tmp/pd/r
           where-are-we --out /tmp/pd/m --pointer > /tmp/pd/first.txt
-          ! grep -q "files changed" /tmp/pd/first.txt
+          ! grep -q "file.* changed" /tmp/pd/first.txt
           printf 'y=2\n' > /tmp/pd/r/b.py
           git -C /tmp/pd/r add .
           git -C /tmp/pd/r commit -qm two
           printf 'z=3\n' > /tmp/pd/r/c.py
           where-are-we --out /tmp/pd/m --pointer > /tmp/pd/second.txt
-          grep -q "files changed" /tmp/pd/second.txt
+          grep -q "2 files changed" /tmp/pd/second.txt

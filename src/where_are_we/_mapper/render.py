@@ -989,7 +989,7 @@ def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = Non
         names = ", ".join(shown)
         if more:
             names += f", … and {more} more"
-        note = (f"Since the last session {len(changed)} files changed: {names}. "
+        note = (f"Since the last session {len(changed)} file{'s' if len(changed) != 1 else ''} changed: {names}. "
                 "Ask the map about them before reading them whole.")
         # Same budget as the rest of the pointer: said only when it fits,
         # never at the cost of going over what a prompt should carry.

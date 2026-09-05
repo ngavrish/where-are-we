@@ -6,3 +6,4 @@ build/
 .venv/
 
 .wawe/
+uv.lock

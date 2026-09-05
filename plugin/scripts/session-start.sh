@@ -37,8 +37,8 @@ fi
 # never touched and `git status` stays clean whether or not one exists.
 [ -f "$out/.gitignore" ] || printf '*\n' > "$out/.gitignore"
 
-ptr=$(cd "$cwd" && where-are-we --out .wawe --pointer 2>/dev/null || true)
+ptr=$(cd "$cwd" && where-are-we --repo . --out .wawe --pointer 2>/dev/null || true)
 [ -n "$ptr" ] || exit 0
 emit "$ptr
 
-The same map is on MCP in this session (server where-are-we): tools ask, find, defines, sections. Prefer them to the CLI and to grep: one call, a list of words or names, and only the rows that mention them come back."
+The same map is on MCP in this session (server where-are-we): tools ask, find, defines, sections, callers. Prefer them to the CLI and to grep: one call, a list of words or names, and only the rows that mention them come back."
