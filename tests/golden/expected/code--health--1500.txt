@@ -1,0 +1,14 @@
+## Defined here
+
+- `health` — <root>/code/repo/app/api.py:21
+
+## Which code touches which table
+- `api.py`: /health, /invoice, /invoice/{id} ↔ fastapi
+
+## HTTP routes this codebase serves (3)
+- GET /health  (api.py)
+… 2 rows in this section do not mention these words
+
+## Public surface of the code
+- `app/api.py`: list_invoices, get_invoice, health
+… 3 rows in this section do not mention these words

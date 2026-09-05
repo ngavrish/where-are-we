@@ -1,0 +1,3 @@
+## Defined here
+
+- `payInvoice` — <root>/poly/repo/b.ts:3

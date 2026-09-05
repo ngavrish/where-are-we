@@ -1,0 +1,10 @@
+## Defined here
+
+- `CheckoutPage.click_7` — pages/checkout.py:25
+- `click_7` — <root>/suite/repo/pages/checkout.py:25
+
+## What each step calls
+- `pay_steps.py:step_pay_7` → click_7
+… 24 rows in this section do not mention these words
+
+… more sections match; ask for something narrower

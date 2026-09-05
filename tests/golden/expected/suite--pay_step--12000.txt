@@ -1,0 +1,261 @@
+## Defined here
+
+- `def step_pay_10` — <root>/suite/repo/steps/pay_steps.py:47
+- `def step_pay_11` — <root>/suite/repo/steps/pay_steps.py:51
+- `def step_pay_12` — <root>/suite/repo/steps/pay_steps.py:55
+- `def step_pay_13` — <root>/suite/repo/steps/pay_steps.py:59
+- `def step_pay_14` — <root>/suite/repo/steps/pay_steps.py:63
+- `def step_pay_15` — <root>/suite/repo/steps/pay_steps.py:67
+- `def step_pay_16` — <root>/suite/repo/steps/pay_steps.py:71
+- `def step_pay_17` — <root>/suite/repo/steps/pay_steps.py:75
+- `def step_pay_18` — <root>/suite/repo/steps/pay_steps.py:79
+- `def step_pay_19` — <root>/suite/repo/steps/pay_steps.py:83
+- `def step_pay_1` — <root>/suite/repo/steps/pay_steps.py:11
+- `def step_pay_20` — <root>/suite/repo/steps/pay_steps.py:87
+- `def step_pay_21` — <root>/suite/repo/steps/pay_steps.py:91
+- `def step_pay_22` — <root>/suite/repo/steps/pay_steps.py:95
+- `def step_pay_23` — <root>/suite/repo/steps/pay_steps.py:99
+- `def step_pay_24` — <root>/suite/repo/steps/pay_steps.py:103
+- `def step_pay_25` — <root>/suite/repo/steps/pay_steps.py:107
+- `def step_pay_26` — <root>/suite/repo/steps/pay_steps.py:111
+- `def step_pay_27` — <root>/suite/repo/steps/pay_steps.py:115
+- `def step_pay_28` — <root>/suite/repo/steps/pay_steps.py:119
+- `def step_pay_29` — <root>/suite/repo/steps/pay_steps.py:123
+- `def step_pay_2` — <root>/suite/repo/steps/pay_steps.py:15
+- `def step_pay_30` — <root>/suite/repo/steps/pay_steps.py:127
+- `def step_pay_31` — <root>/suite/repo/steps/pay_steps.py:131
+- `def step_pay_32` — <root>/suite/repo/steps/pay_steps.py:135
+- `def step_pay_33` — <root>/suite/repo/steps/pay_steps.py:139
+- `def step_pay_34` — <root>/suite/repo/steps/pay_steps.py:143
+- `def step_pay_35` — <root>/suite/repo/steps/pay_steps.py:147
+- `def step_pay_36` — <root>/suite/repo/steps/pay_steps.py:151
+- `def step_pay_37` — <root>/suite/repo/steps/pay_steps.py:155
+- `def step_pay_38` — <root>/suite/repo/steps/pay_steps.py:159
+- `def step_pay_39` — <root>/suite/repo/steps/pay_steps.py:163
+- `def step_pay_3` — <root>/suite/repo/steps/pay_steps.py:19
+- `def step_pay_40` — <root>/suite/repo/steps/pay_steps.py:167
+- `def step_pay_4` — <root>/suite/repo/steps/pay_steps.py:23
+- `def step_pay_5` — <root>/suite/repo/steps/pay_steps.py:27
+- `def step_pay_6` — <root>/suite/repo/steps/pay_steps.py:31
+- `def step_pay_7` — <root>/suite/repo/steps/pay_steps.py:35
+- `def step_pay_8` — <root>/suite/repo/steps/pay_steps.py:39
+- `def step_pay_9` — <root>/suite/repo/steps/pay_steps.py:43
+
+### `steps/pay_steps.py` — 40 steps
+- pay step 1
+- pay step 2
+- pay step 3
+- pay step 4
+- pay step 5
+- pay step 6
+- pay step 7
+- pay step 8
+- pay step 9
+- pay step 10
+- pay step 11
+- pay step 12
+- pay step 13
+- pay step 14
+- pay step 15
+- pay step 16
+- pay step 17
+- pay step 18
+- pay step 19
+- pay step 20
+- pay step 21
+- pay step 22
+- pay step 23
+- pay step 24
+- pay step 25
+- pay step 26
+- pay step 27
+- pay step 28
+- pay step 29
+- pay step 30
+- pay step 31
+- pay step 32
+- pay step 33
+- pay step 34
+- pay step 35
+- pay step 36
+- pay step 37
+- pay step 38
+- pay step 39
+- pay step 40
+
+## Steps that overlap (80 pairs) — check whether one already does what you need
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 2" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 3" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 4" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 5" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 6" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 7" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 8" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 9" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 10" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 11" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 12" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 13" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 14" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 15" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 16" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 17" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 18" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 19" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 20" (`pay_steps.py`)
+- 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 21" (`pay_steps.py`)
+
+## Step phrases no feature uses (20) — dead weight, do not imitate
+- `pay_steps.py`: pay step 1; pay step 2; pay step 3; pay step 4
+
+## Step modules, largest first
+- `steps/`
+  - `pay_steps.py` — 40 steps
+  - `login_steps.py` — 5 steps
+
+## What you can already write with (85)
+- pay step 1
+- pay step 10
+- pay step 11
+- pay step 12
+- pay step 13
+- pay step 14
+- pay step 15
+- pay step 16
+- pay step 17
+- pay step 18
+- pay step 19
+- pay step 2
+- pay step 20
+- pay step 21
+- pay step 22
+- pay step 23
+- pay step 24
+- pay step 25
+- pay step 26
+- pay step 27
+- pay step 28
+- pay step 29
+- pay step 3
+- pay step 30
+- pay step 31
+- pay step 32
+- pay step 33
+- pay step 34
+- pay step 35
+- pay step 36
+- pay step 37
+- pay step 38
+- pay step 39
+- pay step 4
+- pay step 40
+- pay step 5
+- pay step 6
+- pay step 7
+- pay step 8
+- pay step 9
+… 46 rows in this section do not mention these words
+
+## Files nothing imports
+- `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
+
+## Largest files
+- steps/pay_steps.py (2 KB), pages/checkout.py (1 KB), steps/login_steps.py (0 KB)
+
+## What each module says it is for
+- `steps/`
+  - `login_steps.py` — Step definitions for logging in.
+  - `pay_steps.py` — Step definitions for paying at checkout.
+- `pages/checkout.py` — The checkout page: every element pay_steps.py clicks through.
+
+## What each step calls
+- `pay_steps.py:step_pay_1` → click_1
+- `pay_steps.py:step_pay_2` → click_2
+- `pay_steps.py:step_pay_3` → click_3
+- `pay_steps.py:step_pay_4` → click_4
+- `pay_steps.py:step_pay_5` → click_5
+- `pay_steps.py:step_pay_6` → click_6
+- `pay_steps.py:step_pay_7` → click_7
+- `pay_steps.py:step_pay_8` → click_8
+- `pay_steps.py:step_pay_9` → click_9
+- `pay_steps.py:step_pay_10` → click_10
+- `pay_steps.py:step_pay_11` → click_11
+- `pay_steps.py:step_pay_12` → click_12
+- `pay_steps.py:step_pay_13` → click_13
+- `pay_steps.py:step_pay_14` → click_14
+- `pay_steps.py:step_pay_15` → click_15
+- `pay_steps.py:step_pay_16` → click_16
+- `pay_steps.py:step_pay_17` → click_17
+- `pay_steps.py:step_pay_18` → click_18
+- `pay_steps.py:step_pay_19` → click_19
+- `pay_steps.py:step_pay_20` → click_20
+- `pay_steps.py:step_pay_21` → click_21
+- `pay_steps.py:step_pay_22` → click_22
+- `pay_steps.py:step_pay_23` → click_23
+- `pay_steps.py:step_pay_24` → click_24
+- `pay_steps.py:step_pay_25` → click_25
+
+## How a feature file is written here
+Sample: `features/checkout/pay.feature`
+Feature: Pay for an order
+  Scenario: Customer pays with a saved card
+    When they pay for the invoice
+    Then the payment is charged
+  Scenario: Customer pays and the charge is declined
+    When they pay for the invoice
+  Scenario: Customer pays with a new card
+    When they add a new card and pay for the invoice
+    Then the payment is charged
+… 8 rows in this section do not mention these words
+
+## Feature files
+- `features/checkout/pay.feature` — 3 scenarios
+… 1 rows in this section do not mention these words
+
+## Biggest feature files (scenario line numbers are in the full map)
+- `features/checkout/pay.feature` — 3 scenarios
+… 1 rows in this section do not mention these words
+
+### `steps/login_steps.py` — 5 steps
+… 5 rows in this section do not mention these words
+
+# Framework map
+Built from `<root>/suite/repo` at the start of this run: 2 step modules, 45 step phrases, 2 feature files, 5 scenarios.
+
+## What a step may call
+… 1 rows in this section do not mention these words
+
+## How the top-level packages depend on each other
+- `steps` → pages
+
+## How a test authenticates
+- `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
+
+## Which feature is served by which modules
+- `login.feature` → steps: login_steps.py
+
+## Who calls whom, across files
+- `pay_steps.py:step_pay_1` → click_1 (checkout.py)
+- `pay_steps.py:step_pay_2` → click_2 (checkout.py)
+- `pay_steps.py:step_pay_3` → click_3 (checkout.py)
+- `pay_steps.py:step_pay_4` → click_4 (checkout.py)
+- `pay_steps.py:step_pay_5` → click_5 (checkout.py)
+- `pay_steps.py:step_pay_6` → click_6 (checkout.py)
+- `pay_steps.py:step_pay_7` → click_7 (checkout.py)
+- `pay_steps.py:step_pay_8` → click_8 (checkout.py)
+- `pay_steps.py:step_pay_9` → click_9 (checkout.py)
+- `pay_steps.py:step_pay_10` → click_10 (checkout.py)
+- `pay_steps.py:step_pay_11` → click_11 (checkout.py)
+- `pay_steps.py:step_pay_12` → click_12 (checkout.py)
+- `pay_steps.py:step_pay_13` → click_13 (checkout.py)
+- `pay_steps.py:step_pay_14` → click_14 (checkout.py)
+- `pay_steps.py:step_pay_15` → click_15 (checkout.py)
+- `pay_steps.py:step_pay_16` → click_16 (checkout.py)
+- `pay_steps.py:step_pay_17` → click_17 (checkout.py)
+- `pay_steps.py:step_pay_18` → click_18 (checkout.py)
+- `pay_steps.py:step_pay_19` → click_19 (checkout.py)
+- `pay_steps.py:step_pay_20` → click_20 (checkout.py)
+
+## How this suite is built
+- **steps** — step definitions the features bind to — 2 files under steps
+… 5 rows in this section do not mention these words
