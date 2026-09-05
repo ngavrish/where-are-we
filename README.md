@@ -364,6 +364,9 @@ macOS, Debian, Ubuntu, Fedora, RHEL. Or `ghcr.io/ngavrish/where-are-we`. The
 `[semantic]` extra adds fastembed (ONNX on CPU, no service, no database); without
 it `--ask` still answers by keyword.
 
+Needs Python 3.12 or newer (stdlib only, no dependencies to install alongside
+it); 3.10 and 3.11 are no longer supported.
+
 ## Output
 
 | File | Contents |

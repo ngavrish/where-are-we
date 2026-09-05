@@ -104,8 +104,8 @@ def _cached(path: str, kind: str, compute):
 def _config(repo: str) -> dict:
     """Defaults from `.wawe.toml`, so a project states its own invocation once.
 
-    Read with tomllib where it exists and by hand where it does not: this tool
-    has no dependencies and is not about to grow one for six keys.
+    tomllib is stdlib on every supported Python, so this reads with it alone:
+    this tool has no dependencies and is not about to grow one for six keys.
     """
     path = os.path.join(repo, ".wawe.toml")
     if not os.path.exists(path):
@@ -117,42 +117,16 @@ def _config(repo: str) -> dict:
     try:
         import tomllib
         data = tomllib.loads(body)
-        out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
-        # `[synonyms]` is its own top-level table, named once for the project
-        # even when the rest of its config sits under `[where-are-we]` or
-        # `[tool.where-are-we]`; folded in here so it is never lost to
-        # whichever of those three branches `out` ended up as.
-        if isinstance(data.get("synonyms"), dict) and "synonyms" not in out:
-            out = {**out, "synonyms": data["synonyms"]}
-        return out
-    except Exception:  # noqa: BLE001 — python 3.10, or a file with a typo in it
-        # No tomllib on 3.10, so `[table]` headers are tracked by hand. A key
-        # under `[where-are-we]` or `[tool.where-are-we]` flattens to the top,
-        # the same as tomllib's own branches above; a key under any other
-        # table (`[synonyms]`) nests under that table's name instead, so
-        # `.wawe.toml`'s `[synonyms]` reaches `_config` the same shape on
-        # every supported Python. Arrays of strings are the only value shape
-        # this needs; nothing here reads a nested table of its own.
-        out: dict = {}
-        table = None
-        for line in body.splitlines():
-            m_table = re.match(r'^\s*\[([\w.-]+)\]\s*$', line)
-            if m_table:
-                table = m_table.group(1)
-                continue
-            m2 = re.match(r'\s*([\w-]+)\s*=\s*(.+)', line)
-            if not m2:
-                continue
-            key, raw = m2.group(1), m2.group(2).strip()
-            if raw.startswith("["):
-                value = [x.strip().strip('"\'') for x in raw.strip("[]").split(",") if x.strip()]
-            else:
-                value = raw.strip('"\'')
-            if table in (None, "where-are-we", "tool.where-are-we"):
-                out[key] = value
-            else:
-                out.setdefault(table, {})[key] = value
-        return out
+    except Exception:  # noqa: BLE001 — a file with a typo in it
+        return {}
+    out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
+    # `[synonyms]` is its own top-level table, named once for the project
+    # even when the rest of its config sits under `[where-are-we]` or
+    # `[tool.where-are-we]`; folded in here so it is never lost to
+    # whichever of those three branches `out` ended up as.
+    if isinstance(data.get("synonyms"), dict) and "synonyms" not in out:
+        out = {**out, "synonyms": data["synonyms"]}
+    return out
 
 
 _SECRET_SHAPES = re.compile(

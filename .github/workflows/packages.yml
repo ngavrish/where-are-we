@@ -51,7 +51,7 @@ jobs:
           Section: devel
           Priority: optional
           Architecture: all
-          Depends: python3 (>= 3.10)
+          Depends: python3 (>= 3.12)
           Maintainer: BoberIT <apt@where-are-we.dev>
           Description: Index a codebase into a map an agent can read
            Answers "where are we?" for a repository: layers, entry points, routes,
@@ -114,7 +114,7 @@ jobs:
           License:        MIT
           URL:            https://github.com/ngavrish/where-are-we
           BuildArch:      noarch
-          Requires:       python3 >= 3.10
+          Requires:       python3 >= 3.12
           %description
           Answers "where are we?" for a repository: layers, entry points, routes,
           data model, contracts, tests and the state of the code itself, derived

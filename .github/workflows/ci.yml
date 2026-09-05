@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.10", "3.12"]
+        python: ["3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,7 +38,7 @@ jobs:
           ! grep -q "cart total" /tmp/syn-out.txt
           grep -q "also matched: signin" /tmp/syn-out.txt
 
-      - name: .wawe.toml [synonyms] merges into ask, tomllib and the fallback parser alike
+      - name: .wawe.toml [synonyms] merges into ask, tomllib
         run: |
           mkdir -p /tmp/syncfg/repo /tmp/syncfg/out
           printf '%s\n' \
