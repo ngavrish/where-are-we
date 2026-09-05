@@ -35,7 +35,9 @@ jobs:
             > /tmp/syn/framework_map.md
           where-are-we --out /tmp/syn --ask login | tee /tmp/syn-out.txt
           grep -q "signin()" /tmp/syn-out.txt
-          ! grep -q "cart total" /tmp/syn-out.txt
+          if grep -q "cart total" /tmp/syn-out.txt; then
+            echo "unexpected match: grep -q 'cart total' /tmp/syn-out.txt"; exit 1
+          fi
           grep -q "also matched: signin" /tmp/syn-out.txt
 
       - name: .wawe.toml [synonyms] merges into ask, tomllib
@@ -157,7 +159,9 @@ jobs:
           where-are-we --repo /tmp/cg --out /tmp/cgmap
           grep -q "charge (a.ts)" /tmp/cgmap/framework_map_brief.md
           grep -q "Serve (s.go)" /tmp/cgmap/framework_map_brief.md
-          ! grep -q "b.ts:local" /tmp/cgmap/framework_map_brief.md
+          if grep -q "b.ts:local" /tmp/cgmap/framework_map_brief.md; then
+            echo "unexpected match: grep -q 'b.ts:local' /tmp/cgmap/framework_map_brief.md"; exit 1
+          fi
       - name: map a rust/kotlin/csharp/ruby fixture
         run: |
           rm -rf /tmp/langs /tmp/langsmap
@@ -182,7 +186,9 @@ jobs:
           grep -qF '`refund` — /tmp/langs/Pay.kt:4' /tmp/langsmap/framework_map*.md
           grep -qF '`Billing` — /tmp/langs/pay.rb:1' /tmp/langsmap/framework_map*.md
           grep -qF '`charge?` — /tmp/langs/pay.rb:3' /tmp/langsmap/framework_map*.md
-          ! grep -q "commented" /tmp/langsmap/framework_map*.md
+          if grep -q "commented" /tmp/langsmap/framework_map*.md; then
+            echo "unexpected match: grep -q 'commented' /tmp/langsmap/framework_map*.md"; exit 1
+          fi
       - name: who calls X
         run: |
           mkdir -p /tmp/wc
@@ -347,7 +353,9 @@ jobs:
           where-are-we --repo /tmp/pd/r --out /tmp/pd/m --force
           export AGENT_REPO=/tmp/pd/r
           where-are-we --out /tmp/pd/m --pointer > /tmp/pd/first.txt
-          ! grep -q "file.* changed" /tmp/pd/first.txt
+          if grep -q "file.* changed" /tmp/pd/first.txt; then
+            echo "unexpected match: grep -q 'file.* changed' /tmp/pd/first.txt"; exit 1
+          fi
           printf 'y=2\n' > /tmp/pd/r/b.py
           git -C /tmp/pd/r add .
           git -C /tmp/pd/r commit -qm two
@@ -546,7 +554,9 @@ jobs:
             echo "expected --install-hook claude to refuse an unwritable HOME" >&2
             exit 1
           fi
-          ! grep -q Traceback /tmp/rohome-err.txt
+          if grep -q Traceback /tmp/rohome-err.txt; then
+            echo "unexpected match: grep -q Traceback /tmp/rohome-err.txt"; exit 1
+          fi
           chmod 755 /tmp/rohome
       - name: "spec roots: a malicious SPEC_ROOTS entry is refused, not run"
         run: |
@@ -578,7 +588,10 @@ jobs:
           assert r == {"key": "X-1", "error": "the tracker did not answer in 2s"}, r
           PY
           sleep 1
-          ! pgrep -f "sleep 30"
+          # The timed-out fetch must not leave its child behind.
+          if pgrep -f "sleep 30"; then
+            echo "the timed-out fetch left a child process running"; exit 1
+          fi
       - name: "plugin session-start.sh maps a repository with no git"
         run: |
           rm -rf /tmp/ssnogit
@@ -679,7 +692,9 @@ jobs:
           EOF
           test "$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)" = "$md5_before"
           python -c "import json; json.load(open('/tmp/aw/m/framework_map.json'))"
-          ! grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json
+          if grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json; then
+            echo "unexpected match: grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json"; exit 1
+          fi
           # The next build sweeps away the temporary the killed one left.
           where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
           test -z "$(find /tmp/aw/m -name '*.tmp')"
@@ -767,9 +782,13 @@ jobs:
           grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json
           printf 'EDITED_NAME = 1\n' > /tmp/fp/r/m.py
           where-are-we --repo /tmp/fp/r --out /tmp/fp/m --product none --no-semantic | tee /tmp/fp/second.txt
-          ! grep -q "unchanged since it was built" /tmp/fp/second.txt
+          if grep -q "unchanged since it was built" /tmp/fp/second.txt; then
+            echo "unexpected match: grep -q 'unchanged since it was built' /tmp/fp/second.txt"; exit 1
+          fi
           grep -q EDITED_NAME /tmp/fp/m/framework_map.json
-          ! grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json
+          if grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json; then
+            echo "unexpected match: grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json"; exit 1
+          fi
       - name: every pass over a tree is bounded, so a huge root terminates
         run: |
           rm -rf /tmp/big
@@ -800,7 +819,9 @@ jobs:
           rm -rf /tmp/big/m2
           timeout 120 where-are-we --repo /tmp/big/r --out /tmp/big/m2 \
             --product none --force --quiet --no-semantic
-          ! grep -q "stopped after" /tmp/big/m2/framework_map.md
+          if grep -q "stopped after" /tmp/big/m2/framework_map.md; then
+            echo "unexpected match: grep -q 'stopped after' /tmp/big/m2/framework_map.md"; exit 1
+          fi
           grep -q C599_19 /tmp/big/m2/framework_map.json
 
       - name: --force reads nothing from the parse cache and rewrites it
@@ -817,7 +838,9 @@ jobs:
           python -c "import os; os.utime('/tmp/fc/r/m.py', (1700000000, 1700000000))"
           where-are-we --repo /tmp/fc/r --out /tmp/fc/m --product none --force --quiet --no-semantic
           grep -q BBB_fn /tmp/fc/m/framework_map.json
-          ! grep -q AAA_fn /tmp/fc/m/framework_map.json
+          if grep -q AAA_fn /tmp/fc/m/framework_map.json; then
+            echo "unexpected match: grep -q AAA_fn /tmp/fc/m/framework_map.json"; exit 1
+          fi
           # And the cache is rewritten, so the build after a --force is warm.
           rm -rf /tmp/fc/big /tmp/fc/bm
           mkdir -p /tmp/fc/big
@@ -858,7 +881,9 @@ jobs:
           EOF
           rm /tmp/w21/repo/pkg/f20.py
           sleep 3
-          ! grep -q '"f20"' /tmp/w21/repo/.wawe/framework_map.json
+          if grep -q '"f20"' /tmp/w21/repo/.wawe/framework_map.json; then
+            echo "unexpected match: grep -q ''f20'' /tmp/w21/repo/.wawe/framework_map.json"; exit 1
+          fi
           # All three map files, plus the ones the flags asked for. The watch
           # loop used to write only the JSON and the brief, so --ask against a
           # watched directory said there was no map.
@@ -953,9 +978,15 @@ jobs:
           ln -sf /tmp/esc/r/sibling.py /tmp/esc/r/inside_link.py
           where-are-we --repo /tmp/esc/r --out /tmp/esc/m --product none \
             --force --quiet --no-semantic
-          ! grep -q "root:x:0:0" /tmp/esc/m/framework_map.json
-          ! grep -q hunter2 /tmp/esc/m/framework_map.json
-          ! grep -q OUTSIDE_SECRET /tmp/esc/m/framework_map.json
+          if grep -q "root:x:0:0" /tmp/esc/m/framework_map.json; then
+            echo "unexpected match: grep -q 'root:x:0:0' /tmp/esc/m/framework_map.json"; exit 1
+          fi
+          if grep -q hunter2 /tmp/esc/m/framework_map.json; then
+            echo "unexpected match: grep -q hunter2 /tmp/esc/m/framework_map.json"; exit 1
+          fi
+          if grep -q OUTSIDE_SECRET /tmp/esc/m/framework_map.json; then
+            echo "unexpected match: grep -q OUTSIDE_SECRET /tmp/esc/m/framework_map.json"; exit 1
+          fi
           grep -q INSIDE_NAME /tmp/esc/m/framework_map.json
           grep -q SIBLING /tmp/esc/m/framework_map.json
           grep -q "inside_link.py" /tmp/esc/m/framework_map.json
@@ -1012,3 +1043,344 @@ jobs:
             --quiet --no-semantic
           # Only the borderline for-each-ref handler is still a broad one.
           test "$(grep -c 'except Exception' src/where_are_we/_mapper/build.py)" = "1"
+
+      - name: a narrow stdout encoding replaces characters instead of crashing
+        run: |
+          rm -rf /tmp/enc
+          mkdir -p /tmp/enc/r /tmp/enc/m
+          printf 'def caf\xc3\xa9_login():\n    pass\n' > /tmp/enc/r/m.py
+          where-are-we --repo /tmp/enc/r --out /tmp/enc/m --product none \
+            --force --quiet --no-semantic
+          # pointer() writes an em dash unconditionally, so this used to fail
+          # on every repository under an ascii stdout, not only this one.
+          PYTHONIOENCODING=ascii where-are-we --repo /tmp/enc/r --out /tmp/enc/m \
+            --pointer > /tmp/enc/ptr.txt
+          grep -q "framework map" /tmp/enc/ptr.txt
+          if grep -q "UnicodeEncodeError" /tmp/enc/ptr.txt; then
+            echo "unexpected match: grep -q 'UnicodeEncodeError' /tmp/enc/ptr.txt"; exit 1
+          fi
+          PYTHONIOENCODING=ascii LC_ALL=C LANG=C where-are-we --repo /tmp/enc/r \
+            --out /tmp/enc/m --ask login > /tmp/enc/ask.txt
+          grep -q "caf?_login" /tmp/enc/ask.txt
+          PYTHONIOENCODING=ascii where-are-we --repo /tmp/enc/r --out /tmp/enc/m \
+            --sections > /dev/null
+          # MCP answers over an ascii stdout too: JSON-RPC is escaped already,
+          # but the server used to die on the first non-ascii log line.
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"login"}}}' \
+            | PYTHONIOENCODING=ascii where-are-we --repo /tmp/enc/r \
+              --out /tmp/enc/m --mcp > /tmp/enc/mcp.txt
+          grep -q '"jsonrpc"' /tmp/enc/mcp.txt
+
+      - name: a UTF-16 source file is decoded, indexed and answerable
+        run: |
+          rm -rf /tmp/u16
+          mkdir -p /tmp/u16/r /tmp/u16/m
+          python -c "open('/tmp/u16/r/src.py','wb').write('def cafe_login(): pass\nCONST_X = 1\n'.encode('utf-16'))"
+          where-are-we --repo /tmp/u16/r --out /tmp/u16/m --product none \
+            --force --quiet --no-semantic
+          # The NUL sniff used to call every UTF-16 file binary, so it was not
+          # indexed and not even counted as skipped.
+          grep -q '"cafe_login"' /tmp/u16/m/framework_map.json
+          grep -q '"CONST_X"' /tmp/u16/m/framework_map.json
+          python -c "import json,sys; d=json.load(open('/tmp/u16/m/framework_map.json')); sys.exit(0 if sum(d['indexed'].values()) >= 1 else 1)"
+          where-are-we --repo /tmp/u16/r --out /tmp/u16/m --ask cafe_login \
+            > /tmp/u16/ask.txt
+          grep -q "## Defined here" /tmp/u16/ask.txt
+          grep -q "cafe_login" /tmp/u16/ask.txt
+          # A byte order mark is not proof of text: a compiled file starting
+          # FF FE decodes into mojibake instead of failing, and the NUL test
+          # cannot catch it any more because the NULs were the encoding.
+          rm -rf /tmp/u16/b
+          mkdir -p /tmp/u16/b /tmp/u16/bm
+          python -c "
+          import random
+          random.seed(7)
+          open('/tmp/u16/b/blob.py','wb').write(bytes([0xFF,0xFE]) + bytes(random.randrange(256) for _ in range(4000)))
+          "
+          python -c "open('/tmp/u16/b/real.py','wb').write('def cafe_login(): pass\n'.encode('utf-16'))"
+          where-are-we --repo /tmp/u16/b --out /tmp/u16/bm --product none \
+            --force --quiet --no-semantic
+          grep -q '"cafe_login"' /tmp/u16/bm/framework_map.json
+          python -c "import json,sys; d=json.load(open('/tmp/u16/bm/framework_map.json')); sys.exit(0 if 'blob.py' not in ' '.join(d['lines']) else 1)"
+          python -c "import json,sys; d=json.load(open('/tmp/u16/bm/framework_map.json')); sys.exit(0 if sum(d['indexed'].values()) == 1 else 1)"
+          # The gate is 97 per cent printable and random bytes score about 85,
+          # so it has to leave room for a real file in several scripts.
+          rm -rf /tmp/u16/p /tmp/u16/pm
+          mkdir -p /tmp/u16/p /tmp/u16/pm
+          python -c "
+          prose = ('# Documentaci\u00f3n\n\"\"\"Se connecter \u00e0 la bo\u00eete, \u00e7a marche.\n'
+                   '\u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac, \u0420\u0443\u0441\u0441\u043a\u0438\u0439, \u65e5\u672c\u8a9e, \ud55c\uad6d\uc5b4, \u0627\u0644\u0639\u0631\u0628\u064a\u0629.\n\"\"\"\n'
+                   'def caf\u00e9_login(mot_de_passe):\n    return True\n')
+          open('/tmp/u16/p/p.py','wb').write(prose.encode('utf-16'))
+          "
+          where-are-we --repo /tmp/u16/p --out /tmp/u16/pm --product none \
+            --force --quiet --no-semantic
+          python -c "import json,sys; d=json.load(open('/tmp/u16/pm/framework_map.json')); sys.exit(0 if sum(d['indexed'].values()) == 1 else 1)"
+
+      - name: --html escapes repository content instead of interpolating it
+        run: |
+          rm -rf /tmp/htm
+          mkdir -p /tmp/htm/r /tmp/htm/m
+          printf 'def f():\n    pass\n' > /tmp/htm/r/a.py
+          cat > /tmp/htm/r/.framework-map.json <<'JSON'
+          {"name":"x","purpose":"<script>alert(document.cookie)</script>",
+           "conventions":["<img src=x onerror=alert(1)>"]}
+          JSON
+          where-are-we --repo /tmp/htm/r --out /tmp/htm/m --product none \
+            --force --quiet --no-semantic --html
+          # The page is opened as file://, where script in it can read other
+          # local files, and a manifest or a docstring in a cloned repository
+          # used to be enough to put script there.
+          if grep -q "<script>alert" /tmp/htm/m/framework_map.html; then
+            echo "an unescaped <script> tag reached the page"; exit 1
+          fi
+          # The payload's text survives as text, which is the point; what
+          # must not survive is the tag around it.
+          if grep -q "<img src=x onerror" /tmp/htm/m/framework_map.html; then
+            echo "an unescaped <img> tag reached the page"; exit 1
+          fi
+          grep -q "&lt;script&gt;alert" /tmp/htm/m/framework_map.html
+          grep -q "&lt;img src=x onerror=alert(1)&gt;" /tmp/htm/m/framework_map.html
+          # The page itself is still a page: the renderer's own markup stays.
+          grep -q "<h1>" /tmp/htm/m/framework_map.html
+
+      - name: a missing map and an unwritable target are one line and a real exit code
+        run: |
+          rm -rf /tmp/xc
+          mkdir -p /tmp/xc/empty /tmp/xc/emptyout /tmp/xc/srv /tmp/xc/rorepo
+          printf 'def f():\n    pass\n' > /tmp/xc/srv/a.py
+          # --sections got this right; --ask printed the same complaint and
+          # returned 0, and --callers answered "nothing in the map calls foo"
+          # for a search that never happened.
+          for flag in "--ask login" "--callers foo" "--sections" "--pointer"; do
+            if where-are-we --repo /tmp/xc/empty --out /tmp/xc/emptyout $flag \
+                 2> /tmp/xc/err.txt; then
+              echo "$flag returned 0 with no map"; exit 1
+            fi
+            grep -q "no map at /tmp/xc/emptyout/framework_map.md" /tmp/xc/err.txt
+          done
+          # --repo that is not a directory: exit 2, and the path in the message.
+          printf 'x\n' > /tmp/xc/notadir
+          rc=0
+          where-are-we --repo /tmp/xc/notadir --out /tmp/xc/emptyout --force \
+            --quiet --no-semantic 2> /tmp/xc/err.txt || rc=$?
+          test "$rc" = "2"
+          grep -q "/tmp/xc/notadir is not a directory" /tmp/xc/err.txt
+          # An unwritable --out, --agent-file or --init target: one line naming
+          # the path, exit 1, and no traceback.
+          mkdir -p /tmp/xc/ro /tmp/xc/ro2
+          chmod 500 /tmp/xc/ro /tmp/xc/ro2 /tmp/xc/rorepo
+          for cmd in \
+            "--repo /tmp/xc/srv --out /tmp/xc/ro/sub" \
+            "--repo /tmp/xc/srv --out /tmp/xc/ro2" \
+            "--repo /tmp/xc/srv --out /tmp/xc/ok --agent-file /tmp/xc/ro2/AGENTS.md"; do
+            if where-are-we $cmd --force --quiet --no-semantic 2> /tmp/xc/err.txt; then
+              echo "wrote into a read-only directory: $cmd"; exit 1
+            fi
+            grep -q "framework_map: cannot write /tmp/xc/ro" /tmp/xc/err.txt
+            if grep -q "Traceback" /tmp/xc/err.txt; then
+              echo "unexpected match: grep -q 'Traceback' /tmp/xc/err.txt"; exit 1
+            fi
+          done
+          if where-are-we --repo /tmp/xc/rorepo --out /tmp/xc/emptyout --init \
+               2> /tmp/xc/err.txt; then exit 1; fi
+          grep -q "framework_map: cannot write /tmp/xc/rorepo/.framework-map.json" \
+            /tmp/xc/err.txt
+          if grep -q "Traceback" /tmp/xc/err.txt; then
+            echo "unexpected match: grep -q 'Traceback' /tmp/xc/err.txt"; exit 1
+          fi
+          chmod 700 /tmp/xc/ro /tmp/xc/ro2 /tmp/xc/rorepo
+          # Only a spec map: --ask answers from it, the other three say which
+          # file is missing and which one is there.
+          rm -rf /tmp/xc/sp
+          mkdir -p /tmp/xc/sp /tmp/xc/spr
+          printf '# Specification map\n\n## Tickets\n\n- `AB-1` login must reject a blank password\n' \
+            > /tmp/xc/sp/spec_map.md
+          where-are-we --repo /tmp/xc/spr --out /tmp/xc/sp --ask login > /tmp/xc/sp.txt
+          grep -q "AB-1" /tmp/xc/sp.txt
+          # Per flag, not per invocation: --ask alongside one of these three
+          # used to make the guard stand down and let the branch that runs
+          # answer from a directory with no code map in it.
+          for flag in "--sections" "--pointer" "--callers foo" \
+                      "--ask login --sections" "--ask login --pointer" \
+                      "--ask login --callers foo"; do
+            if where-are-we --repo /tmp/xc/spr --out /tmp/xc/sp $flag \
+                 2> /tmp/xc/err.txt; then
+              echo "$flag answered from a spec map"; exit 1
+            fi
+            grep -q "only --ask reads it" /tmp/xc/err.txt
+          done
+          # A map that is there still answers, and still returns 0.
+          where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --product none --force \
+            --quiet --no-semantic
+          where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --pointer > /dev/null
+          where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --ask f > /dev/null
+
+      - name: no seeded secret reaches any artefact, and a commit sha survives
+        run: |
+          rm -rf /tmp/sec
+          mkdir -p /tmp/sec/r/pkg /tmp/sec/m
+          cat > /tmp/sec/r/pkg/settings.py <<'PY'
+          DATABASE_URL = "postgres://admin:s3cr3tp4ss@db.internal:5432/prod"
+          STRIPE_KEY = "sk_live_FAKE0FAKE0FAKE0"
+          ADMIN_PASSWORD = "hunter2"
+          OPENAI_API_KEY = "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8"
+          JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc"
+          COMMIT_UNDER_TEST = "a3f5c9e2b7d1084f6a2c5e8b1d4f7a0c3e6b9d2f"
+          LONG_PATH = "src/main/java/com/example/service/impl/CustomerServiceImpl.java"
+          PY
+          printf 'db_password: hunter3\napi_key: abcdefdeadbeef\nharmless: keep-this-value\n' \
+            > /tmp/sec/r/pkg/conf.yaml
+          printf '{"client_secret": "abc123secret", "name": "widget"}\n' > /tmp/sec/r/pkg/j.json
+          printf 'export GITHUB_TOKEN=ghsecrettoken12345\nexport PATH=/usr/bin:$PATH\n' \
+            > /tmp/sec/r/pkg/setup.sh
+          printf 'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nDB_PASSWORD=hunter2\n' > /tmp/sec/r/.env
+          cat > /tmp/sec/r/pkg/key.pem <<'PEM'
+          -----BEGIN RSA PRIVATE KEY-----
+          MIIEowIBAAKCAQEAvR8Nx2Lp0qKZ7dJmW1sT3uYhGfB6cXeQ9oNaRtVzHkLpMwCd
+          PqRsTuVwXyZaBcDeFgHiJkLmNoPqRsTuVwXyZ+BcDeFgHiJkLmNoPqRsTuVw/yZa
+          BcDeFgHiJkLmNoPqRsTuVwXyZaBcDeFgHiJkLmNoPqRsTuVwXyZaBcDeFgHiJk==
+          -----END RSA PRIVATE KEY-----
+          PEM
+          cat > /tmp/sec/r/pkg/names.py <<'PY'
+          token_count = 3
+          max_token_count = 10
+          has_token = True
+          auth_backend = "ldap"
+          secret_name = "prod-db"
+          api_key_header = "X-Api-Key"
+          private_key_path = "/etc/ssl/key.pem"
+          credential_kind = "basic"
+          DISK_CACHE = "disk-cache-0001"
+          DOC = "docs/ask-the-map-and-not-the-tree.md"
+          work_live_configuration = "on"
+          DB_PASSWORD = "hunter2"
+          PIN_PASSWORD = 8675309
+          quoted_password = "12345678"
+          max_token = 4096
+          num_tokens = 10
+          MAX_TOKENS = 1000000
+          max_buffer_tokens = 1048576
+          TIMEOUT_TOKEN = 2000000
+          class Cfg:
+              token: str = ""
+          def f(auth):
+              return {
+                  "auth": auth,
+              }
+          PY
+          printf 'api_key: 1234567890123456\n' >> /tmp/sec/r/pkg/conf.yaml
+          # A PEM header in one file must not blank the rows another file
+          # contributes to an aggregated list.
+          printf 'import threading\nKEY_DOC = "-----BEGIN RSA PRIVATE KEY-----"\nlock = threading.Lock()\n' \
+            > /tmp/sec/r/pkg/a_page.py
+          printf 'import threading\nB_MARKER_LINE = "distinctive-b-content"\nb_lock = threading.Lock()\n' \
+            > /tmp/sec/r/pkg/b_page.py
+          where-are-we --repo /tmp/sec/r --out /tmp/sec/m --product none --force \
+            --quiet --no-semantic
+          where-are-we --repo /tmp/sec/r --out /tmp/sec/m --ask STRIPE_KEY > /dev/null
+          where-are-we --repo /tmp/sec/r --out /tmp/sec/m --ask db_password > /dev/null
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"STRIPE_KEY"}}}' \
+            | where-are-we --repo /tmp/sec/r --out /tmp/sec/m --mcp > /tmp/sec/find.txt
+          # Six shapes used to be redacted and everything else on an indexed
+          # line went verbatim into the map and out through MCP find.
+          for f in /tmp/sec/m/framework_map.json /tmp/sec/m/framework_map.md \
+                   /tmp/sec/m/framework_map_brief.md /tmp/sec/m/.wawe-ask.log \
+                   /tmp/sec/find.txt; do
+            if grep -qE 's3cr3tp4ss|sk_live_FAKE|hunter2|hunter3|sk-proj-Ab1|abc123secret|ghsecrettoken12345|abcdefdeadbeef|AKIAIOSFODNN7EXAMPLE|eyJzdWIi' "$f"; then
+              echo "unexpected match: grep -qE 's3cr3tp4ss|sk_live_FAKE|hunter2|hunter3|sk-proj-Ab1|abc123secret|ghsecrettoken12345|abcdefdeadbeef|AKIAIOSFODNN7EXAMPLE|eyJzdWIi' '$f'"; exit 1
+            fi
+          done
+          # The key names stay: a reader asking where a password is set still
+          # gets the file and the line.
+          grep -q "STRIPE_KEY" /tmp/sec/m/framework_map.json
+          grep -q "db_password" /tmp/sec/m/framework_map.json
+          grep -q "STRIPE_KEY" /tmp/sec/find.txt
+          grep -q "redacted" /tmp/sec/find.txt
+          # The bare base64 rule used to destroy both of these. It is back,
+          # gated on a `+` or an `=` in the run, and a sha and a Java package
+          # path have neither.
+          grep -q "a3f5c9e2b7d1084f6a2c5e8b1d4f7a0c3e6b9d2f" /tmp/sec/m/framework_map.json
+          grep -q "com/example/service/impl/CustomerServiceImpl.java" \
+            /tmp/sec/m/framework_map.json
+          grep -q "keep-this-value" /tmp/sec/m/framework_map.json
+          grep -q "export PATH=/usr/bin" /tmp/sec/m/framework_map.json
+          # A private key is redacted as a block. Only the header used to go,
+          # which left the base64 body in the map and coming back out of find.
+          if grep -q "MIIEowIBAAKCAQEAvR8Nx2Lp0qKZ" /tmp/sec/m/framework_map.json; then
+            echo "unexpected match: grep -q 'MIIEowIBAAKCAQEAvR8Nx2Lp0qKZ' /tmp/sec/m/framework_map.json"; exit 1
+          fi
+          if grep -q "BEGIN RSA PRIVATE KEY" /tmp/sec/m/framework_map.json; then
+            echo "unexpected match: grep -q 'BEGIN RSA PRIVATE KEY' /tmp/sec/m/framework_map.json"; exit 1
+          fi
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"MIIEowIBAAKCAQEA"}}}' \
+            | where-are-we --repo /tmp/sec/r --out /tmp/sec/m --mcp > /tmp/sec/pem.txt
+          if grep -q "MIIEowIBAAKCAQEAvR8" /tmp/sec/pem.txt; then
+            echo "unexpected match: grep -q 'MIIEowIBAAKCAQEAvR8' /tmp/sec/pem.txt"; exit 1
+          fi
+          # Code that merely mentions a credential is not a credential. Every
+          # one of these was redacted before the secret word had to be the
+          # last segment of the identifier.
+          python - <<'EOF'
+          import json, sys
+          lines = set()
+          for rows in json.load(open("/tmp/sec/m/framework_map.json"))["lines"].values():
+              lines.update(r.strip() for r in rows)
+          keep = ['token_count = 3', 'max_token_count = 10', 'has_token = True',
+                  'auth_backend = "ldap"', 'secret_name = "prod-db"',
+                  'api_key_header = "X-Api-Key"',
+                  'private_key_path = "/etc/ssl/key.pem"',
+                  'credential_kind = "basic"', 'token: str = ""',
+                  '"auth": auth,', 'DISK_CACHE = "disk-cache-0001"',
+                  'DOC = "docs/ask-the-map-and-not-the-tree.md"',
+                  'work_live_configuration = "on"',
+                  # A count has no ceiling. A six-digit cap redacted all
+                  # three of these, which are a context window, a buffer
+                  # size and a millisecond timeout.
+                  'MAX_TOKENS = 1000000', 'max_buffer_tokens = 1048576',
+                  'TIMEOUT_TOKEN = 2000000',
+                  'max_token = 4096', 'num_tokens = 10',
+                  # A quoted value keeps its quotes: the line is still the
+                  # syntax it was, and the reader can see it was a literal.
+                  'DB_PASSWORD = "[redacted]"']
+          missing = [k for k in keep if k not in lines]
+          if missing:
+              print("redacted something that is not a secret:", missing)
+              sys.exit(1)
+          # A number under a credential key is a credential. A blanket
+          # "digits are safe" rule handed all three of these to the map.
+          doc = open("/tmp/sec/m/framework_map.json").read()
+          for leak in ["8675309", "12345678", "1234567890123456"]:
+              if leak in doc:
+                  print("a numeric credential reached the map:", leak)
+                  sys.exit(1)
+          print("kept", len(keep), "lines that only mention a credential")
+          EOF
+          # PEM state is per file: b_page's contribution to any aggregated
+          # list survives a_page's header. It used to be blanked with it.
+          grep -q "distinctive-b-content" /tmp/sec/m/framework_map.json
+
+      - name: every environment variable the code reads is in the README table
+        run: |
+          python - <<'EOF'
+          import io, re, sys
+          names = set()
+          import pathlib
+          for path in pathlib.Path("src/where_are_we").rglob("*.py"):
+              body = io.open(path, encoding="utf-8").read()
+              # A name in a comment is an example, not a read.
+              body = "\n".join(l for l in body.splitlines()
+                                if not l.lstrip().startswith("#"))
+              names |= set(re.findall(
+                  r"os\.(?:environ\.get|getenv)\(\s*[\"']([A-Z][A-Z0-9_]*)[\"']", body))
+              names |= set(re.findall(
+                  r"os\.environ\[\s*[\"']([A-Z][A-Z0-9_]*)[\"']", body))
+          names -= {"HOME"}  # the user's home, not this tool's configuration
+          readme = io.open("README.md", encoding="utf-8").read()
+          table = readme.split("## Environment", 1)[1].split("## Keeping it honest", 1)[0]
+          missing = sorted(n for n in names if "`%s`" % n not in table)
+          if missing:
+              print("undocumented environment variables:", missing)
+              sys.exit(1)
+          print("documented:", len(names), "variables")
+          EOF

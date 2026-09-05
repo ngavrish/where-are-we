@@ -472,6 +472,36 @@ notebooks.
   hooks: [{id: where-are-we}]
 ```
 
+## Environment
+
+Every variable the tool reads. A flag always wins over the variable it
+defaults from.
+
+| name | read in | what it does | default |
+|---|---|---|---|
+| `AGENT_REPO` | `_mapper/walk.py`, `_mapper/cli.py`, `readmes.py` | the repository to index or answer about, when `--repo` is not given. `main()` also writes it back so the walk and the product guess see the resolved path | unset: `--out`'s parent when that is a `.wawe`, then `/work` if it exists, then the current directory |
+| `RUN_DIR` | `_mapper/cli.py`, `_mapper/build.py` | where the map files are written, when `--out` is not given | `.` |
+| `PRODUCT_SRC` | `_mapper/walk.py`, `_mapper/cli.py` | the product under test, colon or comma separated, when `--product` is not given. `none` switches the sibling guess off | unset: the siblings of a repository that looks like a test suite |
+| `RULES_REPO` | `_mapper/build.py`, `_mapper/cli.py` | a directory of agent rule files to fold into the map, when `--rules` is not given | `/rules` |
+| `RUNS_API_READ` | `_mapper/build.py`, `_mapper/cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is not given | unset: no runs section |
+| `SPEC_ROOTS` | `_mapper/cli.py` | the ticket keys `--specs` walks from, comma separated | unset |
+| `SPEC_FETCH_CMD` | `_mapper/cli.py` | the command that fetches one ticket as JSON, when `--spec-cmd` is not given | unset: `--specs` refuses to run without one |
+| `SPEC_SOURCE` | `_mapper/cli.py` | which built-in tracker command to use (`jira`, `linear`, `github`, `cmd`), when `--spec-source` is not given | `cmd` |
+| `WAWE_SPEC_DEPTH` | `specs.py` | how many link hops out from each root ticket the spec map walks | `2` |
+| `WAWE_SPEC_LIMIT` | `specs.py` | the most tickets one spec map will fetch | `60` |
+| `WAWE_MAX_FILES` | `_mapper/walk.py` | the most files one walk will visit before it stops and says so in the map | `40000` |
+| `WAWE_NO_CACHE` | `_mapper/build.py`, `_mapper/walk.py` | set to anything: parse every file again and leave the parse cache exactly as it was. `--force` re-parses but rewrites the cache | unset: the cache is read and written |
+| `WAWE_DEBUG_PARSES` | `_mapper/build.py` | set to anything: print the parse count per build to stderr, to see what an incremental rebuild actually re-read | unset: silent |
+| `WAWE_JUNIT_DIRS` | `_mapper/build.py` | extra directories of JUnit XML to read past runs from, separated by the platform's path separator | unset: the repository's own reports directories |
+| `WAWE_POINTER_MAX` | `_mapper/state.py` | the byte cap on the pointer, the block a SessionStart hook puts into context | `4000` |
+| `WAWE_VOCAB` | `_mapper/render.py` | cap on how many vocabulary entries the brief prints, split across the groups | `0`, meaning no cap |
+| `WAWE_ASK_LOG` | `ask.py` | set to `0` to stop appending a row per answer to `<out>/.wawe-ask.log` | unset: the log is written |
+| `WAWE_EMBED_MODEL` | `semantic.py` | the embedding model the optional semantic index uses | `BAAI/bge-small-en-v1.5` |
+| `WAWE_RERANK_MODEL` | `semantic.py` | the cross encoder that reranks semantic hits | `Xenova/ms-marco-MiniLM-L-6-v2` |
+| `WAWE_EMBED_CACHE` | `semantic.py` | a directory to keep embeddings in between runs | unset: no cache |
+| `WAWE_STRICT` | the Claude Code plugin, not `src/` | set to `1` and the plugin's PreToolUse hook refuses `Grep`, `Glob` and `Bash` searches over the repository, so the map is asked instead | unset: searches are allowed |
+| `PYTHONIOENCODING` | the interpreter | a codec narrower than the map's text no longer fails: characters it cannot carry are replaced | unset: the locale's codec |
+
 ## Keeping it honest
 
 ```bash
@@ -502,6 +532,47 @@ its own in `.framework-map.json` and what it states wins:
 existing files are never overwritten, and anything shaped like a credential is
 redacted before it reaches a file. The commit and the newest file in the tree are
 recorded with the map, so a re-run on an unchanged tree costs a stat walk.
+
+### What is redacted
+
+The map holds every indexed line of every indexed file, and the map gets
+committed and pasted into prompts, so these rules replace a credential with
+`[redacted]` before anything is written:
+
+1. A whole PEM block, `-----BEGIN ... PRIVATE KEY-----` through
+   `-----END ...-----`, header and body alike.
+2. An issuer prefix at the start of a word: `AKIA...` (AWS), `ghp_`/`gho_`/
+   `ghs_`/`ghu_`/`github_pat_` (GitHub), `xox?-...` (Slack), `sk_live_`/
+   `sk_test_`/`rk_live_`/`rk_test_` (Stripe), `sk-`/`sk-proj-` (OpenAI),
+   `pypi-` (PyPI), a JWT.
+3. A base64 blob of forty characters or more that carries a `+` or ends in
+   `=` padding.
+4. The password inside a URL: `postgres://admin:pw@host/db` keeps the scheme,
+   the user and the host and loses the password.
+5. The value on a line whose left-hand side names a secret. The last segment
+   of the key has to be `secret`, `password`, `passwd`, `token`, `api_key`,
+   `private_key`, `credential`, `auth` or `authorization`, in an assignment, a
+   dict or JSON key, a YAML key or an `export`. A quoted value and a bare value
+   after `=` are replaced wherever they sit on the line, so a `.env` line
+   inside a shell string counts too. A bare value after `:` is replaced only on
+   a line shaped like YAML: the key starts the line, is not quoted, and nothing
+   after the value turns the line back into code.
+
+Key names are kept, and so are the quotes around a redacted literal, so a
+question about where a password is set still gets the file, the line and the
+syntax. What is not redacted, deliberately:
+
+- Code on the right-hand side. No value rule admits a bracket, so
+  `token = lexer.next_token()` and `PASSWORD = os.environ["PW"]` stay.
+- A name that merely mentions a credential. The secret word has to be the last
+  segment, so `token_count`, `max_token_count`, `auth_backend`, `secret_name`,
+  `api_key_header`, `private_key_path` and `credential_kind` all stay.
+- A number, a `True`/`False`/`None`, or a bare type name, whatever the key is
+  called: `has_token = True` and the dataclass field `token: str = ""` stay.
+- A commit sha, and a path. Rule 3 needs a `+` or an `=`, and a forty-character
+  hex sha has neither. A slash is not a gate either, because
+  `src/main/java/com/example/service/impl/CustomerServiceImpl` is a run of
+  letters and slashes and nothing else.
 
 `.wawe.toml`'s `[synonyms]` table adds a project's own words to `--ask`'s
 built-in groups (login/signin/auth, invoice/bill/billing, and eighteen more):

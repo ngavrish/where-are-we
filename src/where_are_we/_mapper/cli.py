@@ -6,6 +6,7 @@ goes where; every other module in the package is a library it calls.
 """
 
 import argparse
+import html as html_mod
 import json
 import os
 import re
@@ -29,6 +30,26 @@ from .render import (_as_dict, _cap_sections, brief, changed_since, digest,
 from .state import DEFINITIONS, INDEXED
 from .walk import (SKIP_DIRS, _config, _fingerprint, _product_roots,
                    _write_atomic, _write_atomic_group, redact)
+
+
+def _write_error(exc: OSError, fallback: str = "") -> int:
+    """One line naming the file that could not be written, and exit 1.
+
+    Every write path here used to let a PermissionError out of main(): an
+    unwritable --out, an --agent-file in a read-only directory, --init on a
+    repository checked out read-only. This tool runs from a SessionStart hook,
+    where a traceback is thirty lines of noise in a session transcript instead
+    of the one line that says which path to fix.
+
+    The atomic writer stages into `<path>.<pid>.tmp`, so the suffix is trimmed
+    off before the name is printed: the caller cares about the file it asked
+    for, not the temporary beside it.
+    """
+    path = getattr(exc, "filename", None) or fallback
+    path = re.sub(r"\.\d+\.tmp$", "", str(path))
+    print(f"framework_map: cannot write {path}: {exc.strerror or exc}",
+          file=sys.stderr)
+    return 1
 
 
 # The three map files, in the order they are renamed into place once all three
@@ -89,16 +110,23 @@ def _write_artifacts(out_dir: str, m: dict, args) -> None:
     if args.html:
         # Deliberately one file with no assets: it gets opened from a terminal,
         # not served.
+        #
+        # Every interpolated line is repository content: a manifest's purpose,
+        # a docstring, a README fence, a file name. It used to go into the
+        # element verbatim, so a cloned repository could put <script> in the
+        # page, and the page is opened as file://, where script in it can read
+        # other local files. html.escape() on each line is the whole defence;
+        # the brief is plain text, so nothing here wanted markup anyway.
         body_html = []
         for line in text.splitlines():
             if line.startswith("## "):
-                body_html.append(f"<h2>{line[3:]}</h2>")
+                body_html.append(f"<h2>{html_mod.escape(line[3:])}</h2>")
             elif line.startswith("# "):
-                body_html.append(f"<h1>{line[2:]}</h1>")
+                body_html.append(f"<h1>{html_mod.escape(line[2:])}</h1>")
             elif line.startswith("- "):
-                body_html.append(f"<li>{line[2:]}</li>")
+                body_html.append(f"<li>{html_mod.escape(line[2:])}</li>")
             elif line.strip():
-                body_html.append(f"<p>{line}</p>")
+                body_html.append(f"<p>{html_mod.escape(line)}</p>")
         html = ("<!doctype html><meta charset=utf-8><title>where are we</title>"
                 "<style>body{max-width:60rem;margin:3rem auto;padding:0 1rem;"
                 "font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#111}"
@@ -279,7 +307,30 @@ def _resolve_repo(given, out):
         return "/work"
     return os.getcwd()
 
+
+def _reconfigure_streams() -> None:
+    """Never let the terminal's encoding turn an answer into a traceback.
+
+    A harness that exports PYTHONIOENCODING=ascii, or an interpreter whose
+    stdout landed on a codec narrower than the map's text, used to make
+    `--pointer` fail on every repository (pointer() writes an em dash
+    unconditionally) and `--ask` fail on any repository with an accent in a
+    name. Both are hook-facing commands, so the failure arrived as thirty
+    lines of traceback in a session transcript. Replacing the characters the
+    codec cannot carry loses a glyph and keeps the answer, which is the right
+    trade for a stream nobody chose.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # Not a TextIOWrapper (a test capturing into StringIO, a closed
+            # stream): nothing to reconfigure and nothing to report.
+            pass
+
+
 def main() -> int:
+    _reconfigure_streams()
     ap = argparse.ArgumentParser(
         prog="framework_map",
         description="Index a test framework into a map an agent can read: layers, "
@@ -449,7 +500,10 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         out_dir = os.path.abspath(args.out)
-        os.makedirs(out_dir, exist_ok=True)
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except OSError as exc:
+            return _write_error(exc, out_dir)
         roots = [k.strip() for k in args.specs.split(",") if k.strip()]
         say = None if args.quiet else (lambda line: print(line, flush=True))
         spec = specs.walk(args.spec_cmd, roots,
@@ -458,11 +512,14 @@ def main() -> int:
                           key_re=key_re, stdin=spec_stdin)
         # Both replaced only once both are written, so nothing reads a new
         # spec_map.json beside the previous spec_map.md.
-        _write_atomic_group([
-            (os.path.join(out_dir, "spec_map.json"),
-             json.dumps(spec, indent=2, ensure_ascii=False)),
-            (os.path.join(out_dir, "spec_map.md"), specs.digest(spec)),
-        ])
+        try:
+            _write_atomic_group([
+                (os.path.join(out_dir, "spec_map.json"),
+                 json.dumps(spec, indent=2, ensure_ascii=False)),
+                (os.path.join(out_dir, "spec_map.md"), specs.digest(spec)),
+            ])
+        except OSError as exc:
+            return _write_error(exc, out_dir)
         if not args.quiet:
             print(f"spec map: {len(spec['tickets'])} ticket(s) -> "
                   f"{os.path.join(out_dir, 'spec_map.md')}")
@@ -474,6 +531,35 @@ def main() -> int:
         # Both maps answer, because a question about this work is as likely to be
         # about what was asked for as about where the code is.
         spec_path = os.path.join(out_dir, "spec_map.md")
+        # No map is not an answer. --sections said so and returned 1; --ask
+        # printed the same complaint and returned 0; --callers said "nothing
+        # in the map calls X" and returned 0, which is worse than a bad exit
+        # code because it reports an empty result for a search that never
+        # happened. A CI step or a hook that checks $? believed all three.
+        #
+        # "No map" means neither map. A `--specs` run writes spec_map.md
+        # without a framework_map.md beside it, and `--ask` has always read
+        # both, so a question about a ticket in a directory that holds only
+        # the specification map is still a question this can answer.
+        have_map = os.path.exists(map_path)
+        have_spec = os.path.exists(spec_path)
+        if not have_map and not have_spec:
+            print(f"no map at {map_path}: build one with "
+                  f"`where-are-we --repo . --out {args.out}`", file=sys.stderr)
+            return 1
+        # Per flag, not per invocation. These four are separate branches and
+        # the first one given wins, so the question is what the branch that
+        # will actually run needs, not what the command line also mentions.
+        # `--ask x --callers foo` runs --callers, and gating on "did anyone
+        # say --ask" let it answer "nothing in the map calls foo" from a
+        # directory with no code map in it at all.
+        if not have_map and (args.pointer or args.sections or args.callers):
+            # These three read the code map and only the code map, so for
+            # them the spec map beside it is not an answer. Say which file is
+            # missing and which one is there.
+            print(f"no map at {map_path}: {spec_path} is there, and only "
+                  f"--ask reads it", file=sys.stderr)
+            return 1
         if args.pointer:
             changed = changed_since(os.path.abspath(args.repo), out_dir)
             print(pointer(map_path, changed=changed), end="")
@@ -500,9 +586,12 @@ def main() -> int:
         # project's `[synonyms]` still has to reach `ask()` from here.
         syn = _config(os.path.abspath(args.repo)).get("synonyms")
         _ask.set_synonyms(syn if isinstance(syn, dict) else {})
-        answer = ask(map_path, args.ask)
-        if os.path.exists(spec_path):
-            answer += "\n\n" + ask(spec_path, args.ask)
+        parts = []
+        if have_map:
+            parts.append(ask(map_path, args.ask))
+        if have_spec:
+            parts.append(ask(spec_path, args.ask))
+        answer = "\n\n".join(parts)
         answer += meaning_tail(out_dir, args.ask, answer)
         log_answer(out_dir, "ask", args.ask, answer, 12000)  # ask()'s own default limit
         print(answer)
@@ -544,7 +633,12 @@ def main() -> int:
     # be built, and a second walk of the tree buys nothing.
     if args.docs:
         m2 = build(repo, out_dir=out_dir)
-        planned = propose_docs(repo, m2, apply=(args.docs == "write"))
+        try:
+            planned = propose_docs(repo, m2, apply=(args.docs == "write"))
+        except OSError as exc:
+            # --docs write into a read-only checkout: name the file, do not
+            # unwind through main() with a traceback.
+            return _write_error(exc, repo)
         if not planned:
             print("nothing to add: every directory already explains itself")
             return 0
@@ -659,7 +753,10 @@ def main() -> int:
     # --init also needs: --out defaults to ".", so without this it would
     # write .wawe-cache.json into whatever directory --init ran from.
     if not args.init:
-        os.makedirs(out_dir, exist_ok=True)
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except OSError as exc:
+            return _write_error(exc, out_dir)
     m = build(repo, out_dir=None if args.init else out_dir, force=args.force)
     if len(repos) > 1:
         m["also"] = {}
@@ -684,9 +781,19 @@ def main() -> int:
     m = redact(m)
     m["fingerprint"] = stamp_now
     if args.init:
-        print(init_manifest(repo, m))
+        try:
+            print(init_manifest(repo, m))
+        except OSError as exc:
+            return _write_error(exc, os.path.join(repo, ".framework-map.json"))
         return 0
-    _write_artifacts(out_dir, m, args)
+    try:
+        # The map files, the optional --html page and the --agent-file block
+        # are one write step: an unwritable --out and an unwritable
+        # --agent-file are the same complaint with a different path in it,
+        # and the OSError carries which.
+        _write_artifacts(out_dir, m, args)
+    except OSError as exc:
+        return _write_error(exc, out_dir)
 
     # The semantic index, built from the map just written plus whatever
     # corpora the caller named. Free when nothing changed (content hash),

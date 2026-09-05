@@ -240,25 +240,248 @@ def _config(repo: str) -> dict:
     return out
 
 
+# Issuer prefixes: a string in one of these shapes is a credential wherever it
+# appears, whatever the line around it says. Each one is anchored on a prefix a
+# vendor reserved, so a false positive would have to be a deliberate imitation.
+#
+# The lookbehind matters more than it looks. Without it `sk-` matched inside
+# `docs/ask-the-map-and-not-the-tree.md` and `rk_live_` inside
+# `work_live_configuration`, so a file name and an identifier came back as
+# `docs/a[redacted].md` and `wo[redacted]`. A prefix only counts at the start
+# of a word.
 _SECRET_SHAPES = re.compile(
-    r"(?:AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}"
-    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"
-    r"|pypi-[A-Za-z0-9_-]{40,}|[A-Za-z0-9+/]{40,}={0,2})")
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:AKIA[0-9A-Z]{16}"                          # AWS access key id
+    r"|ghp_[A-Za-z0-9]{20,}"                        # GitHub personal token
+    r"|gh[opsu]_[A-Za-z0-9]{20,}"                   # the rest of the gh_ family
+    r"|github_pat_[A-Za-z0-9_]{20,}"                # GitHub fine-grained token
+    r"|xox[baprse]-[A-Za-z0-9-]{10,}"               # Slack
+    r"|sk_(?:live|test)_[A-Za-z0-9]{10,}"           # Stripe
+    r"|rk_(?:live|test)_[A-Za-z0-9]{10,}"           # Stripe restricted
+    r"|sk-(?:proj-)?[A-Za-z0-9_-]{20,}"             # OpenAI
+    r"|pypi-[A-Za-z0-9_-]{40,}"                     # PyPI upload token
+    r"|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+)?"  # JWT
+    r")")
+
+# A PEM block, header to footer, in one string. Redacting only the header (all
+# this used to do) was worse than redacting nothing: the header is the line a
+# reader would have recognised, and the base64 body stayed in the map and came
+# back out of `find` verbatim. `lines` holds a file as a list of separate
+# strings, so `redact` also runs a state machine over a list; this pattern is
+# for a body that arrives whole, in a docstring or a snippet.
+_PEM_BEGIN = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
+_PEM_END = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY-----")
+_PEM_BLOCK = re.compile(
+    r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+    re.DOTALL)
+
+# A long base64 run, back after being dropped for destroying commit shas, but
+# gated this time: the run has to carry a `+` or end in `=` padding. That is
+# what a base64 blob has and what the two things this rule used to ruin do not.
+#
+# `/` is deliberately not a gate, whatever it looks like: a Java package path
+# is a forty-character run of letters and slashes and nothing else, and
+# `src/main/java/com/example/service/impl/CustomerServiceImpl` is exactly the
+# string the old rule turned into `[redacted]`. That is why the inner run in
+# the lookahead admits `/`: it is asking whether the blob has anything a path
+# would not have, and a slash is not it.
+_B64_BLOB = re.compile(
+    r"(?<![A-Za-z0-9+/=])"
+    r"(?=[A-Za-z0-9+/]{40})"
+    r"(?![A-Za-z0-9/]+(?![A-Za-z0-9+/=]))"
+    r"[A-Za-z0-9+/]{40,}={0,2}")
+
+# A URL that carries its own credentials: postgres://user:pass@host/db. Only
+# the password is replaced, because the scheme, the user and the host are the
+# part of the line a reader is asking about. The host part must be followed by
+# an `@` for this to fire, so `http://example.com:8080/x` is left alone.
+_SECRET_URL = re.compile(
+    r"(?i)\b([a-z][a-z0-9+.\-]*://[^\s/:@\"\']+):[^\s/@\"\']+@")
+
+# A line whose left-hand side says the right-hand side is a credential: an
+# assignment, a dict or JSON key, a YAML key, an `export`. This is the rule
+# that covers every shape nobody has a prefix for, which was most of them:
+# a password, a database DSN, an internal service token.
+#
+# The key is read as identifier segments and the secret word has to be the
+# LAST one. Allowing trailing segments made this rule eat most of a codebase:
+# `token_count = 3`, `max_token_count`, `auth_backend`, `secret_name`,
+# `api_key_header`, `private_key_path` and `credential_kind` were all read as
+# credentials. `token_count` is a count of tokens; `db_password` is a
+# password. The segment after the word is what says which.
+_KEY_SEG = r"[A-Za-z0-9]+"
+_SECRET_WORD = (r"(?:secret|passw(?:or)?d|token|api[_-]?key|private[_-]?key"
+                r"|credential|auth(?:orization)?)")
+# `(?![A-Za-z0-9_.\-])` is the "last segment" test: `author` and `token_count`
+# fail it, `client_secret"` and `db_password:` pass.
+_SECRET_NAME = rf"(?:{_KEY_SEG}[_.\-])*{_SECRET_WORD}s?(?![A-Za-z0-9_.\-])"
+_SECRET_KEY = rf"[\"']?{_SECRET_NAME}[\"']?"
+
+# Values that are never a credential, whatever the key is. A bool, a None and
+# a bare type name are what a flag and a dataclass field hold, and redacting
+# them turned `has_token = True` into `has_token = [redacted]` and
+# `token: str = ""` into `token: [redacted] = ""`.
+#
+# A number is not on this list. `DB_PASSWORD = 8675309`, `password =
+# "12345678"` and `api_key: 1234567890123456` are all credentials, and a
+# blanket "digits are safe" rule handed every one of them to the map. Numbers
+# are decided in `_redact_bare` instead, where the key is in hand.
+_NOT_A_SECRET = re.compile(
+    r"(?:True|False|None|null|nil|true|false"
+    r"|str|int|bool|float|bytes|list|dict|set|tuple|Any|object"
+    r"|string|number|boolean|integer)\Z")
+
+# An unquoted number under a key that also names a count is a count.
+# `max_token = 4096` is a context window and `num_tokens = 10` is a quantity,
+# even though both keys end in the word `token`.
+#
+# There is no ceiling on how big a count may be. There was one, of six digits,
+# and it redacted `MAX_TOKENS = 1000000`, `max_tokens = 1048576` and
+# `TIMEOUT_TOKEN = 2000000`, which are a context window, a buffer size and a
+# millisecond timeout. The key is what decides this, not the magnitude: a key
+# with no counter word in it has every number redacted whatever its length,
+# and `DB_PASSWORD = 8675309` has none.
+_COUNTER_WORD = re.compile(
+    r"(?i)(?:^|[_.\-])(?:count|counts|index|idx|ttl|seconds|secs|size|limit"
+    r"|max|maximum|min|minimum|len|length|num|number|total|timeout|retries"
+    r"|retry|attempts|depth|width|height|port|version)(?:[_.\-]|$)")
+# Underscores, hex and an exponent, because a count is written the way the
+# language writes one: 1_048_576, 0x100000, 1e6.
+_A_NUMBER = re.compile(
+    r"[-+]?(?:0[xXbBoO][0-9A-Fa-f_]+"
+    r"|[0-9][0-9_]*(?:\.[0-9_]+)?(?:[eE][-+]?[0-9]+)?)\Z")
+
+# A bare value ends where the line, the enclosing literal or the enclosing
+# call ends. An opening bracket is deliberately not a terminator, which is
+# what keeps `PASSWORD = os.environ[NAME]` and `token = lexer.next_token()`
+# in the map: they are code, and code is what the map is for. A backslash is
+# not part of the value either, so `printf 'DB_PASSWORD=hunter2\n'` keeps its
+# `\n`.
+_BARE_VALUE = r"([^\s'\"(){}\[\],;\\]+(?=$|[\s,;'\"\\)}\]]))"
+
+# No anchor before the key on purpose: without one, a .env line inside a shell
+# string (`printf 'DB_PASSWORD=hunter2\n' > .env`) is caught as well as one
+# that starts a line.
+_SECRET_KEYED_QUOTED = re.compile(
+    rf"(?i)({_SECRET_KEY}\s*[:=]\s*)"
+    r"([\"'])((?:(?!\2)[^\n])*)(\2)")
+# `=` says assignment wherever it sits.
+_SECRET_KEYED_BARE_EQ = re.compile(
+    rf"(?i)({_SECRET_KEY}[ \t]*=[ \t]*)" + _BARE_VALUE)
+# `:` does not. A bare value after a colon is a secret only on a line shaped
+# like YAML: the key starts the line and is not quoted, and nothing after the
+# value turns the line back into code. `"auth": auth,` in a Python dict has a
+# quoted key; `token: str = ""` in a dataclass has an `=` after it; neither is
+# a YAML key with a password behind it.
+_SECRET_KEYED_BARE_COLON = re.compile(
+    rf"(?im)(^[ \t]*(?:-[ \t]+)?{_SECRET_NAME}[ \t]*:[ \t]*)"
+    + _BARE_VALUE + r"(?![ \t]*=)")
 
 
-def redact(value):
+def _redact_quoted(m):
+    """Keep the quotes a quoted value came in: `PASSWORD = "[redacted]"`.
+
+    Replacing the quotes too made the line stop being the syntax it was, and a
+    reader looking at `PASSWORD = [redacted]` cannot tell whether the value was
+    a literal or a name."""
+    body = m.group(3)
+    if not body or _NOT_A_SECRET.match(body):
+        return m.group(0)
+    return f"{m.group(1)}{m.group(2)}[redacted]{m.group(4)}"
+
+
+def _redact_bare(m):
+    """A bare value, unless the key and the value together say it is a count.
+
+    A bool, a None and a type name are never a credential. A number is one
+    only sometimes: under a key that also names a count it is a count, of any
+    size, and under a key that does not it is a value somebody chose.
+    `max_token = 4096` and `MAX_TOKENS = 1000000` stay; `DB_PASSWORD =
+    8675309` and `api_key: 1234567890123456` do not. A quoted number never
+    reaches here, which is why `password = "12345678"` redacts: quoting a
+    number is what a credential does and what a counter does not.
+    """
+    key, value = m.group(1), m.group(2)
+    if _NOT_A_SECRET.match(value):
+        return m.group(0)
+    if _A_NUMBER.match(value) and _COUNTER_WORD.search(key):
+        return m.group(0)
+    return f"{key}[redacted]"
+
+
+# The one place in the map where a list is a file: `lines[path]` is that
+# file's lines, in order, and nothing else in the map is. Every other list is
+# an aggregate that mixes files (`concurrency["notes"]` is one row per file,
+# `duplicates` one row per pair), so carrying PEM state from one element to
+# the next there is not "the rest of the key", it is somebody else's line.
+_CONTIGUOUS_KEY = "lines"
+
+
+def redact(value, contiguous: bool = False):
     """Never carry a credential into the map.
 
-    The map is written into files that get committed and pasted into prompts, so
-    anything that looks like a key is replaced by its shape. Paths to secrets are
-    useful and kept; the secrets themselves are not."""
+    The map is written into files that get committed and pasted into prompts,
+    and every indexed line of every indexed file goes into it, so anything that
+    looks like a key is replaced by its shape. Paths to secrets are useful and
+    kept; the secrets themselves are not.
+
+    The rules run in this order, because each one narrows what the next has to
+    guess at: a whole PEM block, the issuer prefixes, a gated base64 blob, the
+    credentials inside a URL, then a quoted and then a bare value on a line
+    that names itself a secret.
+
+    `contiguous` says the list being redacted is one file's consecutive lines,
+    which is true only under `lines`. A PEM block spans several of them, so
+    that list is swept with the state that says whether it is inside one.
+    Every other list is an aggregate over files and gets no shared state:
+    a header in one file's row used to blank the rows of every file after it.
+    """
     if isinstance(value, str):
-        return _SECRET_SHAPES.sub("[redacted]", value)
+        out = _PEM_BLOCK.sub("[redacted]", value)
+        # A header with no body after it in this string: a lone line lifted
+        # into an aggregate, or a truncated file. Not a key on its own, but
+        # the original rule replaced it and there is nothing in it to keep.
+        out = _PEM_BEGIN.sub("[redacted]", out)
+        out = _PEM_END.sub("[redacted]", out)
+        out = _SECRET_SHAPES.sub("[redacted]", out)
+        out = _B64_BLOB.sub("[redacted]", out)
+        out = _SECRET_URL.sub(r"\1:[redacted]@", out)
+        out = _SECRET_KEYED_QUOTED.sub(_redact_quoted, out)
+        out = _SECRET_KEYED_BARE_EQ.sub(_redact_bare, out)
+        return _SECRET_KEYED_BARE_COLON.sub(_redact_bare, out)
     if isinstance(value, list):
-        return [redact(v) for v in value]
+        return _redact_lines(value) if contiguous else [redact(v) for v in value]
     if isinstance(value, dict):
-        return {k: redact(v) for k, v in value.items()}
+        return {k: redact(v, contiguous or k == _CONTIGUOUS_KEY)
+                for k, v in value.items()}
     return value
+
+
+def _redact_lines(items: list) -> list:
+    """One file's lines, with a PEM block redacted as a block.
+
+    Between a BEGIN line and its END line every element is replaced outright,
+    header and footer included, because a private key has no line in it worth
+    keeping. A block that never ends (a truncated file, a header quoted in
+    prose) still suppresses the rest of that file, which is the safe way to be
+    wrong about one file. Only ever called for a `lines[path]` list, so the
+    rest of that file is all it can ever suppress."""
+    out, in_pem = [], False
+    for item in items:
+        if isinstance(item, str):
+            if in_pem:
+                out.append("[redacted]")
+                if _PEM_END.search(item):
+                    in_pem = False
+                continue
+            if _PEM_BEGIN.search(item) and not _PEM_END.search(item):
+                in_pem = True
+                out.append("[redacted]")
+                continue
+            out.append(redact(item))
+        else:
+            out.append(redact(item))
+    return out
 
 
 def _lines_matching(body, words, limit=4):
