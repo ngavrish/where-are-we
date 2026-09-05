@@ -235,7 +235,6 @@ def _install_claude(line: str, home: str) -> str:
 
 
 def _install_cursor(repo: str) -> str:
-
     rule_path = os.path.join(repo, ".cursor", "rules", "where-are-we.mdc")
     mcp_path = os.path.join(repo, ".cursor", "mcp.json")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
@@ -275,7 +274,6 @@ def _install_cursor(repo: str) -> str:
 
 
 def _install_codex(repo: str, home: str) -> str:
-
     agents_path = os.path.join(repo, "AGENTS.md")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
     changed_agents, err = _merge_block(agents_path, mapper.pointer(map_path), repo)
@@ -307,7 +305,6 @@ def _install_codex(repo: str, home: str) -> str:
 
 
 def _install_gemini(repo: str) -> str:
-
     md_path = os.path.join(repo, "GEMINI.md")
     settings_path = os.path.join(repo, ".gemini", "settings.json")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")

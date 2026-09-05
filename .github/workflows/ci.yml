@@ -2050,3 +2050,57 @@ jobs:
                 f"undocumented: {missing}, documented but never emitted: {extra}")
           sys.exit(1 if (missing or extra or blank) else 0)
           EOF
+
+      - name: an accented filename does not take --pointer down under an ascii locale
+        run: |
+          set -o pipefail
+          rm -rf /tmp/acc
+          mkdir -p /tmp/acc/repo
+          git -C /tmp/acc/repo init -q
+          git -C /tmp/acc/repo config user.email t@t
+          git -C /tmp/acc/repo config user.name t
+          printf 'def cafe_login():\n    pass\n' > /tmp/acc/repo/café.py
+          git -C /tmp/acc/repo add -A
+          git -C /tmp/acc/repo commit -qm one
+          where-are-we --repo /tmp/acc/repo --out /tmp/acc/m --product none \
+            --force --quiet --no-semantic
+          # Records the head this session started from.
+          where-are-we --repo /tmp/acc/repo --out /tmp/acc/m --pointer > /dev/null
+          printf 'def other():\n    pass\n' > /tmp/acc/repo/naïve.py
+          git -C /tmp/acc/repo add -A
+          git -C /tmp/acc/repo commit -qm two
+          # `git diff --name-only -z` hands back a path exactly as it is on
+          # disk. subprocess's text=True decodes it with the locale's codec,
+          # which under LC_ALL=C is ascii, and the UnicodeDecodeError that
+          # raised came out of subprocess itself: `--pointer` exited 1 on any
+          # repository with one accented filename in it.
+          LC_ALL=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0 \
+            where-are-we --repo /tmp/acc/repo --out /tmp/acc/m --pointer \
+            > /tmp/acc/ptr.txt 2>/tmp/acc/ptr.err
+          grep -q "framework map" /tmp/acc/ptr.txt
+          if grep -q "UnicodeDecodeError" /tmp/acc/ptr.err; then
+            echo "unexpected match: grep -q 'UnicodeDecodeError' /tmp/acc/ptr.err"; exit 1
+          fi
+          # And the note is still made: the path is decoded with a named codec
+          # that replaces what it cannot carry, rather than not read at all.
+          grep -q "Since the last session 1 file changed" /tmp/acc/ptr.txt
+
+      - name: a .wawe.toml built to be parsed does not end the build
+        run: |
+          set -o pipefail
+          rm -rf /tmp/deep
+          mkdir -p /tmp/deep/repo
+          printf 'KEPT = 1\n' > /tmp/deep/repo/a.py
+          # Twenty thousand nested brackets are valid TOML syntax right up to
+          # the point where tomllib's own recursion runs out. RecursionError is
+          # not a TOMLDecodeError, so it came out of the config read and ended
+          # the build.
+          python -c "open('/tmp/deep/repo/.wawe.toml','w').write('a = ' + '['*20000 + ']'*20000 + chr(10))"
+          where-are-we --repo /tmp/deep/repo --out /tmp/deep/m --product none \
+            --force --quiet --no-semantic
+          grep -q KEPT /tmp/deep/m/framework_map.json
+          python -c "
+          from where_are_we._mapper.walk import _config
+          assert _config('/tmp/deep/repo') == {}, 'a config that cannot be parsed is no config'
+          print('a config built to be parsed reads as no config')
+          "

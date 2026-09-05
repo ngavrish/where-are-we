@@ -14,7 +14,10 @@ module level are edges: those are the ones that execute while a module is
 still being built, and so the only ones that can produce that error. Imports
 inside a function or a method run after everything has finished loading and
 are listed separately, with the module they pull in, so that a new one has to
-be looked at rather than slipped in.
+be looked at rather than slipped in. Their count is of pairs, not of import
+statements: one statement is listed once per module of this package it names,
+and again for each function it is nested inside, because both are what a
+reader checking a deferral has to look at.
 
 Run: `python tests/golden/import_graph.py` (add `--verbose` for every edge).
 Exits 0 when there are no cycles, 1 and names each cycle otherwise.

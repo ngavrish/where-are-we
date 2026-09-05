@@ -515,10 +515,12 @@ Each variable is read in one place, and named there. `WAWE_NO_CACHE`,
 is, and the two `WAWE_SPEC` ones when `specs.py` is. So a process that sets one
 of those after importing the package keeps the value it started with.
 
-The five that are read per call are the ones a flag writes back into the
-environment for a later stage to pick up (`AGENT_REPO`, `PRODUCT_SRC`,
-`RUN_DIR`, `RULES_REPO`, `RUNS_API_READ`), plus `WAWE_JUNIT_DIRS`, which a
-caller that builds several maps in one process sets per build.
+The rest are read per call. Five of them are the ones a flag writes back into
+the environment for a later stage to pick up (`AGENT_REPO`, `PRODUCT_SRC`,
+`RUN_DIR`, `RULES_REPO`, `RUNS_API_READ`). Three more are argparse defaults,
+which `main()` evaluates when it builds the parser (`SPEC_ROOTS`,
+`SPEC_FETCH_CMD`, `SPEC_SOURCE`). The last is `WAWE_JUNIT_DIRS`, which a caller
+that builds several maps in one process sets per build.
 
 ## Keeping it honest
 

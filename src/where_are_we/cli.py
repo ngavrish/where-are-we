@@ -682,7 +682,7 @@ def main() -> int:
                     _write_artifacts(out_dir, m2, args)
                     c2 = m2["counts"]
                     print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:  # noqa: BLE001 - a watcher outlives the tree
                 # A watcher is meant to outlive whatever the tree does to it.
                 # One raised iteration used to end the loop for good, and the
                 # map then quietly stopped following the repository: a file
