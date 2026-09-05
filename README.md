@@ -133,7 +133,7 @@ as estimates.
 | `.wawe.toml`, `.wawe-ignore`, `WAWE_MAX_FILES`, `WAWE_JUNIT_DIRS` (os.pathsep separated; default: the repository's own `reports`, `test-results`, `junit`, `build/test-results`, plus `/runs`, never `/tmp`) | A project states its invocation, exclusions and where its JUnit history lives once | Not measured | — |
 | `--product`, sibling guessing only for a suite, `--product none` | The application under test is indexed beside its suite; a plain code repository does not index its neighbours | Measured 2026-09-03 on this repository: before the fix the map held 231 files of three unrelated sibling repositories (3.1 MB JSON, `defines` answering with their paths); after, `indexed: suite 75`, 818 KB | — |
 | `--also` | Fold other repositories into one map | Not measured | — |
-| `--diff` | What changed since the map already in `--out` | Not measured | — |
+| `--diff` | What changed since the map already in `--out` | the pointer names what moved since the last session; CI step "pointer says what changed since the last session" proves it | — |
 | `--watch SECONDS` | Rebuild whenever the tree moves | Not measured | — |
 | `--html` | The brief as a page | Not measured | — |
 | `--init` → `.framework-map.json` manifest | A starter manifest the map reads `stated` facts from | Not measured | — |

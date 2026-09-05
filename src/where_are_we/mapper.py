@@ -4231,7 +4231,68 @@ def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) 
 POINTER_MAX = int(os.getenv("WAWE_POINTER_MAX", "4000"))
 
 
-def pointer(map_path: str, brief_path: str = "") -> str:
+def changed_since(repo: str, out_dir: str) -> list[str]:
+    """Files that moved since the last time `--pointer` was asked here.
+
+    A session's boundaries are invisible to git; the only trace of "last
+    time" is whatever the previous `--pointer` call wrote down. That trace
+    is a commit hash, kept in `<out_dir>/.pointer-head`. This diffs it
+    against the current HEAD, folds in whatever is still uncommitted, and
+    then overwrites the file with the current HEAD for the call after this
+    one. A repository with no git, or a first call with nothing recorded
+    yet to compare against, reports nothing changed.
+    """
+    import subprocess
+
+    def _git(*args: str) -> str | None:
+        try:
+            r = subprocess.run(["git", "-C", repo, *args], capture_output=True,
+                               text=True, timeout=15)
+            return r.stdout if r.returncode == 0 else None
+        except Exception:  # noqa: BLE001, a repository without git reports nothing
+            return None
+
+    head = _git("rev-parse", "HEAD")
+    if head is None:
+        return []
+    head = head.strip()
+
+    head_path = os.path.join(out_dir, ".pointer-head")
+    try:
+        with open(head_path, encoding="utf-8") as fh:
+            prev = fh.read().strip()
+    except OSError:
+        prev = ""
+
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(head_path, "w", encoding="utf-8") as fh:
+            fh.write(head + "\n")
+    except OSError:
+        pass
+
+    if not prev:
+        return []
+
+    changed: set[str] = set()
+    diff = _git("diff", "--name-only", f"{prev}..{head}")
+    if diff:
+        changed.update(line for line in diff.splitlines() if line)
+    status = _git("status", "--porcelain")
+    if status:
+        for line in status.splitlines():
+            code, path = line[:2], line[3:].strip()
+            # A rename or copy (R/C) reports "old -> new"; only the new
+            # path is a file that exists to be read, so that is what goes
+            # in the list, not the arrow notation.
+            if ("R" in code or "C" in code) and " -> " in path:
+                path = path.rsplit(" -> ", 1)[1]
+            if path:
+                changed.add(path)
+    return sorted(changed)
+
+
+def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = None) -> str:
     """What goes in a prompt: where the map is, what is in it, how to ask it.
 
     The map is generated so nobody searches the repository blind. Putting the map
@@ -4289,6 +4350,18 @@ def pointer(map_path: str, brief_path: str = "") -> str:
         lines.append(line)
     if brief_path:
         lines += ["", f"A shorter brief of the same thing is `{brief_path}`."]
+    if changed:
+        shown = changed[:10]
+        more = len(changed) - len(shown)
+        names = ", ".join(shown)
+        if more:
+            names += f", … and {more} more"
+        note = (f"Since the last session {len(changed)} files changed: {names}. "
+                "Ask the map about them before reading them whole.")
+        # Same budget as the rest of the pointer: said only when it fits,
+        # never at the cost of going over what a prompt should carry.
+        if len(("\n".join(lines) + "\n\n" + note + "\n").encode()) <= POINTER_MAX:
+            lines += ["", note]
     return "\n".join(lines) + "\n"
 
 
@@ -4514,7 +4587,8 @@ def main() -> int:
         # about what was asked for as about where the code is.
         spec_path = os.path.join(out_dir, "spec_map.md")
         if args.pointer:
-            print(pointer(map_path), end="")
+            changed = changed_since(os.path.abspath(args.repo), out_dir)
+            print(pointer(map_path, changed=changed), end="")
             return 0
         if args.sections:
             try:
