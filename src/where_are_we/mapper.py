@@ -552,7 +552,13 @@ def _ts_symbols(path: str, lang: str) -> list:
             walk(child, exported)
 
     walk(tree.root_node)
-    return sorted(set(out))[:40]
+    # No cap: the regex path this stands in for has none either, and a file
+    # with more than a handful of declarations silently losing the ones past
+    # some count is exactly the "indexed here, not there" gap this project
+    # exists to close. Whatever bounds the reader sees are bounds `brief()`
+    # applies once, in one place, when it renders the table for a prompt;
+    # `framework_map.json` and `declarations_in` stay complete.
+    return sorted(set(out))
 
 
 
