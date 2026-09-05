@@ -16,7 +16,7 @@ was built from (commit and newest mtime) and is how staleness is decided.
 | `routes_served` | [string] | HTTP routes the code serves |
 | `models` | {name: [fields]} | ORM models and their fields |
 | `import_graph` | {package: [packages]} | dependencies between top-level packages |
-| `call_graph_files` | {file:func: [callees]} | cross-file calls |
+| `call_graph_files` | {file:func: [callees]} | cross-file calls, Python by AST, TypeScript, JavaScript and Go by pattern |
 | `data_flow` | {file: {paths, tables}} | endpoints and tables co-located |
 | `messaging` | {file: [topics]} | queues, topics, subjects |
 | `grpc` | {service: [methods]} | from `.proto` |
