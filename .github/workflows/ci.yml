@@ -1081,3 +1081,52 @@ jobs:
           grep -n "^import subprocess" src/where_are_we/_mapper/build.py
           grep -n "^import http.client" src/where_are_we/_mapper/build.py
           test "$(grep -c '        import subprocess' src/where_are_we/_mapper/build.py)" = "0"
+
+      - name: the fingerprint watches exactly the files the map indexes
+        run: |
+          rm -rf /tmp/fpx
+          mkdir -p /tmp/fpx/r /tmp/fpx/m
+          # Nine languages the map indexes and the fingerprint used to ignore.
+          # Editing one of them moved the map's contents and not its
+          # fingerprint, so the next build said "unchanged since it was built"
+          # and served the old answer.
+          printf 'package m\n\nfunc ORIGINAL_GO() {}\n' > /tmp/fpx/r/main.go
+          printf 'pub fn ORIGINAL_RS() {}\n' > /tmp/fpx/r/lib.rs
+          printf 'fun ORIGINAL_KT() {}\n' > /tmp/fpx/r/App.kt
+          printf 'public class ORIGINAL_CS {}\n' > /tmp/fpx/r/App.cs
+          printf 'def ORIGINAL_RB\nend\n' > /tmp/fpx/r/app.rb
+          where-are-we --repo /tmp/fpx/r --out /tmp/fpx/m --product none \
+            --force --quiet --no-semantic
+          grep -q ORIGINAL_GO /tmp/fpx/m/framework_map.json
+          for pair in "main.go:package m\n\nfunc EDITED_GO() {}\n:EDITED_GO:ORIGINAL_GO" \
+                      "lib.rs:pub fn EDITED_RS() {}\n:EDITED_RS:ORIGINAL_RS" \
+                      "App.kt:fun EDITED_KT() {}\n:EDITED_KT:ORIGINAL_KT" \
+                      "App.cs:public class EDITED_CS {}\n:EDITED_CS:ORIGINAL_CS" \
+                      "app.rb:def EDITED_RB\nend\n:EDITED_RB:ORIGINAL_RB"; do
+            file=${pair%%:*}; rest=${pair#*:}
+            body=${rest%%:*}; rest=${rest#*:}
+            want=${rest%%:*}; gone=${rest#*:}
+            sleep 1.1
+            printf "$body" > /tmp/fpx/r/$file
+            where-are-we --repo /tmp/fpx/r --out /tmp/fpx/m --product none \
+              --no-semantic | tee /tmp/fpx/out.txt
+            ! grep -q "unchanged since it was built" /tmp/fpx/out.txt
+            grep -q "$want" /tmp/fpx/m/framework_map.json
+            ! grep -q "$gone" /tmp/fpx/m/framework_map.json
+          done
+          # A tree nobody touched still does not rebuild.
+          where-are-we --repo /tmp/fpx/r --out /tmp/fpx/m --product none --no-semantic \
+            | grep -q "unchanged since it was built"
+          # And an ignored directory is pruned by the walk as well as by the
+          # fingerprint, so a bare directory name in .gitignore means what it
+          # means to git: at any depth.
+          rm -rf /tmp/fpx/ig /tmp/fpx/igm
+          mkdir -p /tmp/fpx/ig/pkg/generated
+          printf 'build_output/\n' > /tmp/fpx/ig/.gitignore
+          mkdir -p /tmp/fpx/ig/pkg/build_output
+          printf 'KEPT_NAME = 1\n' > /tmp/fpx/ig/pkg/a.py
+          printf 'IGNORED_NAME = 1\n' > /tmp/fpx/ig/pkg/build_output/b.py
+          where-are-we --repo /tmp/fpx/ig --out /tmp/fpx/igm --product none \
+            --force --quiet --no-semantic
+          grep -q KEPT_NAME /tmp/fpx/igm/framework_map.json
+          ! grep -q IGNORED_NAME /tmp/fpx/igm/framework_map.json

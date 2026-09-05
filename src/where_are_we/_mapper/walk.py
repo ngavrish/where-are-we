@@ -9,6 +9,7 @@ last build", and the rest of the package is built on those answers.
 import json
 import os
 import re
+import subprocess
 
 from . import state
 from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
@@ -420,31 +421,56 @@ def _ignored(rel: str, pats: list) -> bool:
     return False
 
 
+def _indexable(root: str):
+    """Every file under `root` that this map would index, as full paths.
+
+    One definition of "the files this map covers", so that the walk that
+    builds the map and the fingerprint that decides whether to rebuild it are
+    asking about the same set. They used to disagree: the fingerprint looked
+    at seven extensions and the walk at all of them, so editing a .go, .rs,
+    .kt, .cs, .rb, .java, .yaml, .tf or .proto file moved the map's contents
+    and not its fingerprint, and the next build printed "unchanged since it
+    was built" over a map that no longer described the tree.
+
+    An ignored directory is pruned rather than descended and filtered file by
+    file. That is the same set of files by the patterns that name a path, and
+    a smaller one by a pattern that names a bare directory at any depth, which
+    is what such a pattern means in a .gitignore. It also stops an ignored
+    directory spending the entry budget `_tree` counts.
+    """
+    base_repo = os.getenv("AGENT_REPO", root)
+    pats = _ignores(base_repo)
+    for base, dirs, files in _tree(root):
+        if pats:
+            dirs[:] = [d for d in dirs
+                       if not _ignored(os.path.relpath(os.path.join(base, d),
+                                                       base_repo), pats)]
+        for f in files:
+            full = os.path.join(base, f)
+            if pats and _ignored(os.path.relpath(full, base_repo), pats):
+                continue
+            yield full
+
+
 def _walk(root: str, want: str) -> list[str]:
     key = (root, want)
     if key in _WALK_CACHE:
         return _WALK_CACHE[key]
     hits = []
     base_repo = os.getenv("AGENT_REPO", root)
-    pats = _ignores(base_repo)
-    for base, dirs, files in _tree(root):
-        for f in files:
-            if not f.endswith(want):
-                continue
-            full = os.path.join(base, f)
-            rel = os.path.relpath(full, base_repo)
-            if pats and _ignored(rel, pats):
-                continue
-            hits.append(full)
-            if len(hits) >= MAX_FILES:
-                note = (f"the file walk stopped at {MAX_FILES} files under "
-                        f"{base_repo} — raise WAWE_MAX_FILES or add to "
-                        f".wawe-ignore; what is below that count is mapped and "
-                        f"the rest is not")
-                if note not in TRUNCATED:
-                    TRUNCATED.append(note)
-                _WALK_CACHE[key] = sorted(hits)
-                return _WALK_CACHE[key]
+    for full in _indexable(root):
+        if not os.path.basename(full).endswith(want):
+            continue
+        hits.append(full)
+        if len(hits) >= MAX_FILES:
+            note = (f"the file walk stopped at {MAX_FILES} files under "
+                    f"{base_repo}: raise WAWE_MAX_FILES or add to "
+                    f".wawe-ignore; what is below that count is mapped and "
+                    f"the rest is not")
+            if note not in TRUNCATED:
+                TRUNCATED.append(note)
+            _WALK_CACHE[key] = sorted(hits)
+            return _WALK_CACHE[key]
     _WALK_CACHE[key] = sorted(hits)
     return _WALK_CACHE[key]
 
@@ -468,36 +494,33 @@ def _fingerprint(repo: str) -> str:
     that until some other file changed. A session's own edits land inside the
     same second as the build that follows them all the time.
 
-    The walk goes through `_tree`, so it is bounded and pruned the same way
-    every other pass over the repository is, and it honours the repository's
-    `.wawe-ignore`/`.gitignore` patterns. It runs before anything else, so
-    while it was unbounded `--repo /` - one keystroke away from `--repo .` -
-    never returned at all, and the file cap that does exist never got a
-    chance to apply.
+    The files considered are exactly `_indexable`'s, which is exactly what the
+    walk indexes. This used to be its own list of seven extensions, and a
+    repository whose code is none of them had a fingerprint that could not
+    move: editing a .go, .rs, .kt, .cs, .rb, .java, .yaml, .tf or .proto file
+    changed what the map should say and not what the fingerprint said, so the
+    next build reported "unchanged since it was built" and served the old
+    answer until some .py or .md file happened to change.
+
+    Going through `_indexable` also means `_tree`'s bound and pruning and the
+    repository's `.wawe-ignore`/`.gitignore` patterns apply here. This runs
+    before anything else, so while it was unbounded `--repo /`, one keystroke
+    away from `--repo .`, never returned at all and the file cap that does
+    exist never got a chance to apply.
     """
     head = ""
     try:
-        import subprocess
         head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
-                              capture_output=True, text=True, timeout=15).stdout.strip()
-    except Exception:  # noqa: BLE001 — a repository without git still gets a map
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", timeout=15).stdout.strip()
+    except Exception:  # noqa: BLE001 - a repository without git still gets a map
         pass
-    pats = _ignores(repo)
     newest = 0
-    for base, dirs, files in _tree(repo):
-        if pats:
-            dirs[:] = [d for d in dirs
-                       if not _ignored(os.path.relpath(os.path.join(base, d), repo), pats)]
-        for fn in files:
-            if not fn.endswith((".py", ".feature", ".sh", ".ts", ".js", ".json", ".md")):
-                continue
-            full = os.path.join(base, fn)
-            if pats and _ignored(os.path.relpath(full, repo), pats):
-                continue
-            try:
-                newest = max(newest, os.stat(full).st_mtime_ns)
-            except OSError:
-                continue
+    for full in _indexable(repo):
+        try:
+            newest = max(newest, os.stat(full).st_mtime_ns)
+        except OSError:
+            continue
     return f"{head}:{newest}"
 
 
