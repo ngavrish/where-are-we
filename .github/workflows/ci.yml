@@ -496,3 +496,120 @@ jobs:
           # search, same as {"input": {}} - only the null name is skipped.
           grep -q '"searches": 2' /tmp/msnull.json
           grep -q "skipped 1 unparsable lines" /tmp/msnull.err
+      - name: install-hook refuses to write through a symlink
+        run: |
+          rm -rf /tmp/symhome /tmp/symrepo /tmp/symoutside /tmp/symout
+          mkdir -p /tmp/symhome /tmp/symoutside /tmp/symrepo/.cursor/rules /tmp/symrepo/pkg
+          printf 'def f():\n    pass\n' > /tmp/symrepo/pkg/a.py
+          echo PRECIOUS > /tmp/symoutside/notes.txt
+          ln -s /tmp/symoutside/notes.txt /tmp/symrepo/.cursor/rules/where-are-we.mdc
+          if HOME=/tmp/symhome where-are-we --repo /tmp/symrepo --out /tmp/symout --install-hook cursor; then
+            echo "expected --install-hook cursor to refuse a symlinked target" >&2
+            exit 1
+          fi
+          grep -qx PRECIOUS /tmp/symoutside/notes.txt
+      - name: install-hook git refuses a symlinked hook file
+        run: |
+          rm -rf /tmp/symgit /tmp/symgitoutside /tmp/symgitout
+          mkdir -p /tmp/symgit/pkg /tmp/symgitoutside
+          git -C /tmp/symgit init -q
+          printf 'def f():\n    pass\n' > /tmp/symgit/pkg/a.py
+          printf '#!/bin/sh\necho PRECIOUS\n' > /tmp/symgitoutside/hook.sh
+          ln -s /tmp/symgitoutside/hook.sh /tmp/symgit/.git/hooks/post-commit
+          if where-are-we --repo /tmp/symgit --out /tmp/symgitout --install-hook git; then
+            echo "expected --install-hook git to refuse a symlinked hook" >&2
+            exit 1
+          fi
+          grep -qx "echo PRECIOUS" /tmp/symgitoutside/hook.sh
+          test -x /tmp/symgit/.git/hooks/post-checkout
+      - name: HOME unset or unwritable is a message, not a traceback
+        run: |
+          rm -rf /tmp/homefx /tmp/rohome
+          mkdir -p /tmp/homefx/pkg /tmp/rohome
+          printf 'def f():\n    pass\n' > /tmp/homefx/pkg/a.py
+          chmod 555 /tmp/rohome
+          if env -u HOME where-are-we --repo /tmp/homefx --install-hook claude; then
+            echo "expected --install-hook claude to refuse with HOME unset" >&2
+            exit 1
+          fi
+          if HOME=/tmp/rohome where-are-we --repo /tmp/homefx --install-hook claude \
+              2> /tmp/rohome-err.txt; then
+            echo "expected --install-hook claude to refuse an unwritable HOME" >&2
+            exit 1
+          fi
+          ! grep -q Traceback /tmp/rohome-err.txt
+          chmod 755 /tmp/rohome
+      - name: "spec roots: a malicious SPEC_ROOTS entry is refused, not run"
+        run: |
+          rm -rf /tmp/specpwn /tmp/specpwnmap
+          rm -f /tmp/SPEC_PWNED
+          mkdir -p /tmp/specpwn
+          printf 'def f():\n    pass\n' > /tmp/specpwn/a.py
+          SPEC_ROOTS='ABC-1; touch /tmp/SPEC_PWNED #' \
+            where-are-we --repo /tmp/specpwn --out /tmp/specpwnmap \
+              --spec-cmd 'true' --quiet
+          test ! -e /tmp/SPEC_PWNED
+          grep -q "Ignored (does not look like a ticket key)" /tmp/specpwnmap/spec_map.md
+      - name: "spec fetch: a timed-out fetcher does not orphan its children"
+        run: |
+          rm -rf /tmp/specslow
+          mkdir -p /tmp/specslow
+          cat > /tmp/specslow/fetch.sh <<'SH'
+          #!/bin/sh
+          sleep 30
+          echo '{"key": "x"}'
+          SH
+          chmod +x /tmp/specslow/fetch.sh
+          python - <<'PY'
+          import time
+          from where_are_we import specs
+          t0 = time.time()
+          r = specs.fetch("/tmp/specslow/fetch.sh {key} | cat", "X-1", timeout=2)
+          assert time.time() - t0 < 10, r
+          assert r == {"key": "X-1", "error": "the tracker did not answer in 2s"}, r
+          PY
+          sleep 1
+          ! pgrep -f "sleep 30"
+      - name: "plugin session-start.sh maps a repository with no git"
+        run: |
+          rm -rf /tmp/ssnogit
+          mkdir -p /tmp/ssnogit/pkg
+          printf 'def f():\n    pass\n' > /tmp/ssnogit/pkg/a.py
+          out=$(printf '{"cwd":"%s"}' /tmp/ssnogit | sh plugin/scripts/session-start.sh)
+          test -f /tmp/ssnogit/.wawe/framework_map.md
+          printf '%s' "$out" | grep -q "framework map"
+      - name: "plugin session-start.sh rebuilds only when HEAD moves"
+        run: |
+          rm -rf /tmp/ssgit
+          mkdir -p /tmp/ssgit
+          git -C /tmp/ssgit init -q
+          git -C /tmp/ssgit config user.email t@t
+          git -C /tmp/ssgit config user.name t
+          printf 'def f():\n    pass\n' > /tmp/ssgit/a.py
+          git -C /tmp/ssgit add .
+          git -C /tmp/ssgit commit -qm one
+          printf '{"cwd":"%s"}' /tmp/ssgit | sh plugin/scripts/session-start.sh > /dev/null
+          first_built=$(cat /tmp/ssgit/.wawe/.built-at)
+          touch -d "1 hour ago" /tmp/ssgit/.wawe/framework_map.json
+          mtime_before=$(stat -c %Y /tmp/ssgit/.wawe/framework_map.json)
+          printf '{"cwd":"%s"}' /tmp/ssgit | sh plugin/scripts/session-start.sh > /dev/null
+          mtime_after=$(stat -c %Y /tmp/ssgit/.wawe/framework_map.json)
+          test "$mtime_before" = "$mtime_after"
+          printf 'def g():\n    pass\n' > /tmp/ssgit/b.py
+          git -C /tmp/ssgit add .
+          git -C /tmp/ssgit commit -qm two
+          printf '{"cwd":"%s"}' /tmp/ssgit | sh plugin/scripts/session-start.sh > /dev/null
+          second_built=$(cat /tmp/ssgit/.wawe/.built-at)
+          test "$first_built" != "$second_built"
+          grep -q '"g"' /tmp/ssgit/.wawe/framework_map.json
+      - name: "prefer-the-map.sh does not refuse a destructive find"
+        run: |
+          rm -rf /tmp/ptm
+          mkdir -p /tmp/ptm/.wawe
+          touch /tmp/ptm/.wawe/framework_map.md
+          out=$(printf '%s' '{"cwd":"/tmp/ptm","tool_name":"Bash","tool_input":{"command":"find . -delete"}}' \
+            | WAWE_STRICT=1 sh plugin/scripts/prefer-the-map.sh)
+          test -z "$out"
+          out=$(printf '%s' '{"cwd":"/tmp/ptm","tool_name":"Bash","tool_input":{"command":"grep -rn foo src/"}}' \
+            | WAWE_STRICT=1 sh plugin/scripts/prefer-the-map.sh)
+          echo "$out" | grep -q permissionDecision

@@ -29,6 +29,7 @@ import json
 import os
 import re
 import shlex
+import signal
 import subprocess
 from typing import Any, Callable
 
@@ -77,18 +78,37 @@ def fetch(command: str, key: str, timeout: int = 60,
     """One ticket, through whatever the caller uses to reach its tracker.
 
     `stdin` is fed to the command as-is (Linear's GraphQL body goes this way,
-    since it does not belong on a command line).
+    since it does not belong on a command line). `key` is shell-quoted before
+    it replaces `{key}`: `walk()` already refuses a root that does not match
+    the source's key pattern, this is the second layer for a key that reaches
+    here some other way.
+
+    Runs in its own process group (`start_new_session=True`) so a timeout can
+    kill the whole tree, not just the `sh` this starts: `command` is commonly
+    a pipeline (`curl … | jq`), and `sh -c` forks for that rather than execing
+    into it, so killing only the top process orphans the pipeline's children.
     """
+    full_command = command.replace("{key}", shlex.quote(key))
     try:
-        out = subprocess.run(command.replace("{key}", key), shell=True,
-                             capture_output=True, text=True, timeout=timeout,
-                             input=stdin)
+        proc = subprocess.Popen(
+            full_command, shell=True, start_new_session=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            stdin=subprocess.PIPE, text=True)
+    except OSError as exc:
+        return {"key": key, "error": str(exc)}
+    try:
+        stdout, stderr = proc.communicate(input=stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+        except OSError:
+            pass
+        proc.communicate()  # reap, now that the group is dead
         return {"key": key, "error": f"the tracker did not answer in {timeout}s"}
-    if out.returncode != 0:
-        return {"key": key, "error": (out.stderr or out.stdout).strip()[:300]}
+    if proc.returncode != 0:
+        return {"key": key, "error": (stderr or stdout).strip()[:300]}
     try:
-        return json.loads(out.stdout)
+        return json.loads(stdout)
     except ValueError:
         return {"key": key, "error": "the fetcher did not return JSON"}
 
@@ -170,10 +190,22 @@ def walk(command: str, roots: list[str], depth: int = DEFAULT_DEPTH,
     `stdin` feeds the fetcher's standard input, for a tracker whose query does
     not belong on a command line (Linear's GraphQL body). It is a string sent
     to every fetch as-is, or a callable of the key that builds one per ticket.
+
+    A root that does not match `key_re` is dropped before it ever reaches
+    `fetch` and named in the result's `invalid_roots`, rather than sent
+    through: roots come from `--specs` / `$SPEC_ROOTS`, which a CI job fills
+    from a branch name or a PR title, not from the operator's own typing.
+    Keys discovered while walking are safe without this check -- they are
+    read out of `key_re` itself, so they cannot contain a character the
+    pattern does not allow.
     """
     seen: dict[str, Any] = {}
     edges: dict[str, list[str]] = {}
-    frontier = [(k, 0) for k in roots]
+    invalid_roots = [k for k in roots if not key_re.fullmatch(k)]
+    frontier = [(k, 0) for k in roots if key_re.fullmatch(k)]
+    if invalid_roots and say:
+        say(f"  ignoring root(s) that do not look like a ticket key: "
+            f"{', '.join(invalid_roots)}")
     dropped: list[str] = []
 
     while frontier:
@@ -203,7 +235,8 @@ def walk(command: str, roots: list[str], depth: int = DEFAULT_DEPTH,
             frontier += [(k, hop + 1) for k in found if k not in seen]
 
     return {"roots": roots, "depth": depth, "tickets": seen, "links": edges,
-            "not_fetched": sorted(set(dropped))}
+            "not_fetched": sorted(set(dropped)),
+            "invalid_roots": sorted(set(invalid_roots))}
 
 
 def digest(spec: dict[str, Any]) -> str:
@@ -224,6 +257,9 @@ def digest(spec: dict[str, Any]) -> str:
     if spec.get("not_fetched"):
         lines += [f"Not fetched (the walk stopped at its limit): "
                   f"{', '.join(spec['not_fetched'][:20])}", ""]
+    if spec.get("invalid_roots"):
+        lines += [f"Ignored (does not look like a ticket key): "
+                  f"{', '.join(spec['invalid_roots'][:20])}", ""]
 
     lines += ["## Tickets", ""]
     for key, ticket in tickets.items():
