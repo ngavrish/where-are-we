@@ -14,8 +14,8 @@ the fix when the change was intended.
 
 import os
 import pathlib
+import shutil
 import sys
-import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
 sys.path.insert(0, os.path.dirname(__file__))
@@ -24,11 +24,33 @@ import build_fixtures  # noqa: E402
 
 HERE = pathlib.Path(__file__).parent
 
+# Fixed, not `tempfile.TemporaryDirectory()`: `mkdtemp`'s random suffix ends
+# up inside `## Defined here`'s absolute paths, and `ask()`'s BM25 ranking
+# tokenises a section's whole text, paths included, so those random letters
+# change each section's token count by a few. Most cases don't sit close
+# enough to a tie for that to matter; `suite--pay_step--12000` did, and one
+# run in three came back with two near-tied sections swapped, not because
+# anything about the map changed but because that run's random directory
+# name did. A fixed root makes the text, and so the ranking, the same input
+# every time. `regen.py` builds under the same path for the same reason: its
+# output has to be this same fixed input's answer, not some other run's.
+GOLDEN_ROOT = "/tmp/wawe-golden"
+DETERMINISM_ROOT_2 = "/tmp/wawe-golden-2"
+
 
 def _cases():
     for line in (HERE / "cases.txt").read_text().splitlines():
         fixture, words, limit = line.split("\t")
         yield fixture, words, int(limit)
+
+
+def _rebuilt(root: str) -> dict:
+    """The three fixtures, freshly built under `root`: removed first, then
+    recreated, so a leftover from an earlier run (this machine's or a
+    previous CI job's, on a reused runner) can never mix into this one."""
+    shutil.rmtree(root, ignore_errors=True)
+    os.makedirs(root, exist_ok=True)
+    return build_fixtures.build_all(root)
 
 
 def _normalized(text: str, root: str) -> str:
@@ -48,7 +70,7 @@ def _normalized(text: str, root: str) -> str:
 def _check_golden(root: str) -> list:
     """Every case's `ask()` answer against its pinned expected file. Returns
     the problems found; empty means all 150 cases matched."""
-    outs = build_fixtures.build_all(root)
+    outs = _rebuilt(root)
     problems = []
     for fixture, words, limit in _cases():
         got = _normalized(
@@ -75,18 +97,17 @@ def _check_golden(root: str) -> list:
     return problems
 
 
-def _check_determinism(root: str) -> list:
-    """Two builds of the same three fixtures, byte for byte once each root is
-    stripped out of the text. Returns the problems found."""
-    outs1 = build_fixtures.build_all(os.path.join(root, "one"))
-    outs2 = build_fixtures.build_all(os.path.join(root, "two"))
+def _check_determinism(root1: str, root2: str) -> list:
+    """Two builds of the same three fixtures, under two different fixed
+    roots, byte for byte once each root is stripped out of the text. Returns
+    the problems found."""
+    outs1 = _rebuilt(root1)
+    outs2 = _rebuilt(root2)
     problems = []
     for name in outs1:
         for fn in ("framework_map.md", "framework_map_brief.md"):
-            a = _normalized(open(os.path.join(outs1[name], fn), encoding="utf-8").read(),
-                            os.path.join(root, "one"))
-            b = _normalized(open(os.path.join(outs2[name], fn), encoding="utf-8").read(),
-                            os.path.join(root, "two"))
+            a = _normalized(open(os.path.join(outs1[name], fn), encoding="utf-8").read(), root1)
+            b = _normalized(open(os.path.join(outs2[name], fn), encoding="utf-8").read(), root2)
             if a != b:
                 problems.append(f"{name}/{fn}: differs between two builds of one tree")
     return problems
@@ -94,21 +115,8 @@ def _check_determinism(root: str) -> list:
 
 def main() -> int:
     n_cases = sum(1 for _ in _cases())
-    # `## Defined here` rows are cut to a character budget that includes the
-    # absolute path each name was declared at (see `_normalized`'s
-    # docstring), so a temp root a few characters longer or shorter than the
-    # one `regen.py` used can move a row across the cutoff and fail a case
-    # that never actually changed. `/tmp` is asked for explicitly, rather
-    # than the platform default, because it fixes that length: macOS's
-    # default temp root is a long, per-login, per-machine path, while
-    # `regen.py` and CI's Linux runner both get a short, constant one; a
-    # golden file regenerated on a Mac would otherwise be one macOS
-    # temp-root's worth of characters away from what CI computes for the
-    # same case, on every case whose cutoff sits inside that margin.
-    with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
-        problems = _check_golden(tmp)
-    with tempfile.TemporaryDirectory(dir="/tmp") as tmp:
-        problems += _check_determinism(tmp)
+    problems = _check_golden(GOLDEN_ROOT)
+    problems += _check_determinism(GOLDEN_ROOT, DETERMINISM_ROOT_2)
     if problems:
         print(f"golden: {len(problems)} problem(s):")
         for p in problems:
