@@ -436,7 +436,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     half = set(expanded) - set(terms)
     # Every word `_expand` added beyond what was typed, in order, deduped:
     # the largest an "also matched" line could possibly be, reserved from
-    # `room` up front so that line never pushes an answer past `limit` -
+    # `room` up front so that line never pushes an answer past `limit`.
     # `limit` is a ceiling for everyone who calls `ask()`, this note included.
     candidates = list(dict.fromkeys(t for t in expanded if t not in terms))
     note_room = len(f"(also matched: {', '.join(candidates)})") + 2 if candidates else 0
