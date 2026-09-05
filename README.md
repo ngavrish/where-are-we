@@ -180,6 +180,7 @@ as estimates.
 |---|---|---|---|
 | CLI `where-are-we` | Everything above | — | — |
 | MCP server (`--mcp`): `ask`, `find`, `defines`, `sections` | The map as tools, stdio | On the measured production run: 194 map calls vs 68 repository searches (call events of that run) | — |
+| LSP server (`--lsp`): `textDocument/definition`, `workspace/symbol` | The map as an editor's language server, `Content-Length` framed stdio | Not measured | - |
 | Library: `build`, `brief`, `digest`, `init_manifest`, `main` | Python API | Not measured | — |
 | GitHub Action (`ngavrish/where-are-we@v1`): inputs `repo`, `product`, `out`, `agent-file`, `comment`; outputs `brief`, `summary` | Map on CI, optional PR comment | Not measured | — |
 | pre-commit hook | Rebuild on commit so a map is never stale | Not measured | — |
