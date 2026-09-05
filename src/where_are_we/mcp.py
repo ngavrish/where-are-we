@@ -27,6 +27,11 @@ try:
 except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
+try:
+    from .ask import log_answer
+except ImportError:  # run as a plain file, with no package around it
+    from ask import log_answer  # type: ignore[no-redef]
+
 PROTOCOL = "2024-11-05"
 
 TOOLS = [
@@ -207,8 +212,12 @@ def serve(out_dir: str) -> int:
 
                 asked = _each(args.get("words")) or [""]
                 room = _share(_ANSWER_BUDGET, len(asked), 1500)
-                _reply(_text(_joined((w, _ask_one(w, room)) for w in asked)),
-                       ident)
+                pairs = []
+                for w in asked:
+                    a = _ask_one(w, room)
+                    log_answer(out_dir, "ask", w, a, room)
+                    pairs.append((w, a))
+                _reply(_text(_joined(pairs)), ident)
             elif name == "defines":
                 wanted = _each(args.get("name"))
                 # One pass over the map for the whole list: _definitions_for
@@ -216,22 +225,29 @@ def serve(out_dir: str) -> int:
                 # is the cost this batching exists to remove.
                 hits = mapper._definitions_for(map_path,
                                                [w.lower() for w in wanted])
-                _reply(_text("\n".join(hits) if hits
-                             else "no declaration of "
-                                  + ", ".join(repr(w) for w in wanted)
-                                  + " in the map"),
-                       ident)
+                answer = ("\n".join(hits) if hits
+                          else "no declaration of "
+                               + ", ".join(repr(w) for w in wanted)
+                               + " in the map")
+                log_answer(out_dir, "defines", ", ".join(wanted), answer,
+                           len(answer))
+                _reply(_text(answer), ident)
             elif name == "find":
                 phrases = _each(args.get("phrase")) or [""]
                 limit = int(args.get("limit") or _HIT_BUDGET)
                 room = _share(limit, len(phrases), 5)
-                _reply(_text(_joined(
-                    (p, mapper.find_text(out_dir, p, room)) for p in phrases)),
-                       ident)
+                pairs = []
+                for p in phrases:
+                    a = mapper.find_text(out_dir, p, room)
+                    log_answer(out_dir, "find", p, a, room)
+                    pairs.append((p, a))
+                _reply(_text(_joined(pairs)), ident)
             elif name == "sections":
                 try:
                     from .ask import map_heads
-                    _reply(_text("\n".join(map_heads(map_path))), ident)
+                    answer = "\n".join(map_heads(map_path))
+                    log_answer(out_dir, "sections", "", answer, len(answer))
+                    _reply(_text(answer), ident)
                 except OSError as exc:
                     _reply(_text(f"no map at {map_path}: {exc}"), ident)
             else:

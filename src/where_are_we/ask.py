@@ -10,6 +10,7 @@ below it is naming what goes in and out.
 import json
 import os
 import re
+from datetime import datetime, timezone
 
 RESERVE_TAIL = 96  # a section's tail line ("… 37 more matching rows; 210 rows
 # in this section do not mention these words"), paid for up front so the tail
@@ -362,3 +363,33 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         if note:
             out.append(note)
     return "\n\n".join(out)
+
+
+LOG_NAME = ".wawe-ask.log"
+
+
+def log_answer(out_dir: str, tool: str, words: str, answer: str, room: int) -> None:
+    """Append one JSON line to `<out_dir>/.wawe-ask.log`: how big this answer
+    was, and against what room it was cut.
+
+    Every answer here is trimmed to a budget, and until now nothing recorded
+    what that budget actually cost in a real session - `ask`'s own claims about
+    tokens saved rested on one production run, not on what every call since
+    has spent. Off with `WAWE_ASK_LOG=0`. Never raises: a log is a
+    convenience, not a reason to fail the question it is logging.
+    """
+    if os.environ.get("WAWE_ASK_LOG") == "0":
+        return
+    row = {
+        "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "tool": tool,
+        "words": words,
+        "chars": len(answer),
+        "tokens": len(answer) // 4,
+        "room": room,
+    }
+    try:
+        with open(os.path.join(out_dir, LOG_NAME), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(row) + "\n")
+    except OSError:
+        pass
