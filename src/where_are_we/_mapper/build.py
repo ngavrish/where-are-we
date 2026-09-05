@@ -2228,7 +2228,11 @@ def build(repo: str, out_dir: str | None = None,
                              capture_output=True, text=True, encoding="utf-8",
                              errors="replace", timeout=30).stdout
         releases = [l.strip() for l in out.splitlines() if l.strip()][:25]
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - the last broad handler in this file, and
+        # deliberately so: a git subprocess and one strip-and-slice over its
+        # output, on a walker that must not stop because a repository's tags
+        # are in a shape git itself will not print. Nothing here can raise a
+        # programming error the narrow handlers above would have caught.
         pass
     changelog_entries = []
     for name in ("CHANGELOG.md", "CHANGES.md", "HISTORY.md"):

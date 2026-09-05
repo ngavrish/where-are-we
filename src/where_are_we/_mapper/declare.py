@@ -473,7 +473,10 @@ def _ts_symbols(path: str, lang: str) -> list:
     def _parse():
         try:
             tree = parser.parse(_slurp(path).encode())
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - an optional third-party parser,
+            # over a file this package did not write: a grammar built for
+            # another version of tree-sitter raises whatever it raises, and a
+            # file with no names in it is the right answer to all of it.
             return []
         wanted = {"function_declaration", "class_declaration", "method_definition",
                   "interface_declaration", "type_alias_declaration", "enum_declaration",

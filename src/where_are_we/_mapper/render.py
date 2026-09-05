@@ -895,7 +895,10 @@ def changed_since(repo: str, out_dir: str) -> list[str]:
             r = subprocess.run(["git", "-C", repo, *args], capture_output=True,
                                text=True, timeout=15)
             return r.stdout if r.returncode == 0 else None
-        except Exception:  # noqa: BLE001, a repository without git reports nothing
+        except (OSError, subprocess.SubprocessError):
+            # No git on the machine, no repository here, or a call that
+            # outlived its timeout: nothing changed since, as far as this can
+            # tell.
             return None
 
     head = _git("rev-parse", "HEAD")

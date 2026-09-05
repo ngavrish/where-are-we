@@ -262,10 +262,10 @@ def _config(repo: str) -> dict:
     # that is not configuration, and an unbounded read of a path a repository
     # chooses the contents of is a hole whatever the file is called.
     body = _slurp(path, 64 * 1024)
+    import tomllib
     try:
-        import tomllib
         data = tomllib.loads(body)
-    except Exception:  # noqa: BLE001, a file with a typo in it
+    except tomllib.TOMLDecodeError:  # a file with a typo in it
         return {}
     out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
     # `[synonyms]` is its own top-level table, named once for the project
@@ -919,7 +919,10 @@ def fingerprint(repo: str) -> str:
         head = subprocess.run(["git", "-C", repo, "rev-parse", "HEAD"],
                               capture_output=True, text=True, encoding="utf-8",
                               errors="replace", timeout=15).stdout.strip()
-    except Exception:  # noqa: BLE001 - a repository without git still gets a map
+    except (OSError, subprocess.SubprocessError):
+        # No git on the machine, no repository here, or a call that outlived
+        # its timeout. A tree still gets a map; it is stamped with its newest
+        # file alone.
         pass
     newest = 0
     for full in _indexable(repo):

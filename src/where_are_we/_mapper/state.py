@@ -21,10 +21,12 @@ import os
 # (`from __init__ import ...`) re-enters that same circular import from the
 # other side and fails too. This goes around the package entirely instead,
 # reading what pip/uv actually installed, the same way in both cases.
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
+
 try:
-    from importlib.metadata import version as _pkg_version
     __version__ = _pkg_version("where-are-we")
-except Exception:  # noqa: BLE001 -- not installed: a loose checkout, no pip/uv
+except PackageNotFoundError:  # a loose checkout: nothing installed it
     # Every such checkout stamps the cache the same fixed "0", whatever
     # commit or release it actually is: a release-to-release stale cache
     # (the thing the version stamp exists to catch) is only possible here,

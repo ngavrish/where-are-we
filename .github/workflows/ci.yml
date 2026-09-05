@@ -1930,3 +1930,51 @@ jobs:
           # The one that would have been lost in the merge: `outbound` is found
           # by the registry's extractor and reaches the map.
           grep -q '"outbound"' /tmp/ocp/m/framework_map.json
+
+      - name: the broad handlers that are left are the ones that should be
+        run: |
+          set -o pipefail
+          rm -rf /tmp/pol
+          mkdir -p /tmp/pol/r
+          printf 'x = 1\n' > /tmp/pol/r/a.py
+          # Eight broad handlers across the package, and each one is a server
+          # loop, an optional dependency, or a third-party parser over a file
+          # this package did not write. Every other one now names what it
+          # catches, so a programming error in the lines it covers is a
+          # traceback rather than a silently empty section.
+          python - <<'EOF'
+          import pathlib, re, sys
+          allowed = {
+              "semantic.py": 2,        # an optional index: no cache, no reranker
+              "cli.py": 1,             # --watch outlives whatever the tree does
+              "lsp.py": 1,             # keep serving the pipe
+              "mcp.py": 1,             # keep serving the pipe
+              "build.py": 1,           # git for-each-ref plus a strip and a slice
+              "declare.py": 2,         # an optional tree-sitter grammar, and its parser
+          }
+          bad = []
+          for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
+              hits = re.findall(r"except (?:Exception|BaseException)", path.read_text())
+              if len(hits) != allowed.get(path.name, 0):
+                  bad.append(f"{path}: {len(hits)} broad handlers, expected "
+                             f"{allowed.get(path.name, 0)}")
+              # A broad handler says why on the line it is written on.
+              for line in path.read_text().splitlines():
+                  if re.match(r"\s*except (Exception|BaseException)", line) and "#" not in line:
+                      bad.append(f"{path}: a broad handler with no reason: {line.strip()}")
+          print("\n".join(bad) or "the broad handlers are the documented ones")
+          sys.exit(1 if bad else 0)
+          EOF
+          # And what the narrowed ones used to swallow still degrades the same
+          # way. A .wawe.toml with a typo in it is not a build failure.
+          printf '[where-are-we\nbroken = \n' > /tmp/pol/r/.wawe.toml
+          where-are-we --repo /tmp/pol/r --out /tmp/pol/m --product none \
+            --force --quiet --no-semantic
+          python -c "
+          from where_are_we._mapper.walk import _config, fingerprint
+          assert _config('/tmp/pol/r') == {}, _config('/tmp/pol/r')
+          assert fingerprint('/tmp/pol/r').startswith(':'), 'a tree with no git still gets a stamp'
+          from where_are_we._mapper.render import changed_since
+          changed_since('/tmp/pol/r', '')
+          print('a broken config, and a tree with no git, still build')
+          "
