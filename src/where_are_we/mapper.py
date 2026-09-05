@@ -4465,6 +4465,11 @@ def main() -> int:
                          "asked as a tool call rather than through a shell, so "
                          "the question and its answer do not land in the "
                          "conversation and get re-read on every turn after")
+    ap.add_argument("--lsp", action="store_true",
+                    help="serve the map as a language server on stdin/stdout: "
+                         "go to definition and workspace symbol search, "
+                         "answered from the same index as --mcp, framed for "
+                         "an editor instead of an agent")
     ap.add_argument("--pointer", action="store_true",
                     help="print what belongs in a prompt: where the map is, what "
                          "sections it has, and how to ask it — never the map itself")
@@ -4489,6 +4494,13 @@ def main() -> int:
         except ImportError:  # run as a plain file, with no package around it
             import mcp as _mcp  # type: ignore[no-redef]
         return _mcp.serve(os.path.abspath(args.out))
+
+    if args.lsp:
+        try:
+            from . import lsp as _lsp
+        except ImportError:  # run as a plain file, with no package around it
+            import lsp as _lsp  # type: ignore[no-redef]
+        return _lsp.serve(os.path.abspath(args.out), os.path.abspath(args.repo))
 
     if args.specs:
         if not args.spec_cmd:
