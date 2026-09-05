@@ -28,9 +28,9 @@ except ImportError:  # run as a plain file, with no package around it
     import specs  # type: ignore[no-redef]
 
 try:
-    from .ask import ask, fit_lines, map_heads, log_answer
+    from .ask import ask, fit_lines, map_heads, log_answer, callers
 except ImportError:  # run as a plain file, with no package around it
-    from ask import ask, fit_lines, map_heads, log_answer  # type: ignore[no-redef]
+    from ask import ask, fit_lines, map_heads, log_answer, callers  # type: ignore[no-redef]
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
 
@@ -4483,6 +4483,11 @@ def main() -> int:
                          "print the rows that mention these words, whole, with a "
                          "count of what was left out, and nothing else. Reads "
                          "framework_map.md under --out.")
+    ap.add_argument("--callers", default="", metavar="NAME",
+                    help="print who calls NAME, exactly: one `file:func` per "
+                         "line, from the call graphs already in the map. "
+                         "Case-sensitive, like the identifier itself. Reads "
+                         "framework_map.json under --out")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
@@ -4580,7 +4585,7 @@ def main() -> int:
                   f"{os.path.join(out_dir, 'spec_map.md')}")
         return 0
 
-    if args.sections or args.ask or args.pointer:
+    if args.sections or args.ask or args.pointer or args.callers:
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -4596,6 +4601,14 @@ def main() -> int:
             except OSError as exc:
                 print(f"no map at {map_path}: {exc}", file=sys.stderr)
                 return 1
+            return 0
+        if args.callers:
+            json_path = os.path.join(out_dir, "framework_map.json")
+            hits = callers(json_path, args.callers)
+            answer = ("\n".join(hits) if hits
+                      else f"nothing in the map calls {args.callers}")
+            log_answer(out_dir, "callers", args.callers, answer, len(answer))
+            print(answer)
             return 0
         answer = ask(map_path, args.ask)
         if os.path.exists(spec_path):

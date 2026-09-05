@@ -284,6 +284,60 @@ def _section_answer(head: str, body: list, terms: list, room: int) -> tuple:
     return "\n".join(kept), True
 
 
+def callers(map_json_path: str, name: str) -> list:
+    """Every `<file>:<func>` whose call graph entry mentions `name`.
+
+    Reads the two call graphs already written to the map: `call_graph_files`
+    (cross-file, values shaped `"<callee> (<basename>)"`) and `call_graph`
+    (behave step functions, values bare names). Matching is case-sensitive
+    and exact, because these are identifiers as written, not prose. A
+    trailing `(` on `name` is stripped first, so `callers(m, "charge(")`
+    reads the same as `callers(m, "charge")`.
+    """
+    try:
+        with open(map_json_path, encoding="utf-8") as fh:
+            m = json.load(fh) or {}
+    except (OSError, ValueError):
+        return []
+    target = name[:-1] if name.endswith("(") else name
+    out = set()
+    for key, calls in (m.get("call_graph_files") or {}).items():
+        for c in calls:
+            if c.split(" (", 1)[0] == target:
+                out.add(key)
+                break
+    for key, calls in (m.get("call_graph") or {}).items():
+        if target in calls:
+            out.add(key)
+    return sorted(out)
+
+
+def _callers_block(map_path: str, words: str, room: int) -> str:
+    """"## Called by `name`", one per raw term that has a caller, cut to
+    `room`. Terms come from `words` unlowered: `ask()` lowercases everything
+    else for ranking prose, but a call graph is built from identifiers as
+    written, and `Charge` is not `charge`.
+    """
+    json_path = os.path.join(os.path.dirname(map_path) or ".",
+                              "framework_map.json")
+    terms, seen = [], set()
+    for w in re.split(r"[\s,]+", words):
+        if len(w) > 1 and w not in seen:
+            seen.add(w)
+            terms.append(w)
+    out = []
+    for t in terms:
+        hits = callers(json_path, t)
+        if not hits:
+            continue
+        block = f"## Called by `{t}`\n" + "\n".join(f"- {h}" for h in hits)
+        if len(block) + 2 > room:
+            continue
+        out.append(block)
+        room -= len(block) + 2
+    return "\n\n".join(out)
+
+
 def _more_note(room: int) -> str:
     """The "more sections match" note, only if it fits: a note that says
     "more" when there is no more, or that pushes the answer past its limit,
@@ -319,6 +373,9 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         block = _definitions_block(map_path, terms, limit)
         if block:
             return block
+        cblock = _callers_block(map_path, words, limit)
+        if cblock:
+            return cblock
         # What was indexed, said out loud. The old wording promised more than
         # it knew — "a real absence rather than a search that missed" — about a
         # constant that was in the product on line 31, in a language the index
@@ -362,6 +419,10 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         note = _more_note(room)
         if note:
             out.append(note)
+            room -= len(note) + 2
+    cblock = _callers_block(map_path, words, room)
+    if cblock:
+        out.append(cblock)
     return "\n\n".join(out)
 
 
