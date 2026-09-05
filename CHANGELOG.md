@@ -1,5 +1,102 @@
 # Changelog
 
+## 1.1.2
+
+Three audits (concurrency, robustness, design) ran against 1.1.1; every
+finding below was reproduced with a command before it was fixed and has a
+live CI step that fails on the old code.
+
+Maps that are never torn:
+
+- Every artefact (`framework_map.{md,json}`, the brief, the HTML, the agent
+  file, `spec_map.*`, `.wawe-cache.json`, `.pointer-head`, the semantic index)
+  is written to a temporary and renamed into place; a reader never sees a
+  zero-byte or half-written file, and a build killed mid-way leaves the
+  previous map intact. Dead temporaries are swept at the next build.
+- `build()` starts from nothing: module state is reset per build, so two
+  repositories mapped in one process no longer share names, and `--watch`
+  reports a constant `indexed` count on an unchanged tree.
+- The fingerprint keeps sub-second mtimes and watches exactly the files the
+  map indexes (an edited `.go` or `.rs` file no longer reads as "unchanged").
+- `--force` reads nothing from the parse cache and rewrites it.
+- `--watch` rebuilds whole every iteration, writes every artefact including
+  `framework_map.md`, and survives an exception in one iteration.
+
+Reads that are bounded:
+
+- Every whole-file read goes through one bounded reader; a 198 MB source
+  costs about 40 MB of memory instead of four copies of itself. A module
+  larger than the parser cap is parsed on whole lines and named in
+  `## This map is incomplete`.
+- A symlink that resolves outside the repository is not read; a FIFO or
+  device is skipped; a tree walk honours `WAWE_MAX_FILES` before any other
+  pass, so `--repo /` terminates.
+- Ignore rules never drop a path git tracks (`.gitignore` semantics), while
+  `.wawe-ignore` always prunes.
+
+Servers that stay up:
+
+- MCP and LSP reply with a JSON-RPC error to malformed `params`,
+  `arguments` or `limit` and keep serving; both exit quietly when stdout
+  closes; a corrupt semantic index degrades to an answer without the tail;
+  the embed cache uses WAL and degrades to "no cache".
+- `file://` URIs are percent-encoded; `changed_since` reads git NUL
+  separated so a path with a space or a rename comes back verbatim.
+
+What goes into the map:
+
+- Secrets are redacted by what a line says, not by six prefixes: PEM blocks
+  as a whole, Stripe, OpenAI, Slack, GitHub, AWS, JWT and URL passwords by
+  shape, and any value under a key naming a secret, password, token, key or
+  credential. A commit sha, a Java path and a counter such as
+  `max_tokens = 1000000` survive.
+- `--html` escapes repository content.
+- UTF-16 sources with a byte order mark are decoded and indexed; a binary
+  that merely starts with one is not.
+
+The command line:
+
+- A missing map, an unwritable `--out`, `--agent-file` or `--init` target and
+  a non-directory `--repo` say so in one line with a non-zero exit code.
+- A narrow stdout encoding replaces characters instead of crashing.
+- `--ask` answers from a spec map alone when that is all there is.
+
+Hooks and the plugin:
+
+- `--install-hook` refuses to write through a symlink and refuses cleanly
+  when `HOME` is unset or unwritable.
+- `--spec-source` keys are validated and quoted; a timed-out fetch kills its
+  whole process group. `SPEC_ROOTS` cannot smuggle shell syntax.
+- The plugin's SessionStart hook maps a repository that has no git, and
+  `prefer-the-map.sh` no longer refuses a destructive `find`.
+- `wawe-measure` skips a `tool_use` block without a usable name.
+
+Layout (no map bytes change; import paths do):
+
+- `where_are_we._mapper.cli` is now `where_are_we.cli`, with no stub at the
+  old path. `where_are_we.mapper:main`, `python -m where_are_we.mapper`,
+  running `mapper.py` by path, and `from where_are_we.mapper import main,
+  init_manifest, install_hook, propose_docs` all keep working.
+- `_definitions_for` lives in `where_are_we.ask` as `definitions_for`;
+  `fingerprint` is the public name of `walk._fingerprint`. Both underscore
+  names stay as aliases for one release.
+- `from where_are_we.mapper import *` now exports the eleven shared-state
+  names and `definitions_for`/`fingerprint`, and no longer exports `main`,
+  `init_manifest`, `install_hook`, `propose_docs` (import those by name).
+- `WAWE_NO_CACHE`, `WAWE_DEBUG_PARSES`, `WAWE_VOCAB`, `WAWE_ASK_LOG` and
+  `WAWE_EMBED_CACHE` are read once at import; a process that sets one after
+  importing keeps the value it started with.
+- `extract.Ctx.code_files` is a tuple and `Ctx` is hashable; `Ctx.read` is
+  the `extract.Read` protocol; a new extractor is registered in
+  `extract.EXTRACTORS`.
+- The import graph has no cycles and no deferred import that existed only
+  to dodge one (`tests/golden/import_graph.py` proves it in CI). Extractors
+  are registered in one list and assembled in one loop. `SCHEMA.md`
+  documents every top-level key the map emits. Every environment variable
+  the code reads is in one README table.
+- CI: every negative assertion is an `if ...; exit 1` (a `! cmd` under
+  `bash -e` never fails a step; 24 of them were inert).
+
 ## 1.1.1
 
 - `--mcp`, `--ask`, `--pointer` and `--callers` started by a hook or the
