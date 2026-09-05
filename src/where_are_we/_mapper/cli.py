@@ -610,7 +610,12 @@ def main() -> int:
     # be built, and a second walk of the tree buys nothing.
     if args.docs:
         m2 = build(repo, out_dir=out_dir)
-        planned = propose_docs(repo, m2, apply=(args.docs == "write"))
+        try:
+            planned = propose_docs(repo, m2, apply=(args.docs == "write"))
+        except OSError as exc:
+            # --docs write into a read-only checkout: name the file, do not
+            # unwind through main() with a traceback.
+            return _write_error(exc, repo)
         if not planned:
             print("nothing to add: every directory already explains itself")
             return 0
