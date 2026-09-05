@@ -1,0 +1,10 @@
+## Defined here
+
+- `Invoice` — <root>/code/repo/app/models.py:9
+
+## Which code touches which table
+- `api.py`: /health, /invoice, /invoice/{id} ↔ fastapi
+
+## HTTP routes this codebase serves (3)
+- GET /invoice  (api.py)
+… 1 more matching rows; 1 rows in this section do not mention these words

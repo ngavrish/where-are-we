@@ -1,0 +1,5 @@
+## How a feature file is written here
+    When they pay for the invoice
+    When they pay for the invoice
+    When they add a new card and pay for the invoice
+… 15 rows in this section do not mention these words

@@ -1,0 +1,110 @@
+## How a feature file is written here
+Sample: `features/checkout/pay.feature`
+    When they pay for the invoice
+    When they pay for the invoice
+    When they add a new card and pay for the invoice
+… 14 rows in this section do not mention these words
+
+## Who calls whom, across files
+- `pay_steps.py:step_pay_1` → click_1 (checkout.py)
+- `pay_steps.py:step_pay_2` → click_2 (checkout.py)
+- `pay_steps.py:step_pay_3` → click_3 (checkout.py)
+- `pay_steps.py:step_pay_4` → click_4 (checkout.py)
+- `pay_steps.py:step_pay_5` → click_5 (checkout.py)
+- `pay_steps.py:step_pay_6` → click_6 (checkout.py)
+- `pay_steps.py:step_pay_7` → click_7 (checkout.py)
+- `pay_steps.py:step_pay_8` → click_8 (checkout.py)
+- `pay_steps.py:step_pay_9` → click_9 (checkout.py)
+- `pay_steps.py:step_pay_10` → click_10 (checkout.py)
+- `pay_steps.py:step_pay_11` → click_11 (checkout.py)
+- `pay_steps.py:step_pay_12` → click_12 (checkout.py)
+- `pay_steps.py:step_pay_13` → click_13 (checkout.py)
+- `pay_steps.py:step_pay_14` → click_14 (checkout.py)
+- `pay_steps.py:step_pay_15` → click_15 (checkout.py)
+- `pay_steps.py:step_pay_16` → click_16 (checkout.py)
+- `pay_steps.py:step_pay_17` → click_17 (checkout.py)
+- `pay_steps.py:step_pay_18` → click_18 (checkout.py)
+- `pay_steps.py:step_pay_19` → click_19 (checkout.py)
+- `pay_steps.py:step_pay_20` → click_20 (checkout.py)
+
+## What each module says it is for
+- `steps/pay_steps.py` — Step definitions for paying at checkout.
+- `pages/checkout.py` — The checkout page: every element pay_steps.py clicks through.
+… 1 rows in this section do not mention these words
+
+## Where things are
+- **Page objects**: `pages/checkout.py`
+
+## Public surface of the code
+- `pages/checkout.py`: CheckoutPage
+
+## Backend the tests touch
+- tables queried: behave, pages.checkout
+
+## Feature files
+- `features/checkout/pay.feature` — 3 scenarios
+… 1 rows in this section do not mention these words
+
+## Files nothing imports
+- `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
+
+## Largest files
+- steps/pay_steps.py (2 KB), pages/checkout.py (1 KB), steps/login_steps.py (0 KB)
+
+## Biggest feature files (scenario line numbers are in the full map)
+- `features/checkout/pay.feature` — 3 scenarios
+… 1 rows in this section do not mention these words
+
+## How this suite is built
+- **features** — Gherkin features — 2 files under features, features/checkout
+- **Page objects**: `pages/checkout.py`
+… 4 rows in this section do not mention these words
+
+## Page-object methods nothing calls
+- `checkout.py`: CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17()
+
+## What a step may call
+- `pages/checkout.py`: CheckoutPage.click_1(), CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17(), CheckoutPage.click_18(), CheckoutPage.click_19(), CheckoutPage.click_2(), CheckoutPage.click_20(), CheckoutPage.click_21(), CheckoutPage.click_22(), CheckoutPage.click_23() … +24 more in the full map
+
+## What you can already write with (85)
+- CheckoutPage.click_1()
+- CheckoutPage.click_10()
+- CheckoutPage.click_11()
+- CheckoutPage.click_12()
+- CheckoutPage.click_13()
+- CheckoutPage.click_14()
+- CheckoutPage.click_15()
+- CheckoutPage.click_16()
+- CheckoutPage.click_17()
+- CheckoutPage.click_18()
+- CheckoutPage.click_19()
+- CheckoutPage.click_2()
+- CheckoutPage.click_20()
+- CheckoutPage.click_21()
+- CheckoutPage.click_22()
+- CheckoutPage.click_23()
+- CheckoutPage.click_24()
+- CheckoutPage.click_25()
+- CheckoutPage.click_26()
+- CheckoutPage.click_27()
+- CheckoutPage.click_28()
+- CheckoutPage.click_29()
+- CheckoutPage.click_3()
+- CheckoutPage.click_30()
+- CheckoutPage.click_31()
+- CheckoutPage.click_32()
+- CheckoutPage.click_33()
+- CheckoutPage.click_34()
+- CheckoutPage.click_35()
+- CheckoutPage.click_36()
+- CheckoutPage.click_37()
+- CheckoutPage.click_38()
+- CheckoutPage.click_39()
+- CheckoutPage.click_4()
+- CheckoutPage.click_40()
+- CheckoutPage.click_5()
+- CheckoutPage.click_6()
+- CheckoutPage.click_7()
+- CheckoutPage.click_8()
+- CheckoutPage.click_9()
+… 46 rows in this section do not mention these words

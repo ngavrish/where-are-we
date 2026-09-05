@@ -1,0 +1,7 @@
+## Defined here
+
+- `Failed login` — <root>/suite/repo/features/login.feature:8
+- `Successful login` — <root>/suite/repo/features/login.feature:3
+- `def step_login_error` — <root>/suite/repo/steps/login_steps.py:27
+- `step_login_error` — <root>/suite/repo/steps/login_steps.py:27
+… 4 more definitions

@@ -1,0 +1,21 @@
+## Defined here
+
+- `Invoice` — <root>/code/repo/app/models.py:9
+
+## Which code touches which table
+- `api.py`: /health, /invoice, /invoice/{id} ↔ fastapi
+
+## HTTP routes this codebase serves (3)
+- GET /invoice  (api.py)
+- GET /invoice/{id}  (api.py)
+… 1 rows in this section do not mention these words
+
+## Data model
+- `Invoice (models.py)`: amount, customer_id, id, name
+… 1 rows in this section do not mention these words
+
+## Public surface of the code
+- `app/`
+  - `api.py`: list_invoices, get_invoice, health
+  - `models.py`: Invoice, Customer
+… 2 rows in this section do not mention these words

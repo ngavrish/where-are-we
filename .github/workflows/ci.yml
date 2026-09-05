@@ -20,6 +20,8 @@ jobs:
         run: pip install . pytest
       - name: tests
         run: pytest tests -q
+      - name: golden
+        run: python tests/golden/check.py
 
       - name: map itself
         run: where-are-we --repo . --out /tmp/map && test -s /tmp/map/framework_map_brief.md

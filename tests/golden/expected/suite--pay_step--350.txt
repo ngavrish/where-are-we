@@ -1,0 +1,7 @@
+## Defined here
+
+- `def step_pay_10` — <root>/suite/repo/steps/pay_steps.py:47
+- `def step_pay_11` — <root>/suite/repo/steps/pay_steps.py:51
+- `def step_pay_12` — <root>/suite/repo/steps/pay_steps.py:55
+- `def step_pay_13` — <root>/suite/repo/steps/pay_steps.py:59
+… 36 more definitions

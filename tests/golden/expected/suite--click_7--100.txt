@@ -1,0 +1,4 @@
+## Defined here
+
+- `CheckoutPage.click_7` — pages/checkout.py:25
+… 1 more definitions
