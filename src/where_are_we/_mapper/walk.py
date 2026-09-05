@@ -485,6 +485,15 @@ def _tree(root: str):
     hours. Counting entries stops it in a fraction of a second and leaves
     every tree smaller than the cap walked exactly as it was before.
 
+    What counts against the budget is what this walk looked at, and pruning a
+    directory does not always mean not having looked at it. The count is taken
+    after `SKIP_DIRS` and after a non-regular or escaping file is dropped, so
+    those cost nothing, and before the caller has applied the repository's
+    ignore rules, so a directory `_indexable` is about to prune still costs the
+    one entry it took to see it. That is deliberate: a tree of a million
+    ignored directories is still a million directories to walk past, and the
+    budget exists to bound the walking. What pruning saves is descending them.
+
     `WAWE_MAX_FILES` raises it, which is what the note in the map says to do.
     """
     real_root = os.path.realpath(root)

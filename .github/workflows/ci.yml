@@ -1228,17 +1228,45 @@ jobs:
             | grep -q "unchanged since it was built"
           # And an ignored directory is pruned by the walk as well as by the
           # fingerprint, so a bare directory name in .gitignore means what it
-          # means to git: at any depth.
+          # means to git: at any depth. But nothing git already tracks is
+          # dropped, because git would not drop it either: an ignore rule says
+          # what to start tracking, not what to forget.
           rm -rf /tmp/fpx/ig /tmp/fpx/igm
-          mkdir -p /tmp/fpx/ig/pkg/generated
+          mkdir -p /tmp/fpx/ig/pkg/build_output /tmp/fpx/ig/other/build_output
+          git -C /tmp/fpx/ig init -q
+          git -C /tmp/fpx/ig config user.email t@t
+          git -C /tmp/fpx/ig config user.name t
           printf 'build_output/\n' > /tmp/fpx/ig/.gitignore
-          mkdir -p /tmp/fpx/ig/pkg/build_output
           printf 'KEPT_NAME = 1\n' > /tmp/fpx/ig/pkg/a.py
-          printf 'IGNORED_NAME = 1\n' > /tmp/fpx/ig/pkg/build_output/b.py
+          printf 'TRACKED_ANYWAY = 1\n' > /tmp/fpx/ig/pkg/build_output/tracked.py
+          printf 'UNTRACKED_IGNORED = 1\n' > /tmp/fpx/ig/other/build_output/untracked.py
+          git -C /tmp/fpx/ig add .gitignore pkg/a.py
+          git -C /tmp/fpx/ig add -f pkg/build_output/tracked.py
+          git -C /tmp/fpx/ig commit -qm one
           where-are-we --repo /tmp/fpx/ig --out /tmp/fpx/igm --product none \
             --force --quiet --no-semantic
           grep -q KEPT_NAME /tmp/fpx/igm/framework_map.json
-          ! grep -q IGNORED_NAME /tmp/fpx/igm/framework_map.json
+          grep -q TRACKED_ANYWAY /tmp/fpx/igm/framework_map.json
+          ! grep -q UNTRACKED_IGNORED /tmp/fpx/igm/framework_map.json
+          # A repository that commits something its own .gitignore names keeps
+          # it in the map. This one does: it says `.wawe/` and tracks three
+          # example maps under docs/examples/*/.wawe/.
+          rm -rf /tmp/fpx/selfm
+          where-are-we --repo . --out /tmp/fpx/selfm --product none --force \
+            --quiet --no-semantic
+          python - <<'EOF'
+          import json, subprocess, sys
+          d = json.load(open("/tmp/fpx/selfm/framework_map.json"))
+          indexed = set(d["lines"])
+          tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True,
+                                   check=True).stdout.split(b"\0")
+          want = [p.decode() for p in tracked if p.endswith(b"/.wawe/framework_map.md")]
+          import os
+          missing = [w for w in want
+                     if os.path.abspath(w) not in indexed]
+          print(f"{len(want)} tracked example maps, missing from the index: {missing}")
+          sys.exit(1 if not want or missing else 0)
+          EOF
 
       - name: a pipe does not hang the build, and dead temporaries are swept
         run: |

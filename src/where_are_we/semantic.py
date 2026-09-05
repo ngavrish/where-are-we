@@ -25,6 +25,11 @@ import re
 import sqlite3
 import sys
 
+try:
+    from ._mapper.walk import _write_atomic
+except ImportError:  # run as a plain file, with no package around it
+    from _mapper.walk import _write_atomic  # type: ignore[no-redef]
+
 INDEX_MATRIX = "semantic_index.npy"
 INDEX_CHUNKS = "semantic_index.json"
 _BI_MODEL = os.getenv("WAWE_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
@@ -170,10 +175,27 @@ def build_index(out_dir: str, corpora: list[tuple[str, str]]) -> str:
     texts = [f"{c['title']}\n{c['text']}" for c in chunks]
     matrix = _embed_cached(texts)
     matrix /= (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9)
-    np.save(os.path.join(out_dir, INDEX_MATRIX), matrix)
-    with open(meta_path, "w", encoding="utf-8") as fh:
-        json.dump({"fingerprint": fingerprint, "model": _BI_MODEL,
-                   "chunks": chunks}, fh, ensure_ascii=False)
+    # Both replaced rather than written in place, and the matrix first, so a
+    # reader never meets a half-written index. np.save's own open(..., "wb")
+    # truncates, and a zero-byte .npy is what makes np.load raise EOFError,
+    # which search()'s except (OSError, ValueError) does not catch: a build
+    # rewriting the index while a session asked it took the MCP server down
+    # for the rest of that session.
+    matrix_path = os.path.join(out_dir, INDEX_MATRIX)
+    tmp_matrix = f"{matrix_path}.{os.getpid()}.tmp"
+    try:
+        with open(tmp_matrix, "wb") as fh:
+            np.save(fh, matrix)
+        os.replace(tmp_matrix, matrix_path)
+    except OSError:
+        try:
+            os.remove(tmp_matrix)
+        except OSError:
+            pass
+        raise
+    _write_atomic(meta_path, json.dumps(
+        {"fingerprint": fingerprint, "model": _BI_MODEL, "chunks": chunks},
+        ensure_ascii=False))
     return f"semantic index built: {len(chunks)} chunks from " \
            f"{len(corpora)} corpus(es)"
 
