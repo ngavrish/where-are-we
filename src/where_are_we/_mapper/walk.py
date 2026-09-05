@@ -331,16 +331,25 @@ _NOT_A_SECRET = re.compile(
     r"|str|int|bool|float|bytes|list|dict|set|tuple|Any|object"
     r"|string|number|boolean|integer)\Z")
 
-# A small unquoted number under a key that also names a count is a count.
+# An unquoted number under a key that also names a count is a count.
 # `max_token = 4096` is a context window and `num_tokens = 10` is a quantity,
-# even though both keys end in the word `token`. Six digits is the ceiling:
-# past that a "count" is indistinguishable from a numeric credential, and
-# `DB_PASSWORD = 8675309` is seven.
+# even though both keys end in the word `token`.
+#
+# There is no ceiling on how big a count may be. There was one, of six digits,
+# and it redacted `MAX_TOKENS = 1000000`, `max_tokens = 1048576` and
+# `TIMEOUT_TOKEN = 2000000`, which are a context window, a buffer size and a
+# millisecond timeout. The key is what decides this, not the magnitude: a key
+# with no counter word in it has every number redacted whatever its length,
+# and `DB_PASSWORD = 8675309` has none.
 _COUNTER_WORD = re.compile(
     r"(?i)(?:^|[_.\-])(?:count|counts|index|idx|ttl|seconds|secs|size|limit"
     r"|max|maximum|min|minimum|len|length|num|number|total|timeout|retries"
     r"|retry|attempts|depth|width|height|port|version)(?:[_.\-]|$)")
-_SMALL_NUMBER = re.compile(r"[-+]?[0-9]{1,6}(?:\.[0-9]+)?\Z")
+# Underscores, hex and an exponent, because a count is written the way the
+# language writes one: 1_048_576, 0x100000, 1e6.
+_A_NUMBER = re.compile(
+    r"[-+]?(?:0[xXbBoO][0-9A-Fa-f_]+"
+    r"|[0-9][0-9_]*(?:\.[0-9_]+)?(?:[eE][-+]?[0-9]+)?)\Z")
 
 # A bare value ends where the line, the enclosing literal or the enclosing
 # call ends. An opening bracket is deliberately not a terminator, which is
@@ -385,17 +394,17 @@ def _redact_bare(m):
     """A bare value, unless the key and the value together say it is a count.
 
     A bool, a None and a type name are never a credential. A number is one
-    only sometimes: a small one under a key that also names a count is a
-    count, and anything else, a long number included, is treated as a value
-    somebody chose. `max_token = 4096` stays; `DB_PASSWORD = 8675309` and
-    `api_key: 1234567890123456` do not. A quoted number never reaches here,
-    which is why `password = "12345678"` redacts: quoting a number is what a
-    credential does and what a counter does not.
+    only sometimes: under a key that also names a count it is a count, of any
+    size, and under a key that does not it is a value somebody chose.
+    `max_token = 4096` and `MAX_TOKENS = 1000000` stay; `DB_PASSWORD =
+    8675309` and `api_key: 1234567890123456` do not. A quoted number never
+    reaches here, which is why `password = "12345678"` redacts: quoting a
+    number is what a credential does and what a counter does not.
     """
     key, value = m.group(1), m.group(2)
     if _NOT_A_SECRET.match(value):
         return m.group(0)
-    if _SMALL_NUMBER.match(value) and _COUNTER_WORD.search(key):
+    if _A_NUMBER.match(value) and _COUNTER_WORD.search(key):
         return m.group(0)
     return f"{key}[redacted]"
 
