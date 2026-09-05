@@ -72,23 +72,40 @@ def _merge_block(path: str, block_body: str) -> bool:
     return True
 
 
-def _merge_mcp_json(path: str) -> bool:
-    """Add the where-are-we server to a Cursor/Gemini style mcpServers file,
-    leaving any server already configured there untouched."""
+def _load_json_conf(path: str, key: str) -> tuple[dict | None, str]:
+    """Read a JSON config file this hook merges a `key` section into, or say
+    why it can't be merged into.
+
+    A missing file is the normal first run, not an error: it becomes {}. A
+    file that exists but does not parse, or whose `key` is present and not
+    an object, is left exactly as it is -- guessing what a broken file meant
+    and overwriting it would lose whatever put it in that shape.
+    """
+    if not os.path.exists(path):
+        return {}, ""
     try:
         with open(path, encoding="utf-8") as fh:
             conf = json.load(fh)
     except (OSError, ValueError):
-        conf = {}
-    servers = conf.setdefault("mcpServers", {})
+        return None, f"{path} is not valid JSON; fix it or move it aside, nothing was written"
+    if not isinstance(conf, dict) or not isinstance(conf.get(key, {}), dict):
+        return None, f"{path} is not valid JSON; fix it or move it aside, nothing was written"
+    return conf, ""
+
+
+def _mcp_entry_changed(conf: dict) -> bool:
     entry = {"command": "where-are-we", "args": list(_MCP_ARGS)}
-    if servers.get("where-are-we") == entry:
-        return False
-    servers["where-are-we"] = entry
+    return conf.get("mcpServers", {}).get("where-are-we") != entry
+
+
+def _write_mcp_conf(path: str, conf: dict) -> None:
+    """Add the where-are-we server to a Cursor/Gemini style mcpServers file,
+    leaving any server already configured there untouched."""
+    conf.setdefault("mcpServers", {})["where-are-we"] = {
+        "command": "where-are-we", "args": list(_MCP_ARGS)}
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(conf, fh, indent=2)
-    return True
 
 
 def _install_git(repo: str, product: str, out: str, agent_file: str) -> str:
@@ -136,11 +153,9 @@ def _install_claude(repo: str, product: str, out: str, agent_file: str, home: st
     line = " ".join(cmd) + " --quiet || true"
 
     settings = os.path.join(home, ".claude", "settings.json")
-    try:
-        with open(settings, encoding="utf-8") as fh:
-            conf = json.load(fh)
-    except (OSError, ValueError):
-        conf = {}
+    conf, error = _load_json_conf(settings, "hooks")
+    if error:
+        return error
     entries = conf.setdefault("hooks", {}).setdefault("SessionStart", [])
     if any("where-are-we" in h.get("command", "")
            for e in entries for h in e.get("hooks", [])):
@@ -156,7 +171,13 @@ def _install_cursor(repo: str) -> str:
     from . import mapper
 
     rule_path = os.path.join(repo, ".cursor", "rules", "where-are-we.mdc")
+    mcp_path = os.path.join(repo, ".cursor", "mcp.json")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
+
+    conf, error = _load_json_conf(mcp_path, "mcpServers")
+    if error:
+        return error
+
     content = ("---\n"
                "description: the repository map\n"
                "alwaysApply: true\n"
@@ -168,13 +189,14 @@ def _install_cursor(repo: str) -> str:
     except OSError:
         cur = None
     changed_rule = cur != content
+    changed_mcp = _mcp_entry_changed(conf)
+
     if changed_rule:
         os.makedirs(os.path.dirname(rule_path), exist_ok=True)
         with open(rule_path, "w", encoding="utf-8") as fh:
             fh.write(content)
-
-    mcp_path = os.path.join(repo, ".cursor", "mcp.json")
-    changed_mcp = _merge_mcp_json(mcp_path)
+    if changed_mcp:
+        _write_mcp_conf(mcp_path, conf)
 
     if changed_rule or changed_mcp:
         return f"installed: {rule_path}, {mcp_path}"
@@ -213,11 +235,17 @@ def _install_gemini(repo: str) -> str:
     from . import mapper
 
     md_path = os.path.join(repo, "GEMINI.md")
-    map_path = os.path.join(repo, ".wawe", "framework_map.md")
-    changed_md = _merge_block(md_path, mapper.pointer(map_path))
-
     settings_path = os.path.join(repo, ".gemini", "settings.json")
-    changed_settings = _merge_mcp_json(settings_path)
+    map_path = os.path.join(repo, ".wawe", "framework_map.md")
+
+    conf, error = _load_json_conf(settings_path, "mcpServers")
+    if error:
+        return error
+
+    changed_md = _merge_block(md_path, mapper.pointer(map_path))
+    changed_settings = _mcp_entry_changed(conf)
+    if changed_settings:
+        _write_mcp_conf(settings_path, conf)
 
     if changed_md or changed_settings:
         return f"installed: {md_path}, {settings_path}"
@@ -228,7 +256,10 @@ def install(repo: str, kind: str, product: str, out: str, agent_file: str,
             home: str | None = None) -> str:
     """Wire the map into something that already runs. See the module
     docstring for what each kind does; `home` overrides `~` so tests never
-    touch a real home directory."""
+    touch a real home directory. Only cursor, codex and gemini pre-build the
+    map into .wawe: git and claude already build into whatever --out the
+    caller passed on their own first trigger, so a pre-build for them would
+    be a second map in a different place."""
     if kind == "agent":
         kind = "claude"
     home = home or os.path.expanduser("~")

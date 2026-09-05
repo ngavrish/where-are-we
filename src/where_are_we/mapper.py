@@ -4475,8 +4475,14 @@ def main() -> int:
             _t.sleep(args.watch)
 
     if args.install_hook:
-        print(install_hook(repo, args.install_hook, args.product, args.out,
-                           args.agent_file))
+        msg = install_hook(repo, args.install_hook, args.product, args.out,
+                           args.agent_file)
+        print(msg)
+        # Both messages say a write was refused rather than attempted: no
+        # git hooks directory, or an existing file this tool will not guess
+        # the shape of and overwrite.
+        if "does not exist" in msg or "nothing was written" in msg:
+            return 2
         return 0
 
     stamp_now = _fingerprint(repo)
