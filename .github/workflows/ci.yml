@@ -554,3 +554,50 @@ jobs:
             --product none --quiet --no-semantic 2> /tmp/fc/warm.log
           grep -q "^parsed 0 files$" /tmp/fc/warm.log
           where-are-we --help | grep -q "read nothing from the parse cache"
+
+      - name: --watch rebuilds whole, writes every file, and survives a failure
+        run: |
+          rm -rf /tmp/w21
+          mkdir -p /tmp/w21/repo/pkg
+          echo 'def one(): pass' > /tmp/w21/repo/pkg/a.py
+          PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo /tmp/w21/repo \
+            --out /tmp/w21/repo/.wawe --watch 1 --no-semantic --html \
+            > /tmp/w21/watch.log 2>&1 &
+          WP=$!
+          sleep 1
+          for i in $(seq 1 20); do
+            echo "def f$i(): pass" > /tmp/w21/repo/pkg/f$i.py
+            sleep 1.2
+          done
+          # Every file added while watching is in the map, and a name deleted
+          # from the tree leaves it. Before, _WALK_CACHE was never cleared, so
+          # 21 rebuilds over 21 files left one name in the map.
+          python - <<'EOF'
+          import json, sys
+          d = json.load(open("/tmp/w21/repo/.wawe/framework_map.json"))
+          names = set(d["definitions"])
+          missing = [f"f{i}" for i in range(1, 21) if f"f{i}" not in names]
+          print(len(names), "names in the map; missing:", missing)
+          sys.exit(1 if missing else 0)
+          EOF
+          rm /tmp/w21/repo/pkg/f20.py
+          sleep 3
+          ! grep -q '"f20"' /tmp/w21/repo/.wawe/framework_map.json
+          # All three map files, plus the ones the flags asked for. The watch
+          # loop used to write only the JSON and the brief, so --ask against a
+          # watched directory said there was no map.
+          test -s /tmp/w21/repo/.wawe/framework_map.md
+          test -s /tmp/w21/repo/.wawe/framework_map.html
+          where-are-we --repo /tmp/w21/repo --out /tmp/w21/repo/.wawe --ask one \
+            | grep -q "Defined here"
+          # One failing iteration is printed and the watcher keeps going.
+          rm -rf /tmp/w21/repo/.wawe && : > /tmp/w21/repo/.wawe
+          echo 'def boom(): pass' > /tmp/w21/repo/pkg/boom.py
+          sleep 3
+          kill -0 $WP
+          grep -q "rebuild failed, still watching" /tmp/w21/watch.log
+          rm -f /tmp/w21/repo/.wawe
+          echo 'def RECOVERED(): pass' > /tmp/w21/repo/pkg/rec.py
+          sleep 3
+          kill $WP || true
+          grep -q RECOVERED /tmp/w21/repo/.wawe/framework_map.json

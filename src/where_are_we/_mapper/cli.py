@@ -50,6 +50,84 @@ def _write_map_files(out_dir: str, json_text: str, md_text: str,
     ])
 
 
+def _write_artifacts(out_dir: str, m: dict, args) -> None:
+    """Everything a build leaves behind, from one map dict and the flags.
+
+    A helper rather than a block inside `main()` because `--watch` has to
+    write exactly the same set. It used to write `framework_map.json` and
+    `framework_map_brief.md` and nothing else, so a watched repository never
+    got `framework_map.md` at all - the file `--ask`, `--sections`,
+    `--pointer`, the MCP server and the language server all open first - and
+    a session pointed at a watcher's output directory was told there was no
+    map. Its brief also skipped `--for`, `--only`, `--skip` and `--max-lines`,
+    and it redacted the JSON but not the Markdown.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+    map_json = json.dumps(m, indent=2)
+    map_md = digest(m)
+    text = for_audience(brief(m), args.audience)
+
+    if args.only or args.skip:
+        keep = [x.strip().lower() for x in args.only.split(",") if x.strip()]
+        drop = [x.strip().lower() for x in args.skip.split(",") if x.strip()]
+        out_lines, current_ok = [], True
+        for line in text.splitlines():
+            if line.startswith("## "):
+                title = line[3:].lower()
+                current_ok = (not keep or any(k in title for k in keep)) \
+                    and not any(d in title for d in drop)
+            elif line.startswith("# "):
+                current_ok = True
+            if current_ok:
+                out_lines.append(line)
+        text = "\n".join(out_lines) + "\n"
+    if args.max_lines and text.count("\n") > args.max_lines:
+        text = _cap_sections(text, args.max_lines)
+    # All three at once, and only now: the brief is trimmed by --only/--skip
+    # and --max-lines above, so the set is not complete until here.
+    _write_map_files(out_dir, map_json, map_md, text)
+    if args.html:
+        # Deliberately one file with no assets: it gets opened from a terminal,
+        # not served.
+        body_html = []
+        for line in text.splitlines():
+            if line.startswith("## "):
+                body_html.append(f"<h2>{line[3:]}</h2>")
+            elif line.startswith("# "):
+                body_html.append(f"<h1>{line[2:]}</h1>")
+            elif line.startswith("- "):
+                body_html.append(f"<li>{line[2:]}</li>")
+            elif line.strip():
+                body_html.append(f"<p>{line}</p>")
+        html = ("<!doctype html><meta charset=utf-8><title>where are we</title>"
+                "<style>body{max-width:60rem;margin:3rem auto;padding:0 1rem;"
+                "font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#111}"
+                "h1{font-size:1.7rem}h2{font-size:1.05rem;margin-top:2.2rem;"
+                "border-bottom:1px solid #ddd;padding-bottom:.3rem}"
+                "li{margin:.15rem 0}code{background:#f4f4f4;padding:0 .2em;border-radius:3px}"
+                "@media(prefers-color-scheme:dark){body{background:#111;color:#eee}"
+                "h2{border-color:#333}code{background:#222}}</style>"
+                + "\n".join(body_html))
+        _write_atomic(os.path.join(out_dir, "framework_map.html"), html)
+    if args.agent_file:
+        # Between markers, because these files are shared: whatever a human or
+        # another tool put there is not this tool's to delete.
+        start, end = "<!-- where-are-we:start -->", "<!-- where-are-we:end -->"
+        block = f"{start}\n{text}{end}\n"
+        try:
+            with open(args.agent_file, encoding="utf-8") as fh:
+                cur = fh.read()
+        except OSError:
+            cur = ""
+        if start in cur and end in cur:
+            cur = re.sub(re.escape(start) + r".*?" + re.escape(end), block.rstrip("\n"),
+                         cur, flags=re.S)
+        else:
+            cur = (cur.rstrip() + "\n\n" if cur.strip() else "") + block
+        os.makedirs(os.path.dirname(os.path.abspath(args.agent_file)), exist_ok=True)
+        _write_atomic(args.agent_file, cur)
+
+
 def init_manifest(repo: str, m: dict) -> str:
     """Write a starter `.framework-map.json` from what was detected.
 
@@ -483,22 +561,34 @@ def main() -> int:
         last = ""
         print(f"watching {repo}, every {args.watch}s — Ctrl-C to stop")
         while True:
-            now_fp = _fingerprint(repo)
-            if now_fp != last:
-                last = now_fp
-                # Before the build, same reasoning as the primary path: build()
-                # only saves the parse cache into a directory that already
-                # exists.
-                os.makedirs(out_dir, exist_ok=True)
-                m2 = build(repo, out_dir=out_dir)
-                m2["fingerprint"] = now_fp
-                _write_atomic_group([
-                    (os.path.join(out_dir, "framework_map.json"),
-                     json.dumps(redact(m2), indent=2)),
-                    (os.path.join(out_dir, "framework_map_brief.md"), brief(m2)),
-                ])
-                c2 = m2["counts"]
-                print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
+            try:
+                now_fp = _fingerprint(repo)
+                if now_fp != last:
+                    last = now_fp
+                    # Before the build, same reasoning as the primary path:
+                    # build() only saves the parse cache into a directory that
+                    # already exists.
+                    os.makedirs(out_dir, exist_ok=True)
+                    # A whole rebuild, and the whole set of files, exactly as
+                    # the primary path writes them. build() clears the walk
+                    # and file caches itself, so an iteration sees files added
+                    # since the last one and forgets names deleted since.
+                    m2 = redact(build(repo, out_dir=out_dir, force=args.force))
+                    m2["fingerprint"] = now_fp
+                    _write_artifacts(out_dir, m2, args)
+                    c2 = m2["counts"]
+                    print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
+            except Exception as exc:  # noqa: BLE001
+                # A watcher is meant to outlive whatever the tree does to it.
+                # One raised iteration used to end the loop for good, and the
+                # map then quietly stopped following the repository: a file
+                # deleted mid-walk, a full disk, an output directory replaced
+                # underneath it. Say what happened, forget the fingerprint so
+                # the next tick tries again even if nothing has moved since,
+                # and keep watching. Ctrl-C is a BaseException and still stops.
+                print(f"rebuild failed, still watching: {type(exc).__name__}: {exc}",
+                      file=sys.stderr, flush=True)
+                last = ""
             _t.sleep(args.watch)
 
     if args.install_hook:
@@ -596,70 +686,7 @@ def main() -> int:
     if args.init:
         print(init_manifest(repo, m))
         return 0
-    os.makedirs(out_dir, exist_ok=True)
-    map_json = json.dumps(m, indent=2)
-    map_md = digest(m)
-    text = for_audience(brief(m), args.audience)
-
-    if args.only or args.skip:
-        keep = [x.strip().lower() for x in args.only.split(",") if x.strip()]
-        drop = [x.strip().lower() for x in args.skip.split(",") if x.strip()]
-        out_lines, current_ok = [], True
-        for line in text.splitlines():
-            if line.startswith("## "):
-                title = line[3:].lower()
-                current_ok = (not keep or any(k in title for k in keep)) \
-                    and not any(d in title for d in drop)
-            elif line.startswith("# "):
-                current_ok = True
-            if current_ok:
-                out_lines.append(line)
-        text = "\n".join(out_lines) + "\n"
-    if args.max_lines and text.count("\n") > args.max_lines:
-        text = _cap_sections(text, args.max_lines)
-    # All three at once, and only now: the brief is trimmed by --only/--skip
-    # and --max-lines above, so the set is not complete until here.
-    _write_map_files(out_dir, map_json, map_md, text)
-    if args.html:
-        # Deliberately one file with no assets: it gets opened from a terminal,
-        # not served.
-        body_html = []
-        for line in text.splitlines():
-            if line.startswith("## "):
-                body_html.append(f"<h2>{line[3:]}</h2>")
-            elif line.startswith("# "):
-                body_html.append(f"<h1>{line[2:]}</h1>")
-            elif line.startswith("- "):
-                body_html.append(f"<li>{line[2:]}</li>")
-            elif line.strip():
-                body_html.append(f"<p>{line}</p>")
-        html = ("<!doctype html><meta charset=utf-8><title>where are we</title>"
-                "<style>body{max-width:60rem;margin:3rem auto;padding:0 1rem;"
-                "font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#111}"
-                "h1{font-size:1.7rem}h2{font-size:1.05rem;margin-top:2.2rem;"
-                "border-bottom:1px solid #ddd;padding-bottom:.3rem}"
-                "li{margin:.15rem 0}code{background:#f4f4f4;padding:0 .2em;border-radius:3px}"
-                "@media(prefers-color-scheme:dark){body{background:#111;color:#eee}"
-                "h2{border-color:#333}code{background:#222}}</style>"
-                + "\n".join(body_html))
-        _write_atomic(os.path.join(out_dir, "framework_map.html"), html)
-    if args.agent_file:
-        # Between markers, because these files are shared: whatever a human or
-        # another tool put there is not this tool's to delete.
-        start, end = "<!-- where-are-we:start -->", "<!-- where-are-we:end -->"
-        block = f"{start}\n{text}{end}\n"
-        try:
-            with open(args.agent_file, encoding="utf-8") as fh:
-                cur = fh.read()
-        except OSError:
-            cur = ""
-        if start in cur and end in cur:
-            cur = re.sub(re.escape(start) + r".*?" + re.escape(end), block.rstrip("\n"),
-                         cur, flags=re.S)
-        else:
-            cur = (cur.rstrip() + "\n\n" if cur.strip() else "") + block
-        os.makedirs(os.path.dirname(os.path.abspath(args.agent_file)), exist_ok=True)
-        _write_atomic(args.agent_file, cur)
+    _write_artifacts(out_dir, m, args)
 
     # The semantic index, built from the map just written plus whatever
     # corpora the caller named. Free when nothing changed (content hash),
