@@ -1017,3 +1017,67 @@ jobs:
             --quiet --no-semantic
           # Only the borderline for-each-ref handler is still a broad one.
           test "$(grep -c 'except Exception' src/where_are_we/_mapper/build.py)" = "1"
+
+      - name: an optional source that misbehaves does not end the build
+        run: |
+          rm -rf /tmp/opt
+          mkdir -p /tmp/opt/r /tmp/opt/m
+          printf 'def f():\n    pass\n' > /tmp/opt/r/a.py
+          # --runs-api pointed at a socket that answers something that is not
+          # HTTP. http.client.BadStatusLine is an HTTPException, which is not
+          # an OSError, so it escaped every handler and ended a build over a
+          # flag whose whole purpose is optional history.
+          python - <<'EOF'
+          import socket, subprocess, sys, threading
+          srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+          srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+          srv.bind(("127.0.0.1", 0))
+          port = srv.getsockname()[1]
+          srv.listen(5)
+          def serve():
+              while True:
+                  try:
+                      c, _ = srv.accept()
+                  except OSError:
+                      return
+                  try:
+                      c.recv(4096)
+                      c.sendall(b"GARBAGE NOT HTTP\r\n\r\n")
+                  finally:
+                      c.close()
+          threading.Thread(target=serve, daemon=True).start()
+          r = subprocess.run(["where-are-we", "--repo", "/tmp/opt/r", "--out", "/tmp/opt/m",
+                              "--product", "none", "--force", "--quiet", "--no-semantic",
+                              "--runs-api", f"http://127.0.0.1:{port}"],
+                             capture_output=True, text=True)
+          print("exit:", r.returncode)
+          print(r.stderr[-400:])
+          sys.exit(0 if r.returncode == 0 else 1)
+          EOF
+          test -s /tmp/opt/m/framework_map.md
+          # A git author whose name is not ASCII, read under a C locale.
+          # text=True decodes with the locale, so this raised UnicodeDecodeError
+          # out of subprocess itself and no handler named it.
+          rm -rf /tmp/opt/g /tmp/opt/gm
+          mkdir -p /tmp/opt/g
+          git -C /tmp/opt/g init -q
+          git -C /tmp/opt/g config user.email t@t
+          git -C /tmp/opt/g config user.name "Renée Müller"
+          printf 'def f():\n    pass\n' > /tmp/opt/g/a.py
+          git -C /tmp/opt/g add -A
+          git -C /tmp/opt/g commit -qm "AB-42 café support"
+          LC_ALL=C LANG=C PYTHONCOERCECLOCALE=0 PYTHONUTF8=0 \
+            where-are-we --repo /tmp/opt/g --out /tmp/opt/gm --product none \
+            --force --quiet --no-semantic
+          # git emits UTF-8 whatever the locale is, so the name is not merely
+          # survived, it is exact.
+          python -c "
+          import json
+          d = json.load(open('/tmp/opt/gm/framework_map.json'))
+          assert d['blame_owners'] == {'a.py': ['Renée Müller (1)']}, d['blame_owners']
+          assert 'AB-42' in d['ticket_links'], d['ticket_links']
+          print('blame and tickets intact under LC_ALL=C:', d['blame_owners'])"
+          # And no handler reaches for a module that only its try block imports.
+          grep -n "^import subprocess" src/where_are_we/_mapper/build.py
+          grep -n "^import http.client" src/where_are_we/_mapper/build.py
+          test "$(grep -c '        import subprocess' src/where_are_we/_mapper/build.py)" = "0"

@@ -11,10 +11,13 @@ topics that are a function of `(repo, code_files, read)` and of nothing else.
 """
 
 import ast
+import http.client
 import json
 import os
 import re
+import subprocess
 import sys
+import urllib.request
 
 from . import extract, state
 from .declare import _step_texts, index_declarations
@@ -688,12 +691,18 @@ def build(repo: str, out_dir: str | None = None,
     # sections.
     log = ""
     try:
-        import subprocess
+        # Decoded here rather than by the locale. text=True alone decodes with
+        # locale.getpreferredencoding(), so under LC_ALL=C a commit by an
+        # author whose name is not ASCII raised UnicodeDecodeError out of
+        # subprocess itself, which no handler named and which ended the build.
+        # A name this cannot decode is worth a replacement character in the
+        # map, not the loss of the map.
         log = subprocess.run(
             ["git", "-C", repo, "log", "--since=90.days", "--name-only",
              "--pretty=format:%H|%an|%ad|%s", "--date=short"],
-            capture_output=True, text=True, timeout=60).stdout
-    except (OSError, subprocess.SubprocessError):  # a map without history is still a map
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=60).stdout
+    except (OSError, subprocess.SubprocessError, ValueError):  # a map without history is still a map
         log = ""
     cur = None
     for line in log.splitlines():
@@ -963,11 +972,14 @@ def build(repo: str, out_dir: str | None = None,
         # types are the ones caught.
         rows = []
         try:
-            import urllib.error as _ue
-            import urllib.request as _u
-            with _u.urlopen(f"{base_url}/r/runs?limit=40", timeout=10) as resp:
+            with urllib.request.urlopen(f"{base_url}/r/runs?limit=40",
+                                        timeout=10) as resp:
                 rows = json.loads(resp.read().decode() or "[]")
-        except (OSError, _ue.URLError, ValueError):  # the map is built with or without history
+        # URLError is an OSError, so naming it added nothing. HTTPException is
+        # not, and it is what an endpoint that answers something other than
+        # HTTP raises: a BadStatusLine from a socket on the wrong port ended
+        # the whole build, on a flag whose entire purpose is optional history.
+        except (OSError, http.client.HTTPException, ValueError):  # the map is built with or without history
             rows = []
         if not isinstance(rows, list):
             rows = []
@@ -1791,11 +1803,13 @@ def build(repo: str, out_dir: str | None = None,
     # and the map presented that as the answer for the whole repository.
     out = ""
     try:
-        import subprocess
+        # encoding and errors for the same reason as git_history above: an
+        # author name the locale cannot decode must not end the build.
         out = subprocess.run(
             ["git", "-C", repo, "log", "--since=365.days", "--name-only",
-             "--pretty=format:%an"], capture_output=True, text=True, timeout=90).stdout
-    except (OSError, subprocess.SubprocessError):  # a map without owners is still a map
+             "--pretty=format:%an"], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=90).stdout
+    except (OSError, subprocess.SubprocessError, ValueError):  # a map without owners is still a map
         out = ""
     who = None
     counts: dict[str, dict] = {}
@@ -2173,11 +2187,11 @@ def build(repo: str, out_dir: str | None = None,
     # Release history: the tags and what the changelog says about them.
     releases = []
     try:
-        import subprocess
         out = subprocess.run(["git", "-C", repo, "for-each-ref", "--sort=-creatordate",
                               "--format=%(refname:short) %(creatordate:short)",
                               "refs/tags", "--count=25"],
-                             capture_output=True, text=True, timeout=30).stdout
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=30).stdout
         releases = [l.strip() for l in out.splitlines() if l.strip()][:25]
     except Exception:  # noqa: BLE001
         pass
