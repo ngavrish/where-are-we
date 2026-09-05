@@ -159,6 +159,30 @@ def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) 
     return hooks.install(repo, kind, product, out, agent_file)
 
 
+
+def _resolve_repo(given, out):
+    """The repository a run is about, when --repo was not spelled out.
+
+    The read paths (--mcp, --ask, --pointer, --callers) used to fall back to
+    $AGENT_REPO or /work like the build path does, so a server started by a
+    hook as `where-are-we --out .wawe --mcp` read another tree's .wawe.toml,
+    or none, and a project's own [synonyms] never reached its answers. A
+    .wawe directory sits inside the repository it maps, so its parent is the
+    repository; /work stays as the container default; the current directory
+    is the last resort.
+    """
+    if given:
+        return given
+    env = os.getenv("AGENT_REPO")
+    if env:
+        return env
+    out_abs = os.path.abspath(out or ".")
+    if os.path.basename(out_abs) == ".wawe":
+        return os.path.dirname(out_abs)
+    if os.path.isdir("/work"):
+        return "/work"
+    return os.getcwd()
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         prog="framework_map",
@@ -170,8 +194,10 @@ def main() -> int:
                "  framework_map.py --repo . --product ../my-app/src --out .\n"
                "  framework_map.py --repo . --init      # write a starter .framework-map.json\n",
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--repo", default=os.getenv("AGENT_REPO", "/work"),
-                    help="the test repository to index (default: $AGENT_REPO or /work)")
+    ap.add_argument("--repo", default=None,
+                    help="the repository to index or answer about (default: "
+                         "$AGENT_REPO; then the parent of a .wawe --out; then "
+                         "/work if it exists; then the current directory)")
     ap.add_argument("--out", default=os.getenv("RUN_DIR", "."),
                     help="where to write framework_map.{json,md} and the brief "
                          "(default: $RUN_DIR or the current directory)")
@@ -284,6 +310,7 @@ def main() -> int:
                     help="skip building the semantic index even when fastembed "
                          "is available")
     args = ap.parse_args()
+    args.repo = _resolve_repo(args.repo, args.out)
 
     # Answering from a map that already exists needs none of what follows: no
     # repository walk, no product roots, no config. It is a read.

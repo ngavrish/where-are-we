@@ -3,7 +3,7 @@
     "where-are-we": {
       "type": "stdio",
       "command": "where-are-we",
-      "args": ["--mcp", "--out", "${CLAUDE_PROJECT_DIR}/.wawe"]
+      "args": ["--mcp", "--repo", "${CLAUDE_PROJECT_DIR}", "--out", "${CLAUDE_PROJECT_DIR}/.wawe"]
     }
   }
 }

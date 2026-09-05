@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.1
+
+- `--mcp`, `--ask`, `--pointer` and `--callers` started by a hook or the
+  plugin (no `--repo`, the map under `<repo>/.wawe`) now resolve the
+  repository from that directory, so a project's `.wawe.toml` `[synonyms]`
+  reaches its MCP answers. Until now they fell back to `$AGENT_REPO` or
+  `/work` and read another tree's config, or none.
+- The Claude Code plugin's SessionStart hook passes `--repo`, so the pointer
+  it hands the session names what changed since the last one; it also lists
+  the fifth MCP tool, `callers`.
+- The deb install check runs on Debian 13; Debian 12 carries Python 3.11,
+  below the 3.12 floor.
+
 ## 1.1.0
 
 - `wawe-measure` reads Claude Code's own transcripts and reports, per session,

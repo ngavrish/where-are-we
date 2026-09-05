@@ -19,7 +19,7 @@ import re
 
 _BLOCK_START = "<!-- where-are-we:start -->"
 _BLOCK_END = "<!-- where-are-we:end -->"
-_MCP_ARGS = ["--out", ".wawe", "--mcp"]
+_MCP_ARGS = ["--repo", ".", "--out", ".wawe", "--mcp"]
 
 
 def _ensure_map(repo: str) -> None:
@@ -222,7 +222,7 @@ def _install_codex(repo: str, home: str) -> str:
     if changed_toml:
         section = ('[mcp_servers.where-are-we]\n'
                    'command = "where-are-we"\n'
-                   'args = ["--out", ".wawe", "--mcp"]\n')
+                   'args = ["--repo", ".", "--out", ".wawe", "--mcp"]\n')
         new = (cur.rstrip("\n") + "\n\n" if cur.strip() else "") + section
         os.makedirs(os.path.dirname(toml_path), exist_ok=True)
         with open(toml_path, "w", encoding="utf-8") as fh:

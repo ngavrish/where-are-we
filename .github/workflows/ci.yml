@@ -53,6 +53,13 @@ jobs:
             > /tmp/syncfg/out/framework_map.md
           where-are-we --repo /tmp/syncfg/repo --out /tmp/syncfg/out --ask invoice | tee /tmp/syncfg-out.txt
           grep -q "also matched:.*proforma" /tmp/syncfg-out.txt
+          # The way a hook or the plugin starts the server: no --repo, the map
+          # under <repo>/.wawe. The repository is the parent of that directory
+          # and its [synonyms] must still reach the answer.
+          rm -rf /tmp/syncfg/repo/.wawe && cp -R /tmp/syncfg/out /tmp/syncfg/repo/.wawe
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"ask","arguments":{"words":"invoice"}}}' \
+            | (cd / && where-are-we --out /tmp/syncfg/repo/.wawe --mcp) | tee /tmp/syncfg-mcp.txt
+          grep -q "also matched:.*proforma" /tmp/syncfg-mcp.txt
 
       - name: the facade after the split
         run: |
