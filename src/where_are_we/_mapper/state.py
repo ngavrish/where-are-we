@@ -90,6 +90,45 @@ _IGNORE_CACHE: dict[str, list] = {}
 TRUNCATED: list[str] = []
 
 
+def reset(keep_indexes: bool = False) -> None:
+    """Clear what one build accumulated, so the next one starts from nothing.
+
+    Everything above is module-level by design, and that design assumed one
+    build per process. A second `build()` in the same process inherited the
+    first repository's names: `DEFINITIONS` is filled with `setdefault`, so
+    the first writer of a name kept it, and a second repository's own map
+    pointed a name at a file in the first one, counted the first one's files
+    in `indexed`, and carried its lines. Which answer came back depended on
+    the order the two were built in. `--watch` is the same process building
+    the same repository over and over, so its map only ever grew: a name
+    deleted from the tree stayed in the map for the life of the watcher, and
+    the file counts climbed by one per rebuild.
+
+    `keep_indexes` is for the one caller that means it. `--also` folds a
+    service and its client into one map, so a second root's names have to
+    stay searchable in the first root's map; that path says so here instead
+    of relying on the absence of a reset.
+
+    The three caches always go, `--also` included: they answer "which files
+    are under this root" and "what does this file say", and a second root is
+    a different question with the same key.
+
+    `_PARSE_CACHE` is deliberately not cleared. It is not this build's
+    working state: it is loaded from `out_dir` at the top of every build and
+    validated per file against mtime and size, and it is the whole reason a
+    rebuild of a tree nobody touched parses nothing.
+    """
+    _WALK_CACHE.clear()
+    _IGNORE_CACHE.clear()
+    _FILE_CACHE.clear()
+    if keep_indexes:
+        return
+    DEFINITIONS.clear()
+    INDEXED.clear()
+    LINES.clear()
+    TRUNCATED.clear()
+
+
 # What may go in a prompt, in bytes. Not a preference: a prompt is re-sent in
 # full on every turn of a session, so anything put there is paid for on every
 # turn whether it is read or not. Measured on one real run — the brief inlined

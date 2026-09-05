@@ -276,10 +276,22 @@ def _lines_matching(body, words, limit=4):
 
 
 def _slurp(path: str, limit: int = 400000) -> str:
-    """Read a file once per run. The sections each used to walk and re-read the
-    tree for themselves — a hundred sections over a hundred-thousand-file
-    repository is a hundred passes over the same disk for the same bytes."""
-    hit = _FILE_CACHE.get(path)
+    """Read a file once per run, up to `limit` bytes. The sections each used to
+    walk and re-read the tree for themselves — a hundred sections over a
+    hundred-thousand-file repository is a hundred passes over the same disk for
+    the same bytes.
+
+    The key is the path and the limit together, not the path alone. Callers ask
+    for different amounts of the same file (`build`'s own `_read` takes 200,000,
+    most extractors declare 400,000), and a cache keyed on the path handed the
+    first caller's prefix to every later one: which bytes an extractor saw was
+    decided by whoever reached the file first, and for a file outside
+    `code_files` that was `os.walk` order. Keyed on both, every caller gets the
+    prefix it asked for, and a large file still costs the limit rather than its
+    size, because the read is bounded here and not after the fact.
+    """
+    key = (path, limit)
+    hit = _FILE_CACHE.get(key)
     if hit is not None:
         return hit
     try:
@@ -288,7 +300,7 @@ def _slurp(path: str, limit: int = 400000) -> str:
     except OSError:
         body = ""
     if len(_FILE_CACHE) < 20000:
-        _FILE_CACHE[path] = body
+        _FILE_CACHE[key] = body
     return body
 
 

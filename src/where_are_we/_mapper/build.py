@@ -33,7 +33,13 @@ def _layer_line(paths: list, what: str) -> str:
     return f"{what} — {len(paths)} files under {where}"
 
 
-def build(repo: str, out_dir: str | None = None) -> dict:
+def build(repo: str, out_dir: str | None = None,
+          keep_indexes: bool = False) -> dict:
+    # Nothing this build accumulates may come from the build before it. Read
+    # `state.reset` for what that covers and why `--also` is the one caller
+    # that passes keep_indexes.
+    state.reset(keep_indexes=keep_indexes)
+
     # Where the parse cache lives: the run directory a caller names, or
     # $RUN_DIR. Neither given, there is nowhere this build was told is safe
     # to write into, so it runs with no cache rather than guessing ".":

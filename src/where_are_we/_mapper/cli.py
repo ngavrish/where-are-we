@@ -26,7 +26,7 @@ except ImportError:  # run as a plain file, with no package around it
 from .build import build
 from .render import (_as_dict, _cap_sections, brief, changed_since, digest,
                      for_audience, meaning_tail, pointer)
-from .state import DEFINITIONS, INDEXED, _IGNORE_CACHE, _WALK_CACHE
+from .state import DEFINITIONS, INDEXED
 from .walk import (SKIP_DIRS, _config, _fingerprint, _product_roots,
                    _write_atomic, _write_atomic_group, redact)
 
@@ -571,9 +571,12 @@ def main() -> int:
             if not os.path.isdir(extra):
                 continue
             os.environ["AGENT_REPO"] = extra
-            _WALK_CACHE.clear()
-            _IGNORE_CACHE.clear()
-            m["also"][os.path.basename(extra)] = build(extra, out_dir=out_dir)
+            # keep_indexes: --also is the one place where a second root's
+            # names belong in the first root's map. The walk and file caches
+            # are cleared by the reset either way, which is what the two
+            # .clear() calls that used to be here did by hand.
+            m["also"][os.path.basename(extra)] = build(
+                extra, out_dir=out_dir, keep_indexes=True)
         os.environ["AGENT_REPO"] = repo
         # The name index is a copy taken when the first root finished; the line
         # index is the live dict. So a second root's lines were searchable and

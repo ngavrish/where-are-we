@@ -408,3 +408,71 @@ jobs:
           where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
           test -z "$(find /tmp/aw/m -name '*.tmp')"
           grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json
+
+      - name: a build starts from nothing, whatever ran before it
+        run: |
+          rm -rf /tmp/reset
+          mkdir -p /tmp/reset/a /tmp/reset/b
+          printf 'ONLY_IN_A = 1\ndef shared_name():\n    pass\n' > /tmp/reset/a/alpha.py
+          printf 'ONLY_IN_B = 1\ndef shared_name():\n    pass\n' > /tmp/reset/b/beta.py
+          # Two repositories in one process, in both orders, against what a
+          # fresh process builds. Before the reset, repo B's own map pointed
+          # shared_name at a file in repo A and counted A's files as its own.
+          python - <<'EOF'
+          import json, os, sys
+          from where_are_we import mapper
+          os.environ["PRODUCT_SRC"] = "none"
+          def build(*repos):
+              m = None
+              for r in repos:
+                  os.environ["AGENT_REPO"] = r
+                  out = r + ".out"
+                  os.makedirs(out, exist_ok=True)
+                  m = mapper.build(r, out_dir=out)
+              return {"definitions": m["definitions"], "indexed": m["indexed"],
+                      "lines": sorted(m["lines"])}
+          a, b = "/tmp/reset/a", "/tmp/reset/b"
+          alone_a, alone_b = build(a), build(b)
+          bad = []
+          if build(a, b) != alone_b:
+              bad.append("A then B does not give B's own map")
+          if build(b, a) != alone_a:
+              bad.append("B then A does not give A's own map")
+          # --also is the one caller that keeps what is there.
+          os.environ["AGENT_REPO"] = a
+          mapper.build(a, out_dir=a + ".out")
+          os.environ["AGENT_REPO"] = b
+          merged = mapper.build(b, out_dir=b + ".out", keep_indexes=True)
+          if not {"ONLY_IN_A", "ONLY_IN_B"} <= set(merged["definitions"]):
+              bad.append("--also's keep_indexes lost a root: "
+                         + str(sorted(merged["definitions"])))
+          print("\n".join(bad) or "in-process builds match fresh-process builds")
+          sys.exit(1 if bad else 0)
+          EOF
+          # --also through the CLI still folds the second root in.
+          rm -rf /tmp/reset/m
+          where-are-we --repo /tmp/reset/a --out /tmp/reset/m --also /tmp/reset/b \
+            --product none --force --quiet --no-semantic
+          grep -q ONLY_IN_A /tmp/reset/m/framework_map.json
+          grep -q ONLY_IN_B /tmp/reset/m/framework_map.json
+      - name: --watch on an unchanged tree keeps a constant indexed count
+        run: |
+          rm -rf /tmp/wc2
+          mkdir -p /tmp/wc2/r/pkg /tmp/wc2/m
+          printf 'GONE_SOON = 1\ndef keeper():\n    pass\n' > /tmp/wc2/r/pkg/m.py
+          where-are-we --repo /tmp/wc2/r --out /tmp/wc2/m --product none \
+            --force --quiet --no-semantic
+          PYTHONUNBUFFERED=1 where-are-we --repo /tmp/wc2/r --out /tmp/wc2/m \
+            --product none --watch 1 --no-semantic > /tmp/wc2/watch.log 2>&1 &
+          WP=$!
+          sleep 1
+          for i in 1 2 3 4; do
+            touch /tmp/wc2/r/pkg/m.py
+            sleep 2
+            python -c "import json; print(json.load(open('/tmp/wc2/m/framework_map.json'))['indexed'])" \
+              >> /tmp/wc2/counts.txt
+          done
+          kill $WP || true
+          cat /tmp/wc2/counts.txt
+          test "$(sort -u /tmp/wc2/counts.txt | wc -l)" = "1"
+          grep -q "'suite': 1" /tmp/wc2/counts.txt
