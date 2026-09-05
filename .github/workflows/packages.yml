@@ -27,8 +27,13 @@ jobs:
           mkdir -p $ROOT/usr/lib/where-are-we/where_are_we
           # Every module: __init__ imports mapper, and mapper imports specs,
           # semantic and mcp. Shipping only three of them is the circular-import
-          # crash the deb smoke test hit on every release.
-          install -Dm644 src/where_are_we/*.py -t $ROOT/usr/lib/where-are-we/where_are_we/
+          # crash the deb smoke test hit on every release. `_mapper/` and its
+          # `extract/` are where mapper.py's own implementation lives, so the
+          # copy is recursive: a flat glob ships a facade with nothing behind it.
+          cp -R src/where_are_we/. $ROOT/usr/lib/where-are-we/where_are_we/
+          find $ROOT/usr/lib/where-are-we -name __pycache__ -type d -exec rm -rf {} +
+          find $ROOT/usr/lib/where-are-we -type f -exec chmod 644 {} +
+          find $ROOT/usr/lib/where-are-we -type d -exec chmod 755 {} +
           install -Dm644 LICENSE $ROOT/usr/share/doc/where-are-we/copyright
           mkdir -p $ROOT/usr/bin $ROOT/DEBIAN
           cat > $ROOT/usr/bin/where-are-we <<'SH'
@@ -92,7 +97,10 @@ jobs:
           dnf install -y -q rpm-build python3 >/dev/null
           V=$(python3 -c "import re;print(re.search(r'version = \"([^\"]+)\"', open('pyproject.toml').read()).group(1))")
           mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS} pkg/usr/lib/where-are-we/where_are_we pkg/usr/bin
-          cp src/where_are_we/*.py pkg/usr/lib/where-are-we/where_are_we/
+          # Recursive: mapper.py is a facade over `_mapper/`, and a flat glob
+          # would ship it with nothing behind it.
+          cp -R src/where_are_we/. pkg/usr/lib/where-are-we/where_are_we/
+          find pkg/usr/lib/where-are-we -name __pycache__ -type d -exec rm -rf {} +
           for cmd in where-are-we:mapper wawe-readmes:readmes; do
             name=${cmd%%:*}; mod=${cmd##*:}
             printf '#!/bin/sh\nexec python3 -c '"'"'import sys; sys.path.insert(0, "/usr/lib/where-are-we"); from where_are_we.%s import main; sys.exit(main())'"'"' "$@"\n' "$mod" > pkg/usr/bin/$name

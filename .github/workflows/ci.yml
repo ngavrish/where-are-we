@@ -54,6 +54,44 @@ jobs:
           where-are-we --repo /tmp/syncfg/repo --out /tmp/syncfg/out --ask invoice | tee /tmp/syncfg-out.txt
           grep -q "also matched:.*proforma" /tmp/syncfg-out.txt
 
+      - name: the facade after the split
+        run: |
+          rm -rf /tmp/fac /tmp/facmap /tmp/flat
+          mkdir -p /tmp/fac
+          printf 'def charge(x):\n    return x\n' > /tmp/fac/billing.py
+          # Both ways of running it, and the entry point in between.
+          python -m where_are_we.mapper --repo /tmp/fac --out /tmp/facmap --quiet
+          test -s /tmp/facmap/framework_map_brief.md
+          python src/where_are_we/mapper.py --repo /tmp/fac --out /tmp/facmap --force --quiet
+          where-are-we --repo /tmp/fac --out /tmp/facmap --force --quiet
+          # Every name the tests, mcp.py, hooks.py, lsp.py and the plugin reach
+          # for through `mapper.` still resolves through the facade.
+          python - <<'EOF'
+          from where_are_we import mapper
+          for name in ("build brief digest for_audience init_manifest install_hook main pointer "
+                       "ask find_text index_lines index_declarations meaning_tail propose_docs "
+                       "changed_since declarations_in POINTER_MAX PARSE_COUNT _cap_sections "
+                       "_definitions_for _load_parse_cache _save_parse_cache _config _fingerprint "
+                       "_walk _slurp _cached redact DEFINITIONS INDEXED LINES TRUNCATED "
+                       "_WALK_CACHE _IGNORE_CACHE _FILE_CACHE _PARSE_CACHE CACHE_SCHEMA").split():
+              assert hasattr(mapper, name), name
+          EOF
+          # Assigning the shared state through the facade reaches the module the
+          # package counts into, which is what tests/golden/check.py depends on.
+          python - <<'EOF'
+          from where_are_we import mapper
+          from where_are_we._mapper import state
+          mapper.PARSE_COUNT = 0
+          assert state.PARSE_COUNT == 0
+          mapper.build("/tmp/fac")
+          assert mapper.PARSE_COUNT == state.PARSE_COUNT > 0, mapper.PARSE_COUNT
+          assert mapper.DEFINITIONS is state.DEFINITIONS
+          EOF
+          # The deb and the rpm copy the tree by hand: a flat copy of *.py would
+          # ship the facade with nothing behind it.
+          mkdir -p /tmp/flat/where_are_we
+          cp -R src/where_are_we/. /tmp/flat/where_are_we/
+          python -c 'import sys; sys.path.insert(0, "/tmp/flat"); from where_are_we.mapper import main; sys.argv = ["where-are-we", "--repo", "/tmp/fac", "--out", "/tmp/facmap", "--force", "--quiet"]; sys.exit(main())'
       - name: map itself
         run: |
           rm -rf /tmp/map
