@@ -836,18 +836,44 @@ jobs:
           rm -rf /tmp/w21
           mkdir -p /tmp/w21/repo/pkg
           echo 'def one(): pass' > /tmp/w21/repo/pkg/a.py
+          # Every wait here is a poll for the condition, never a fixed sleep.
+          # A watcher on a loaded runner can be a second or two behind, and a
+          # sleep long enough to be safe is a sleep that hides a regression
+          # that made it slow.
+          cat > /tmp/w21/waitfor.py <<'PY'
+          import json, os, sys, time
+          what, deadline = sys.argv[1], time.time() + 30
+          js = "/tmp/w21/repo/.wawe/framework_map.json"
+          while time.time() < deadline:
+              try:
+                  names = set(json.load(open(js))["definitions"])
+              except (OSError, ValueError):
+                  names = set()
+              if what.startswith("-"):
+                  if what[1:] not in names:
+                      print(f"{what[1:]} gone after {time.time():.0f}")
+                      sys.exit(0)
+              elif what in names:
+                  sys.exit(0)
+              time.sleep(0.2)
+          print(f"timed out waiting for {what}", file=sys.stderr)
+          try:
+              print("names now:", sorted(json.load(open(js))["definitions"]), file=sys.stderr)
+          except (OSError, ValueError) as exc:
+              print("no readable map:", exc, file=sys.stderr)
+          sys.exit(1)
+          PY
           PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo /tmp/w21/repo \
             --out /tmp/w21/repo/.wawe --watch 1 --no-semantic --html \
             > /tmp/w21/watch.log 2>&1 &
           WP=$!
-          sleep 1
+          python /tmp/w21/waitfor.py one
           for i in $(seq 1 20); do
             echo "def f$i(): pass" > /tmp/w21/repo/pkg/f$i.py
-            sleep 1.2
           done
-          # Every file added while watching is in the map, and a name deleted
-          # from the tree leaves it. Before, _WALK_CACHE was never cleared, so
-          # 21 rebuilds over 21 files left one name in the map.
+          # Every file added while watching is in the map. Before, _WALK_CACHE
+          # was never cleared, so 21 rebuilds over 21 files left one name.
+          python /tmp/w21/waitfor.py f20
           python - <<'EOF'
           import json, sys
           d = json.load(open("/tmp/w21/repo/.wawe/framework_map.json"))
@@ -856,9 +882,9 @@ jobs:
           print(len(names), "names in the map; missing:", missing)
           sys.exit(1 if missing else 0)
           EOF
+          # A name deleted from the tree leaves the map.
           rm /tmp/w21/repo/pkg/f20.py
-          sleep 3
-          ! grep -q '"f20"' /tmp/w21/repo/.wawe/framework_map.json
+          python /tmp/w21/waitfor.py -f20
           # All three map files, plus the ones the flags asked for. The watch
           # loop used to write only the JSON and the brief, so --ask against a
           # watched directory said there was no map.
@@ -869,14 +895,22 @@ jobs:
           # One failing iteration is printed and the watcher keeps going.
           rm -rf /tmp/w21/repo/.wawe && : > /tmp/w21/repo/.wawe
           echo 'def boom(): pass' > /tmp/w21/repo/pkg/boom.py
-          sleep 3
+          python - <<'EOF'
+          import sys, time
+          deadline = time.time() + 30
+          while time.time() < deadline:
+              if "rebuild failed, still watching" in open("/tmp/w21/watch.log").read():
+                  sys.exit(0)
+              time.sleep(0.2)
+          print("the watcher never reported a failed iteration", file=sys.stderr)
+          print(open("/tmp/w21/watch.log").read(), file=sys.stderr)
+          sys.exit(1)
+          EOF
           kill -0 $WP
-          grep -q "rebuild failed, still watching" /tmp/w21/watch.log
           rm -f /tmp/w21/repo/.wawe
           echo 'def RECOVERED(): pass' > /tmp/w21/repo/pkg/rec.py
-          sleep 3
+          python /tmp/w21/waitfor.py RECOVERED
           kill $WP || true
-          grep -q RECOVERED /tmp/w21/repo/.wawe/framework_map.json
 
       - name: a very large file costs the read limit, not its size
         run: |
