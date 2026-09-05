@@ -5,6 +5,3 @@
 ## Public surface of the code
 - `app/billing.py`: charge, refund
 … 3 rows in this section do not mention these words
-
-## Defined here
-… 1 more matching rows; 7 rows in this section do not mention these words

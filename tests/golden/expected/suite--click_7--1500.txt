@@ -11,9 +11,5 @@
 - CheckoutPage.click_7()
 … 85 rows in this section do not mention these words
 
-## Defined here
-- `CheckoutPage.click_7` — pages/checkout.py:25
-… 80 rows in this section do not mention these words
-
 ## Called by `click_7`
 - pay_steps.py:step_pay_7

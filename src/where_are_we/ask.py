@@ -553,7 +553,12 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     candidates = list(dict.fromkeys(t for t in expanded if t not in terms))
     note_room = len(f"(also matched: {', '.join(candidates)})") + 2 if candidates else 0
 
-    blocks = _blocks(text)
+    # `ask()` synthesises its own "## Defined here" below, from
+    # `_definitions_block`, so the brief's own section of that name (kept
+    # in the map text for the pointer's section list and for a human
+    # reading the brief directly) is dropped here before ranking. Left in,
+    # a question that matches both would answer with the same rows twice.
+    blocks = [(h, b) for h, b in _blocks(text) if h.strip() != "## Defined here"]
     scored = _rank(blocks, expanded, half)
     if not scored:
         block = _definitions_block(map_path, terms, limit - note_room, candidates)

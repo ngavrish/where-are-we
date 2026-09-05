@@ -27,14 +27,6 @@
 - GET /invoice/{id}  (api.py)
 … 1 rows in this section do not mention these words
 
-## Defined here
-- `Invoice` — <root>/code/repo/app/models.py:9
-- `charge` — <root>/code/repo/app/billing.py:4
-- `get_invoice` — <root>/code/repo/app/api.py:15
-- `list_invoices` — <root>/code/repo/app/api.py:9
-- `refund` — <root>/code/repo/app/billing.py:9
-… 3 rows in this section do not mention these words
-
 ## Data model
 - `Invoice (models.py)`: amount, customer_id, id, name
 … 1 rows in this section do not mention these words

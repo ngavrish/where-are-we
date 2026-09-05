@@ -12,7 +12,3 @@
 ## Public surface of the code
 - `app/api.py`: list_invoices, get_invoice, health
 … 3 rows in this section do not mention these words
-
-## Defined here
-- `health` — <root>/code/repo/app/api.py:21
-… 7 rows in this section do not mention these words
