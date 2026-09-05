@@ -23,6 +23,12 @@ and a directory cannot be. The same two-way import the rest of this project
 uses is below: relative when there is a package around it, plain when there is
 not.
 
+The command line is not re-exported from here: `cli.py` is the layer above
+this module, and importing it here is what used to put every module in the
+package on an import cycle. `mapper.main`, `mapper.init_manifest`,
+`mapper.install_hook` and `mapper.propose_docs` still resolve, through the
+same attribute hook the shared state uses, by importing `cli` on first use.
+
 Why this module has a class
 ---------------------------
 `_mapper/state.py` owns what the whole package shares: `DEFINITIONS`,
@@ -52,7 +58,7 @@ import types
 
 try:
     from ._mapper import state
-    from .ask import ask
+    from .ask import _definitions_for, ask, definitions_for
     from ._mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                                _SECRET_SHAPES, _cached, _config, _fingerprint,
                                _ignored, _ignores, _lines_matching,
@@ -67,14 +73,12 @@ try:
                                   _tree_sitter, _ts_symbols, declarations_in,
                                   find_text, index_declarations, index_lines)
     from ._mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
-                                 _cap_sections, _definitions_for, brief,
-                                 changed_since, definitions_for, digest,
-                                 for_audience, meaning_tail, pointer)
+                                 _cap_sections, brief, changed_since,
+                                 digest, for_audience, meaning_tail, pointer)
     from ._mapper.build import _layer_line, build
-    from ._mapper.cli import init_manifest, install_hook, main, propose_docs
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
-    from ask import ask
+    from ask import _definitions_for, ask, definitions_for
     from _mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                               _SECRET_SHAPES, _cached, _config, _fingerprint,
                               _ignored, _ignores, _lines_matching,
@@ -89,11 +93,9 @@ except ImportError:  # run as a plain file, with no package around it
                                  declarations_in, find_text,
                                  index_declarations, index_lines)
     from _mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
-                                _cap_sections, _definitions_for, brief,
-                                changed_since, definitions_for, digest,
-                                for_audience, meaning_tail, pointer)
+                                _cap_sections, brief, changed_since,
+                                digest, for_audience, meaning_tail, pointer)
     from _mapper.build import _layer_line, build
-    from _mapper.cli import init_manifest, install_hook, main, propose_docs
 
 __version__ = state.__version__
 
@@ -110,12 +112,36 @@ _STATE_NAMES = frozenset((
 ))
 
 
+# The four names the command line owns. `cli.py` is the layer above this one:
+# it imports the facade's world (build, render, ask, mcp, lsp, hooks, specs)
+# and nothing imports it back except the console script. Importing it here
+# would put `mapper` above `cli` and `cli` above `mapper` at once, which is
+# what every one of the package's eight import cycles was made of.
+#
+# They are still reachable as `mapper.main` and friends, because the README
+# documents them as this package's library API and a distribution's launcher
+# script imports `main` from here. The import happens on first access, by
+# which time this module has finished loading and there is no cycle to dodge.
+_CLI_NAMES = frozenset(("init_manifest", "install_hook", "main", "propose_docs"))
+
+
+def _cli():
+    """`where_are_we.cli`, imported on first use."""
+    try:
+        from . import cli
+    except ImportError:  # run as a plain file, with no package around it
+        import cli  # type: ignore[no-redef]
+    return cli
+
+
 class _Facade(types.ModuleType):
     """This module, with `_mapper.state` readable and writable through it."""
 
     def __getattr__(self, name):
         if name in _STATE_NAMES:
             return getattr(state, name)
+        if name in _CLI_NAMES:
+            return getattr(_cli(), name)
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
     def __setattr__(self, name, value):
@@ -125,11 +151,13 @@ class _Facade(types.ModuleType):
             super().__setattr__(name, value)
 
     def __dir__(self):
-        return sorted(set(super().__dir__()) | _STATE_NAMES)
+        return sorted(set(super().__dir__()) | _STATE_NAMES | _CLI_NAMES)
 
 
 sys.modules[__name__].__class__ = _Facade
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # `python -m where_are_we.mapper` and `python src/where_are_we/mapper.py`
+    # both still run the tool. The command line itself lives one module over.
+    sys.exit(_cli().main())

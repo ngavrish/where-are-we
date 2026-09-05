@@ -369,20 +369,7 @@ def _definitions_block(map_path: str, terms: list, room: int,
     enough on its own, and a name that only matches through `extra` is
     listed after every name that matches `terms`.
     """
-    # This import must stay right here, function-local, and reference the
-    # module rather than pull a name out of it. mapper.py imports this module
-    # at load time with a plain top-level `from .ask import ask, fit_lines`,
-    # so a module-level or name-extracting import here
-    # (`from .mapper import definitions_for`) raises "cannot import name
-    # from partially initialized module" whenever `where_are_we.ask` is
-    # imported before `where_are_we.mapper`. Deferring the import to call
-    # time, and only binding the module object, sidesteps that: by the time
-    # this function actually runs, both modules have finished loading.
-    try:
-        from . import mapper as _mapper
-    except ImportError:  # run as a plain file, with no package around it
-        import mapper as _mapper  # type: ignore[no-redef]
-    exact = _mapper.definitions_for(map_path, terms, extra)
+    exact = definitions_for(map_path, terms, extra)
     if not exact:
         return ""
     return _defined_here(exact, room)
@@ -648,3 +635,52 @@ def log_answer(out_dir: str, tool: str, words: str, answer: str, room: int) -> N
             fh.write(json.dumps(row) + "\n")
     except OSError:
         pass
+
+
+# Lives here rather than in the renderer it grew up in: it reads a written
+# map off disk and hands back rows, which is this module's job, and three
+# callers (this module, the MCP server and the language server) reach it
+# through the facade. While it sat in `_mapper/render.py`, the renderer
+# imported this module for `fit_lines` and this module imported the facade to
+# reach back, which is the cycle the fourteen-line comment that used to sit in
+# `_defined_block` was apologising for.
+def definitions_for(map_path: str, terms: list[str],
+                    extra: list[str] | None = None) -> list[str]:
+    """Exact places, from the map's own index of what was defined where.
+
+    Answered before any prose, because this is the question actually being
+    asked. A scenario author looking for `def ad_product_shows` wants a file and
+    a line; told which module it lives in, they grep the module. Over one run
+    that was forty hand searches against three questions to the map.
+
+    `terms` keeps its original meaning: a name counts only when it holds
+    every one of them, or is exactly one of them - "invoice checkout" is a
+    name naming both, not a name naming either. `extra` is `ask()`'s
+    synonym and stem words, each of which is enough on its own; asking for
+    "login" should not lose `def login` because it does not also mention
+    "auth". Literal matches are returned before expansion-only ones so a
+    name that answers what was actually typed is never pushed out of the
+    40-row cap by one that only answers a synonym.
+    """
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            defs = (json.load(fh) or {}).get("definitions") or {}
+    except (OSError, ValueError):
+        return []
+    extra = extra or []
+    literal, expansion = [], []
+    for name, where in defs.items():
+        low = name.lower()
+        row = f"- `{name}` — {where}"
+        if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
+            literal.append(row)
+        elif any(t in low for t in extra):
+            expansion.append(row)
+    return (sorted(literal) + sorted(expansion))[:40]
+
+
+# The name this was called before it was admitted to be public, kept so a
+# caller that already imported it does not break. Deprecated: use
+# `definitions_for`.
+_definitions_for = definitions_for

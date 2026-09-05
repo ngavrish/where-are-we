@@ -17,6 +17,15 @@ import json
 import os
 import re
 
+# Top level, both ways round: `mapper` is the layer below this one and does
+# not import back. This used to be four function-local imports, one per
+# writer, because the facade re-exported the command line and the command
+# line imported this module.
+try:
+    from . import mapper
+except ImportError:  # run as a plain file, with no package around it
+    import mapper  # type: ignore[no-redef]
+
 _BLOCK_START = "<!-- where-are-we:start -->"
 _BLOCK_END = "<!-- where-are-we:end -->"
 _MCP_ARGS = ["--repo", ".", "--out", ".wawe", "--mcp"]
@@ -62,7 +71,6 @@ def _ensure_map(repo: str) -> None:
     """Build the map into <repo>/.wawe if it is not there yet, same three
     files main() writes, and keep .wawe out of the repository's own history --
     an agent harness reads it, nobody commits it."""
-    from . import mapper
 
     wawe_dir = os.path.join(repo, ".wawe")
     map_md = os.path.join(wawe_dir, "framework_map.md")
@@ -227,7 +235,6 @@ def _install_claude(repo: str, product: str, out: str, agent_file: str, home: st
 
 
 def _install_cursor(repo: str) -> str:
-    from . import mapper
 
     rule_path = os.path.join(repo, ".cursor", "rules", "where-are-we.mdc")
     mcp_path = os.path.join(repo, ".cursor", "mcp.json")
@@ -268,7 +275,6 @@ def _install_cursor(repo: str) -> str:
 
 
 def _install_codex(repo: str, home: str) -> str:
-    from . import mapper
 
     agents_path = os.path.join(repo, "AGENTS.md")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
@@ -301,7 +307,6 @@ def _install_codex(repo: str, home: str) -> str:
 
 
 def _install_gemini(repo: str) -> str:
-    from . import mapper
 
     md_path = os.path.join(repo, "GEMINI.md")
     settings_path = os.path.join(repo, ".gemini", "settings.json")

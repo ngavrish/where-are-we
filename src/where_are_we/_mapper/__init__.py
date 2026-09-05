@@ -10,7 +10,10 @@ implementation is kept, one file per job:
 - `extract/`: map topics that are a function of the file list alone.
 - `build.py`: the one walk that assembles the map dict.
 - `render.py`: map dict to Markdown, and lookups over a written map.
-- `cli.py`: argv, stdout, and what the tool writes into a repository.
+
+The command line is not here. `where_are_we/cli.py` is the layer above the
+facade: it imports this package's world and nothing imports it back, which is
+why it sits beside the public modules rather than under them.
 
 An extractor is one file, one topic, one `(ctx) -> dict`.
 """

@@ -1722,3 +1722,42 @@ jobs:
                | grep -v "^src/where_are_we/_mapper/walk.py:.*# " ; then
             echo "a caller still uses the deprecated underscore name"; exit 1
           fi
+
+      - name: the command line is the outermost layer, and the graph has no cycles
+        run: |
+          set -o pipefail
+          rm -rf /tmp/dip
+          mkdir -p /tmp/dip/repo
+          printf 'def charge(x):\n    return x\n' > /tmp/dip/repo/billing.py
+          # 22 modules, no cycle. On the old layout `mapper` re-exported the
+          # command line, which imported `ask`, `hooks`, `lsp` and `mcp`, each
+          # of which imported `mapper` back, and eleven imports had to be
+          # written inside functions to keep Python from tripping over it.
+          python tests/golden/import_graph.py | tee /tmp/dip/graph.txt
+          grep -q ", 0 cycles," /tmp/dip/graph.txt
+          # None of those eleven is left: no module defers an import of the
+          # facade, or of a module the facade can reach, to call time.
+          python tests/golden/import_graph.py --verbose > /tmp/dip/edges.txt
+          if grep -E "^deferred .* -> where_are_we\.(mapper|hooks|lsp|mcp|ask)( |$)" \
+               /tmp/dip/edges.txt; then
+            echo "an import is still deferred to dodge a cycle"; exit 1
+          fi
+          # Importing the map does not import the command line, the MCP server
+          # or the language server: three programs the reader of a map never
+          # runs.
+          python -X importtime -c "import where_are_we.mapper" 2> /tmp/dip/imports.txt
+          for name in where_are_we.cli where_are_we._mapper.cli where_are_we.mcp \
+                      where_are_we.lsp where_are_we.hooks where_are_we.specs; do
+            if grep -q " $name\$" /tmp/dip/imports.txt; then
+              echo "importing the facade also imported $name"; exit 1
+            fi
+          done
+          # And all three ways of running the tool still run it.
+          where-are-we --repo /tmp/dip/repo --out /tmp/dip/m --quiet --no-semantic
+          python -m where_are_we.mapper --repo /tmp/dip/repo --out /tmp/dip/m \
+            --force --quiet --no-semantic
+          python src/where_are_we/mapper.py --repo /tmp/dip/repo --out /tmp/dip/m \
+            --force --quiet --no-semantic
+          test -s /tmp/dip/m/framework_map_brief.md
+          # The console script points at the module that owns argv.
+          grep -q 'where-are-we = "where_are_we.cli:main"' pyproject.toml

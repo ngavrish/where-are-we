@@ -1028,48 +1028,6 @@ def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = Non
     return "\n".join(lines) + "\n"
 
 
-def definitions_for(map_path: str, terms: list[str],
-                    extra: list[str] | None = None) -> list[str]:
-    """Exact places, from the map's own index of what was defined where.
-
-    Answered before any prose, because this is the question actually being
-    asked. A scenario author looking for `def ad_product_shows` wants a file and
-    a line; told which module it lives in, they grep the module. Over one run
-    that was forty hand searches against three questions to the map.
-
-    `terms` keeps its original meaning: a name counts only when it holds
-    every one of them, or is exactly one of them - "invoice checkout" is a
-    name naming both, not a name naming either. `extra` is `ask()`'s
-    synonym and stem words, each of which is enough on its own; asking for
-    "login" should not lose `def login` because it does not also mention
-    "auth". Literal matches are returned before expansion-only ones so a
-    name that answers what was actually typed is never pushed out of the
-    40-row cap by one that only answers a synonym.
-    """
-    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            defs = (json.load(fh) or {}).get("definitions") or {}
-    except (OSError, ValueError):
-        return []
-    extra = extra or []
-    literal, expansion = [], []
-    for name, where in defs.items():
-        low = name.lower()
-        row = f"- `{name}` — {where}"
-        if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
-            literal.append(row)
-        elif any(t in low for t in extra):
-            expansion.append(row)
-    return (sorted(literal) + sorted(expansion))[:40]
-
-
-# The name this was called before it was admitted to be public, kept so a
-# caller that already imported it does not break. Deprecated: use
-# `definitions_for`.
-_definitions_for = definitions_for
-
-
 def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
                  room: int = 5000) -> str:
     """The 'Related by meaning' section, deduplicated against an answer

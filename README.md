@@ -483,14 +483,14 @@ defaults from.
 
 | name | read in | what it does | default |
 |---|---|---|---|
-| `AGENT_REPO` | `_mapper/walk.py`, `_mapper/cli.py`, `readmes.py` | the repository to index or answer about, when `--repo` is not given. `main()` also writes it back so the walk and the product guess see the resolved path | unset: `--out`'s parent when that is a `.wawe`, then `/work` if it exists, then the current directory |
-| `RUN_DIR` | `_mapper/cli.py`, `_mapper/build.py` | where the map files are written, when `--out` is not given | `.` |
-| `PRODUCT_SRC` | `_mapper/walk.py`, `_mapper/cli.py` | the product under test, colon or comma separated, when `--product` is not given. `none` switches the sibling guess off | unset: the siblings of a repository that looks like a test suite |
-| `RULES_REPO` | `_mapper/build.py`, `_mapper/cli.py` | a directory of agent rule files to fold into the map, when `--rules` is not given | `/rules` |
-| `RUNS_API_READ` | `_mapper/build.py`, `_mapper/cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is not given | unset: no runs section |
-| `SPEC_ROOTS` | `_mapper/cli.py` | the ticket keys `--specs` walks from, comma separated | unset |
-| `SPEC_FETCH_CMD` | `_mapper/cli.py` | the command that fetches one ticket as JSON, when `--spec-cmd` is not given | unset: `--specs` refuses to run without one |
-| `SPEC_SOURCE` | `_mapper/cli.py` | which built-in tracker command to use (`jira`, `linear`, `github`, `cmd`), when `--spec-source` is not given | `cmd` |
+| `AGENT_REPO` | `_mapper/walk.py`, `cli.py`, `readmes.py` | the repository to index or answer about, when `--repo` is not given. `main()` also writes it back so the walk and the product guess see the resolved path | unset: `--out`'s parent when that is a `.wawe`, then `/work` if it exists, then the current directory |
+| `RUN_DIR` | `cli.py`, `_mapper/build.py` | where the map files are written, when `--out` is not given | `.` |
+| `PRODUCT_SRC` | `_mapper/walk.py`, `cli.py` | the product under test, colon or comma separated, when `--product` is not given. `none` switches the sibling guess off | unset: the siblings of a repository that looks like a test suite |
+| `RULES_REPO` | `_mapper/build.py`, `cli.py` | a directory of agent rule files to fold into the map, when `--rules` is not given | `/rules` |
+| `RUNS_API_READ` | `_mapper/build.py`, `cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is not given | unset: no runs section |
+| `SPEC_ROOTS` | `cli.py` | the ticket keys `--specs` walks from, comma separated | unset |
+| `SPEC_FETCH_CMD` | `cli.py` | the command that fetches one ticket as JSON, when `--spec-cmd` is not given | unset: `--specs` refuses to run without one |
+| `SPEC_SOURCE` | `cli.py` | which built-in tracker command to use (`jira`, `linear`, `github`, `cmd`), when `--spec-source` is not given | `cmd` |
 | `WAWE_SPEC_DEPTH` | `specs.py` | how many link hops out from each root ticket the spec map walks | `2` |
 | `WAWE_SPEC_LIMIT` | `specs.py` | the most tickets one spec map will fetch | `60` |
 | `WAWE_MAX_FILES` | `_mapper/walk.py` | the most files one walk will visit before it stops and says so in the map | `40000` |
