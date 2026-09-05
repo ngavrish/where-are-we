@@ -317,14 +317,30 @@ _SECRET_WORD = (r"(?:secret|passw(?:or)?d|token|api[_-]?key|private[_-]?key"
 _SECRET_NAME = rf"(?:{_KEY_SEG}[_.\-])*{_SECRET_WORD}s?(?![A-Za-z0-9_.\-])"
 _SECRET_KEY = rf"[\"']?{_SECRET_NAME}[\"']?"
 
-# Values that are never a credential, whatever the key is called. A bare
-# integer, a bool, a None and a bare type name are what a counter, a flag and
-# a dataclass field hold, and redacting them turned `has_token = True` into
-# `has_token = [redacted]` and `token: str = ""` into `token: [redacted] = ""`.
+# Values that are never a credential, whatever the key is. A bool, a None and
+# a bare type name are what a flag and a dataclass field hold, and redacting
+# them turned `has_token = True` into `has_token = [redacted]` and
+# `token: str = ""` into `token: [redacted] = ""`.
+#
+# A number is not on this list. `DB_PASSWORD = 8675309`, `password =
+# "12345678"` and `api_key: 1234567890123456` are all credentials, and a
+# blanket "digits are safe" rule handed every one of them to the map. Numbers
+# are decided in `_redact_bare` instead, where the key is in hand.
 _NOT_A_SECRET = re.compile(
-    r"(?:[-+]?[0-9]+(?:\.[0-9]+)?|True|False|None|null|nil|true|false"
+    r"(?:True|False|None|null|nil|true|false"
     r"|str|int|bool|float|bytes|list|dict|set|tuple|Any|object"
     r"|string|number|boolean|integer)\Z")
+
+# A small unquoted number under a key that also names a count is a count.
+# `max_token = 4096` is a context window and `num_tokens = 10` is a quantity,
+# even though both keys end in the word `token`. Six digits is the ceiling:
+# past that a "count" is indistinguishable from a numeric credential, and
+# `DB_PASSWORD = 8675309` is seven.
+_COUNTER_WORD = re.compile(
+    r"(?i)(?:^|[_.\-])(?:count|counts|index|idx|ttl|seconds|secs|size|limit"
+    r"|max|maximum|min|minimum|len|length|num|number|total|timeout|retries"
+    r"|retry|attempts|depth|width|height|port|version)(?:[_.\-]|$)")
+_SMALL_NUMBER = re.compile(r"[-+]?[0-9]{1,6}(?:\.[0-9]+)?\Z")
 
 # A bare value ends where the line, the enclosing literal or the enclosing
 # call ends. An opening bracket is deliberately not a terminator, which is
@@ -366,13 +382,33 @@ def _redact_quoted(m):
 
 
 def _redact_bare(m):
-    """A bare value, unless it is a number, a bool, a None or a type name."""
-    if _NOT_A_SECRET.match(m.group(2)):
+    """A bare value, unless the key and the value together say it is a count.
+
+    A bool, a None and a type name are never a credential. A number is one
+    only sometimes: a small one under a key that also names a count is a
+    count, and anything else, a long number included, is treated as a value
+    somebody chose. `max_token = 4096` stays; `DB_PASSWORD = 8675309` and
+    `api_key: 1234567890123456` do not. A quoted number never reaches here,
+    which is why `password = "12345678"` redacts: quoting a number is what a
+    credential does and what a counter does not.
+    """
+    key, value = m.group(1), m.group(2)
+    if _NOT_A_SECRET.match(value):
         return m.group(0)
-    return f"{m.group(1)}[redacted]"
+    if _SMALL_NUMBER.match(value) and _COUNTER_WORD.search(key):
+        return m.group(0)
+    return f"{key}[redacted]"
 
 
-def redact(value):
+# The one place in the map where a list is a file: `lines[path]` is that
+# file's lines, in order, and nothing else in the map is. Every other list is
+# an aggregate that mixes files (`concurrency["notes"]` is one row per file,
+# `duplicates` one row per pair), so carrying PEM state from one element to
+# the next there is not "the rest of the key", it is somebody else's line.
+_CONTIGUOUS_KEY = "lines"
+
+
+def redact(value, contiguous: bool = False):
     """Never carry a credential into the map.
 
     The map is written into files that get committed and pasted into prompts,
@@ -385,11 +421,19 @@ def redact(value):
     credentials inside a URL, then a quoted and then a bare value on a line
     that names itself a secret.
 
-    A list is not just each element redacted on its own. `lines` holds a file
-    as one string per line, and a PEM block spans several of them, so a list
-    is swept with the state that says whether it is inside one."""
+    `contiguous` says the list being redacted is one file's consecutive lines,
+    which is true only under `lines`. A PEM block spans several of them, so
+    that list is swept with the state that says whether it is inside one.
+    Every other list is an aggregate over files and gets no shared state:
+    a header in one file's row used to blank the rows of every file after it.
+    """
     if isinstance(value, str):
         out = _PEM_BLOCK.sub("[redacted]", value)
+        # A header with no body after it in this string: a lone line lifted
+        # into an aggregate, or a truncated file. Not a key on its own, but
+        # the original rule replaced it and there is nothing in it to keep.
+        out = _PEM_BEGIN.sub("[redacted]", out)
+        out = _PEM_END.sub("[redacted]", out)
         out = _SECRET_SHAPES.sub("[redacted]", out)
         out = _B64_BLOB.sub("[redacted]", out)
         out = _SECRET_URL.sub(r"\1:[redacted]@", out)
@@ -397,20 +441,22 @@ def redact(value):
         out = _SECRET_KEYED_BARE_EQ.sub(_redact_bare, out)
         return _SECRET_KEYED_BARE_COLON.sub(_redact_bare, out)
     if isinstance(value, list):
-        return _redact_lines(value)
+        return _redact_lines(value) if contiguous else [redact(v) for v in value]
     if isinstance(value, dict):
-        return {k: redact(v) for k, v in value.items()}
+        return {k: redact(v, contiguous or k == _CONTIGUOUS_KEY)
+                for k, v in value.items()}
     return value
 
 
 def _redact_lines(items: list) -> list:
-    """Every element redacted, and a PEM block redacted as a block.
+    """One file's lines, with a PEM block redacted as a block.
 
     Between a BEGIN line and its END line every element is replaced outright,
     header and footer included, because a private key has no line in it worth
     keeping. A block that never ends (a truncated file, a header quoted in
-    prose) still suppresses the rest of the list, which is the safe way to be
-    wrong."""
+    prose) still suppresses the rest of that file, which is the safe way to be
+    wrong about one file. Only ever called for a `lines[path]` list, so the
+    rest of that file is all it can ever suppress."""
     out, in_pem = [], False
     for item in items:
         if isinstance(item, str):
