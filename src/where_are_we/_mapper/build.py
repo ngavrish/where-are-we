@@ -20,7 +20,8 @@ from . import extract, state
 from .declare import _step_texts, index_declarations
 from .state import DEFINITIONS, INDEXED, LINES
 from .walk import (SKIP_DIRS, _cached, _lines_matching, _load_parse_cache,
-                   _manifest, _product_roots, _save_parse_cache, _slurp, _walk)
+                   _manifest, _product_roots, _save_parse_cache, _slurp, _tree,
+                   _walk)
 
 
 def _layer_line(paths: list, what: str) -> str:
@@ -520,9 +521,7 @@ def build(repo: str, out_dir: str | None = None,
     # A README in a directory is that directory explaining itself, which beats
     # anything inferred from the files in it. Every one of them is carried.
     dir_readmes = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs
-                   if d not in {".git", ".venv", "node_modules", "__pycache__", ".runs"}]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             if fn.lower() not in ("readme.md", "readme.rst", "readme.txt"):
                 continue
@@ -721,8 +720,7 @@ def build(repo: str, out_dir: str | None = None,
                 r"^\s*[\"\']?([A-Za-z][\w.-]+)[\"\']?\s*[=><~^]{1,2}\s*[\"\']?([\d][\w.+-]*)",
                 body, re.M)))[:40]
     ci = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         rel = os.path.relpath(base, repo)
         if not any(k in rel for k in (".github", ".gitlab", "ci", "pipelines")):
             continue
@@ -881,8 +879,7 @@ def build(repo: str, out_dir: str | None = None,
     # The infrastructure the suite talks to: compose files, service names, the
     # ports and health endpoints that decide whether anything can run at all.
     infra = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             if not re.match(r"(docker-)?compose.*\.ya?ml$|Dockerfile.*", fn):
                 continue
@@ -1247,8 +1244,7 @@ def build(repo: str, out_dir: str | None = None,
     # Contracts, schemas and the machinery around them.
     contracts = {"openapi": [], "graphql": [], "migrations": [], "mocks": [],
                  "feature_flags": [], "i18n": [], "images": [], "secret_paths": []}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             rel = os.path.relpath(os.path.join(base, fn), repo)
             low = rel.lower()
@@ -1359,8 +1355,7 @@ def build(repo: str, out_dir: str | None = None,
             ".c": "C", ".h": "C", ".cpp": "C++", ".hpp": "C++", ".sh": "Shell",
             ".sql": "SQL", ".proto": "Protobuf", ".md": "Markdown"}
     languages: dict[str, int] = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             lang = LANG.get(os.path.splitext(fn)[1])
             if lang:
@@ -1532,8 +1527,7 @@ def build(repo: str, out_dir: str | None = None,
         return _slurp(os.path.join(repo, rel), limit)
 
     code_files = []
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             # Extensionless names count: a Jenkinsfile is the CI, a Rakefile is
             # the build, and neither ends in anything.
@@ -1831,8 +1825,7 @@ def build(repo: str, out_dir: str | None = None,
                  ".jl": "Julia", ".m": "Objective-C", ".fs": "F#",
                  ".vb": "VB.NET", ".sol": "Solidity", ".vue": "Vue",
                  ".svelte": "Svelte", ".ipynb": "Notebook"}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             lang = ext_langs.get(os.path.splitext(fn)[1])
             if lang:
@@ -2061,8 +2054,7 @@ def build(repo: str, out_dir: str | None = None,
 
     # Assets: what ships that is not code.
     assets: dict[str, int] = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             ext = os.path.splitext(fn)[1].lower()
             if ext in (".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico",
@@ -2104,8 +2096,7 @@ def build(repo: str, out_dir: str | None = None,
     # of TypeScript are not the same repository.
     loc: dict[str, int] = {}
     comments: dict[str, int] = {}
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    for base, dirs, files in _tree(repo):
         for fn in files:
             lang = LANG.get(os.path.splitext(fn)[1]) or ext_langs.get(os.path.splitext(fn)[1])
             if not lang:

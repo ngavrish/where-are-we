@@ -331,6 +331,38 @@ def _ignores(root: str) -> list:
     return pats
 
 
+def _tree(root: str):
+    """`os.walk(root)` with the directories this project never reads pruned,
+    and a bound on how much of a tree one pass will look at.
+
+    Yields the same `(base, dirs, files)` triples in the same order, so a
+    caller reads exactly as it did before. What it adds is the `SKIP_DIRS`
+    pruning that every caller was repeating by hand, and a stop.
+
+    The stop counts entries examined, not files kept. A cap on files kept
+    bounds nothing on a tree that is mostly directories: `--repo /` is one
+    keystroke away from `--repo .`, and a walk of `/` on the machine this was
+    measured on passed 380,000 directories in thirty seconds having matched
+    5,500 files, so a cap of forty thousand hits would have let it run for
+    hours. Counting entries stops it in a fraction of a second and leaves
+    every tree smaller than the cap walked exactly as it was before.
+
+    `WAWE_MAX_FILES` raises it, which is what the note in the map says to do.
+    """
+    seen = 0
+    for base, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        seen += len(dirs) + len(files)
+        yield base, dirs, files
+        if seen >= MAX_FILES:
+            note = (f"a tree walk stopped after {MAX_FILES} entries under "
+                    f"{root} — raise WAWE_MAX_FILES or add to .wawe-ignore; "
+                    f"what was reached is mapped and the rest is not")
+            if note not in TRUNCATED:
+                TRUNCATED.append(note)
+            return
+
+
 def _ignored(rel: str, pats: list) -> bool:
     import fnmatch
     for p in pats:
@@ -347,9 +379,7 @@ def _walk(root: str, want: str) -> list[str]:
     hits = []
     base_repo = os.getenv("AGENT_REPO", root)
     pats = _ignores(base_repo)
-    for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs
-                   if d not in {".git", ".venv", "node_modules", "__pycache__", ".runs"}]
+    for base, dirs, files in _tree(root):
         for f in files:
             if not f.endswith(want):
                 continue
@@ -380,7 +410,23 @@ def _fingerprint(repo: str) -> str:
 
     A map is only worth rebuilding when the thing it describes has moved. The
     commit catches every committed change; the newest mtime catches the working
-    tree, which is where a run's own edits live."""
+    tree, which is where a run's own edits live.
+
+    The mtime is kept to the nanosecond the filesystem reports. It used to be
+    truncated to a whole second, which left a one-second window in which an
+    edit was invisible: a build at T.1 recorded T, a file saved at T.9 was still
+    T, and the next build compared equal and printed "unchanged since it was
+    built" over a map that no longer described the tree. Nothing recovered from
+    that until some other file changed. A session's own edits land inside the
+    same second as the build that follows them all the time.
+
+    The walk goes through `_tree`, so it is bounded and pruned the same way
+    every other pass over the repository is, and it honours the repository's
+    `.wawe-ignore`/`.gitignore` patterns. It runs before anything else, so
+    while it was unbounded `--repo /` - one keystroke away from `--repo .` -
+    never returned at all, and the file cap that does exist never got a
+    chance to apply.
+    """
     head = ""
     try:
         import subprocess
@@ -388,17 +434,23 @@ def _fingerprint(repo: str) -> str:
                               capture_output=True, text=True, timeout=15).stdout.strip()
     except Exception:  # noqa: BLE001 — a repository without git still gets a map
         pass
-    newest = 0.0
-    for base, dirs, files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+    pats = _ignores(repo)
+    newest = 0
+    for base, dirs, files in _tree(repo):
+        if pats:
+            dirs[:] = [d for d in dirs
+                       if not _ignored(os.path.relpath(os.path.join(base, d), repo), pats)]
         for fn in files:
             if not fn.endswith((".py", ".feature", ".sh", ".ts", ".js", ".json", ".md")):
                 continue
+            full = os.path.join(base, fn)
+            if pats and _ignored(os.path.relpath(full, repo), pats):
+                continue
             try:
-                newest = max(newest, os.path.getmtime(os.path.join(base, fn)))
+                newest = max(newest, os.stat(full).st_mtime_ns)
             except OSError:
                 continue
-    return f"{head}:{int(newest)}"
+    return f"{head}:{newest}"
 
 
 def _manifest(repo: str) -> dict:

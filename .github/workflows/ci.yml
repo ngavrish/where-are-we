@@ -476,3 +476,53 @@ jobs:
           cat /tmp/wc2/counts.txt
           test "$(sort -u /tmp/wc2/counts.txt | wc -l)" = "1"
           grep -q "'suite': 1" /tmp/wc2/counts.txt
+
+      - name: an edit in the same second as the build is still seen
+        run: |
+          rm -rf /tmp/fp
+          mkdir -p /tmp/fp/r /tmp/fp/m
+          # Start on a second boundary so the edit below is certain to land in
+          # the same whole second as the build before it. The fingerprint used
+          # to be int(newest), so that edit was invisible and the CLI printed
+          # "unchanged since it was built" over a map that no longer matched.
+          python -c "import time; [time.sleep(0.005) for _ in iter(lambda: time.time() % 1 > 0.05, False)]"
+          printf 'ORIGINAL_NAME = 1\n' > /tmp/fp/r/m.py
+          where-are-we --repo /tmp/fp/r --out /tmp/fp/m --product none --force --quiet --no-semantic
+          grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json
+          printf 'EDITED_NAME = 1\n' > /tmp/fp/r/m.py
+          where-are-we --repo /tmp/fp/r --out /tmp/fp/m --product none --no-semantic | tee /tmp/fp/second.txt
+          ! grep -q "unchanged since it was built" /tmp/fp/second.txt
+          grep -q EDITED_NAME /tmp/fp/m/framework_map.json
+          ! grep -q ORIGINAL_NAME /tmp/fp/m/framework_map.json
+      - name: every pass over a tree is bounded, so a huge root terminates
+        run: |
+          rm -rf /tmp/big
+          mkdir -p /tmp/big/m
+          # 12,000 files across 600 directories, and a cap of 2,000 entries.
+          python - <<'EOF'
+          import os
+          for d in range(600):
+              p = f"/tmp/big/r/d{d:03d}"
+              os.makedirs(p, exist_ok=True)
+              for i in range(20):
+                  open(f"{p}/m{i}.py", "w").write(f"C{d}_{i} = 1\n")
+          EOF
+          # The fingerprint alone: it runs before anything else and used to be
+          # the reason --repo / never returned.
+          WAWE_MAX_FILES=2000 timeout 60 python -c "
+          import os, time
+          os.environ['AGENT_REPO'] = '/tmp/big/r'
+          from where_are_we._mapper.walk import _fingerprint, TRUNCATED
+          t = time.time(); _fingerprint('/tmp/big/r')
+          print('fingerprint in %.2fs' % (time.time() - t))
+          assert TRUNCATED, 'the cap was not reported'
+          print(TRUNCATED[0])"
+          WAWE_MAX_FILES=2000 timeout 60 where-are-we --repo /tmp/big/r --out /tmp/big/m \
+            --product none --force --quiet --no-semantic
+          grep -q "stopped after 2000 entries" /tmp/big/m/framework_map.md
+          # Uncapped, the same tree is mapped whole and says nothing about a stop.
+          rm -rf /tmp/big/m2
+          timeout 120 where-are-we --repo /tmp/big/r --out /tmp/big/m2 \
+            --product none --force --quiet --no-semantic
+          ! grep -q "stopped after" /tmp/big/m2/framework_map.md
+          grep -q C599_19 /tmp/big/m2/framework_map.json
