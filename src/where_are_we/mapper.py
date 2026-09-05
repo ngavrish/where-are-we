@@ -4320,7 +4320,12 @@ def changed_since(repo: str, out_dir: str) -> list[str]:
     status = _git("status", "--porcelain")
     if status:
         for line in status.splitlines():
-            path = line[3:].strip()
+            code, path = line[:2], line[3:].strip()
+            # A rename or copy (R/C) reports "old -> new"; only the new
+            # path is a file that exists to be read, so that is what goes
+            # in the list, not the arrow notation.
+            if ("R" in code or "C" in code) and " -> " in path:
+                path = path.rsplit(" -> ", 1)[1]
             if path:
                 changed.add(path)
     return sorted(changed)
