@@ -1,5 +1,41 @@
 # Changelog
 
+## 1.1.0
+
+- `wawe-measure` reads Claude Code's own transcripts and reports, per session,
+  how many turns, searches, map calls and orientation turns it took, as a
+  table or as `--json`.
+- Every map answer is logged to `.wawe-ask.log` (`ask`, `find`, `defines`,
+  `sections`, `callers`, from both the CLI and MCP); `wawe-measure --ask-log`
+  summarises median, p95 and max tokens per answer.
+- `--pointer` now names what changed since the last session: `changed_since`
+  diffs the repository's git HEAD against the one recorded on the previous
+  build.
+- Unchanged files are no longer re-parsed on rebuild: a parse cache keyed by
+  path, kind, mtime and size, bypassed with `WAWE_NO_CACHE=1`;
+  `WAWE_JUNIT_DIRS` names where a project's JUnit history lives.
+- Declarations for Rust, Kotlin, C# and Ruby, joining Python, TypeScript,
+  JavaScript and Go; wired into the tree-sitter parse where installed, and
+  the `## Defined here` section is now capped.
+- The cross-file call graph covers TypeScript, JavaScript and Go, not only
+  Python.
+- `--callers NAME`, the MCP `callers` tool, and a `## Called by` block in
+  `--ask`, answer who calls a name.
+- `--ask` expands synonyms and stems terms before matching; `.wawe.toml`'s
+  `[synonyms]` table adds a project's own words to the built-in groups.
+- `--install-hook` gained `cursor`, `codex` and `gemini`, each idempotent and
+  each wiring its own MCP configuration.
+- `--spec-source github|linear` reads tickets straight from GitHub issues or
+  a Linear GraphQL query, instead of a custom `--spec-cmd` only.
+- `--lsp` serves go-to-definition and workspace symbols from the map over the
+  Language Server Protocol.
+- A public demo page, built against FastAPI 0.115.0, under `docs/demo/`.
+- A golden suite of 150 `ask` cases runs in CI (`tests/golden/check.py`),
+  alongside a determinism check that two builds of the same tree produce
+  byte-identical maps.
+- No behaviour change; `mapper` is a package behind a facade.
+- Python 3.12 or newer; 3.10 and 3.11 dropped.
+
 ## 1.0.0
 
 The contract is fixed. What 0.12.3 does, 1.0.0 does, and every 1.x will:
