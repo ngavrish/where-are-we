@@ -1054,3 +1054,24 @@ jobs:
             > /tmp/u16/ask.txt
           grep -q "## Defined here" /tmp/u16/ask.txt
           grep -q "cafe_login" /tmp/u16/ask.txt
+
+      - name: --html escapes repository content instead of interpolating it
+        run: |
+          rm -rf /tmp/htm
+          mkdir -p /tmp/htm/r /tmp/htm/m
+          printf 'def f():\n    pass\n' > /tmp/htm/r/a.py
+          cat > /tmp/htm/r/.framework-map.json <<'JSON'
+          {"name":"x","purpose":"<script>alert(document.cookie)</script>",
+           "conventions":["<img src=x onerror=alert(1)>"]}
+          JSON
+          where-are-we --repo /tmp/htm/r --out /tmp/htm/m --product none \
+            --force --quiet --no-semantic --html
+          # The page is opened as file://, where script in it can read other
+          # local files, and a manifest or a docstring in a cloned repository
+          # used to be enough to put script there.
+          ! grep -q "<script>alert" /tmp/htm/m/framework_map.html
+          ! grep -q "onerror=alert" /tmp/htm/m/framework_map.html
+          grep -q "&lt;script&gt;alert" /tmp/htm/m/framework_map.html
+          grep -q "&lt;img src=x onerror=alert(1)&gt;" /tmp/htm/m/framework_map.html
+          # The page itself is still a page: the renderer's own markup stays.
+          grep -q "<h1>" /tmp/htm/m/framework_map.html

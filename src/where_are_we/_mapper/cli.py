@@ -6,6 +6,7 @@ goes where; every other module in the package is a library it calls.
 """
 
 import argparse
+import html as html_mod
 import json
 import os
 import re
@@ -89,16 +90,23 @@ def _write_artifacts(out_dir: str, m: dict, args) -> None:
     if args.html:
         # Deliberately one file with no assets: it gets opened from a terminal,
         # not served.
+        #
+        # Every interpolated line is repository content: a manifest's purpose,
+        # a docstring, a README fence, a file name. It used to go into the
+        # element verbatim, so a cloned repository could put <script> in the
+        # page, and the page is opened as file://, where script in it can read
+        # other local files. html.escape() on each line is the whole defence;
+        # the brief is plain text, so nothing here wanted markup anyway.
         body_html = []
         for line in text.splitlines():
             if line.startswith("## "):
-                body_html.append(f"<h2>{line[3:]}</h2>")
+                body_html.append(f"<h2>{html_mod.escape(line[3:])}</h2>")
             elif line.startswith("# "):
-                body_html.append(f"<h1>{line[2:]}</h1>")
+                body_html.append(f"<h1>{html_mod.escape(line[2:])}</h1>")
             elif line.startswith("- "):
-                body_html.append(f"<li>{line[2:]}</li>")
+                body_html.append(f"<li>{html_mod.escape(line[2:])}</li>")
             elif line.strip():
-                body_html.append(f"<p>{line}</p>")
+                body_html.append(f"<p>{html_mod.escape(line)}</p>")
         html = ("<!doctype html><meta charset=utf-8><title>where are we</title>"
                 "<style>body{max-width:60rem;margin:3rem auto;padding:0 1rem;"
                 "font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#111}"
