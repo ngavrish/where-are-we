@@ -60,10 +60,10 @@ def _classify(name: str, tool_input: dict) -> str:
 
 def _tool_uses(message: dict) -> tuple[list[tuple[str, dict]], int]:
     """The (name, input) pairs of every tool_use block in one message, and
-    the count of blocks skipped for carrying no name or no `input` key at
-    all - both fields Claude Code has always written, but a transcript is a
-    third-party file across many versions, and one odd block should not
-    cost the whole session's classification."""
+    the count of blocks skipped for carrying no usable name - a transcript
+    is a third-party file across many versions, and one odd block should
+    not cost the whole session's classification. A missing `input` is not
+    one of those: it defaults to {}, same as it always has."""
     content = message.get("content")
     if not isinstance(content, list):
         return [], 0
@@ -73,7 +73,7 @@ def _tool_uses(message: dict) -> tuple[list[tuple[str, dict]], int]:
         if not (isinstance(block, dict) and block.get("type") == "tool_use"):
             continue
         name = block.get("name")
-        if name is None or "input" not in block:
+        if not isinstance(name, str) or not name:
             skipped += 1
             continue
         out.append((name, block.get("input") or {}))

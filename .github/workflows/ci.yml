@@ -481,16 +481,18 @@ jobs:
           print("semantic: corrupt index answered without the tail, OK")
           EOF
 
-      - name: wawe-measure skips a tool_use block with a null name or no input
+      - name: wawe-measure skips a null tool_use name; a missing input still classifies
         run: |
           rm -rf /tmp/msnull
           mkdir -p /tmp/msnull
           printf '%s\n' \
             '{"type":"assistant","message":{"content":[{"type":"tool_use","name":null,"input":{"command":"grep x"}}]}}' \
-            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}' \
-            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/r/a.py"}}]}}' \
+            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep"}]}}' \
+            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{}}]}}' \
             > /tmp/msnull/s1.jsonl
           wawe-measure --sessions /tmp/msnull --json 2> /tmp/msnull.err | tee /tmp/msnull.json
           grep -q '"turns": 3' /tmp/msnull.json
-          grep -q '"reads": 1' /tmp/msnull.json
-          grep -q "skipped 2 unparsable lines" /tmp/msnull.err
+          # A missing `input` key defaults to {} and still counts as a
+          # search, same as {"input": {}} - only the null name is skipped.
+          grep -q '"searches": 2' /tmp/msnull.json
+          grep -q "skipped 1 unparsable lines" /tmp/msnull.err
