@@ -177,6 +177,8 @@ as estimates.
 
 ### Ways in
 
+See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.github.io/where-are-we/demo/fastapi/).
+
 | Feature | What it does | Measured impact | If not measured, how to |
 |---|---|---|---|
 | CLI `where-are-we` | Everything above | — | — |
