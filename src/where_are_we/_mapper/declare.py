@@ -6,6 +6,7 @@ answer; tree-sitter is used instead wherever a grammar is installed.
 """
 
 import ast
+import codecs
 import json
 import os
 import re
@@ -271,6 +272,36 @@ def _declared_names(body: str, ext: str, path: str = "") -> list:
     return out
 
 
+# A byte order mark is the only thing in a source file that says which of
+# these it is; without one, UTF-8 is the right guess and always was.
+_BOMS = (
+    (codecs.BOM_UTF8, "utf-8-sig"),
+    (codecs.BOM_UTF32_LE, "utf-32"),
+    (codecs.BOM_UTF32_BE, "utf-32"),
+    (codecs.BOM_UTF16_LE, "utf-16"),
+    (codecs.BOM_UTF16_BE, "utf-16"),
+)
+
+
+def _decode(raw: bytes):
+    """This file's bytes as text, or None if it is not text at all.
+
+    UTF-16 source is half NUL bytes, so reading it as UTF-8 and then calling
+    any file with a NUL in its first 2 KB binary made every UTF-16 file
+    invisible: no names, no lines, and not even a count of what was skipped,
+    so `ask` reported a reach it did not have. Sniffing the byte order mark
+    first decodes those files properly and leaves the NUL test to do its real
+    job, which is rejecting compiled output.
+    """
+    for bom, encoding in _BOMS:
+        if raw.startswith(bom):
+            try:
+                return raw.decode(encoding, errors="replace")
+            except (UnicodeDecodeError, LookupError):
+                return None
+    return raw.decode("utf-8", errors="replace")
+
+
 def _read_for_declarations(path: str):
     """This file's text, or None for anything too large or not text.
 
@@ -280,11 +311,12 @@ def _read_for_declarations(path: str):
     try:
         if os.path.getsize(path) > 2 * 1024 * 1024:
             return None  # a generated bundle is names nobody asks about, by the ton
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            body = fh.read()
+        with open(path, "rb") as fh:
+            raw = fh.read()
     except OSError:
         return None
-    if "\x00" in body[:2048]:
+    body = _decode(raw)
+    if body is None or "\x00" in body[:2048]:
         return None  # binary
     return body
 

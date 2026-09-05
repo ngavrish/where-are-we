@@ -1012,3 +1012,45 @@ jobs:
             --quiet --no-semantic
           # Only the borderline for-each-ref handler is still a broad one.
           test "$(grep -c 'except Exception' src/where_are_we/_mapper/build.py)" = "1"
+
+      - name: a narrow stdout encoding replaces characters instead of crashing
+        run: |
+          rm -rf /tmp/enc
+          mkdir -p /tmp/enc/r /tmp/enc/m
+          printf 'def caf\xc3\xa9_login():\n    pass\n' > /tmp/enc/r/m.py
+          where-are-we --repo /tmp/enc/r --out /tmp/enc/m --product none \
+            --force --quiet --no-semantic
+          # pointer() writes an em dash unconditionally, so this used to fail
+          # on every repository under an ascii stdout, not only this one.
+          PYTHONIOENCODING=ascii where-are-we --repo /tmp/enc/r --out /tmp/enc/m \
+            --pointer > /tmp/enc/ptr.txt
+          grep -q "framework map" /tmp/enc/ptr.txt
+          ! grep -q "UnicodeEncodeError" /tmp/enc/ptr.txt
+          PYTHONIOENCODING=ascii LC_ALL=C LANG=C where-are-we --repo /tmp/enc/r \
+            --out /tmp/enc/m --ask login > /tmp/enc/ask.txt
+          grep -q "caf?_login" /tmp/enc/ask.txt
+          PYTHONIOENCODING=ascii where-are-we --repo /tmp/enc/r --out /tmp/enc/m \
+            --sections > /dev/null
+          # MCP answers over an ascii stdout too: JSON-RPC is escaped already,
+          # but the server used to die on the first non-ascii log line.
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"login"}}}' \
+            | PYTHONIOENCODING=ascii where-are-we --repo /tmp/enc/r \
+              --out /tmp/enc/m --mcp > /tmp/enc/mcp.txt
+          grep -q '"jsonrpc"' /tmp/enc/mcp.txt
+
+      - name: a UTF-16 source file is decoded, indexed and answerable
+        run: |
+          rm -rf /tmp/u16
+          mkdir -p /tmp/u16/r /tmp/u16/m
+          python -c "open('/tmp/u16/r/src.py','wb').write('def cafe_login(): pass\nCONST_X = 1\n'.encode('utf-16'))"
+          where-are-we --repo /tmp/u16/r --out /tmp/u16/m --product none \
+            --force --quiet --no-semantic
+          # The NUL sniff used to call every UTF-16 file binary, so it was not
+          # indexed and not even counted as skipped.
+          grep -q '"cafe_login"' /tmp/u16/m/framework_map.json
+          grep -q '"CONST_X"' /tmp/u16/m/framework_map.json
+          python -c "import json,sys; d=json.load(open('/tmp/u16/m/framework_map.json')); sys.exit(0 if sum(d['indexed'].values()) >= 1 else 1)"
+          where-are-we --repo /tmp/u16/r --out /tmp/u16/m --ask cafe_login \
+            > /tmp/u16/ask.txt
+          grep -q "## Defined here" /tmp/u16/ask.txt
+          grep -q "cafe_login" /tmp/u16/ask.txt

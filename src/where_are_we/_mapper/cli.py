@@ -279,7 +279,29 @@ def _resolve_repo(given, out):
         return "/work"
     return os.getcwd()
 
+def _reconfigure_streams() -> None:
+    """Never let the terminal's encoding turn an answer into a traceback.
+
+    A harness that exports PYTHONIOENCODING=ascii, or an interpreter whose
+    stdout landed on a codec narrower than the map's text, used to make
+    `--pointer` fail on every repository (pointer() writes an em dash
+    unconditionally) and `--ask` fail on any repository with an accent in a
+    name. Both are hook-facing commands, so the failure arrived as thirty
+    lines of traceback in a session transcript. Replacing the characters the
+    codec cannot carry loses a glyph and keeps the answer, which is the right
+    trade for a stream nobody chose.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError, OSError):
+            # Not a TextIOWrapper (a test capturing into StringIO, a closed
+            # stream): nothing to reconfigure and nothing to report.
+            pass
+
+
 def main() -> int:
+    _reconfigure_streams()
     ap = argparse.ArgumentParser(
         prog="framework_map",
         description="Index a test framework into a map an agent can read: layers, "
