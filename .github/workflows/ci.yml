@@ -623,3 +623,42 @@ jobs:
           # it is the old behaviour.
           sys.exit(1 if kb > 200 * 1024 else 0)
           EOF
+
+      - name: what changed comes back verbatim, whatever the file is called
+        run: |
+          rm -rf /tmp/cs
+          mkdir -p /tmp/cs/r/pkg /tmp/cs/r/.wawe
+          git -C /tmp/cs/r init -q
+          git -C /tmp/cs/r config user.email t@t
+          git -C /tmp/cs/r config user.name t
+          printf 'x=1\n' > /tmp/cs/r/pkg/plain.py
+          printf 'q=5\n' > "/tmp/cs/r/pkg/x -> y.py"
+          git -C /tmp/cs/r add -A && git -C /tmp/cs/r commit -qm one
+          # The first call only records HEAD; the second is the one that reports.
+          python -c "
+          from where_are_we._mapper.render import changed_since
+          changed_since('/tmp/cs/r', '/tmp/cs/r/.wawe')"
+          printf 'y=2\n' > "/tmp/cs/r/pkg/committed ünicode.py"
+          git -C /tmp/cs/r add -A && git -C /tmp/cs/r commit -qm two
+          git -C /tmp/cs/r mv "pkg/x -> y.py" "pkg/renamed -> z.py"
+          printf 'z=3\n' > "/tmp/cs/r/pkg/café.py"
+          printf 'v=6\n' > "/tmp/cs/r/pkg/a b.py"
+          git -C /tmp/cs/r status --porcelain
+          # Every path named has to be a path that exists. Parsing the text
+          # form of git status kept git's own quoting and octal escapes, so
+          # "pkg/café.py" was reported as the literal "pkg/caf\303\251.py",
+          # and the rename of a file whose name contains " -> " came back as
+          # the fragment 'z.py"'.
+          python - <<'EOF'
+          import os, sys
+          from where_are_we._mapper.render import changed_since
+          got = changed_since("/tmp/cs/r", "/tmp/cs/r/.wawe")
+          missing = [p for p in got if not os.path.exists(os.path.join("/tmp/cs/r", p))]
+          for p in got:
+              print(repr(p))
+          want = {"pkg/a b.py", "pkg/café.py", "pkg/committed ünicode.py",
+                  "pkg/renamed -> z.py"}
+          lost = sorted(want - set(got))
+          print("does not exist:", missing, " not reported:", lost)
+          sys.exit(1 if missing or lost else 0)
+          EOF
