@@ -34,6 +34,18 @@ except ImportError:  # run as a plain file, with no package around it
     import ask as _ask  # type: ignore[no-redef]
     from ask import ask, fit_lines, map_heads, log_answer, callers  # type: ignore[no-redef]
 
+# Not `from . import __version__`: this file is the one `where_are_we`'s own
+# `__init__.py` imports from, so that relative import is circular, and the
+# "run as a plain file" fallback every other import in this block uses
+# (`from __init__ import ...`) re-enters that same circular import from the
+# other side and fails too. This goes around the package entirely instead,
+# reading what pip/uv actually installed, the same way in both cases.
+try:
+    from importlib.metadata import version as _pkg_version
+    __version__ = _pkg_version("where-are-we")
+except Exception:  # noqa: BLE001 -- not installed: a loose checkout, no pip/uv
+    __version__ = "0"
+
 STEP_DECORATORS = {"step", "given", "when", "then"}
 
 # Every name this walk has seen, and the file and line it was defined on.
@@ -368,31 +380,52 @@ SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
 _PARSE_CACHE_FILE = ".wawe-cache.json"
+
+# Bumped whenever what a kind stores, or how it is computed, changes. Tagged
+# onto the file alongside the package version so a cache written by a
+# different build of this tool is never trusted: a release that changes what
+# `"symbols"` means, say, must not hand back an old value as if it still
+# answered the same question. Both are checked, not just the schema number,
+# because a release can change extraction logic without needing a new kind.
+CACHE_SCHEMA = 1
 _PARSE_CACHE: dict = {}
 
 
 def _load_parse_cache(out_dir: str) -> None:
-    """Parsed step phrases, keyed by path and mtime, kept between runs.
+    """Every `(kind, path)` -> `{"mtime", "size", "value"}` entry a previous
+    build persisted, if it was written by this schema and this version of
+    the tool; otherwise the whole file is discarded rather than trusted
+    entry by entry.
 
     Walking the tree is cheap; parsing every module is not, and a repository
     where three files changed does not need the other nine hundred re-parsed."""
     global _PARSE_CACHE
     try:
         with open(os.path.join(out_dir, _PARSE_CACHE_FILE), encoding="utf-8") as fh:
-            _PARSE_CACHE = json.load(fh)
+            doc = json.load(fh)
+        if doc.get("schema") != CACHE_SCHEMA or doc.get("version") != __version__:
+            _PARSE_CACHE = {}
+            return
+        _PARSE_CACHE = doc.get("entries") or {}
     except (OSError, ValueError):
         _PARSE_CACHE = {}
 
 
 def _save_parse_cache(out_dir: str) -> None:
+    # Never creates out_dir: build() calls this whether or not its caller
+    # is about to write a map into out_dir (a --docs preview, say, never
+    # does), and a directory that does not exist for that reason should stay
+    # that way rather than gain a cache file nothing else will ever read.
+    if not os.path.isdir(out_dir):
+        return
     try:
-        # build() calls this before its caller has necessarily written
-        # anything to out_dir; a first build against a fresh --out would
-        # otherwise fail here with the directory missing, silently, and never
-        # cache a thing.
-        os.makedirs(out_dir, exist_ok=True)
+        # A file that moved or was deleted since the last build otherwise
+        # keeps its stale entry forever: nothing else ever prunes one.
+        live = {k: v for k, v in _PARSE_CACHE.items()
+                if os.path.exists(k.split("\x1e", 1)[-1])}
+        doc = {"schema": CACHE_SCHEMA, "version": __version__, "entries": live}
         with open(os.path.join(out_dir, _PARSE_CACHE_FILE), "w", encoding="utf-8") as fh:
-            json.dump(_PARSE_CACHE, fh)
+            json.dump(doc, fh)
     except OSError:
         pass
 
@@ -412,6 +445,10 @@ def _cached(path: str, kind: str, compute):
     overwriting the other. The stored mtime and size are what say whether the
     file has actually changed since; a build that trusted only the path would
     hand back last month's answer for a file the sha changed underneath.
+    That check has a blind spot: a file rewritten with the same byte count
+    inside the same filesystem timestamp tick keeps its old mtime and size,
+    and the stale value is served. Nothing here detects that; WAWE_NO_CACHE=1
+    is the escape hatch for anyone who suspects it has happened.
 
     WAWE_NO_CACHE=1 makes this a plain call to `compute()`, for whoever wants
     to be certain the cache is not the reason an answer looks a certain way.
@@ -910,11 +947,14 @@ def _layer_line(paths: list, what: str) -> str:
 
 def build(repo: str, out_dir: str | None = None) -> dict:
     # Where the parse cache lives: the run directory a caller names, or
-    # $RUN_DIR, or the current directory, in that order. WAWE_NO_CACHE=1
-    # skips loading and saving it, so a diagnostic run touches nothing on
-    # disk that a normal run would not have touched anyway.
-    out_dir = out_dir if out_dir is not None else os.getenv("RUN_DIR", ".")
-    no_cache = bool(os.environ.get("WAWE_NO_CACHE"))
+    # $RUN_DIR. Neither given, there is nowhere this build was told is safe
+    # to write into, so it runs with no cache rather than guessing ".":
+    # `mapper.build(repo)` called bare, from a smoke test or a one-off
+    # script, used to leave a `.wawe-cache.json` in whatever the current
+    # directory happened to be. WAWE_NO_CACHE=1 does the same on purpose.
+    if out_dir is None:
+        out_dir = os.getenv("RUN_DIR")
+    no_cache = bool(os.environ.get("WAWE_NO_CACHE")) or out_dir is None
     if not no_cache:
         _load_parse_cache(out_dir)
     global PARSE_COUNT
@@ -4999,9 +5039,12 @@ def main() -> int:
             now_fp = _fingerprint(repo)
             if now_fp != last:
                 last = now_fp
+                # Before the build, same reasoning as the primary path: build()
+                # only saves the parse cache into a directory that already
+                # exists.
+                os.makedirs(out_dir, exist_ok=True)
                 m2 = build(repo, out_dir=out_dir)
                 m2["fingerprint"] = now_fp
-                os.makedirs(out_dir, exist_ok=True)
                 with open(os.path.join(out_dir, "framework_map.json"), "w",
                           encoding="utf-8") as fh:
                     json.dump(redact(m2), fh, indent=2)
@@ -5072,6 +5115,13 @@ def main() -> int:
     # split across checkouts, are one system to whoever has to work on them.
     repos = [repo] + [os.path.abspath(x) for x in
                       (args.also.split(",") if args.also else []) if x]
+    # Created before the build, not after: build() saves the parse cache into
+    # out_dir itself, and only when out_dir already exists (a --docs preview,
+    # a few lines up, never creates it and so never gets a cache file either).
+    # --init writes into the repository, not out_dir, so it is excluded here
+    # the same way.
+    if not args.init:
+        os.makedirs(out_dir, exist_ok=True)
     m = build(repo, out_dir=out_dir)
     if len(repos) > 1:
         m["also"] = {}

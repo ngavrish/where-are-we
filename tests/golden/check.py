@@ -97,32 +97,58 @@ def _check_golden(root: str) -> list:
     return problems
 
 
-def _check_determinism(root1: str, root2: str) -> list:
-    """Two builds of the same three fixtures, under two different fixed
-    roots, byte for byte once each root is stripped out of the text. Returns
-    the problems found."""
+def _check_determinism(root1: str, root2: str) -> tuple:
+    """Three builds of the same three fixtures: two cold builds under two
+    different fixed roots, and a third, warm rebuild of root1's own tree
+    with its parse cache from the first build still on disk. That third
+    build is asserted warm, not assumed: `mapper.PARSE_COUNT` must be 0
+    across it, or a bug that silently stops the cache from ever being used
+    (out_dir missing when `build()` tries to save it, say) would turn this
+    into a second cold build compared against itself - always identical,
+    and proving nothing about the cache at all.
+
+    All three builds compare byte for byte, on all three map files, once
+    each root is stripped out of the text. Returns `(problems, warm_parses)`."""
     outs1 = _rebuilt(root1)
     outs2 = _rebuilt(root2)
+    mapper.PARSE_COUNT = 0
+    # Not `_rebuilt(root1)`: that wipes the tree (and its .wawe-cache.json
+    # with it) before rebuilding, which is exactly the cold build this one
+    # is supposed to be warm against. build_all() on its own reuses root1's
+    # repo files and out dirs as they already are.
+    outs3 = build_fixtures.build_all(root1)
+    warm_parses = mapper.PARSE_COUNT
     problems = []
+    if warm_parses != 0:
+        problems.append(f"warm rebuild of root1 parsed {warm_parses} files instead of 0: "
+                         "the parse cache was not reused (check that out_dir exists "
+                         "before build() is called, and that .wawe-cache.json's "
+                         "schema/version matches)")
     for name in outs1:
-        for fn in ("framework_map.md", "framework_map_brief.md"):
+        for fn in ("framework_map.json", "framework_map.md", "framework_map_brief.md"):
             a = _normalized(open(os.path.join(outs1[name], fn), encoding="utf-8").read(), root1)
             b = _normalized(open(os.path.join(outs2[name], fn), encoding="utf-8").read(), root2)
+            c = _normalized(open(os.path.join(outs3[name], fn), encoding="utf-8").read(), root1)
             if a != b:
-                problems.append(f"{name}/{fn}: differs between two builds of one tree")
-    return problems
+                problems.append(f"{name}/{fn}: differs between two cold builds of one tree")
+            if a != c:
+                problems.append(f"{name}/{fn}: differs between a cold build and a warm "
+                                 "rebuild (parse cache present) of the same tree")
+    return problems, warm_parses
 
 
 def main() -> int:
     n_cases = sum(1 for _ in _cases())
     problems = _check_golden(GOLDEN_ROOT)
-    problems += _check_determinism(GOLDEN_ROOT, DETERMINISM_ROOT_2)
+    det_problems, warm_parses = _check_determinism(GOLDEN_ROOT, DETERMINISM_ROOT_2)
+    problems += det_problems
     if problems:
         print(f"golden: {len(problems)} problem(s):")
         for p in problems:
             print(f"- {p}")
         return 1
-    print(f"golden: {n_cases} cases, {len(build_fixtures.FIXTURES)} fixtures identical")
+    print(f"golden: {n_cases} cases, {len(build_fixtures.FIXTURES)} fixtures identical, "
+          f"warm parses: {warm_parses}")
     return 0
 
 

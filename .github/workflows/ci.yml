@@ -151,6 +151,13 @@ jobs:
           grep -qE "^parsed [1-9][0-9]* files$" /tmp/ir/cold.log
           WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/warm.log
           grep -q "^parsed 0 files$" /tmp/ir/warm.log
+          rm -rf /tmp/ir/nocache
+          WAWE_NO_CACHE=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/nocache --force --quiet
+          for f in framework_map.json framework_map.md framework_map_brief.md; do
+            grep -v '"fingerprint"' /tmp/ir/m/$f > /tmp/ir/m_$f.stripped
+            grep -v '"fingerprint"' /tmp/ir/nocache/$f > /tmp/ir/nocache_$f.stripped
+            diff /tmp/ir/m_$f.stripped /tmp/ir/nocache_$f.stripped
+          done
 
       - name: measure a synthetic session
         run: |

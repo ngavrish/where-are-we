@@ -31,9 +31,11 @@ def _ensure_map(repo: str) -> None:
     wawe_dir = os.path.join(repo, ".wawe")
     map_md = os.path.join(wawe_dir, "framework_map.md")
     if not os.path.exists(map_md):
-        m = mapper.redact(mapper.build(repo))
-        m["fingerprint"] = mapper._fingerprint(repo)
+        # Created before the build: build() saves its parse cache into
+        # out_dir itself, and only into a directory that already exists.
         os.makedirs(wawe_dir, exist_ok=True)
+        m = mapper.redact(mapper.build(repo, out_dir=wawe_dir))
+        m["fingerprint"] = mapper._fingerprint(repo)
         with open(os.path.join(wawe_dir, "framework_map.json"), "w", encoding="utf-8") as fh:
             json.dump(m, fh, indent=2)
         with open(map_md, "w", encoding="utf-8") as fh:

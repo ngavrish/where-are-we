@@ -6,4 +6,3 @@ build/
 .venv/
 
 .wawe/
-.wawe-cache.json
