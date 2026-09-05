@@ -833,17 +833,23 @@ jobs:
 
       - name: --watch rebuilds whole, writes every file, and survives a failure
         run: |
-          rm -rf /tmp/w21
-          mkdir -p /tmp/w21/repo/pkg
-          echo 'def one(): pass' > /tmp/w21/repo/pkg/a.py
-          # Every wait here is a poll for the condition, never a fixed sleep.
-          # A watcher on a loaded runner can be a second or two behind, and a
-          # sleep long enough to be safe is a sleep that hides a regression
-          # that made it slow.
-          cat > /tmp/w21/waitfor.py <<'PY'
+          # A directory of this run's own, not a fixed /tmp path. A watcher
+          # left running by an earlier job on a reused runner would otherwise
+          # rebuild this step's output directory every second and make the
+          # step pass whatever the code does. That is not hypothetical: it
+          # happened on the machine this step was written on, and the step
+          # reported a pass against code that fails it.
+          W=$(mktemp -d)
+          echo "fixture at $W"
+          mkdir -p "$W/repo/pkg"
+          echo 'def one(): pass' > "$W/repo/pkg/a.py"
+          # Every wait is a poll for the condition, never a fixed sleep. A
+          # watcher on a loaded runner can be seconds behind, and a sleep long
+          # enough to be safe is a sleep that hides a regression making it slow.
+          cat > "$W/waitfor.py" <<'PY'
           import json, os, sys, time
           what, deadline = sys.argv[1], time.time() + 30
-          js = "/tmp/w21/repo/.wawe/framework_map.json"
+          js = os.path.join(os.environ["W"], "repo", ".wawe", "framework_map.json")
           while time.time() < deadline:
               try:
                   names = set(json.load(open(js))["definitions"])
@@ -851,7 +857,6 @@ jobs:
                   names = set()
               if what.startswith("-"):
                   if what[1:] not in names:
-                      print(f"{what[1:]} gone after {time.time():.0f}")
                       sys.exit(0)
               elif what in names:
                   sys.exit(0)
@@ -863,53 +868,57 @@ jobs:
               print("no readable map:", exc, file=sys.stderr)
           sys.exit(1)
           PY
-          PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo /tmp/w21/repo \
-            --out /tmp/w21/repo/.wawe --watch 1 --no-semantic --html \
-            > /tmp/w21/watch.log 2>&1 &
+          export W
+          PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo "$W/repo" \
+            --out "$W/repo/.wawe" --watch 1 --no-semantic --html \
+            > "$W/watch.log" 2>&1 &
           WP=$!
-          python /tmp/w21/waitfor.py one
+          python "$W/waitfor.py" one
           for i in $(seq 1 20); do
-            echo "def f$i(): pass" > /tmp/w21/repo/pkg/f$i.py
+            echo "def f$i(): pass" > "$W/repo/pkg/f$i.py"
           done
           # Every file added while watching is in the map. Before, _WALK_CACHE
           # was never cleared, so 21 rebuilds over 21 files left one name.
-          python /tmp/w21/waitfor.py f20
+          python "$W/waitfor.py" f20
           python - <<'EOF'
-          import json, sys
-          d = json.load(open("/tmp/w21/repo/.wawe/framework_map.json"))
+          import json, os, sys
+          d = json.load(open(os.path.join(os.environ["W"], "repo", ".wawe",
+                                          "framework_map.json")))
           names = set(d["definitions"])
           missing = [f"f{i}" for i in range(1, 21) if f"f{i}" not in names]
           print(len(names), "names in the map; missing:", missing)
           sys.exit(1 if missing else 0)
           EOF
           # A name deleted from the tree leaves the map.
-          rm /tmp/w21/repo/pkg/f20.py
-          python /tmp/w21/waitfor.py -f20
+          rm "$W/repo/pkg/f20.py"
+          python "$W/waitfor.py" -f20
           # All three map files, plus the ones the flags asked for. The watch
           # loop used to write only the JSON and the brief, so --ask against a
           # watched directory said there was no map.
-          test -s /tmp/w21/repo/.wawe/framework_map.md
-          test -s /tmp/w21/repo/.wawe/framework_map.html
-          where-are-we --repo /tmp/w21/repo --out /tmp/w21/repo/.wawe --ask one \
+          test -s "$W/repo/.wawe/framework_map.md"
+          test -s "$W/repo/.wawe/framework_map.html"
+          where-are-we --repo "$W/repo" --out "$W/repo/.wawe" --ask one \
             | grep -q "Defined here"
           # One failing iteration is printed and the watcher keeps going.
-          rm -rf /tmp/w21/repo/.wawe && : > /tmp/w21/repo/.wawe
-          echo 'def boom(): pass' > /tmp/w21/repo/pkg/boom.py
+          rm -rf "$W/repo/.wawe" && : > "$W/repo/.wawe"
+          echo 'def boom(): pass' > "$W/repo/pkg/boom.py"
           python - <<'EOF'
-          import sys, time
+          import os, sys, time
+          log = os.path.join(os.environ["W"], "watch.log")
           deadline = time.time() + 30
           while time.time() < deadline:
-              if "rebuild failed, still watching" in open("/tmp/w21/watch.log").read():
+              if "rebuild failed, still watching" in open(log).read():
                   sys.exit(0)
               time.sleep(0.2)
           print("the watcher never reported a failed iteration", file=sys.stderr)
-          print(open("/tmp/w21/watch.log").read(), file=sys.stderr)
+          print(open(log).read(), file=sys.stderr)
           sys.exit(1)
           EOF
+          # Alive, and it is still our watcher that is doing the work.
           kill -0 $WP
-          rm -f /tmp/w21/repo/.wawe
-          echo 'def RECOVERED(): pass' > /tmp/w21/repo/pkg/rec.py
-          python /tmp/w21/waitfor.py RECOVERED
+          rm -f "$W/repo/.wawe"
+          echo 'def RECOVERED(): pass' > "$W/repo/pkg/rec.py"
+          python "$W/waitfor.py" RECOVERED
           kill $WP || true
 
       - name: a very large file costs the read limit, not its size
