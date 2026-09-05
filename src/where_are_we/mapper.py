@@ -4199,62 +4199,12 @@ def propose_docs(repo: str, m: dict, apply: bool = False) -> list:
 def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) -> str:
     """Wire the map into something that already runs, so nobody has to remember it.
 
-    git: post-checkout, post-merge and post-commit — the three moments the tree
-    becomes something other than what the map describes. The command is the
-    cheap one: it exits immediately when the repository has not moved.
-
-    agent: a SessionStart hook for Claude Code, and the same command works as a
-    task in any other harness — it writes the brief into the agent file, so the
-    first turn of a session already knows where it is.
+    The implementation lives in hooks.py, where cursor, codex and gemini were
+    added alongside the original git and Claude Code kinds; this name stays
+    because scripts and the CLI already call it.
     """
-    cmd = ["where-are-we", "--repo", repo]
-    if product:
-        cmd += ["--product", product]
-    if out:
-        cmd += ["--out", out]
-    if agent_file:
-        cmd += ["--agent-file", agent_file]
-    line = " ".join(cmd) + " --quiet || true"
-
-    if kind == "git":
-        hooks = os.path.join(repo, ".git", "hooks")
-        if not os.path.isdir(hooks):
-            return f"{hooks} does not exist — is {repo} a git repository?"
-        written = []
-        for name in ("post-checkout", "post-merge", "post-commit"):
-            path = os.path.join(hooks, name)
-            body = ""
-            if os.path.exists(path):
-                try:
-                    body = open(path, encoding="utf-8", errors="replace").read()
-                except OSError:
-                    body = ""
-                if "where-are-we" in body:
-                    continue
-            if not body.strip():
-                body = "#!/bin/sh\n"
-            body = body.rstrip("\n") + f"\n\n# keep the map in step with the tree\n{line}\n"
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(body)
-            os.chmod(path, 0o755)
-            written.append(name)
-        return "installed: " + ", ".join(written) if written else "already installed"
-
-    settings = os.path.expanduser("~/.claude/settings.json")
-    try:
-        with open(settings, encoding="utf-8") as fh:
-            conf = json.load(fh)
-    except (OSError, ValueError):
-        conf = {}
-    entries = conf.setdefault("hooks", {}).setdefault("SessionStart", [])
-    if any("where-are-we" in h.get("command", "")
-           for e in entries for h in e.get("hooks", [])):
-        return "already installed in ~/.claude/settings.json"
-    entries.append({"hooks": [{"type": "command", "command": line}]})
-    os.makedirs(os.path.dirname(settings), exist_ok=True)
-    with open(settings, "w", encoding="utf-8") as fh:
-        json.dump(conf, fh, indent=2)
-    return f"installed in {settings} (SessionStart)"
+    from . import hooks
+    return hooks.install(repo, kind, product, out, agent_file)
 
 
 # What may go in a prompt, in bytes. Not a preference: a prompt is re-sent in
@@ -4405,10 +4355,14 @@ def main() -> int:
                     help="also write the brief into a file an agent reads on its own: "
                          "AGENTS.md, CLAUDE.md, .cursorrules, .github/copilot-instructions.md — "
                          "the map is written between markers, so anything else in the file survives")
-    ap.add_argument("--install-hook", choices=["git", "agent"], default="",
+    ap.add_argument("--install-hook",
+                    choices=["git", "agent", "claude", "cursor", "codex", "gemini"],
+                    default="",
                     help="wire the map into something that already runs: git "
-                         "hooks (post-checkout, post-merge, post-commit), or a "
-                         "SessionStart hook for an agent harness")
+                         "hooks (post-checkout, post-merge, post-commit); claude "
+                         "(agent is the same thing) for a SessionStart hook in "
+                         "Claude Code; cursor, codex or gemini to point that "
+                         "CLI's own conventions and MCP config at this repository")
     ap.add_argument("--for", dest="audience", default="",
                     choices=["author", "coder"],
                     help="who the brief is for: author writes scenarios and needs the "
@@ -4636,8 +4590,14 @@ def main() -> int:
             _t.sleep(args.watch)
 
     if args.install_hook:
-        print(install_hook(repo, args.install_hook, args.product, args.out,
-                           args.agent_file))
+        msg = install_hook(repo, args.install_hook, args.product, args.out,
+                           args.agent_file)
+        print(msg)
+        # Both messages say a write was refused rather than attempted: no
+        # git hooks directory, or an existing file this tool will not guess
+        # the shape of and overwrite.
+        if "does not exist" in msg or "nothing was written" in msg:
+            return 2
         return 0
 
     stamp_now = _fingerprint(repo)
