@@ -1177,6 +1177,9 @@ jobs:
           import pathlib
           for path in pathlib.Path("src/where_are_we").rglob("*.py"):
               body = io.open(path, encoding="utf-8").read()
+              # A name in a comment is an example, not a read.
+              body = "\n".join(l for l in body.splitlines()
+                                if not l.lstrip().startswith("#"))
               names |= set(re.findall(
                   r"os\.(?:environ\.get|getenv)\(\s*[\"']([A-Z][A-Z0-9_]*)[\"']", body))
               names |= set(re.findall(

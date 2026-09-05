@@ -280,25 +280,38 @@ _SECRET_URL = re.compile(
 # `password`) and one whole segment has to be the word, so `Authentication:`
 # is prose and `author = "A Person"` is a name, neither of them a secret.
 #
-# Two patterns rather than one, because a bare value and a quoted value are
-# not equally safe to guess at. A quoted value is a literal wherever it sits,
-# so _SECRET_KEYED_QUOTED fires anywhere on the line. A bare value is only
-# read as a secret when the key starts the line: that is what a .env line, an
-# `export` and a YAML key look like, and it is what keeps the type annotation
-# in `def get_token(self, auth_token: str)` out of it. Code with a call or a
-# subscript on the right survives either way, because neither value pattern
-# admits a bracket.
+# Three patterns rather than one, because a quoted value, a bare value after
+# `=` and a bare value after `:` are not equally safe to guess at. Each is
+# commented at its own definition below. Code with a call or a subscript on
+# the right survives all three, because no value pattern admits a bracket.
 _KEY_SEG = r"[A-Za-z0-9]+"
 _SECRET_WORD = (r"(?:secret|passw(?:or)?d|token|api[_-]?key|private[_-]?key"
                 r"|credential|auth)")
 _SECRET_KEY = (rf"[\"']?(?:{_KEY_SEG}[_.\-])*{_SECRET_WORD}s?"
                rf"(?:[_.\-]{_KEY_SEG})*[\"']?")
+# No anchor before the key on purpose: the key pattern reads whole identifier
+# segments, so it cannot start in the middle of a word, and without an anchor
+# a .env line inside a shell string (`printf 'DB_PASSWORD=hunter2\n' > .env`,
+# which is how this repository's own CI seeds a fixture) is caught as well as
+# one that starts a line.
 _SECRET_KEYED_QUOTED = re.compile(
-    rf"(?i)((?:^|[\s,{{\[(]){_SECRET_KEY}\s*[:=]\s*)"
+    rf"(?i)({_SECRET_KEY}\s*[:=]\s*)"
     r"(\"[^\"\n]*\"|'[^'\n]*')")
-_SECRET_KEYED_BARE = re.compile(
-    rf"(?im)(^[ \t]*(?:-[ \t]+)?(?:export[ \t]+)?{_SECRET_KEY}[ \t]*[:=][ \t]*)"
-    r"([^\s'\"(){}\[\],;]+(?=$|[ \t,;]))")
+# A bare value ends where the line, the enclosing literal or the enclosing
+# call ends. An opening bracket is deliberately not a terminator, which is
+# what keeps `PASSWORD = os.environ[NAME]` and `token = lexer.next_token()`
+# in the map: they are code, and code is what the map is for.
+_BARE_VALUE = r"([^\s'\"(){}\[\],;]+(?=$|[\s,;'\"\\)}\]]))"
+# `=` says assignment wherever it sits, so a .env line inside a shell string
+# (`printf 'DB_PASSWORD=hunter2\n' > .env`) is caught as well as one on its
+# own line.
+_SECRET_KEYED_BARE_EQ = re.compile(
+    rf"(?i)({_SECRET_KEY}[ \t]*=[ \t]*)" + _BARE_VALUE)
+# `:` does not: `auth_token: str` in a signature is a type, not a value, so a
+# bare value after a colon is only read as a secret when the key starts the
+# line, which is what a YAML key looks like.
+_SECRET_KEYED_BARE_COLON = re.compile(
+    rf"(?im)(^[ \t]*(?:-[ \t]+)?{_SECRET_KEY}[ \t]*:[ \t]*)" + _BARE_VALUE)
 
 
 def redact(value):
@@ -316,7 +329,8 @@ def redact(value):
         out = _SECRET_SHAPES.sub("[redacted]", value)
         out = _SECRET_URL.sub(r"\1:[redacted]@", out)
         out = _SECRET_KEYED_QUOTED.sub(r"\1[redacted]", out)
-        return _SECRET_KEYED_BARE.sub(r"\1[redacted]", out)
+        out = _SECRET_KEYED_BARE_EQ.sub(r"\1[redacted]", out)
+        return _SECRET_KEYED_BARE_COLON.sub(r"\1[redacted]", out)
     if isinstance(value, list):
         return [redact(v) for v in value]
     if isinstance(value, dict):
