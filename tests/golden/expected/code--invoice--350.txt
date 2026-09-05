@@ -1,11 +1,10 @@
-(also matched: bill, billing)
-
 ## Defined here
 
 - `Invoice` — <root>/code/repo/app/models.py:9
+- `get_invoice` — <root>/code/repo/app/api.py:15
+- `list_invoices` — <root>/code/repo/app/api.py:9
 
-## Public surface of the code
-- `app/`
-  - `api.py`: list_invoices, get_invoice, health
-  - `billing.py`: charge, refund
-… 1 more matching rows; 1 rows in this section do not mention these words
+## Files nothing imports
+… 1 more matching rows
+
+… more sections match; ask for something narrower

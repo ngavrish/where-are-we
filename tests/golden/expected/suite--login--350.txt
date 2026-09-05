@@ -1,9 +1,6 @@
-(also matched: auth, authenticate)
+## Defined here
 
-## How a test authenticates
-- `login_steps.py`: def step_login_valid(context): | def step_login_invalid(context):
-
-### `steps/login_steps.py` — 5 steps
-… 5 rows in this section do not mention these words
-
-… more sections match; ask for something narrower
+- `Failed login` — <root>/suite/repo/features/login.feature:8
+- `Successful login` — <root>/suite/repo/features/login.feature:3
+- `step_login_error` — <root>/suite/repo/steps/login_steps.py:27
+… 5 more definitions

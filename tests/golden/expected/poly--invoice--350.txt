@@ -1,3 +1,7 @@
+## Defined here
+
+- `payInvoice` — <root>/poly/repo/b.ts:3
+
 ## Who calls whom, across files
 - `b.ts:payInvoice` → charge (a.ts)
 

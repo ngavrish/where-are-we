@@ -38,6 +38,22 @@ jobs:
           ! grep -q "cart total" /tmp/syn-out.txt
           grep -q "also matched: signin" /tmp/syn-out.txt
 
+      - name: .wawe.toml [synonyms] merges into ask, tomllib and the fallback parser alike
+        run: |
+          mkdir -p /tmp/syncfg/repo /tmp/syncfg/out
+          printf '%s\n' \
+            '[synonyms]' \
+            'invoice = ["proforma", "receipt"]' \
+            > /tmp/syncfg/repo/.wawe.toml
+          printf '%s\n' \
+            '# map' \
+            '' \
+            '## Billing' \
+            '- `app/billing.py:5` handles the proforma export for a customer' \
+            > /tmp/syncfg/out/framework_map.md
+          where-are-we --repo /tmp/syncfg/repo --out /tmp/syncfg/out --ask invoice | tee /tmp/syncfg-out.txt
+          grep -q "also matched:.*proforma" /tmp/syncfg-out.txt
+
       - name: map itself
         run: where-are-we --repo . --out /tmp/map && test -s /tmp/map/framework_map_brief.md
       - name: map a polyglot fixture

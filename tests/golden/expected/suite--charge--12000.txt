@@ -1,4 +1,47 @@
-(also matched: payment, pay, checkout)
+(also matched: checkout, pay)
+
+## Defined here
+
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+- `CheckoutPage.click_13` — pages/checkout.py:43
+- `CheckoutPage.click_14` — pages/checkout.py:46
+- `CheckoutPage.click_15` — pages/checkout.py:49
+- `CheckoutPage.click_16` — pages/checkout.py:52
+- `CheckoutPage.click_17` — pages/checkout.py:55
+- `CheckoutPage.click_18` — pages/checkout.py:58
+- `CheckoutPage.click_19` — pages/checkout.py:61
+- `CheckoutPage.click_1` — pages/checkout.py:7
+- `CheckoutPage.click_20` — pages/checkout.py:64
+- `CheckoutPage.click_21` — pages/checkout.py:67
+- `CheckoutPage.click_22` — pages/checkout.py:70
+- `CheckoutPage.click_23` — pages/checkout.py:73
+- `CheckoutPage.click_24` — pages/checkout.py:76
+- `CheckoutPage.click_25` — pages/checkout.py:79
+- `CheckoutPage.click_26` — pages/checkout.py:82
+- `CheckoutPage.click_27` — pages/checkout.py:85
+- `CheckoutPage.click_28` — pages/checkout.py:88
+- `CheckoutPage.click_29` — pages/checkout.py:91
+- `CheckoutPage.click_2` — pages/checkout.py:10
+- `CheckoutPage.click_30` — pages/checkout.py:94
+- `CheckoutPage.click_31` — pages/checkout.py:97
+- `CheckoutPage.click_32` — pages/checkout.py:100
+- `CheckoutPage.click_33` — pages/checkout.py:103
+- `CheckoutPage.click_34` — pages/checkout.py:106
+- `CheckoutPage.click_35` — pages/checkout.py:109
+- `CheckoutPage.click_36` — pages/checkout.py:112
+- `CheckoutPage.click_37` — pages/checkout.py:115
+- `CheckoutPage.click_38` — pages/checkout.py:118
+- `CheckoutPage.click_39` — pages/checkout.py:121
+- `CheckoutPage.click_3` — pages/checkout.py:13
+- `CheckoutPage.click_40` — pages/checkout.py:124
+- `CheckoutPage.click_4` — pages/checkout.py:16
+- `CheckoutPage.click_5` — pages/checkout.py:19
+- `CheckoutPage.click_6` — pages/checkout.py:22
+- `CheckoutPage.click_7` — pages/checkout.py:25
+- `CheckoutPage.click_8` — pages/checkout.py:28
 
 ## How a feature file is written here
 Sample: `features/checkout/pay.feature`
@@ -55,6 +98,10 @@ Feature: Pay for an order
 - pay step 38
 - pay step 39
 - pay step 40
+
+## Feature files
+- `features/checkout/pay.feature` — 3 scenarios
+… 1 rows in this section do not mention these words
 
 ## What you can already write with (85)
 - pay step 1
@@ -139,10 +186,6 @@ Feature: Pay for an order
 - CheckoutPage.click_9()
 … 6 rows in this section do not mention these words
 
-## Feature files
-- `features/checkout/pay.feature` — 3 scenarios
-… 1 rows in this section do not mention these words
-
 ## Files nothing imports
 - `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
 
@@ -171,13 +214,13 @@ Feature: Pay for an order
 - 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 20" (`pay_steps.py`)
 - 1.0: "pay step 1" (`pay_steps.py`) ≈ "pay step 21" (`pay_steps.py`)
 
-## Biggest feature files (scenario line numbers are in the full map)
-- `features/checkout/pay.feature` — 3 scenarios
-… 1 rows in this section do not mention these words
-
 ## What each module says it is for
 - `steps/pay_steps.py` — Step definitions for paying at checkout.
 - `pages/checkout.py` — The checkout page: every element pay_steps.py clicks through.
+… 1 rows in this section do not mention these words
+
+## Biggest feature files (scenario line numbers are in the full map)
+- `features/checkout/pay.feature` — 3 scenarios
 … 1 rows in this section do not mention these words
 
 ## Step phrases no feature uses (20) — dead weight, do not imitate

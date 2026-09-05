@@ -20,6 +20,7 @@ RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
 
 _ROW_PATH = re.compile(r"^- `([^`]*/)([^`/]+)`(.*)$")
+_DEF_ROW = re.compile(r"^- `([^`]+)`")  # a "## Defined here" row: the name in backticks
 
 
 # Synonyms and stemming: the map says "signin()", the question says "login",
@@ -281,7 +282,14 @@ def _rank(blocks, terms, half=None):
         if any(t in head.lower() for t in terms):
             score *= 1.6
         out.append((score, head, body))
-    out.sort(key=lambda x: -x[0])
+    # Rounded for the sort only, not for the score itself: two sections whose
+    # difference is noise rather than signal (found live on "invoice
+    # checkout" - a summary line naming this run's own build path tokenises
+    # to a different word count call to call, nudging every score's length
+    # normalisation by a few parts in ten thousand) would otherwise change
+    # places from one run to the next on the same tree. Sort is stable, so a
+    # real tie falls back to `docs`' own order, itself fixed by the map text.
+    out.sort(key=lambda x: -round(x[0], 2))
     return out
 
 
@@ -350,9 +358,17 @@ def _split_rows(body: list, terms: list) -> tuple:
     return matching, unmatched
 
 
-def _definitions_block(map_path: str, terms: list, room: int) -> str:
+def _definitions_block(map_path: str, terms: list, room: int,
+                       extra: list | None = None) -> str:
     """`## Defined here`, bounded to `room`; empty when nothing was defined
-    under these terms."""
+    under these terms.
+
+    `terms` keeps `_definitions_for`'s AND semantics: a name counts when it
+    holds every literal word, or is exactly one of them. `extra`, when
+    given, is synonym and stem words from `_expand`; any one of them is
+    enough on its own, and a name that only matches through `extra` is
+    listed after every name that matches `terms`.
+    """
     # This import must stay right here, function-local, and reference the
     # module rather than pull a name out of it. mapper.py imports this module
     # at load time with a plain top-level `from .ask import ask, fit_lines`,
@@ -366,7 +382,7 @@ def _definitions_block(map_path: str, terms: list, room: int) -> str:
         from . import mapper as _mapper
     except ImportError:  # run as a plain file, with no package around it
         import mapper as _mapper  # type: ignore[no-redef]
-    exact = _mapper._definitions_for(map_path, terms)
+    exact = _mapper._definitions_for(map_path, terms, extra)
     if not exact:
         return ""
     return _defined_here(exact, room)
@@ -402,6 +418,48 @@ def _section_answer(head: str, body: list, terms: list, room: int) -> tuple:
     if len(kept) == 1:
         return "", True
     return "\n".join(kept), True
+
+
+def _also_matched(def_block: str, section_chunks: list, terms: list, candidates: list) -> str:
+    """The "(also matched: signin, auth)" line, with its trailing blank line,
+    or an empty string: causal, not incidental.
+
+    A candidate earns a place only for a row (or a defined name) the literal
+    words did not already match on their own - riding along in a row the
+    literal words earned does not count. `_definitions_for`'s AND semantics
+    apply to a name; `_split_rows`'s OR semantics apply to a section row, so
+    each is checked the way it was matched.
+    """
+    if not candidates:
+        return ""
+    extra, seen = [], set()
+
+    def credit(low):
+        for c in candidates:
+            if c not in seen and c in low:
+                extra.append(c)
+                seen.add(c)
+
+    if def_block:
+        for line in def_block.splitlines()[1:]:
+            if line.startswith("…"):
+                continue
+            m = _DEF_ROW.match(line)
+            if not m:
+                continue
+            name_low = m.group(1).lower()
+            if all(t in name_low for t in terms) or any(t == name_low for t in terms):
+                continue
+            credit(name_low)
+    for chunk in section_chunks:
+        for line in chunk.splitlines()[1:]:
+            if line.startswith("…"):
+                continue
+            low = line.lower()
+            if any(t in low for t in terms):
+                continue
+            credit(low)
+    return f"(also matched: {', '.join(extra)})\n\n" if extra else ""
 
 
 def _more_note(room: int) -> str:
@@ -444,9 +502,9 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     blocks = _blocks(text)
     scored = _rank(blocks, expanded, half)
     if not scored:
-        block = _definitions_block(map_path, expanded, limit)
+        block = _definitions_block(map_path, terms, limit - note_room, candidates)
         if block:
-            return block
+            return _also_matched(block, [], terms, candidates) + block
         # What was indexed, said out loud. The old wording promised more than
         # it knew — "a real absence rather than a search that missed" — about a
         # constant that was in the product on line 31, in a language the index
@@ -469,19 +527,21 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         # searched and what was found; the conclusion is the reader's.
         return f"no match for {words!r}.{looked}"
 
-    scored.sort(key=lambda x: -x[0])
+    scored.sort(key=lambda x: -round(x[0], 2))  # same rounding as _rank's own sort, so this no-op re-sort cannot undo it
     out, room = [], limit - note_room
-    block = _definitions_block(map_path, expanded, room)
-    if block:
-        out.append(block)
-        room -= len(block) + 2
+    def_block = _definitions_block(map_path, terms, room, candidates)
+    if def_block:
+        out.append(def_block)
+        room -= len(def_block) + 2
     seen = 0
+    section_chunks = []
     for hits, h, b in scored:
         chunk, attempted = _section_answer(h, b, expanded, room)
         if attempted:
             seen += 1
         if chunk:
             out.append(chunk)
+            section_chunks.append(chunk)
             room -= len(chunk) + 2
     if seen < len(scored):
         # Only when a matching section really went unshown, and only if the
@@ -491,14 +551,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         if note:
             out.append(note)
     answer = "\n\n".join(out)
-    # Said once, up front, only when it earned its place: a synonym or a stem
-    # that turned up nothing beyond what the literal words already found is
-    # not worth a line, so this checks the answer itself rather than assuming
-    # every expansion mattered.
-    extra = [t for t in candidates if t in answer.lower()]
-    if extra:
-        answer = f"(also matched: {', '.join(extra)})\n\n" + answer
-    return answer
+    return _also_matched(def_block, section_chunks, terms, candidates) + answer
 
 
 LOG_NAME = ".wawe-ask.log"

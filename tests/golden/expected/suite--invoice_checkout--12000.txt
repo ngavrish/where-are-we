@@ -1,4 +1,47 @@
-(also matched: payment, pay, charge)
+(also matched: pay, charge, payment)
+
+## Defined here
+
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+- `Customer pays with a new card` — <root>/suite/repo/features/checkout/pay.feature:15
+- `Customer pays with a saved card` — <root>/suite/repo/features/checkout/pay.feature:3
+- `Pay for an order` — <root>/suite/repo/features/checkout/pay.feature:1
+- `def step_pay_10` — <root>/suite/repo/steps/pay_steps.py:47
+- `def step_pay_11` — <root>/suite/repo/steps/pay_steps.py:51
+- `def step_pay_12` — <root>/suite/repo/steps/pay_steps.py:55
+- `def step_pay_13` — <root>/suite/repo/steps/pay_steps.py:59
+- `def step_pay_14` — <root>/suite/repo/steps/pay_steps.py:63
+- `def step_pay_15` — <root>/suite/repo/steps/pay_steps.py:67
+- `def step_pay_16` — <root>/suite/repo/steps/pay_steps.py:71
+- `def step_pay_17` — <root>/suite/repo/steps/pay_steps.py:75
+- `def step_pay_18` — <root>/suite/repo/steps/pay_steps.py:79
+- `def step_pay_19` — <root>/suite/repo/steps/pay_steps.py:83
+- `def step_pay_1` — <root>/suite/repo/steps/pay_steps.py:11
+- `def step_pay_20` — <root>/suite/repo/steps/pay_steps.py:87
+- `def step_pay_21` — <root>/suite/repo/steps/pay_steps.py:91
+- `def step_pay_22` — <root>/suite/repo/steps/pay_steps.py:95
+- `def step_pay_23` — <root>/suite/repo/steps/pay_steps.py:99
+- `def step_pay_24` — <root>/suite/repo/steps/pay_steps.py:103
+- `def step_pay_25` — <root>/suite/repo/steps/pay_steps.py:107
+- `def step_pay_26` — <root>/suite/repo/steps/pay_steps.py:111
+- `def step_pay_27` — <root>/suite/repo/steps/pay_steps.py:115
+- `def step_pay_28` — <root>/suite/repo/steps/pay_steps.py:119
+- `def step_pay_29` — <root>/suite/repo/steps/pay_steps.py:123
+- `def step_pay_2` — <root>/suite/repo/steps/pay_steps.py:15
+- `def step_pay_30` — <root>/suite/repo/steps/pay_steps.py:127
+- `def step_pay_31` — <root>/suite/repo/steps/pay_steps.py:131
+- `def step_pay_32` — <root>/suite/repo/steps/pay_steps.py:135
+- `def step_pay_33` — <root>/suite/repo/steps/pay_steps.py:139
+- `def step_pay_34` — <root>/suite/repo/steps/pay_steps.py:143
+- `def step_pay_35` — <root>/suite/repo/steps/pay_steps.py:147
+- `def step_pay_36` — <root>/suite/repo/steps/pay_steps.py:151
+- `def step_pay_37` — <root>/suite/repo/steps/pay_steps.py:155
+- `def step_pay_38` — <root>/suite/repo/steps/pay_steps.py:159
+- `def step_pay_39` — <root>/suite/repo/steps/pay_steps.py:163
+- `def step_pay_3` — <root>/suite/repo/steps/pay_steps.py:19
+- `def step_pay_40` — <root>/suite/repo/steps/pay_steps.py:167
+- `def step_pay_4` — <root>/suite/repo/steps/pay_steps.py:23
+- `def step_pay_5` — <root>/suite/repo/steps/pay_steps.py:27
 
 ## How a feature file is written here
 Sample: `features/checkout/pay.feature`
@@ -214,14 +257,14 @@ Feature: Pay for an order
 ## Backend the tests touch
 - tables queried: behave, pages.checkout
 
-## Step modules, largest first
-- `steps/pay_steps.py` — 40 steps
-… 1 rows in this section do not mention these words
-
 ## How this suite is built
 - **features** — Gherkin features — 2 files under features, features/checkout
 - **Page objects**: `pages/checkout.py`
 … 4 rows in this section do not mention these words
+
+## Step modules, largest first
+- `steps/pay_steps.py` — 40 steps
+… 1 rows in this section do not mention these words
 
 ## Page-object methods nothing calls
 - `checkout.py`: CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17()

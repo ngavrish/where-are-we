@@ -1,4 +1,4 @@
-(also matched: bill, billing, charge)
+(also matched: charge, bill, billing)
 
 ## Defined here
 

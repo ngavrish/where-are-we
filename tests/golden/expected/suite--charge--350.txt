@@ -1,9 +1,9 @@
-(also matched: payment, pay, checkout)
+(also matched: checkout)
 
-## How a feature file is written here
-Sample: `features/checkout/pay.feature`
-Feature: Pay for an order
-  Scenario: Customer pays with a saved card
-    When they pay for the invoice
-    Then the payment is charged
-… 6 more matching rows; 7 rows in this section do not mention these words
+## Defined here
+
+- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+… 36 more definitions
