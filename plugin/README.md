@@ -10,9 +10,12 @@ grepped.
   `defines`, `sections`, `callers`.
 - **Skills**: `orient`, `ask`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
-  and `grep`/`rg`/`find` in Bash over a mapped repository are refused with the
-  map's tools named instead - what a headless agent wants, and what an
-  interactive session usually does not.
+  and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are
+  refused with the map's tools named instead - what a headless agent wants,
+  and what an interactive session usually does not. A `find` that deletes or
+  execs a mutating command (`-delete`, `-exec rm ...`) is left alone: it is
+  changing the tree, not searching it, and the map has nothing to offer in
+  its place.
 
 ## Install
 
@@ -39,7 +42,9 @@ exist there. For Cursor, Codex or Gemini CLI, skip the plugin and wire the
 
 Each writes a pointer where that CLI already looks and an MCP server entry, so
 the map is read on the first turn and askable as a tool after that. Every kind
-is idempotent and merges into whatever is already in those files.
+is idempotent and merges into whatever is already in those files. If any of
+them - or `.git/hooks/*` for `--install-hook git` - is a symlink, the write is
+refused and nothing is touched: the message names the path.
 
 ## Try it without installing
 

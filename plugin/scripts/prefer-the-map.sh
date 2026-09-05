@@ -20,7 +20,18 @@ if not os.path.exists(os.path.join(cwd, ".wawe", "framework_map.md")):
 searching = tool in ("Grep", "Glob")
 if tool == "Bash":
     cmd = str(args.get("command", ""))
-    searching = bool(re.match(r"^\s*(?:\w+=\S*\s+)*(grep|rg|ag|find|fd|ack)\b", cmd))
+    # (?=\s|$), not \b: a hyphen is a word boundary too, so \b let a
+    # differently-named command through on a coincidence of spelling
+    # (`find-and-replace`, `ack-grep`) as if it were `find` or `ack` itself.
+    m = re.match(r"^\s*(?:\w+=\S*\s+)*(grep|rg|ag|find|fd|ack)(?=\s|$)", cmd)
+    searching = bool(m)
+    # `find -delete` and `find -exec rm ...` change the tree; they are not a
+    # search for information, and the map has nothing to offer in their
+    # place, so refusing them is a pure misfire, not caution.
+    if searching and m.group(1) == "find" and re.search(
+            r"-delete\b|-(?:exec|execdir|ok|okdir)\s+"
+            r"(?:rm|mv|cp|chmod|chown|touch|sed|unlink|truncate|dd)\b", cmd):
+        searching = False
 if not searching:
     sys.exit(0)
 print(json.dumps({"hookSpecificOutput": {
