@@ -1761,3 +1761,47 @@ jobs:
           test -s /tmp/dip/m/framework_map_brief.md
           # The console script points at the module that owns argv.
           grep -q 'where-are-we = "where_are_we.cli:main"' pyproject.toml
+
+      - name: a star import exports the shared names, and Ctx is really frozen
+        run: |
+          set -o pipefail
+          python - <<'EOF'
+          import inspect
+          # `mapper.DEFINITIONS` worked and `from ... import *; DEFINITIONS`
+          # raised NameError, because a star import goes by the module dict and
+          # these eleven names are answered by an attribute hook. __all__ makes
+          # the star import ask for them by name.
+          ns = {}
+          exec("from where_are_we.mapper import *", ns)
+          for name in ("DEFINITIONS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
+                       "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE", "_IGNORE_CACHE",
+                       "_PARSE_CACHE", "_WALK_CACHE"):
+              assert name in ns, name
+          from where_are_we import mapper
+          from where_are_we._mapper import state
+          assert ns["DEFINITIONS"] is state.DEFINITIONS
+          # Importing the map still does not import the command line: none of
+          # its four names is in the star surface.
+          for name in ("main", "init_manifest", "install_hook", "propose_docs"):
+              assert name not in ns, name
+          # Documented, not fixed: a static lookup skips __getattr__ by
+          # definition, so a static reader takes these from _mapper.state.
+          try:
+              inspect.getattr_static(mapper, "DEFINITIONS")
+              raise SystemExit("getattr_static now works; the note in mapper.py is stale")
+          except AttributeError:
+              pass
+          EOF
+          python - <<'EOF'
+          from where_are_we._mapper.extract import Ctx
+          c = Ctx(repo="/x", code_files=["a.py"], read=lambda rel, limit=1: "")
+          # frozen=True used to freeze three bindings and nothing else: the one
+          # field twenty extractors iterate was a mutable list they all shared.
+          assert isinstance(c.code_files, tuple), type(c.code_files)
+          assert hash(c) == hash(Ctx(repo="/x", code_files=("a.py",), read=c.read))
+          try:
+              c.code_files.append("X.py")
+              raise SystemExit("code_files is still mutable")
+          except AttributeError:
+              pass
+          EOF

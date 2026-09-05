@@ -134,6 +134,37 @@ def _cli():
     return cli
 
 
+# What `from where_are_we.mapper import *` exports. Written out because the
+# eleven shared names below are not in this module's dict: they are answered
+# by the attribute hook, and a star import that goes by the dict alone would
+# skip them, so `mapper.DEFINITIONS` worked and
+# `from where_are_we.mapper import *; DEFINITIONS` raised NameError. Two
+# documented ways of reaching the same public name disagreeing is worse than
+# either being unavailable. With this list, `import *` asks for each name by
+# attribute, and the hook answers.
+#
+# What it cannot fix is `inspect.getattr_static(mapper, "DEFINITIONS")`, which
+# is defined as the lookup that skips `__getattr__`, so it still raises
+# AttributeError. Anything reading these names statically (a type checker, a
+# static analyser) should read them from `where_are_we._mapper.state`, where
+# they are ordinary module-level names. That is the price of assignment
+# reaching the counter the package increments, which is what
+# `tests/golden/check.py` measures a build with.
+#
+# The command line's four names are deliberately absent: importing this module
+# must not import the layer above it, and a star import that pulled in the MCP
+# server and the language server would do exactly that.
+__all__ = [
+    "DECLARATIONS", "DEFINITIONS", "INDEXED", "LINES", "MAX_FILES",
+    "SKIP_DIRS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
+    "CACHE_SCHEMA", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
+    "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "brief", "build",
+    "changed_since", "declarations_in", "definitions_for", "digest",
+    "find_text", "fingerprint", "for_audience", "index_declarations",
+    "index_lines", "meaning_tail", "pointer", "redact",
+]
+
+
 class _Facade(types.ModuleType):
     """This module, with `_mapper.state` readable and writable through it."""
 
