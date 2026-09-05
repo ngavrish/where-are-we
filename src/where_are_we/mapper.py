@@ -66,6 +66,19 @@ DECLARATIONS = {
     ".feature": (
         r"^\s*(?:Scenario(?: Outline)?|Feature):\s*(.+?)\s*$",
     ),
+    ".rs": (
+        r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait|type|const|static|mod)\s+([A-Za-z_]\w*)",
+    ),
+    ".kt": (
+        r"^\s*(?:(?:public|private|internal|open|data|sealed|abstract|suspend|override|inline)\s+)*(?:fun|class|object|interface|val|var)\s+(?:<[^>]*>\s*)?(?:[\w.]+\.)?([A-Za-z_]\w*)",
+    ),
+    ".cs": (
+        r"^\s*(?:(?:public|private|protected|internal|static|abstract|sealed|partial|async|override|virtual|readonly)\s+)*(?:class|interface|struct|enum|record|delegate)\s+([A-Za-z_]\w*)",
+        r"^\s*(?:(?:public|private|protected|internal|static|abstract|async|override|virtual)\s+)+[\w<>\[\],.?]+\s+([A-Za-z_]\w*)\s*\(",
+    ),
+    ".rb": (
+        r"^\s*(?:def\s+(?:self\.)?|class\s+|module\s+)([A-Za-z_]\w*[?!=]?)",
+    ),
 }
 for _alias in (".tsx", ".js", ".jsx", ".mjs", ".cjs"):
     DECLARATIONS[_alias] = DECLARATIONS[".ts"]
@@ -200,27 +213,26 @@ def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
     return "\n".join(kept) + tail
 
 
-def index_declarations(path: str, label: str = "") -> None:
-    """Record every name this file declares, with the line it is declared on.
+# Extensions where a tree-sitter grammar can stand in for the regex table,
+# keyed to the grammar name `_tree_sitter`/`_ts_symbols` expect. Only the four
+# this task added: widening this to languages the regex table already gets
+# right (Python, TypeScript) is a separate change, not this one.
+TS_LANG_BY_EXT = {".rs": "rust", ".kt": "kotlin", ".cs": "c_sharp", ".rb": "ruby"}
 
-    Called for the suite and for the product alike. Without it the map could say
-    which module a step lived in and nothing at all about the code under test —
-    so an agent asking where a constant was defined was told it did not exist,
-    and spent forty turns grepping for something the map had never looked for.
+
+def _regex_declared_names(body: str, ext: str) -> list:
+    """(name, 1-based line) pairs `body` declares, by the patterns for `ext`.
+
+    The matching rules `index_declarations` and `declarations_in` both need:
+    the file-reading and bookkeeping around it differ (one fills the shared
+    DEFINITIONS/LINES tables, the other returns a plain list), the pattern
+    walk over the text does not. Also the fallback when no tree-sitter parser
+    is installed, or the file's language has none: the CI path, and the one
+    every regex in this table is written and checked against.
     """
-    ext = os.path.splitext(path)[1].lower()
     patterns = DECLARATIONS.get(ext) or DECLARATIONS["*"]
-    try:
-        if os.path.getsize(path) > 2 * 1024 * 1024:
-            return  # a generated bundle is names nobody asks about, by the ton
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            body = fh.read()
-    except OSError:
-        return
-    if "\x00" in body[:2048]:
-        return  # binary
-    INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
-    index_lines(path, body)
+    compiled = [re.compile(pattern) for pattern in patterns]
+    out = []
     # Line by line, and the number is the loop counter.
     #
     # Computed from a match offset instead, it was wrong for one name in nine:
@@ -230,7 +242,6 @@ def index_declarations(path: str, label: str = "") -> None:
     # and twenty pointed at a blank line — which is worse than not indexing at
     # all, because the reader opens the file, sees nothing, and stops trusting
     # the map.
-    compiled = [re.compile(pattern) for pattern in patterns]
     for number, text in enumerate(body.splitlines(), 1):
         for pattern in compiled:
             found = pattern.match(text) or pattern.search(text)
@@ -238,8 +249,111 @@ def index_declarations(path: str, label: str = "") -> None:
                 continue
             name = found.group(1).strip()
             if len(name) >= 2 and name in text:
-                DEFINITIONS.setdefault(name, f"{path}:{number}")
+                out.append((name, number))
             break
+    return out
+
+
+def _line_for_name(lines: list, name: str, regex_hits: list) -> int:
+    """The 1-based line to credit `name` to.
+
+    First choice is the line the regex table itself would have picked for
+    this exact name, so a name tree-sitter and the regex both see keeps the
+    same line either way. Failing that (tree-sitter found something the
+    line-start regex missed, typically a multi-line signature), the first
+    line that mentions the name as a whole word; failing even that, the top
+    of the file rather than nothing.
+    """
+    for hit_name, line in regex_hits:
+        if hit_name == name:
+            return line
+    whole_word = re.compile(r"\b" + re.escape(name) + r"\b")
+    for number, text in enumerate(lines, 1):
+        if whole_word.search(text):
+            return number
+    return 1
+
+
+def _declared_names(body: str, ext: str, path: str = "") -> list:
+    """(name, 1-based line) pairs `body` (the text of `path`) declares.
+
+    A tree-sitter parse tree where one is installed for `ext`'s language,
+    since it gets exported/visibility and multi-line signatures right where a
+    line-start regex cannot; the regex table otherwise, which is also what
+    supplies the line number in both cases (see `_line_for_name`). Absent the
+    optional parser this is exactly `_regex_declared_names`, byte for byte:
+    the CI path never installs `tree-sitter-languages`, so it never takes the
+    branch below.
+    """
+    regex_hits = _regex_declared_names(body, ext)
+    ts_lang = TS_LANG_BY_EXT.get(ext)
+    if not ts_lang or not path:
+        return regex_hits
+    if _tree_sitter(ts_lang) is None:
+        return regex_hits
+    ts_names = _ts_symbols(path, ts_lang)
+    if not ts_names:
+        return regex_hits
+    lines = body.splitlines()
+    seen = set()
+    out = []
+    for name in ts_names:
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append((name, _line_for_name(lines, name, regex_hits)))
+    return out
+
+
+def _read_for_declarations(path: str):
+    """This file's text, or None for anything too large or not text.
+
+    Shared by `index_declarations` and `declarations_in` so the size cap and
+    the binary sniff are one rule, not two that can drift apart.
+    """
+    try:
+        if os.path.getsize(path) > 2 * 1024 * 1024:
+            return None  # a generated bundle is names nobody asks about, by the ton
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            body = fh.read()
+    except OSError:
+        return None
+    if "\x00" in body[:2048]:
+        return None  # binary
+    return body
+
+
+def declarations_in(path: str) -> list:
+    """Every name `path` declares, with its 1-based line, as (name, line).
+
+    What `index_declarations` finds for one file, without the side effects on
+    DEFINITIONS/LINES/INDEXED: a caller that wants the names of a single file
+    (a test, a future `--diff`) asks this instead of reading the shared maps
+    and filtering them back down to one path.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    body = _read_for_declarations(path)
+    if body is None:
+        return []
+    return _declared_names(body, ext, path)
+
+
+def index_declarations(path: str, label: str = "") -> None:
+    """Record every name this file declares, with the line it is declared on.
+
+    Called for the suite and for the product alike. Without it the map could say
+    which module a step lived in and nothing at all about the code under test —
+    so an agent asking where a constant was defined was told it did not exist,
+    and spent forty turns grepping for something the map had never looked for.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    body = _read_for_declarations(path)
+    if body is None:
+        return
+    INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
+    index_lines(path, body)
+    for name, number in _declared_names(body, ext, path):
+        DEFINITIONS.setdefault(name, f"{path}:{number}")
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
@@ -404,7 +518,22 @@ def _ts_symbols(path: str, lang: str) -> list:
         return []
     wanted = {"function_declaration", "class_declaration", "method_definition",
               "interface_declaration", "type_alias_declaration", "enum_declaration",
-              "lexical_declaration", "type_declaration", "func_declaration"}
+              "lexical_declaration", "type_declaration", "func_declaration",
+              # rust
+              "function_item", "struct_item", "enum_item", "trait_item",
+              "const_item", "static_item", "mod_item", "type_item",
+              # kotlin (class_declaration also covers its "interface" spelling)
+              "object_declaration",
+              # c_sharp (class_declaration, interface_declaration and
+              # enum_declaration already listed above)
+              "struct_declaration", "record_declaration", "delegate_declaration",
+              "method_declaration",
+              # ruby
+              "method", "singleton_method", "class", "module"}
+    # Languages with no export keyword: a top-level declaration is visible by
+    # definition, so gating on `export_statement` here would just drop every
+    # name in every file.
+    no_export_keyword = {"go", "rust", "kotlin", "c_sharp", "ruby"}
     out = []
 
     def walk(node, exported=False):
@@ -412,16 +541,24 @@ def _ts_symbols(path: str, lang: str) -> list:
             exported = True
         if node.type in wanted:
             for child in node.children:
-                if child.type in ("identifier", "type_identifier", "property_identifier"):
+                if child.type in ("identifier", "type_identifier",
+                                   "property_identifier", "simple_identifier",
+                                   "constant"):
                     name = child.text.decode(errors="replace")
-                    if exported or lang == "go":
+                    if exported or lang in no_export_keyword:
                         out.append(name)
                     break
         for child in node.children:
             walk(child, exported)
 
     walk(tree.root_node)
-    return sorted(set(out))[:40]
+    # No cap: the regex path this stands in for has none either, and a file
+    # with more than a handful of declarations silently losing the ones past
+    # some count is exactly the "indexed here, not there" gap this project
+    # exists to close. Whatever bounds the reader sees are bounds `brief()`
+    # applies once, in one place, when it renders the table for a prompt;
+    # `framework_map.json` and `declarations_in` stay complete.
+    return sorted(set(out))
 
 
 
@@ -3571,6 +3708,23 @@ def brief(m: dict) -> str:
     td = _as_dict(m.get("types_declared"))
     _sect("Types declared",
           [f"- `{os.path.basename(k)}`: " + ", ".join(v[:12]) for k, v in list(td.items())[:15]])
+    # Every name index_declarations found, everywhere it looked: Rust, Kotlin,
+    # C#, Ruby and the rest, next to each other because a name is a name
+    # whatever it is written in. `ask.py`'s own "Defined here" answers one
+    # query against the same table; this is the same heading with nothing
+    # asked yet, so a reader skimming this file sees that the map reaches
+    # these languages at all before it ever needs to ask about one of them.
+    # The brief is what `--agent-file` writes straight into a prompt, so this
+    # list is capped hard: a large repository's full name table belongs in
+    # framework_map.json (`_definitions_for` reads it there, uncapped), not
+    # in the tens of thousands of tokens a prompt actually pays for.
+    defs = _as_dict(m.get("definitions"))
+    if defs:
+        _cap = 80
+        rows = [f"- `{name}` — {loc}" for name, loc in sorted(defs.items())[:_cap]]
+        if len(defs) > _cap:
+            rows.append(f"… {len(defs) - _cap} more declared names; ask `defines`")
+        _sect("Defined here", rows)
     ebs = _as_dict(m.get("env_by_service"))
     _sect("Environment by service",
           [f"- `{k}`: " + ", ".join(v[:12]) for k, v in list(ebs.items())[:15]])

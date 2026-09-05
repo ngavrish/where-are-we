@@ -46,6 +46,30 @@ jobs:
           grep -q "charge (a.ts)" /tmp/cgmap/framework_map_brief.md
           grep -q "Serve (s.go)" /tmp/cgmap/framework_map_brief.md
           ! grep -q "b.ts:local" /tmp/cgmap/framework_map_brief.md
+      - name: map a rust/kotlin/csharp/ruby fixture
+        run: |
+          mkdir -p /tmp/langs
+          printf 'pub fn charge() {}\nstruct Invoice;\npub(crate) enum State { A }\ntrait Pay {}\n// fn commented() {}\n' > /tmp/langs/lib.rs
+          printf 'class Invoice(val id: Int)\nfun charge(): Unit = Unit\nobject Config\nsuspend fun refund() {}\n' > /tmp/langs/Pay.kt
+          printf 'public class Invoice {\n  public static void Charge() {}\n  private int Total() => 1;\n}\npublic interface IPay {}\n' > /tmp/langs/Pay.cs
+          printf 'module Billing\n  class Invoice\n    def charge?\n    end\n    def self.refund\n    end\n  end\nend\n' > /tmp/langs/pay.rb
+          where-are-we --repo /tmp/langs --out /tmp/langsmap
+          # Exact "Defined here" rows, name and file:line together, so a
+          # dropped construct (a missed `trait Pay`, a `fun charge` that
+          # stops matching) fails here instead of passing on a coincidental
+          # substring hit elsewhere in the map.
+          grep -qF '`Pay` — /tmp/langs/lib.rs:4' /tmp/langsmap/framework_map*.md
+          grep -qF '`State` — /tmp/langs/lib.rs:3' /tmp/langsmap/framework_map*.md
+          grep -qF '`Invoice` — /tmp/langs/Pay.cs:1' /tmp/langsmap/framework_map*.md
+          grep -qF '`Charge` — /tmp/langs/Pay.cs:2' /tmp/langsmap/framework_map*.md
+          grep -qF '`Total` — /tmp/langs/Pay.cs:3' /tmp/langsmap/framework_map*.md
+          grep -qF '`IPay` — /tmp/langs/Pay.cs:5' /tmp/langsmap/framework_map*.md
+          grep -qF '`charge` — /tmp/langs/Pay.kt:2' /tmp/langsmap/framework_map*.md
+          grep -qF '`Config` — /tmp/langs/Pay.kt:3' /tmp/langsmap/framework_map*.md
+          grep -qF '`refund` — /tmp/langs/Pay.kt:4' /tmp/langsmap/framework_map*.md
+          grep -qF '`Billing` — /tmp/langs/pay.rb:1' /tmp/langsmap/framework_map*.md
+          grep -qF '`charge?` — /tmp/langs/pay.rb:3' /tmp/langsmap/framework_map*.md
+          ! grep -q "commented" /tmp/langsmap/framework_map*.md
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
