@@ -251,13 +251,17 @@ jobs:
           grep -q '"orientation_turns": 4' /tmp/ms.json
       - name: lsp
         run: |
+          set -o pipefail
           rm -rf /tmp/lsp
           mkdir -p /tmp/lsp/r
           printf 'def charge(x):\n    return x\n' > /tmp/lsp/r/billing.py
           printf 'from billing import charge\n\ndef pay():\n    return charge(1)\n' > /tmp/lsp/r/api.py
           where-are-we --repo /tmp/lsp/r --out /tmp/lsp/m --force
           python docs/examples/lsp-smoke.py /tmp/lsp/r /tmp/lsp/m | tee /tmp/lsp-smoke.out
-          grep -q "billing.py" /tmp/lsp-smoke.out
+          # "billing.py" is in every reply, pass or fail (it's the uri in
+          # reply 2's raw JSON); the smoke script's actual verdict is its
+          # last line, OK on success and FAILED on any check failing.
+          grep -qx OK /tmp/lsp-smoke.out
       - name: "spec source: github"
         run: |
           rm -rf /tmp/ghbin /tmp/ghrepo /tmp/ghmap
