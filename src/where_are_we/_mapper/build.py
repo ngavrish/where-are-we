@@ -687,27 +687,34 @@ def build(repo: str, out_dir: str | None = None,
 
     # Who changed what, and which ticket brought which scenario.
     git_history, ticket_links = {}, {}
+    # Only the call is guarded, and only for what running git can actually do
+    # to it: no git on the path, no repository, a log that takes longer than a
+    # minute. The parse below used to sit inside the same try, so a KeyError
+    # or a ValueError in it returned a silently empty history on a repository
+    # that has one, and nothing said so because main() prints counts, not
+    # sections.
+    log = ""
     try:
         import subprocess
         log = subprocess.run(
             ["git", "-C", repo, "log", "--since=90.days", "--name-only",
              "--pretty=format:%H|%an|%ad|%s", "--date=short"],
             capture_output=True, text=True, timeout=60).stdout
-        cur = None
-        for line in log.splitlines():
-            if "|" in line and len(line.split("|")) >= 4:
-                h, who, when, subj = line.split("|", 3)
-                cur = {"who": who, "when": when, "subject": subj}
-                for t in re.findall(r"\b([A-Z]{2,6}-\d+)\b", subj):
-                    ticket_links.setdefault(t, {"subject": subj, "files": []})
-                    cur["ticket"] = t
-            elif line.strip() and cur:
-                git_history.setdefault(line.strip(), []).append(
-                    f"{cur['when']} {cur['who']}: {cur['subject'][:60]}")
-                if cur.get("ticket"):
-                    ticket_links[cur["ticket"]]["files"].append(line.strip())
-    except Exception:  # noqa: BLE001 — a map without history is still a map
-        pass
+    except (OSError, subprocess.SubprocessError):  # a map without history is still a map
+        log = ""
+    cur = None
+    for line in log.splitlines():
+        if "|" in line and len(line.split("|")) >= 4:
+            h, who, when, subj = line.split("|", 3)
+            cur = {"who": who, "when": when, "subject": subj}
+            for t in re.findall(r"\b([A-Z]{2,6}-\d+)\b", subj):
+                ticket_links.setdefault(t, {"subject": subj, "files": []})
+                cur["ticket"] = t
+        elif line.strip() and cur:
+            git_history.setdefault(line.strip(), []).append(
+                f"{cur['when']} {cur['who']}: {cur['subject'][:60]}")
+            if cur.get("ticket"):
+                ticket_links[cur["ticket"]]["files"].append(line.strip())
     git_history = {k: v[:5] for k, v in
                    sorted(git_history.items(), key=lambda kv: -len(kv[1]))[:40]}
     ticket_links = {k: {"subject": v["subject"], "files": sorted(set(v["files"]))[:8]}
@@ -953,18 +960,30 @@ def build(repo: str, out_dir: str | None = None,
 
     # What past runs of this pipeline already found in this product.
     past_bugs = []
-    try:
-        import urllib.request as _u
-        base_url = os.getenv("RUNS_API_READ", "")
-        if base_url:
+    base_url = os.getenv("RUNS_API_READ", "")
+    if base_url:
+        # The guard covers the call and the decode of what came back, which is
+        # a stranger's bytes: a network error, a timeout, an HTTP error, or a
+        # body that is not JSON. It used to cover the loop too, so an endpoint
+        # answering ["a", "b"] instead of a list of objects raised an
+        # AttributeError on row.get and the section came back empty with no
+        # message. A row that is not an object is skipped now, and named
+        # types are the ones caught.
+        rows = []
+        try:
+            import urllib.error as _ue
+            import urllib.request as _u
             with _u.urlopen(f"{base_url}/r/runs?limit=40", timeout=10) as resp:
-                for row in json.loads(resp.read().decode() or "[]"):
-                    if row.get("verdict"):
-                        past_bugs.append({"run": row.get("id"), "ticket": row.get("ticket"),
-                                          "verdict": row.get("verdict"),
-                                          "summary": (row.get("summary") or "")[:160]})
-    except Exception:  # noqa: BLE001 — the map is built with or without history
-        pass
+                rows = json.loads(resp.read().decode() or "[]")
+        except (OSError, _ue.URLError, ValueError):  # the map is built with or without history
+            rows = []
+        if not isinstance(rows, list):
+            rows = []
+        for row in rows:
+            if isinstance(row, dict) and row.get("verdict"):
+                past_bugs.append({"run": row.get("id"), "ticket": row.get("ticket"),
+                                  "verdict": row.get("verdict"),
+                                  "summary": (row.get("summary") or "")[:160]})
     past_bugs = past_bugs[:20]
 
     # Visual baselines a comparison could use.
@@ -1780,27 +1799,32 @@ def build(repo: str, out_dir: str | None = None,
 
     # Who owns a file, by who last touched it most.
     blame_owners = {}
+    # Only the git call is guarded. The accumulation below used to be inside
+    # the same try, and a partial accumulation is worse than none: an
+    # exception half way through left blame_owners holding the first N files
+    # and the map presented that as the answer for the whole repository.
+    out = ""
     try:
         import subprocess
         out = subprocess.run(
             ["git", "-C", repo, "log", "--since=365.days", "--name-only",
              "--pretty=format:%an"], capture_output=True, text=True, timeout=90).stdout
-        who = None
-        counts: dict[str, dict] = {}
-        for line in out.splitlines():
-            if not line.strip():
-                continue
-            if "/" not in line and "." not in line.split()[-1][-6:]:
-                who = line.strip()
-            elif who:
-                counts.setdefault(line.strip(), {})
-                counts[line.strip()][who] = counts[line.strip()].get(who, 0) + 1
-        for f, people in list(counts.items()):
-            top = sorted(people.items(), key=lambda kv: -kv[1])[:2]
-            if top:
-                blame_owners[f] = [f"{n} ({c})" for n, c in top]
-    except Exception:  # noqa: BLE001
-        pass
+    except (OSError, subprocess.SubprocessError):  # a map without owners is still a map
+        out = ""
+    who = None
+    counts: dict[str, dict] = {}
+    for line in out.splitlines():
+        if not line.strip():
+            continue
+        if "/" not in line and "." not in line.split()[-1][-6:]:
+            who = line.strip()
+        elif who:
+            counts.setdefault(line.strip(), {})
+            counts[line.strip()][who] = counts[line.strip()].get(who, 0) + 1
+    for f, people in list(counts.items()):
+        top = sorted(people.items(), key=lambda kv: -kv[1])[:2]
+        if top:
+            blame_owners[f] = [f"{n} ({c})" for n, c in top]
     blame_owners = dict(sorted(blame_owners.items(),
                                key=lambda kv: -len(kv[1]))[:40])
 

@@ -686,3 +686,53 @@ jobs:
           # And the map says it left something out rather than looking complete.
           grep -q "a symlink in this tree resolves outside the repository" \
             /tmp/esc/m/framework_map.md
+
+      - name: a broad handler no longer swallows what the parse loop does
+        run: |
+          rm -rf /tmp/nx
+          mkdir -p /tmp/nx/r /tmp/nx/m
+          printf 'def f():\n    pass\n' > /tmp/nx/r/a.py
+          # A runs API that answers with a list holding one string and one
+          # real row. The whole loop used to sit inside `except Exception`, so
+          # row.get on the string raised AttributeError and the section came
+          # back empty on an endpoint that had data in it.
+          python - <<'EOF' &
+          import http.server, json
+          class H(http.server.BaseHTTPRequestHandler):
+              def do_GET(self):
+                  body = json.dumps(["junk", {"id": "r1", "ticket": "AB-1",
+                                              "verdict": "fail",
+                                              "summary": "a real row"}]).encode()
+                  self.send_response(200)
+                  self.send_header("Content-Type", "application/json")
+                  self.send_header("Content-Length", str(len(body)))
+                  self.end_headers()
+                  self.wfile.write(body)
+              def log_message(self, *a):
+                  pass
+          http.server.HTTPServer(("127.0.0.1", 8731), H).serve_forever()
+          EOF
+          SRV=$!
+          sleep 2
+          where-are-we --repo /tmp/nx/r --out /tmp/nx/m --product none --force \
+            --quiet --no-semantic --runs-api http://127.0.0.1:8731
+          kill $SRV || true
+          grep -q "a real row" /tmp/nx/m/framework_map.json
+          # git history and blame still land, and a repository with no git at
+          # all still builds: those are what the narrowed handlers are for.
+          rm -rf /tmp/nx/g /tmp/nx/gm
+          mkdir -p /tmp/nx/g
+          git -C /tmp/nx/g init -q
+          git -C /tmp/nx/g config user.email t@t
+          git -C /tmp/nx/g config user.name "A Person"
+          printf 'def f():\n    pass\n' > /tmp/nx/g/a.py
+          git -C /tmp/nx/g add -A
+          git -C /tmp/nx/g commit -qm "AB-42 first commit"
+          where-are-we --repo /tmp/nx/g --out /tmp/nx/gm --product none --force \
+            --quiet --no-semantic
+          grep -q '"AB-42"' /tmp/nx/gm/framework_map.json
+          grep -q "A Person" /tmp/nx/gm/framework_map.json
+          where-are-we --repo /tmp/nx/r --out /tmp/nx/m --product none --force \
+            --quiet --no-semantic
+          # Only the borderline for-each-ref handler is still a broad one.
+          test "$(grep -c 'except Exception' src/where_are_we/_mapper/build.py)" = "1"
