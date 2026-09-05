@@ -345,3 +345,154 @@ jobs:
           printf 'z=3\n' > /tmp/pd/r/c.py
           where-are-we --out /tmp/pd/m --pointer > /tmp/pd/second.txt
           grep -q "2 files changed" /tmp/pd/second.txt
+
+      - name: mcp malformed params/arguments/limit get a JSON-RPC error, not a dead server
+        run: |
+          rm -rf /tmp/mcperr
+          mkdir -p /tmp/mcperr/pkg
+          printf 'def charge(x):\n    return x\n' > /tmp/mcperr/pkg/billing.py
+          where-are-we --repo /tmp/mcperr --out /tmp/mcperr/.wawe --force --no-semantic --quiet
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":[1,2,3]}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ask","arguments":["x"]}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"charge","limit":"abc"}}}' \
+            '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"ask","arguments":{"words":"charge"}}}' \
+            | where-are-we --repo /tmp/mcperr --out /tmp/mcperr/.wawe --mcp | tee /tmp/mcperr-out.txt
+          grep -q '"id": 1, "error": {"code": -32602' /tmp/mcperr-out.txt
+          grep -q '"id": 2, "error": {"code": -32602' /tmp/mcperr-out.txt
+          grep -q '"id": 3, "error": {"code": -32602' /tmp/mcperr-out.txt
+          # A bad request earlier on the same pipe must not take the server
+          # down: the next, well-formed request still gets answered.
+          grep -q '"id": 4, "result"' /tmp/mcperr-out.txt
+
+      - name: lsp malformed params get a JSON-RPC error; file:// URI is percent-encoded
+        run: |
+          rm -rf "/tmp/lsperr"
+          mkdir -p "/tmp/lsperr/repo café"
+          printf 'def charge(x):\n    return x\n' > "/tmp/lsperr/repo café/billing.py"
+          printf 'from billing import charge\n\ndef pay():\n    return charge(1)\n' > "/tmp/lsperr/repo café/api.py"
+          where-are-we --repo "/tmp/lsperr/repo café" --out /tmp/lsperr/m --force --no-semantic --quiet
+          python - <<'EOF'
+          import json
+          import subprocess
+
+          def frame(obj):
+              body = json.dumps(obj).encode()
+              return b"Content-Length: %d\r\n\r\n%s" % (len(body), body)
+
+          messages = [
+              frame({"jsonrpc": "2.0", "id": 1,
+                     "method": "textDocument/definition", "params": [1, 2]}),
+              frame({"jsonrpc": "2.0", "id": 2,
+                     "method": "workspace/symbol", "params": {"query": "cha"}}),
+          ]
+          proc = subprocess.run(
+              ["where-are-we", "--repo", "/tmp/lsperr/repo café",
+               "--out", "/tmp/lsperr/m", "--lsp"],
+              input=b"".join(messages), capture_output=True, timeout=30)
+          out = proc.stdout.decode()
+          assert '"code": -32602' in out, out
+          # A path with a space and a non-ASCII character comes back
+          # percent-encoded (Path.as_uri()), not raw: an editor can open it.
+          assert "repo%20caf%C3%A9" in out, out
+          # The bad request above did not end the session.
+          assert '"name": "charge"' in out, out
+          assert proc.returncode == 0, proc.returncode
+          print("lsp malformed params and unicode URI: OK")
+          EOF
+
+      - name: mcp and lsp exit 0 quietly when stdout closes early
+        run: |
+          rm -rf /tmp/epipe
+          mkdir -p /tmp/epipe/pkg
+          printf 'def charge(x):\n    return x\n' > /tmp/epipe/pkg/billing.py
+          where-are-we --repo /tmp/epipe --out /tmp/epipe/.wawe --force --no-semantic --quiet
+          python -c '
+          for i in range(200):
+              print("{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"tools/call\",\"params\":{\"name\":\"sections\",\"arguments\":{}}}" % i)
+          ' > /tmp/epipe/mcp-reqs.jsonl
+          cat /tmp/epipe/mcp-reqs.jsonl \
+            | where-are-we --repo /tmp/epipe --out /tmp/epipe/.wawe --mcp 2> /tmp/epipe/mcp.err \
+            | head -c 10 > /dev/null
+          test "${PIPESTATUS[0]}" = "0"
+          test ! -s /tmp/epipe/mcp.err
+          python - <<'EOF' > /tmp/epipe/lsp-reqs.bin
+          import json
+          import sys
+
+          def frame(obj):
+              body = json.dumps(obj).encode()
+              return b"Content-Length: %d\r\n\r\n%s" % (len(body), body)
+
+          for i in range(200):
+              sys.stdout.buffer.write(frame(
+                  {"jsonrpc": "2.0", "id": i, "method": "workspace/symbol",
+                   "params": {"query": "cha"}}))
+          EOF
+          cat /tmp/epipe/lsp-reqs.bin \
+            | where-are-we --repo /tmp/epipe --out /tmp/epipe/.wawe --lsp 2> /tmp/epipe/lsp.err \
+            | head -c 10 > /dev/null
+          test "${PIPESTATUS[0]}" = "0"
+          test ! -s /tmp/epipe/lsp.err
+
+      - name: semantic search degrades on a corrupt index, through the MCP ask path
+        run: |
+          rm -rf /tmp/sem
+          mkdir -p /tmp/sem/pkg
+          printf 'def charge(x):\n    return x\n' > /tmp/sem/pkg/billing.py
+          where-are-we --repo /tmp/sem --out /tmp/sem/.wawe --force --no-semantic --quiet
+          : > /tmp/sem/.wawe/semantic_index.npy
+          printf '{"fingerprint":"x","chunks":[]}' > /tmp/sem/.wawe/semantic_index.json
+          pip install -q numpy
+          python - <<'EOF'
+          import io
+          import sys
+          import types
+
+          # A real numpy (installed above) so np.load's own EOFError on a
+          # zero-byte file is genuine; only fastembed is stubbed, since
+          # this failure never reaches an embedder.
+          fastembed = types.ModuleType("fastembed")
+
+          class TextEmbedding:
+              def __init__(self, *a, **k):
+                  pass
+
+              def embed(self, texts):
+                  return [[0.1] * 384 for _ in texts]
+
+          fastembed.TextEmbedding = TextEmbedding
+          sys.modules["fastembed"] = fastembed
+
+          from where_are_we import mcp
+
+          request = ('{"jsonrpc":"2.0","id":1,"method":"tools/call",'
+                     '"params":{"name":"ask","arguments":{"words":"charge"}}}\n')
+          sys.stdin = io.StringIO(request)
+          out, real_stdout = io.StringIO(), sys.stdout
+          sys.stdout = out
+          try:
+              rc = mcp.serve("/tmp/sem/.wawe")
+          finally:
+              sys.stdout = real_stdout
+          answer = out.getvalue()
+          assert rc == 0, rc
+          assert "charge" in answer, answer
+          print("semantic: corrupt index answered without the tail, OK")
+          EOF
+
+      - name: wawe-measure skips a null tool_use name; a missing input still classifies
+        run: |
+          rm -rf /tmp/msnull
+          mkdir -p /tmp/msnull
+          printf '%s\n' \
+            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":null,"input":{"command":"grep x"}}]}}' \
+            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep"}]}}' \
+            '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Grep","input":{}}]}}' \
+            > /tmp/msnull/s1.jsonl
+          wawe-measure --sessions /tmp/msnull --json 2> /tmp/msnull.err | tee /tmp/msnull.json
+          grep -q '"turns": 3' /tmp/msnull.json
+          # A missing `input` key defaults to {} and still counts as a
+          # search, same as {"input": {}} - only the null name is skipped.
+          grep -q '"searches": 2' /tmp/msnull.json
+          grep -q "skipped 1 unparsable lines" /tmp/msnull.err

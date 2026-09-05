@@ -58,16 +58,26 @@ def _classify(name: str, tool_input: dict) -> str:
     return "other"
 
 
-def _tool_uses(message: dict) -> list[tuple[str, dict]]:
-    """The (name, input) pairs of every tool_use block in one message."""
+def _tool_uses(message: dict) -> tuple[list[tuple[str, dict]], int]:
+    """The (name, input) pairs of every tool_use block in one message, and
+    the count of blocks skipped for carrying no usable name - a transcript
+    is a third-party file across many versions, and one odd block should
+    not cost the whole session's classification. A missing `input` is not
+    one of those: it defaults to {}, same as it always has."""
     content = message.get("content")
     if not isinstance(content, list):
-        return []
+        return [], 0
     out = []
+    skipped = 0
     for block in content:
-        if isinstance(block, dict) and block.get("type") == "tool_use":
-            out.append((block.get("name", ""), block.get("input") or {}))
-    return out
+        if not (isinstance(block, dict) and block.get("type") == "tool_use"):
+            continue
+        name = block.get("name")
+        if not isinstance(name, str) or not name:
+            skipped += 1
+            continue
+        out.append((name, block.get("input") or {}))
+    return out, skipped
 
 
 def _parse_session(path: str) -> tuple[dict, int]:
@@ -95,7 +105,9 @@ def _parse_session(path: str) -> tuple[dict, int]:
             if not isinstance(message, dict):
                 continue
             turns += 1
-            kinds = [_classify(n, i) for n, i in _tool_uses(message)]
+            uses, tool_skips = _tool_uses(message)
+            skipped += tool_skips
+            kinds = [_classify(n, i) for n, i in uses]
             if "map" in kinds:
                 map_calls += kinds.count("map")
                 if first_map_call_turn is None:
