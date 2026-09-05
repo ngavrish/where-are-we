@@ -240,20 +240,83 @@ def _config(repo: str) -> dict:
     return out
 
 
+# Issuer prefixes: a string in one of these shapes is a credential wherever it
+# appears, whatever the line around it says. Each one is anchored on a prefix a
+# vendor reserved, so a false positive would have to be a deliberate imitation.
+#
+# What is deliberately not here any more: a bare `[A-Za-z0-9+/]{40,}={0,2}`,
+# which called any forty-character run of alphanumerics a secret. It destroyed
+# every commit sha and every long Java package path in the map, so `find` could
+# not return the line a reader asked for and the map was silently wrong rather
+# than silently incomplete. The keyed rule below covers the case it was there
+# for: an opaque value on a line that says it is a secret.
 _SECRET_SHAPES = re.compile(
-    r"(?:AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}"
-    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----|eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"
-    r"|pypi-[A-Za-z0-9_-]{40,}|[A-Za-z0-9+/]{40,}={0,2})")
+    r"(?:AKIA[0-9A-Z]{16}"                          # AWS access key id
+    r"|ghp_[A-Za-z0-9]{20,}"                        # GitHub personal token
+    r"|gh[opsu]_[A-Za-z0-9]{20,}"                   # the rest of the gh_ family
+    r"|github_pat_[A-Za-z0-9_]{20,}"                # GitHub fine-grained token
+    r"|xox[baprse]-[A-Za-z0-9-]{10,}"               # Slack
+    r"|sk_(?:live|test)_[A-Za-z0-9]{10,}"           # Stripe
+    r"|rk_(?:live|test)_[A-Za-z0-9]{10,}"           # Stripe restricted
+    r"|sk-(?:proj-)?[A-Za-z0-9_-]{20,}"             # OpenAI
+    r"|pypi-[A-Za-z0-9_-]{40,}"                     # PyPI upload token
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----"          # PEM block header
+    r"|eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}(?:\.[A-Za-z0-9_-]+)?"  # JWT
+    r")")
+
+# A URL that carries its own credentials: postgres://user:pass@host/db. Only
+# the password is replaced, because the scheme, the user and the host are the
+# part of the line a reader is asking about. The host part must be followed by
+# an `@` for this to fire, so `http://example.com:8080/x` is left alone.
+_SECRET_URL = re.compile(
+    r"(?i)\b([a-z][a-z0-9+.\-]*://[^\s/:@\"\']+):[^\s/@\"\']+@")
+
+# A line whose left-hand side says the right-hand side is a credential: an
+# assignment, a dict or JSON key, a YAML key, an `export`. This is the rule
+# that covers every shape nobody has a prefix for, which was most of them:
+# a password, a database DSN, an internal service token.
+#
+# The key is read as identifier segments (`DB_PASSWORD` is `db` then
+# `password`) and one whole segment has to be the word, so `Authentication:`
+# is prose and `author = "A Person"` is a name, neither of them a secret.
+#
+# Two patterns rather than one, because a bare value and a quoted value are
+# not equally safe to guess at. A quoted value is a literal wherever it sits,
+# so _SECRET_KEYED_QUOTED fires anywhere on the line. A bare value is only
+# read as a secret when the key starts the line: that is what a .env line, an
+# `export` and a YAML key look like, and it is what keeps the type annotation
+# in `def get_token(self, auth_token: str)` out of it. Code with a call or a
+# subscript on the right survives either way, because neither value pattern
+# admits a bracket.
+_KEY_SEG = r"[A-Za-z0-9]+"
+_SECRET_WORD = (r"(?:secret|passw(?:or)?d|token|api[_-]?key|private[_-]?key"
+                r"|credential|auth)")
+_SECRET_KEY = (rf"[\"']?(?:{_KEY_SEG}[_.\-])*{_SECRET_WORD}s?"
+               rf"(?:[_.\-]{_KEY_SEG})*[\"']?")
+_SECRET_KEYED_QUOTED = re.compile(
+    rf"(?i)((?:^|[\s,{{\[(]){_SECRET_KEY}\s*[:=]\s*)"
+    r"(\"[^\"\n]*\"|'[^'\n]*')")
+_SECRET_KEYED_BARE = re.compile(
+    rf"(?im)(^[ \t]*(?:-[ \t]+)?(?:export[ \t]+)?{_SECRET_KEY}[ \t]*[:=][ \t]*)"
+    r"([^\s'\"(){}\[\],;]+(?=$|[ \t,;]))")
 
 
 def redact(value):
     """Never carry a credential into the map.
 
-    The map is written into files that get committed and pasted into prompts, so
-    anything that looks like a key is replaced by its shape. Paths to secrets are
-    useful and kept; the secrets themselves are not."""
+    The map is written into files that get committed and pasted into prompts,
+    and every indexed line of every indexed file goes into it, so anything that
+    looks like a key is replaced by its shape. Paths to secrets are useful and
+    kept; the secrets themselves are not.
+
+    Three rules, in this order, because each one narrows what the next has to
+    guess at: the issuer prefixes, then the credentials inside a URL, then a
+    quoted and then a bare value on a line that names itself a secret."""
     if isinstance(value, str):
-        return _SECRET_SHAPES.sub("[redacted]", value)
+        out = _SECRET_SHAPES.sub("[redacted]", value)
+        out = _SECRET_URL.sub(r"\1:[redacted]@", out)
+        out = _SECRET_KEYED_QUOTED.sub(r"\1[redacted]", out)
+        return _SECRET_KEYED_BARE.sub(r"\1[redacted]", out)
     if isinstance(value, list):
         return [redact(v) for v in value]
     if isinstance(value, dict):

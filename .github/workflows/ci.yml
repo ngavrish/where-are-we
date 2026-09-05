@@ -1123,3 +1123,48 @@ jobs:
             --quiet --no-semantic
           where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --pointer > /dev/null
           where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --ask f > /dev/null
+
+      - name: no seeded secret reaches any artefact, and a commit sha survives
+        run: |
+          rm -rf /tmp/sec
+          mkdir -p /tmp/sec/r/pkg /tmp/sec/m
+          cat > /tmp/sec/r/pkg/settings.py <<'PY'
+          DATABASE_URL = "postgres://admin:s3cr3tp4ss@db.internal:5432/prod"
+          STRIPE_KEY = "sk_live_FAKE0FAKE0FAKE0"
+          ADMIN_PASSWORD = "hunter2"
+          OPENAI_API_KEY = "sk-proj-Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8"
+          JWT = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abc"
+          COMMIT_UNDER_TEST = "a3f5c9e2b7d1084f6a2c5e8b1d4f7a0c3e6b9d2f"
+          LONG_PATH = "src/main/java/com/example/service/impl/CustomerServiceImpl.java"
+          PY
+          printf 'db_password: hunter3\napi_key: abcdefdeadbeef\nharmless: keep-this-value\n' \
+            > /tmp/sec/r/pkg/conf.yaml
+          printf '{"client_secret": "abc123secret", "name": "widget"}\n' > /tmp/sec/r/pkg/j.json
+          printf 'export GITHUB_TOKEN=ghsecrettoken12345\nexport PATH=/usr/bin:$PATH\n' \
+            > /tmp/sec/r/pkg/setup.sh
+          printf 'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nDB_PASSWORD=hunter2\n' > /tmp/sec/r/.env
+          where-are-we --repo /tmp/sec/r --out /tmp/sec/m --product none --force \
+            --quiet --no-semantic
+          where-are-we --repo /tmp/sec/r --out /tmp/sec/m --ask STRIPE_KEY > /dev/null
+          where-are-we --repo /tmp/sec/r --out /tmp/sec/m --ask db_password > /dev/null
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"STRIPE_KEY"}}}' \
+            | where-are-we --repo /tmp/sec/r --out /tmp/sec/m --mcp > /tmp/sec/find.txt
+          # Six shapes used to be redacted and everything else on an indexed
+          # line went verbatim into the map and out through MCP find.
+          for f in /tmp/sec/m/framework_map.json /tmp/sec/m/framework_map.md \
+                   /tmp/sec/m/framework_map_brief.md /tmp/sec/m/.wawe-ask.log \
+                   /tmp/sec/find.txt; do
+            ! grep -qE 's3cr3tp4ss|sk_live_FAKE|hunter2|hunter3|sk-proj-Ab1|abc123secret|ghsecrettoken12345|abcdefdeadbeef|AKIAIOSFODNN7EXAMPLE|eyJzdWIi' "$f"
+          done
+          # The key names stay: a reader asking where a password is set still
+          # gets the file and the line.
+          grep -q "STRIPE_KEY" /tmp/sec/m/framework_map.json
+          grep -q "db_password" /tmp/sec/m/framework_map.json
+          grep -q "STRIPE_KEY" /tmp/sec/find.txt
+          grep -q "redacted" /tmp/sec/find.txt
+          # The bare base64 rule used to destroy both of these.
+          grep -q "a3f5c9e2b7d1084f6a2c5e8b1d4f7a0c3e6b9d2f" /tmp/sec/m/framework_map.json
+          grep -q "com/example/service/impl/CustomerServiceImpl.java" \
+            /tmp/sec/m/framework_map.json
+          grep -q "keep-this-value" /tmp/sec/m/framework_map.json
+          grep -q "export PATH=/usr/bin" /tmp/sec/m/framework_map.json

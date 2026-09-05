@@ -503,6 +503,32 @@ existing files are never overwritten, and anything shaped like a credential is
 redacted before it reaches a file. The commit and the newest file in the tree are
 recorded with the map, so a re-run on an unchanged tree costs a stat walk.
 
+### What is redacted
+
+The map holds every indexed line of every indexed file, and the map gets
+committed and pasted into prompts, so three rules replace a credential with
+`[redacted]` before anything is written:
+
+1. An issuer prefix anywhere in the line: `AKIA...` (AWS), `ghp_`/`gho_`/
+   `ghs_`/`ghu_`/`github_pat_` (GitHub), `xox?-...` (Slack), `sk_live_`/
+   `sk_test_`/`rk_live_`/`rk_test_` (Stripe), `sk-`/`sk-proj-` (OpenAI),
+   `pypi-` (PyPI), a `-----BEGIN ... PRIVATE KEY-----` header, a JWT.
+2. The password inside a URL: `postgres://admin:pw@host/db` keeps the scheme,
+   the user and the host and loses the password.
+3. The value on a line whose left-hand side names a secret: a segment of the
+   key is `secret`, `password`, `passwd`, `token`, `api_key`, `private_key`,
+   `credential` or `auth`, in an assignment, a dict or JSON key, a YAML key or
+   an `export`. A quoted value is replaced wherever it sits on the line; a bare
+   value only when the key starts the line, which is what a `.env` line, an
+   `export` and a YAML key look like.
+
+Key names are kept, so a question about where a password is set still gets the
+file and the line. Code on the right-hand side is kept too: neither value rule
+admits a bracket, so `token = lexer.next_token()` and
+`PASSWORD = os.environ["PW"]` are still in the map. What is deliberately not a
+rule any more is a bare run of forty base64 characters, which used to destroy
+every commit sha and every long Java package path in the map.
+
 `.wawe.toml`'s `[synonyms]` table adds a project's own words to `--ask`'s
 built-in groups (login/signin/auth, invoice/bill/billing, and eighteen more):
 
