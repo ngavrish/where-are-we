@@ -73,7 +73,7 @@ def build(repo: str, out_dir: str | None = None,
     for p in _walk(repo, ".feature"):
         rel = os.path.relpath(p, repo)
         try:
-            body = open(p, encoding="utf-8", errors="replace").read()
+            body = _slurp(p)
         except OSError:
             continue
         scenarios = []
@@ -96,10 +96,7 @@ def build(repo: str, out_dir: str | None = None,
         rel = os.path.relpath(p2, repo)
         if "/steps/" in "/" + rel:
             continue
-        try:
-            src = open(p2, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
+        src = _slurp(p2)
         looks_like_page = (
             os.path.basename(p2).lower().endswith(("page.py", "_page.py"))
             or "/pages/" in "/" + rel.lower() or "/page_objects/" in "/" + rel.lower()
@@ -121,7 +118,7 @@ def build(repo: str, out_dir: str | None = None,
     for p in _walk(repo, ".envrc") + _walk(repo, "environment.py") + _walk(repo, ".sh"):
         rel = os.path.relpath(p, repo)
         try:
-            body = open(p, encoding="utf-8", errors="replace").read()
+            body = _slurp(p)
         except OSError:
             continue
         for name in set(re.findall(r"\b([A-Z][A-Z0-9]{1,}_[A-Z0-9_]{2,}|ENV|HEADLESS)\b", body)):
@@ -137,7 +134,7 @@ def build(repo: str, out_dir: str | None = None,
 
         def _symbols_of(full=full):
             try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+                tree = ast.parse(_slurp(full))
             except (OSError, SyntaxError):
                 return None
             consts, funcs = [], []
@@ -162,7 +159,7 @@ def build(repo: str, out_dir: str | None = None,
 
         def _api_of(full=full, rel=rel):
             try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+                tree = ast.parse(_slurp(full))
             except (OSError, SyntaxError):
                 return {"api": [], "defs": []}
             out, defs = [], []
@@ -206,8 +203,7 @@ def build(repo: str, out_dir: str | None = None,
         if "/docs/" not in "/" + rel and not rel.lower().startswith("readme"):
             continue
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8",
-                        errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         docs[rel] = {"headings": re.findall(r"^#{1,3}\s+(.+)$", body, re.M)[:30],
@@ -219,7 +215,7 @@ def build(repo: str, out_dir: str | None = None,
 
         def _doc_of(full=full):
             try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+                tree = ast.parse(_slurp(full))
             except (OSError, SyntaxError):
                 return None
             return ast.get_docstring(tree)
@@ -237,7 +233,7 @@ def build(repo: str, out_dir: str | None = None,
     feature_links: dict[str, dict] = {}
     for rel in features:
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         mods = set()
@@ -253,7 +249,7 @@ def build(repo: str, out_dir: str | None = None,
         pages = set()
         for mod in mods:
             try:
-                src = open(os.path.join(repo, mod), encoding="utf-8", errors="replace").read()
+                src = _slurp(os.path.join(repo, mod))
             except OSError:
                 continue
             for po in page_objects:
@@ -272,7 +268,7 @@ def build(repo: str, out_dir: str | None = None,
     testids: dict[str, list[str]] = {"suite": [], "product": []}
     for po in page_objects + list(steps):
         try:
-            src = open(os.path.join(repo, po), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, po))
         except OSError:
             continue
         testids["suite"] += re.findall(r"data-testid=[\"\']([\w:.-]+)", src)
@@ -281,7 +277,7 @@ def build(repo: str, out_dir: str | None = None,
             continue
         for p2 in _walk(root, ".tsx") + _walk(root, ".ts"):
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             testids["product"] += re.findall(r"data-testid=[\"\'{]{1,2}([\w:.-]+)", src)
@@ -305,7 +301,7 @@ def build(repo: str, out_dir: str | None = None,
     reporting = {}
     for rel in list(steps) + envs + scripts:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for kw in ("allure", "REPORT_PORTAL", "reportportal", "junit", "screenshot",
@@ -323,7 +319,7 @@ def build(repo: str, out_dir: str | None = None,
 
         def _hooks_of(full=full, rel=rel):
             try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+                tree = ast.parse(_slurp(full))
             except (OSError, SyntaxError):
                 return {}
             found = {}
@@ -358,7 +354,7 @@ def build(repo: str, out_dir: str | None = None,
             index_declarations(p3, "product")
         for p2 in _walk(src_root, ".tsx") + _walk(src_root, ".ts"):
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             product["routes"] += re.findall(r"path=[\"\']([/][\w/:-]*)", src)
@@ -397,7 +393,7 @@ def build(repo: str, out_dir: str | None = None,
         index_declarations(_p, "suite")
     for rel in page_objects + list(steps) + drivers:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         loc = re.findall(r"^([A-Z_0-9]*(?:XPATH|SELECTOR|LOCATOR|CSS)[A-Z_0-9]*)\s*=\s*(.+)$",
@@ -415,7 +411,7 @@ def build(repo: str, out_dir: str | None = None,
         fp = os.path.join(repo, name)
         if os.path.exists(fp):
             try:
-                behave_cfg[name] = open(fp, encoding="utf-8", errors="replace").read()[:2000]
+                behave_cfg[name] = _slurp(fp)[:2000]
             except OSError:
                 continue
 
@@ -427,7 +423,7 @@ def build(repo: str, out_dir: str | None = None,
         if "coverage" not in rel.lower():
             continue
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         coverage_docs[rel] = {
@@ -443,7 +439,7 @@ def build(repo: str, out_dir: str | None = None,
                                        "reset_env", "watchdog")):
             continue
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         env_setup[rel] = {
@@ -456,7 +452,7 @@ def build(repo: str, out_dir: str | None = None,
     backend = {"endpoints": [], "tables": [], "seed_scripts": []}
     for rel in list(steps) + list(helpers if "helpers" in dir() else []):
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         backend["endpoints"] += re.findall(r"[\"\'`](/api/v\d[\w/{}.-]*)", src)
@@ -477,7 +473,7 @@ def build(repo: str, out_dir: str | None = None,
         fp = os.path.join(repo, name)
         if os.path.exists(fp):
             try:
-                conventions[name] = open(fp, encoding="utf-8", errors="replace").read()[:1500]
+                conventions[name] = _slurp(fp)[:1500]
             except OSError:
                 continue
 
@@ -533,8 +529,7 @@ def build(repo: str, out_dir: str | None = None,
                 continue
             rel = os.path.relpath(os.path.join(base, fn), repo)
             try:
-                body = open(os.path.join(base, fn), encoding="utf-8",
-                            errors="replace").read()
+                body = _slurp(os.path.join(base, fn))
             except OSError:
                 continue
             first = next((ln.strip() for ln in body.splitlines()
@@ -613,7 +608,7 @@ def build(repo: str, out_dir: str | None = None,
 
         def _call_graph_of(full=full, rel=rel):
             try:
-                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+                tree = ast.parse(_slurp(full))
             except (OSError, SyntaxError):
                 return {}
             found = {}
@@ -633,7 +628,7 @@ def build(repo: str, out_dir: str | None = None,
     artefacts = {}
     for rel in list(steps) + envs + scripts + drivers:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for m2 in re.findall(r"[\"\']([\w./-]*(?:report|screenshot|junit|allure|video|trace|log)[\w./-]*)[\"\']",
@@ -649,8 +644,7 @@ def build(repo: str, out_dir: str | None = None,
     feature_text = ""
     for rel in features:
         try:
-            feature_text += open(os.path.join(repo, rel), encoding="utf-8",
-                                 errors="replace").read().lower()
+            feature_text += _slurp(os.path.join(repo, rel)).lower()
         except OSError:
             continue
     unused_steps = {}
@@ -663,8 +657,7 @@ def build(repo: str, out_dir: str | None = None,
     suite_src = feature_text
     for rel in list(steps) + page_objects + drivers:
         try:
-            suite_src += open(os.path.join(repo, rel), encoding="utf-8",
-                              errors="replace").read()
+            suite_src += _slurp(os.path.join(repo, rel))
         except OSError:
             continue
     unused_api = {}
@@ -678,7 +671,7 @@ def build(repo: str, out_dir: str | None = None,
     debts = {}
     for rel in list(steps) + page_objects + list(features) + drivers + envs:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         found = _lines_matching(src, ('@skip', '@wip', 'fixme', 'hack', 'todo', 'xxx'), 6)
@@ -726,7 +719,7 @@ def build(repo: str, out_dir: str | None = None,
         fp = os.path.join(repo, name)
         if os.path.exists(fp):
             try:
-                body = open(fp, encoding="utf-8", errors="replace").read()
+                body = _slurp(fp)
             except OSError:
                 continue
             deps[name] = sorted(set(re.findall(
@@ -741,8 +734,7 @@ def build(repo: str, out_dir: str | None = None,
             if not fn.endswith((".yml", ".yaml")):
                 continue
             try:
-                body = open(os.path.join(base, fn), encoding="utf-8",
-                            errors="replace").read()
+                body = _slurp(os.path.join(base, fn))
             except OSError:
                 continue
             ci[os.path.join(rel, fn)] = {
@@ -761,7 +753,7 @@ def build(repo: str, out_dir: str | None = None,
     auth = {}
     for rel in list(steps) + envs + page_objects + drivers + helpers_paths:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         hits = _lines_matching(src, ('auth', 'cognito', 'cookie', 'log_in', 'login', 'okta', 'session', 'sign_in', 'sso', 'token'), 4)
@@ -774,7 +766,7 @@ def build(repo: str, out_dir: str | None = None,
     concurrency = {"shared_state": [], "serial_tags": [], "notes": []}
     for rel in list(steps) + envs + page_objects:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for m2 in re.findall(r"^([A-Z_0-9]+)\s*=\s*(?:\{|\[|dict\(|list\()", src, re.M):
@@ -790,7 +782,7 @@ def build(repo: str, out_dir: str | None = None,
     failure_signatures = {}
     for rel in list(steps) + page_objects + drivers + envs:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for msg in re.findall(r"(?:assert[^,\n]*,\s*|raise \w+\(\s*)f?[\"\']([^\"\']{25,140})",
@@ -812,7 +804,7 @@ def build(repo: str, out_dir: str | None = None,
             safe_data[rel] = sorted(set(ids))[:20]
     for rel in list(features)[:60]:
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         nums = re.findall(r"\b(\d{4,7})\b", body)
@@ -838,7 +830,7 @@ def build(repo: str, out_dir: str | None = None,
     tag_meaning = {}
     for rel, meta in (docs or {}).items():
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for tag, sense in re.findall(r"[`@](\w[\w.-]{2,})[`]?\s*[—:-]\s*([^\n]{10,120})", body)[:40]:
@@ -859,7 +851,7 @@ def build(repo: str, out_dir: str | None = None,
             continue
         for p2 in _walk(root, ".tsx"):
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             for tid in set(re.findall(r"data-testid=[\"\'{]{1,2}([\w:.-]+)", src)):
@@ -883,7 +875,7 @@ def build(repo: str, out_dir: str | None = None,
             continue
         for p2 in (_walk(root, ".tsx") + _walk(root, ".ts"))[:400]:
             try:
-                src = open(p2, encoding="utf-8", errors="replace").read()
+                src = _slurp(p2)
             except OSError:
                 continue
             ui_strings += re.findall(r">\s*([A-Z][A-Za-z ]{4,40})\s*<", src)
@@ -898,7 +890,7 @@ def build(repo: str, out_dir: str | None = None,
                 continue
             rel = os.path.relpath(os.path.join(base, fn), repo)
             try:
-                body = open(os.path.join(base, fn), encoding="utf-8", errors="replace").read()
+                body = _slurp(os.path.join(base, fn))
             except OSError:
                 continue
             infra[rel] = {
@@ -908,7 +900,7 @@ def build(repo: str, out_dir: str | None = None,
             }
     for rel in scripts:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         health = re.findall(r"https?://[\w.:%-]*/(?:health|healthz|health_check|ping)[\w/]*", src)
@@ -922,7 +914,7 @@ def build(repo: str, out_dir: str | None = None,
     for rel in list(steps) + [r for r in _walk(repo, ".sql")]:
         rel = os.path.relpath(rel, repo) if os.path.isabs(rel) else rel
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for tbl, cols in re.findall(r"SELECT\s+(.{5,300}?)\s+FROM\s+([a-z_][\w.]*)",
@@ -950,7 +942,7 @@ def build(repo: str, out_dir: str | None = None,
     env_differences = {}
     for rel in list(steps) + envs + scripts:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         hits = _lines_matching(src, ('dev', 'envs==s"\':uat', 'local', 'prod'), 4)
@@ -996,7 +988,7 @@ def build(repo: str, out_dir: str | None = None,
     feature_style = {}
     for rel in list(features)[:1]:
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         feature_style = {
@@ -1021,7 +1013,7 @@ def build(repo: str, out_dir: str | None = None,
 
         def _pytest_of(p2=p2):
             try:
-                tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
+                tree = ast.parse(_slurp(p2))
             except (OSError, SyntaxError):
                 return {"cases": [], "fixs": [], "markers": []}
             cases, fixs, marks = [], [], []
@@ -1051,7 +1043,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             names = re.findall(r"(?:describe|it|test)\s*\(\s*[\"\'`]([^\"\'`]{3,80})", body)
@@ -1065,7 +1057,7 @@ def build(repo: str, out_dir: str | None = None,
         if not os.path.exists(fp):
             continue
         try:
-            body = open(fp, encoding="utf-8", errors="replace").read()
+            body = _slurp(fp)
         except OSError:
             continue
         hits = [ln.strip() for ln in body.splitlines()
@@ -1084,7 +1076,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cypress[rel] = re.findall(r"(?:describe|it|context)\s*\(\s*[\"\'`]([^\"\'`]{3,80})",
@@ -1096,7 +1088,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".robot"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"^(\S.+)$", body.split("*** Test Cases ***")[-1], re.M)[:20] \
@@ -1113,7 +1105,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cases = re.findall(r"@(?:Test|ParameterizedTest)[^\n]*\n\s*(?:public\s+)?\w[\w<>\[\] ]*\s+(\w+)\s*\(",
@@ -1129,7 +1121,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cases = re.findall(r'(?:test|it|should)\s*\(\s*[\"\']([^\"\']{3,90})', body)
@@ -1147,7 +1139,7 @@ def build(repo: str, out_dir: str | None = None,
             if any(k in "/" + rel.lower() for k in ("node_modules", "/dist/", "/build/")):
                 continue
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             glue = re.findall(
@@ -1163,7 +1155,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, "_test.go"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         go_tests[rel] = re.findall(r"^func\s+(Test\w+|Benchmark\w+|Fuzz\w+)\s*\(", body, re.M)[:25]
@@ -1174,7 +1166,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, "_spec.rb"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         rspec[rel] = re.findall(r"(?:describe|context|it)\s+[\"\']([^\"\']{3,80})", body)[:20]
@@ -1188,7 +1180,7 @@ def build(repo: str, out_dir: str | None = None,
         for p2 in _walk(repo, ext):
             rel = os.path.relpath(p2, repo)
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             cases = re.findall(r"\[(?:Fact|Theory|Test|TestMethod)\][\s\S]{0,200}?\b(\w+)\s*\(", body)[:20]
@@ -1202,7 +1194,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".php"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"function\s+(test\w+)\s*\(", body)[:20]
@@ -1216,7 +1208,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".rs"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"#\[(?:test|tokio::test)\]\s*(?:async\s+)?fn\s+(\w+)", body)[:20]
@@ -1229,7 +1221,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".swift"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         cases = re.findall(r"func\s+(test\w+)\s*\(", body)[:20]
@@ -1242,7 +1234,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".rb"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         glue = re.findall(r"^(?:Given|When|Then)\s*[(/]\s*[\"\'/]?([^\"\'/\n]{5,90})", body, re.M)[:20]
@@ -1289,13 +1281,13 @@ def build(repo: str, out_dir: str | None = None,
                 contracts["i18n"].append(rel)
             if fn.startswith("docker-compose") or fn == "Dockerfile":
                 try:
-                    body = open(full, encoding="utf-8", errors="replace").read()
+                    body = _slurp(full)
                 except OSError:
                     continue
                 contracts["images"] += re.findall(r"(?:image|FROM)\s*:?\s*([\w./-]+:[\w.-]+)", body)[:20]
     for rel in list(steps) + scripts + envs:
         try:
-            src = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            src = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         contracts["secret_paths"] += re.findall(
@@ -1308,7 +1300,7 @@ def build(repo: str, out_dir: str | None = None,
                         "i18n_keys": [], "flags": []}
     for rel in contracts.get("openapi", []):
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         if rel.endswith(".json"):
@@ -1330,14 +1322,14 @@ def build(repo: str, out_dir: str | None = None,
                         f"{line.strip().rstrip(':').upper()} {cur}")
     for rel in contracts.get("graphql", []):
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         contract_details["graphql"] += re.findall(
             r"^\s*(?:type|input|enum|interface)\s+(\w+)", body, re.M)[:40]
     for rel in contracts.get("migrations", []):
         try:
-            body = open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, rel))
         except OSError:
             continue
         for tbl, cols in re.findall(r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+([\w.\"]+)\s*\(([^;]{0,600})",
@@ -1362,7 +1354,7 @@ def build(repo: str, out_dir: str | None = None,
     ci_tags = {}
     for path, meta in (ci or {}).items():
         try:
-            body = open(os.path.join(repo, path), encoding="utf-8", errors="replace").read()
+            body = _slurp(os.path.join(repo, path))
         except OSError:
             continue
         tg2 = re.findall(r"--tags[= ]+([^\s\"\']+)", body)
@@ -1403,13 +1395,13 @@ def build(repo: str, out_dir: str | None = None,
                 pass
         elif rel == "Makefile":
             try:
-                body = open(fp, encoding="utf-8", errors="replace").read()
+                body = _slurp(fp)
             except OSError:
                 body = ""
             entry["make targets"] = re.findall(r"^([a-zA-Z][\w.-]*):(?!=)", body, re.M)[:20]
         elif rel == "Dockerfile":
             try:
-                body = open(fp, encoding="utf-8", errors="replace").read()
+                body = _slurp(fp)
             except OSError:
                 body = ""
             cmds = re.findall(r"^(?:CMD|ENTRYPOINT)\s+(.+)$", body, re.M)[:4]
@@ -1432,8 +1424,8 @@ def build(repo: str, out_dir: str | None = None,
 
         def _exports_of(p2=p2):
             try:
-                tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
-            except (OSError, SyntaxError):
+                tree = ast.parse(_slurp(p2))
+            except (SyntaxError, ValueError):
                 return []
             return [n.name for n in tree.body
                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -1448,7 +1440,7 @@ def build(repo: str, out_dir: str | None = None,
             if any(k in "/" + rel for k in ("node_modules", "/dist/", ".spec.", ".test.")):
                 continue
             try:
-                body = open(p2, encoding="utf-8", errors="replace").read()
+                body = _slurp(p2)
             except OSError:
                 continue
             names = re.findall(r"export\s+(?:default\s+)?(?:async\s+)?"
@@ -1458,7 +1450,7 @@ def build(repo: str, out_dir: str | None = None,
     for p2 in _walk(repo, ".go"):
         rel = os.path.relpath(p2, repo)
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         names = re.findall(r"^func\s+(?:\([^)]*\)\s*)?([A-Z]\w+)", body, re.M)
@@ -1474,10 +1466,7 @@ def build(repo: str, out_dir: str | None = None,
         rel = os.path.relpath(p2, repo)
         if any(k in "/" + rel for k in ("node_modules", "/dist/")):
             continue
-        try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
+        body = _slurp(p2)
         for m2 in re.findall(r"@(?:app|router|blueprint|bp)\.(get|post|put|patch|delete)\(\s*[\"\']([^\"\']+)",
                              body, re.I):
             routes_served.append(f"{m2[0].upper()} {m2[1]}  ({os.path.basename(rel)})")
@@ -1497,16 +1486,13 @@ def build(repo: str, out_dir: str | None = None,
     models = {}
     for p2 in _walk(repo, ".py"):
         rel = os.path.relpath(p2, repo)
-        try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
+        body = _slurp(p2)
         for cls in re.findall(r"class\s+(\w+)\s*\((?:[\w.]*(?:Base|Model|Document)[\w.]*)\)", body):
             fields = re.findall(r"^\s{4}(\w+)\s*[:=]\s*(?:Column|models\.|Field|mapped_column)", body, re.M)
             models[f"{cls} ({os.path.basename(rel)})"] = sorted(set(fields))[:15]
     for p2 in _walk(repo, ".prisma"):
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         for name, fields in re.findall(r"model\s+(\w+)\s*\{([^}]*)\}", body):
@@ -1523,7 +1509,7 @@ def build(repo: str, out_dir: str | None = None,
         if top not in tops:
             continue
         try:
-            body = open(p2, encoding="utf-8", errors="replace").read()
+            body = _slurp(p2)
         except OSError:
             continue
         for mod in re.findall(r"(?:^from\s+([\w.]+)|^import\s+([\w.]+)|from\s+[\"\']([^\"\']+))",

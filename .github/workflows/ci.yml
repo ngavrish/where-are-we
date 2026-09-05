@@ -882,22 +882,27 @@ jobs:
         run: |
           rm -rf /tmp/huge
           mkdir -p /tmp/huge/r /tmp/huge/m
+          # Two of them: build.py's whole-file reads were spread across every
+          # language it knows, so a .py fixture alone measured four of the
+          # sixty-six and left a huge .ts costing 590 MB.
           python -c "open('/tmp/huge/r/huge.py','wb').write(b'x = 1\n' + b'# pad\n'*33000000)"
-          ls -la /tmp/huge/r/huge.py
-          # build.py read the whole file four more times on top of _slurp's
-          # capped read: 198 MB of source cost 800 MB of RSS, which in a
-          # container with a memory limit is an OOM kill with no message.
+          python -c "open('/tmp/huge/r/huge.ts','wb').write(b'const x = 1\n' + b'// pad\n'*28000000)"
+          ls -la /tmp/huge/r/
           python - <<'EOF'
-          import os, resource, subprocess, sys
+          import resource, subprocess, sys
           subprocess.run(["where-are-we", "--repo", "/tmp/huge/r", "--out", "/tmp/huge/m",
                           "--product", "none", "--force", "--quiet", "--no-semantic"],
                          check=True)
           kb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+          # ru_maxrss is kilobytes on Linux and bytes on macOS, and this has to
+          # mean the same number on a developer's laptop as on the runner.
+          if sys.platform == "darwin":
+              kb //= 1024
           print(f"peak child RSS {kb / 1024:.0f} MB")
-          # Generous: the fix measures 44 MB against 800 MB before it, and the
-          # file itself is 198 MB, so anything at or above one whole copy of
-          # it is the old behaviour.
-          sys.exit(1 if kb > 200 * 1024 else 0)
+          # The fixture is 198 MB of .py plus 196 MB of .ts. Measured 30 MB
+          # after the fix and 785 MB before it, so one whole copy of the
+          # smaller file is a threshold with room on both sides.
+          sys.exit(1 if kb > 190 * 1024 else 0)
           EOF
 
       - name: what changed comes back verbatim, whatever the file is called
