@@ -948,11 +948,26 @@ jobs:
         run: |
           rm -rf /tmp/huge
           mkdir -p /tmp/huge/r /tmp/huge/m
-          # Two of them: build.py's whole-file reads were spread across every
-          # language it knows, so a .py fixture alone measured four of the
-          # sixty-six and left a huge .ts costing 590 MB.
+          # Three of them. build.py's whole-file reads were spread across
+          # every language it knows, so a .py fixture alone measured four of
+          # the sixty-six and left a huge .ts costing 590 MB. And padding is
+          # not the worst case for a parser: an ast tree is far bigger than
+          # its source and how much bigger depends on how dense the source
+          # is, so a file of nothing but one-line defs is what actually
+          # bounds AST_LIMIT. Four megabytes of those cost the same peak as
+          # two hundred, because the cap is what decides it.
           python -c "open('/tmp/huge/r/huge.py','wb').write(b'x = 1\n' + b'# pad\n'*33000000)"
           python -c "open('/tmp/huge/r/huge.ts','wb').write(b'const x = 1\n' + b'// pad\n'*28000000)"
+          python - <<'EOF'
+          with open("/tmp/huge/r/dense.py", "w") as fh:
+              i = written = 0
+              while written < 4 * 1024 * 1024:
+                  line = f"def gen_{i:08d}():\n    return {i}\n"
+                  fh.write(line)
+                  written += len(line)
+                  i += 1
+          print(f"dense.py: {i} defs")
+          EOF
           ls -la /tmp/huge/r/
           python - <<'EOF'
           import resource, subprocess, sys
@@ -965,77 +980,65 @@ jobs:
           if sys.platform == "darwin":
               kb //= 1024
           print(f"peak child RSS {kb / 1024:.0f} MB")
-          # The fixture is 198 MB of .py plus 196 MB of .ts. Measured 30 MB
-          # after the fix and 785 MB before it, so one whole copy of the
-          # smaller file is a threshold with room on both sides.
-          sys.exit(1 if kb > 190 * 1024 else 0)
+          # Measured on this fixture: 198 MB at AST_LIMIT 1 MB, 370 MB at
+          # 2 MB, 1171 MB with the reads unbounded. 320 MB sits above the
+          # first with room for a slower allocator and below the second, so
+          # the step guards the cap's value as well as the reads themselves.
+          sys.exit(1 if kb > 320 * 1024 else 0)
           EOF
+          # A module a parser only saw part of is named, and one it read whole
+          # is not.
+          grep -q "only the first 1 MB was parsed of: /tmp/huge/r/dense.py" \
+            /tmp/huge/m/framework_map.md
 
-      - name: a large module is parsed, not silently dropped
+      - name: the single-file reads are bounded too
         run: |
-          rm -rf /tmp/pl
-          mkdir -p /tmp/pl/a /tmp/pl/b /tmp/pl/c /tmp/pl/broken
-          # 405 KB, with byte 400,000 inside a triple-quoted string. The read
-          # cap for a parser used to be _slurp's 400,000, so the cut landed
-          # mid-string, ast.parse raised SyntaxError, and the file lost even
-          # the names on its first line.
+          rm -rf /tmp/cfg
+          mkdir -p /tmp/cfg/r /tmp/cfg/m
+          # .wawe.toml, README.md and a steps module are all paths a
+          # repository chooses the contents of, and all three were read whole.
           python - <<'EOF'
-          head = 'def FIRST_NAME():\n    return 1\n\n\nDOC = """\n'
-          tail = '"""\n\n\ndef LAST_NAME():\n    return 2\n'
-          line = "filler line that is inside the docstring\n"
-          n = (405 * 1024 - len(head) - len(tail)) // len(line)
-          body = head + line * n + tail
-          open("/tmp/pl/a/mod.py", "w").write(body)
-          b = body.encode()
-          assert len(b) > 400000, len(b)
-          assert b[:400000].count(b'"""') % 2 == 1, "the cut is not inside the string"
-          # 508 KB of small defs: a cut there parses and silently yields fewer
-          # names than the file declares.
-          out, i = [], 0
-          while sum(len(x) for x in out) < 508 * 1024:
-              out.append(f"def gen_{i:05d}():\n    return {i}\n")
-              i += 1
-          open("/tmp/pl/b/mod.py", "w").write("".join(out))
-          # Over the 2 MB parser bound, with the cut inside a string: the file
-          # is reported as cut and the names before the string are still read.
-          head = 'def EARLY_NAME():\n    return 1\n\n\nDOC = """\n'
-          n = (2 * 1024 * 1024 - len(head)) // len(line) + 40000
-          open("/tmp/pl/c/mod.py", "w").write(
-              head + line * n + '"""\n\n\ndef LATE_NAME():\n    return 2\n')
-          # A file that genuinely does not compile still yields nothing.
-          open("/tmp/pl/broken/mod.py", "w").write(
-              "def ok_name():\n    return 1\n\ndef broken(:\n    pass\n")
+          with open("/tmp/cfg/r/.wawe.toml", "w") as fh:
+              fh.write('[synonyms]\ninvoice = ["proforma"]\n')
+              fh.write("# pad\n" * 33000000)
+          with open("/tmp/cfg/r/README.md", "w") as fh:
+              fh.write('# Title\n\n```framework-map\n{"name": "cfgrepo"}\n```\n')
+              fh.write("pad pad pad\n" * 20000000)
+          import os
+          os.makedirs("/tmp/cfg/r/steps", exist_ok=True)
+          with open("/tmp/cfg/r/steps/s.py", "wb") as fh:
+              fh.write(b'from behave import step\n@step("a thing")\ndef f(c):\n    pass\n')
+              fh.write(b"# pad\n" * 33000000)
+          open("/tmp/cfg/r/a.py", "w").write("CFG_NAME = 1\n")
           EOF
-          for d in a b c broken; do
-            where-are-we --repo /tmp/pl/$d --out /tmp/pl/$d.out --product none \
-              --force --quiet --no-semantic
-          done
+          ls -la /tmp/cfg/r/
           python - <<'EOF'
-          import json, sys
-          def names(d):
-              m = json.load(open(f"/tmp/pl/{d}.out/framework_map.json"))
-              return {n for v in (m.get("exports") or {}).values() for n in v}
-          bad = []
-          a = names("a")
-          if not {"FIRST_NAME", "LAST_NAME"} <= a:
-              bad.append(f"405 KB module: exports {sorted(a)}")
-          b = names("b")
-          if "gen_00000" not in b:
-              bad.append(f"508 KB module: exports {sorted(b)[:4]}")
-          c = names("c")
-          if "EARLY_NAME" not in c:
-              bad.append(f"over 2 MB module: exports {sorted(c)}")
-          if names("broken"):
-              bad.append("a file that does not compile yielded names")
-          print("\n".join(bad) or "every large module keeps its names")
-          sys.exit(1 if bad else 0)
+          import resource, subprocess, sys
+          subprocess.run(["where-are-we", "--repo", "/tmp/cfg/r", "--out", "/tmp/cfg/m",
+                          "--product", "none", "--force", "--quiet", "--no-semantic"],
+                         check=True)
+          kb = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+          if sys.platform == "darwin":
+              kb //= 1024
+          print(f"peak child RSS {kb / 1024:.0f} MB")
+          # Measured 33 MB after, 878 MB before, on 636 MB of fixture.
+          sys.exit(1 if kb > 320 * 1024 else 0)
           EOF
-          # Only the file actually over the parser bound is called out, and the
-          # map names it rather than looking complete.
-          grep -q "only the first 2 MB was parsed of: /tmp/pl/c/mod.py" \
-            /tmp/pl/c.out/framework_map.md
-          ! grep -q "only the first 2 MB was parsed" /tmp/pl/a.out/framework_map.md
-          ! grep -q "only the first 2 MB was parsed" /tmp/pl/b.out/framework_map.md
+          # Bounded, and still correct: the manifest block near the top of the
+          # README is found, the config's synonyms are parsed, and the step
+          # phrase at the top of the steps module is indexed.
+          python -c "
+          import json
+          d = json.load(open('/tmp/cfg/m/framework_map.json'))
+          assert (d.get('stated') or {}).get('name') == 'cfgrepo', d.get('stated')
+          assert 'CFG_NAME' in d['definitions']
+          assert d['counts']['steps'] >= 1, d['counts']
+          print('manifest, config and steps all read')"
+          python -c "
+          from where_are_we._mapper.walk import _config
+          c = _config('/tmp/cfg/r')
+          assert c.get('synonyms') == {'invoice': ['proforma']}, c
+          print('synonyms parsed from a 198 MB .wawe.toml')"
 
       - name: what changed comes back verbatim, whatever the file is called
         run: |
@@ -1617,6 +1620,25 @@ jobs:
           grep -q KEPT_NAME /tmp/fpx/igm/framework_map.json
           grep -q TRACKED_ANYWAY /tmp/fpx/igm/framework_map.json
           ! grep -q UNTRACKED_IGNORED /tmp/fpx/igm/framework_map.json
+          # .wawe-ignore is a different statement and nothing overrides it.
+          # It is this tool being told what not to read, where .gitignore is
+          # git being told what not to track, and a vendored tree is routinely
+          # committed and still something nobody wants in the map.
+          rm -rf /tmp/fpx/vend /tmp/fpx/vendm
+          mkdir -p /tmp/fpx/vend/pkg /tmp/fpx/vend/vendor
+          git -C /tmp/fpx/vend init -q
+          git -C /tmp/fpx/vend config user.email t@t
+          git -C /tmp/fpx/vend config user.name t
+          printf 'vendor/\n' > /tmp/fpx/vend/.wawe-ignore
+          printf 'KEPT_NAME = 1\n' > /tmp/fpx/vend/pkg/a.py
+          printf 'VENDORED_NAME = 1\n' > /tmp/fpx/vend/vendor/lib.py
+          git -C /tmp/fpx/vend add -A
+          git -C /tmp/fpx/vend commit -qm one
+          git -C /tmp/fpx/vend ls-files | grep -q vendor/lib.py
+          where-are-we --repo /tmp/fpx/vend --out /tmp/fpx/vendm --product none \
+            --force --quiet --no-semantic
+          grep -q KEPT_NAME /tmp/fpx/vendm/framework_map.json
+          ! grep -q VENDORED_NAME /tmp/fpx/vendm/framework_map.json
           # A repository that commits something its own .gitignore names keeps
           # it in the map. This one does: it says `.wawe/` and tracks three
           # example maps under docs/examples/*/.wawe/.

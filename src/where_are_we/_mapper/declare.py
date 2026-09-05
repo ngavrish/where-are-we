@@ -394,9 +394,19 @@ def _step_texts(path: str) -> list[str]:
     def _parse():
         out: list[str] = []
         defs: list[tuple] = []
+        # The same bound and the same retreat every other parse in this
+        # package gets: an unbounded read here cost 414 MB on a 198 MB steps
+        # module, and a steps module that large is one nobody wrote by hand.
+        #
+        # Imported here rather than at the top of the file: `build` imports
+        # this module, so a module-level import back would be circular. By
+        # the time this runs, `build` is loaded.
         try:
-            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
-        except (OSError, SyntaxError):
+            from .build import _parse_source
+        except ImportError:  # run as a plain file, with no package around it
+            from build import _parse_source  # type: ignore[no-redef]
+        tree = _parse_source(path)
+        if tree is None:
             return {"texts": out, "defs": defs}
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
