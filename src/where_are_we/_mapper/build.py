@@ -22,9 +22,10 @@ import urllib.request
 from . import extract, state
 from .declare import _step_texts, index_declarations
 from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
-from .walk import (SKIP_DIRS, _cached, _lines_matching, _load_parse_cache,
-                   _manifest, _product_roots, _save_parse_cache, _slurp,
-                   _slurp_source, _tree, _walk, sweep_out_dir)
+from .walk import (AST_LIMIT, SKIP_DIRS, _cached, _lines_matching,
+                   _load_parse_cache, _manifest, _product_roots,
+                   _save_parse_cache, _slurp, _slurp_source, _tree, _walk,
+                   sweep_out_dir)
 
 
 def _parse_source(path: str):
@@ -68,6 +69,13 @@ def _retreats(src: str, exc: BaseException) -> list:
     carries no usable line number. Both are cheap, both are bounded, and a
     truncated file that neither rescues is one this package reports as cut and
     otherwise leaves alone.
+
+    One shape is known not to recover: a module whose only `def` is on line 1
+    with an unterminated triple-quoted string inside its body. The blamed line
+    is that string's, retreating to it leaves the `def` with no body, and
+    there is no earlier `def` or `class` to fall back to. The file is named as
+    cut in the map, which is the guarantee that matters: a reader is told the
+    map is short of that file rather than being left to assume it is complete.
     """
     out = []
     lineno = getattr(exc, "lineno", None)
@@ -2489,7 +2497,7 @@ def build(repo: str, out_dir: str | None = None,
     if state.CUT_FILES:
         shown = sorted(state.CUT_FILES)
         more = len(shown) - 8
-        note = ("only the first 2 MB was parsed of: "
+        note = (f"only the first {AST_LIMIT // (1024 * 1024)} MB was parsed of: "
                 + ", ".join(shown[:8])
                 + (f", and {more} more" if more > 0 else "")
                 + ". Whole lines up to that point are in the map and nothing "

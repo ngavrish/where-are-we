@@ -258,10 +258,10 @@ def _config(repo: str) -> dict:
     path = os.path.join(repo, ".wawe.toml")
     if not os.path.exists(path):
         return {}
-    try:
-        body = open(path, encoding="utf-8", errors="replace").read()
-    except OSError:
-        return {}
+    # 64 KB: this file states six keys and a synonyms table. Anything past
+    # that is not configuration, and an unbounded read of a path a repository
+    # chooses the contents of is a hole whatever the file is called.
+    body = _slurp(path, 64 * 1024)
     try:
         import tomllib
         data = tomllib.loads(body)
@@ -572,11 +572,13 @@ def _slurp(path: str, limit: int = 400000) -> str:
 MAX_FILES = int(os.getenv("WAWE_MAX_FILES", "40000"))
 
 
-# What a parser may be given, and the same bound `declare.py` puts on a file
-# before it stops indexing its declarations at all. Past this a file is already
-# outside `definitions`, so there is nothing for a parse to stay consistent
-# with.
-AST_LIMIT = 2 * 1024 * 1024
+# What a parser may be given. Not the same as `declare.py`'s 2 MB cap on the
+# line-based index, and lower on purpose: an `ast` tree is far bigger than the
+# source it came from, and how much bigger depends on how dense the source is,
+# not on its size. A megabyte of one-line defs measures 30,277 statements and
+# 179 MB of tree; two megabytes measures 356 MB. The line index has no such
+# multiplier and keeps its 2 MB.
+AST_LIMIT = 1024 * 1024
 
 
 def _slurp_source(path: str, limit: int = AST_LIMIT) -> tuple[str, bool]:
@@ -616,21 +618,31 @@ def _ignores(root: str) -> list:
     and saying so once beats waiting for it every time."""
     if root in _IGNORE_CACHE:
         return _IGNORE_CACHE[root]
-    pats = []
+    pats: list = []
+    strict: list = []
     for name in (".wawe-ignore", ".gitignore"):
         fp = os.path.join(root, name)
         if not os.path.exists(fp):
             continue
         try:
-            for line in open(fp, encoding="utf-8", errors="replace"):
+            for line in open(fp, encoding="utf-8", errors="replace", newline=None):
                 line = line.strip()
                 if line and not line.startswith("#"):
                     pats.append(line.rstrip("/"))
         except OSError:
             continue
         if name == ".wawe-ignore":
+            # Which file a pattern came from decides whether anything may
+            # override it, so the answer is kept alongside the flat list under
+            # a key no root can collide with. `.wawe-ignore` is this tool's
+            # own file and says "do not read this", which is a different
+            # statement from `.gitignore`'s "do not track this": a vendored
+            # tree can be committed and still be something nobody wants in
+            # the map. See `_indexable`.
+            strict = list(pats)
             break
     _IGNORE_CACHE[root] = pats
+    _IGNORE_CACHE[root + "\x00strict"] = strict
     return pats
 
 
@@ -758,8 +770,16 @@ def _tracked(root: str) -> tuple:
     `docs/examples/*/.wawe/`, and pruning by ignore rules alone dropped all
     nine of them out of its own map.
 
-    One `git ls-files` per root per build. Empty for a root with no git, where
-    "tracked" means nothing and the ignore rules stand on their own.
+    One `git ls-files` per root, cached for as long as the cache lives. That
+    is once per build on the ordinary path and twice under `--force`, because
+    the fingerprint walks before `build()` and `state.reset()` clears the
+    cache between them. Two subprocesses on the run that was asked to trust
+    nothing is the right side of that trade: the alternative is a cache that
+    outlives the reset and hands a second repository the first one's answer.
+
+    Empty for a root with no git, where "tracked" means nothing and the ignore
+    rules stand on their own. Also empty when the only patterns in play came
+    from `.wawe-ignore`, which nothing overrides, so git is not asked at all.
     """
     if root in _TRACKED_CACHE:
         return _TRACKED_CACHE[root]
@@ -802,26 +822,39 @@ def _indexable(root: str):
     is what such a pattern means in a .gitignore. It also stops an ignored
     directory spending the entry budget `_tree` counts.
 
-    Nothing git already tracks is dropped either way, because git would not
-    drop it: see `_tracked`. An ignored path that is untracked still goes.
+    Nothing git already tracks is dropped by a `.gitignore` pattern, because
+    git would not drop it either: see `_tracked`. A `.wawe-ignore` pattern
+    prunes regardless, tracked or not, because that file is this tool being
+    told what not to read rather than git being told what not to track. An
+    ignored path that is untracked goes either way.
     """
     base_repo = os.getenv("AGENT_REPO", root)
     pats = _ignores(base_repo)
-    keep_files, keep_dirs = _tracked(base_repo) if pats else (frozenset(), frozenset())
+    # Only `.gitignore`'s patterns are overridable by what git tracks, and
+    # only they need git asked at all.
+    strict = _IGNORE_CACHE.get(base_repo + "\x00strict") or []
+    overridable = bool(pats) and pats != strict
+    keep_files, keep_dirs = (_tracked(base_repo) if overridable
+                             else (frozenset(), frozenset()))
+
+    def _blocked(rel: str, tracked: frozenset) -> bool:
+        if not _ignored(rel, pats):
+            return False
+        # `.wawe-ignore` is the project saying "do not read this", and being
+        # committed is no answer to that. A vendored tree is routinely both.
+        if _ignored(rel, strict):
+            return True
+        return rel not in tracked
+
     for base, dirs, files in _tree(root):
         if pats:
-            kept = []
-            for d in dirs:
-                rel = os.path.relpath(os.path.join(base, d), base_repo)
-                if not _ignored(rel, pats) or rel in keep_dirs:
-                    kept.append(d)
-            dirs[:] = kept
+            dirs[:] = [d for d in dirs
+                       if not _blocked(os.path.relpath(os.path.join(base, d),
+                                                       base_repo), keep_dirs)]
         for f in files:
             full = os.path.join(base, f)
-            if pats:
-                rel = os.path.relpath(full, base_repo)
-                if _ignored(rel, pats) and rel not in keep_files:
-                    continue
+            if pats and _blocked(os.path.relpath(full, base_repo), keep_files):
+                continue
             yield full
 
 
@@ -926,10 +959,9 @@ def _manifest(repo: str) -> dict:
         fp = os.path.join(repo, name)
         if not os.path.exists(fp):
             continue
-        try:
-            body = open(fp, encoding="utf-8", errors="replace").read()
-        except OSError:
-            continue
+        # 1 MB, and the block this looks for belongs near the top of a
+        # README. A README longer than that has other problems.
+        body = _slurp(fp, 1024 * 1024)
         m = re.search(r"```framework-map\s*(.+?)```", body, re.S)
         if m:
             try:
