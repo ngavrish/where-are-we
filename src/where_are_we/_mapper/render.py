@@ -13,9 +13,9 @@ from . import state
 from .state import TRUNCATED
 
 try:
-    from ..ask import fit_lines
+    from ..ask import fit_lines, map_heads
 except ImportError:  # run as a plain file, with no package around it
-    from ask import fit_lines  # type: ignore[no-redef]
+    from ask import fit_lines, map_heads  # type: ignore[no-redef]
 
 
 def digest(m: dict) -> str:
@@ -976,7 +976,7 @@ def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = Non
     ]
     for h in heads:
         line = f"- {h}"
-        if sum(len(x) + 1 for x in lines) + len(line) > POINTER_MAX:
+        if sum(len(x) + 1 for x in lines) + len(line) > state.POINTER_MAX:
             lines.append(f"- … and {len(heads) - (len(lines) - 8)} more; "
                          "`--sections` lists them all")
             break

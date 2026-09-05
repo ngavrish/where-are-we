@@ -87,6 +87,36 @@ jobs:
           assert mapper.PARSE_COUNT == state.PARSE_COUNT > 0, mapper.PARSE_COUNT
           assert mapper.DEFINITIONS is state.DEFINITIONS
           EOF
+          # Every code path the split touched, including the two the golden
+          # suite does not reach. `--pointer` and `--docs` are how the map is
+          # actually read and how it offers a repository its documentation, and
+          # both live in modules that gained a package level.
+          where-are-we --out /tmp/facmap --pointer | grep -q "framework map"
+          where-are-we --out /tmp/facmap --sections | grep -q "Where things are"
+          where-are-we --repo /tmp/fac --out /tmp/facmap --docs | grep -q "would write"
+          # A name a moved function reads but its new module never imported is
+          # a NameError nothing sees until that branch runs. symtable finds all
+          # of them without running anything.
+          python - <<'EOF'
+          import builtins, pathlib, symtable, sys
+          bad = []
+          for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
+              text = path.read_text()
+              table = symtable.symtable(text, str(path), "exec")
+              top = {s.get_name() for s in table.get_symbols() if s.is_assigned()
+                     or s.is_imported()}
+              def check(t, where):
+                  for sym in t.get_symbols():
+                      name = sym.get_name()
+                      if (sym.is_global() and not sym.is_assigned()
+                              and name not in top and not hasattr(builtins, name)):
+                          bad.append(f"{path}: {where}: {name}")
+                  for child in t.get_children():
+                      check(child, where + "." + child.get_name())
+              check(table, str(path))
+          print("\n".join(bad) or "no undefined module-level names")
+          sys.exit(1 if bad else 0)
+          EOF
           # The deb and the rpm copy the tree by hand: a flat copy of *.py would
           # ship the facade with nothing behind it.
           mkdir -p /tmp/flat/where_are_we
