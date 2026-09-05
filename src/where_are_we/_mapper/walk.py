@@ -150,26 +150,6 @@ def redact(value):
     return value
 
 
-def _lines_matching(body: str, words: tuple, limit: int = 4) -> list:
-    """Lines mentioning any of these words, without a regex.
-
-    Every "interesting line" section used a pattern shaped `.*\b(?:a|b|c)\b.*`,
-    which makes the engine try every position of every line of every file. The
-    same answer comes out of a substring test, and a substring test is what the
-    repository this was written for could actually afford: the map spent an hour
-    on patterns before anyone saw a single requirement.
-    """
-    out = []
-    for line in body.splitlines():
-        low = line.lower()
-        if any(w in low for w in words):
-            out.append(line.strip()[:130])
-            if len(out) >= limit:
-                break
-    return out
-
-
-
 def _lines_matching(body, words, limit=4):
     """Lines mentioning any of these words, without a regex.
 

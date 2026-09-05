@@ -14,7 +14,7 @@ short Markdown digest the agents are pointed at.
 
 This file is the facade. The five thousand lines that used to be here live in
 `_mapper/`, one file per job (`_mapper/__init__.py` lists them); every name
-they define is re-exported below, so `from where_are_we import mapper` and
+callers use is re-exported below, so `from where_are_we import mapper` and
 `mapper.anything` keep meaning what they meant.
 
 It stays a module and does not become a package, because it is also run as a

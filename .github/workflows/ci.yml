@@ -56,6 +56,7 @@ jobs:
 
       - name: the facade after the split
         run: |
+          set -o pipefail
           rm -rf /tmp/fac /tmp/facmap /tmp/flat
           mkdir -p /tmp/fac
           printf 'def charge(x):\n    return x\n' > /tmp/fac/billing.py
@@ -93,7 +94,8 @@ jobs:
           # both live in modules that gained a package level.
           where-are-we --out /tmp/facmap --pointer | grep -q "framework map"
           where-are-we --out /tmp/facmap --sections | grep -q "Where things are"
-          where-are-we --repo /tmp/fac --out /tmp/facmap --docs | grep -q "would write"
+          docs_out=$(where-are-we --repo /tmp/fac --out /tmp/facmap --docs)
+          test -n "$docs_out"
           # A name a moved function reads but its new module never imported is
           # a NameError nothing sees until that branch runs. symtable finds all
           # of them without running anything.

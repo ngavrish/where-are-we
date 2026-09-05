@@ -28,4 +28,4 @@ class Ctx:
 
     repo: str
     code_files: list
-    read: Callable[[str], str]
+    read: Callable[..., str]
