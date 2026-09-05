@@ -1846,3 +1846,48 @@ jobs:
           if grep -q ONLY_IN_B /tmp/purity/fresh-a.json; then
             echo "a fresh build of A already carries B"; exit 1
           fi
+
+      - name: no hook writer is handed a value it does not use
+        run: |
+          set -o pipefail
+          rm -rf /tmp/isp
+          mkdir -p /tmp/isp/repo /tmp/isp/home
+          git -C /tmp/isp/repo init -q
+          python - <<'EOF'
+          import ast, inspect, json, sys
+          from where_are_we import hooks
+          bad = []
+          # install() keeps its six parameters: it is the public entry point and
+          # the CLI calls it by name. What stops here is threading all six on
+          # into writers that need one or two: every kind is dispatched with
+          # exactly what it reads, and the command line the two command-writing
+          # kinds need is built once and passed as one string.
+          for name in ("_install_git", "_install_claude", "_install_cursor",
+                       "_install_codex", "_install_gemini"):
+              fn = getattr(hooks, name)
+              params = list(inspect.signature(fn).parameters)
+              if len(params) > 2:
+                  bad.append(f"{name} takes {len(params)} parameters: {params}")
+              body = ast.parse(inspect.getsource(fn))
+              read = {n.id for n in ast.walk(body) if isinstance(n, ast.Name)}
+              for p in params:
+                  if p not in read:
+                      bad.append(f"{name} never reads its parameter {p}")
+          print("\n".join(bad) or "every hook writer takes only what it reads")
+          sys.exit(1 if bad else 0)
+          EOF
+          # And the two kinds that write a command still write the same one.
+          python - <<'EOF'
+          import json
+          from where_are_we import hooks
+          args = ("/tmp/isp/repo", "none", "/tmp/isp/out", "AGENTS.md")
+          print(hooks.install(args[0], "git", *args[1:], home="/tmp/isp/home"))
+          print(hooks.install(args[0], "claude", *args[1:], home="/tmp/isp/home"))
+          git_line = [l for l in open("/tmp/isp/repo/.git/hooks/post-commit")
+                      if "where-are-we" in l][0].strip()
+          conf = json.load(open("/tmp/isp/home/.claude/settings.json"))
+          claude_line = conf["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+          assert git_line == claude_line, (git_line, claude_line)
+          assert git_line == ("where-are-we --repo /tmp/isp/repo --product none "
+                              "--out /tmp/isp/out --agent-file AGENTS.md --quiet || true"), git_line
+          EOF

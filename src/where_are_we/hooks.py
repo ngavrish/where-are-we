@@ -162,7 +162,14 @@ def _write_mcp_conf(path: str, conf: dict, boundary: str) -> str:
     return _write_file(path, json.dumps(conf, indent=2, ensure_ascii=False))
 
 
-def _install_git(repo: str, product: str, out: str, agent_file: str) -> str:
+def _trigger_command(repo: str, product: str, out: str, agent_file: str) -> str:
+    """The line a hook runs: rebuild this repository's map, quietly, and never
+    fail the thing that triggered it.
+
+    The two kinds that install a command both need this and nothing else of
+    what `install()` was given, so it is built once here and each of them is
+    handed the line instead of the four values it was made from.
+    """
     cmd = ["where-are-we", "--repo", repo]
     if product:
         cmd += ["--product", product]
@@ -170,8 +177,10 @@ def _install_git(repo: str, product: str, out: str, agent_file: str) -> str:
         cmd += ["--out", out]
     if agent_file:
         cmd += ["--agent-file", agent_file]
-    line = " ".join(cmd) + " --quiet || true"
+    return " ".join(cmd) + " --quiet || true"
 
+
+def _install_git(repo: str, line: str) -> str:
     hooks_dir = os.path.join(repo, ".git", "hooks")
     if not os.path.isdir(hooks_dir):
         return f"{hooks_dir} does not exist -- is {repo} a git repository?"
@@ -206,16 +215,7 @@ def _install_git(repo: str, product: str, out: str, agent_file: str) -> str:
     return "installed: " + ", ".join(written) if written else "already installed"
 
 
-def _install_claude(repo: str, product: str, out: str, agent_file: str, home: str) -> str:
-    cmd = ["where-are-we", "--repo", repo]
-    if product:
-        cmd += ["--product", product]
-    if out:
-        cmd += ["--out", out]
-    if agent_file:
-        cmd += ["--agent-file", agent_file]
-    line = " ".join(cmd) + " --quiet || true"
-
+def _install_claude(line: str, home: str) -> str:
     settings = os.path.join(home, ".claude", "settings.json")
     conf, error = _load_json_conf(settings, "hooks")
     if error:
@@ -350,9 +350,9 @@ def install(repo: str, kind: str, product: str, out: str, agent_file: str,
         home = os.path.expanduser("~")
 
     if kind == "git":
-        return _install_git(repo, product, out, agent_file)
+        return _install_git(repo, _trigger_command(repo, product, out, agent_file))
     if kind == "claude":
-        return _install_claude(repo, product, out, agent_file, home)
+        return _install_claude(_trigger_command(repo, product, out, agent_file), home)
     if kind in ("cursor", "codex", "gemini"):
         _ensure_map(repo)
         if kind == "cursor":
