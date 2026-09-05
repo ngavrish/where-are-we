@@ -472,6 +472,36 @@ notebooks.
   hooks: [{id: where-are-we}]
 ```
 
+## Environment
+
+Every variable the tool reads. A flag always wins over the variable it
+defaults from.
+
+| name | read in | what it does | default |
+|---|---|---|---|
+| `AGENT_REPO` | `_mapper/walk.py`, `_mapper/cli.py`, `readmes.py` | the repository to index or answer about, when `--repo` is not given. `main()` also writes it back so the walk and the product guess see the resolved path | unset: `--out`'s parent when that is a `.wawe`, then `/work` if it exists, then the current directory |
+| `RUN_DIR` | `_mapper/cli.py`, `_mapper/build.py` | where the map files are written, when `--out` is not given | `.` |
+| `PRODUCT_SRC` | `_mapper/walk.py`, `_mapper/cli.py` | the product under test, colon or comma separated, when `--product` is not given. `none` switches the sibling guess off | unset: the siblings of a repository that looks like a test suite |
+| `RULES_REPO` | `_mapper/build.py`, `_mapper/cli.py` | a directory of agent rule files to fold into the map, when `--rules` is not given | `/rules` |
+| `RUNS_API_READ` | `_mapper/build.py`, `_mapper/cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is not given | unset: no runs section |
+| `SPEC_ROOTS` | `_mapper/cli.py` | the ticket keys `--specs` walks from, comma separated | unset |
+| `SPEC_FETCH_CMD` | `_mapper/cli.py` | the command that fetches one ticket as JSON, when `--spec-cmd` is not given | unset: `--specs` refuses to run without one |
+| `SPEC_SOURCE` | `_mapper/cli.py` | which built-in tracker command to use (`jira`, `linear`, `github`, `cmd`), when `--spec-source` is not given | `cmd` |
+| `WAWE_SPEC_DEPTH` | `specs.py` | how many link hops out from each root ticket the spec map walks | `2` |
+| `WAWE_SPEC_LIMIT` | `specs.py` | the most tickets one spec map will fetch | `60` |
+| `WAWE_MAX_FILES` | `_mapper/walk.py` | the most files one walk will visit before it stops and says so in the map | `40000` |
+| `WAWE_NO_CACHE` | `_mapper/build.py`, `_mapper/walk.py` | set to anything: parse every file again and leave the parse cache exactly as it was. `--force` re-parses but rewrites the cache | unset: the cache is read and written |
+| `WAWE_DEBUG_PARSES` | `_mapper/build.py` | set to anything: print the parse count per build to stderr, to see what an incremental rebuild actually re-read | unset: silent |
+| `WAWE_JUNIT_DIRS` | `_mapper/build.py` | extra directories of JUnit XML to read past runs from, separated by the platform's path separator | unset: the repository's own reports directories |
+| `WAWE_POINTER_MAX` | `_mapper/state.py` | the byte cap on the pointer, the block a SessionStart hook puts into context | `4000` |
+| `WAWE_VOCAB` | `_mapper/render.py` | cap on how many vocabulary entries the brief prints, split across the groups | `0`, meaning no cap |
+| `WAWE_ASK_LOG` | `ask.py` | set to `0` to stop appending a row per answer to `<out>/.wawe-ask.log` | unset: the log is written |
+| `WAWE_EMBED_MODEL` | `semantic.py` | the embedding model the optional semantic index uses | `BAAI/bge-small-en-v1.5` |
+| `WAWE_RERANK_MODEL` | `semantic.py` | the cross encoder that reranks semantic hits | `Xenova/ms-marco-MiniLM-L-6-v2` |
+| `WAWE_EMBED_CACHE` | `semantic.py` | a directory to keep embeddings in between runs | unset: no cache |
+| `WAWE_STRICT` | the Claude Code plugin, not `src/` | set to `1` and the plugin's PreToolUse hook refuses `Grep`, `Glob` and `Bash` searches over the repository, so the map is asked instead | unset: searches are allowed |
+| `PYTHONIOENCODING` | the interpreter | a codec narrower than the map's text no longer fails: characters it cannot carry are replaced | unset: the locale's codec |
+
 ## Keeping it honest
 
 ```bash

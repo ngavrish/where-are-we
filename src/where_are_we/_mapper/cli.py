@@ -307,6 +307,7 @@ def _resolve_repo(given, out):
         return "/work"
     return os.getcwd()
 
+
 def _reconfigure_streams() -> None:
     """Never let the terminal's encoding turn an answer into a traceback.
 
