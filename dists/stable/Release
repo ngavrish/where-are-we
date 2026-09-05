@@ -1,0 +1,25 @@
+Origin: where-are-we
+Label: where-are-we
+Suite: stable
+Codename: stable
+Architectures: all
+Components: main
+Description: where-are-we packages
+Date: Sat, 05 Sep 2026 18:34:29 +0000
+Date: Sat, 05 Sep 2026 18:34:29 +0000
+MD5Sum:
+ 5355ad2333c9a241f3a8f75c438d3b33              219 Release
+ e59cdf147696c6ef5ddab4617fd1baa0              638 main/binary-all/Packages
+ 77a4db4509c8043038d41f529f3f7415              475 main/binary-all/Packages.gz
+SHA1:
+ 3f3450c87ca5034995e6707bcf03aeaa9e6fe812              219 Release
+ fefff88bcc6bea13ce0bc1a278df10647a821b6e              638 main/binary-all/Packages
+ 8d7b9447e148c9d67456c56ab4b142ad634e9d60              475 main/binary-all/Packages.gz
+SHA256:
+ 96ffe40547f3da8e669e8d4f6870c8b5a62b1664f18e0f9479255641a4a66cf2              219 Release
+ dc3c658032aa1ad0ccd32423653b8742c93e7124dc083c82476d754b83d3ca11              638 main/binary-all/Packages
+ 3a68eb1997eb2f0d1aff702b61fcf89fa38dd7bbb80f059ed1590b43d380fd4f              475 main/binary-all/Packages.gz
+SHA512:
+ 395180207a807edf2c93a12f3f714ae490a957748159e181724fda7ece0e6c5ed28c2f78c6d92828d4f830cf606a90734a5ee2e02656d322c9fcf496021aa0b4              219 Release
+ c01d9302212abc4aa8722f266b5dd190ccd2cc711f5d48d331573f7cc744ed81f125413a9bcec1c8aaaf858c0db79fd1ea6f3f614a61c7d480cf60d7d471055d              638 main/binary-all/Packages
+ ec7c5104fbc8fa8b3dd33390e985f618ddc7f8cb551dc3e2bdbd94caf9ae556efbbc6d62c04917ce0121fddc90a952eff757d36b171282bd054152e3c4c7fa0c              475 main/binary-all/Packages.gz
