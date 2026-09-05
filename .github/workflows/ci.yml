@@ -226,8 +226,17 @@ jobs:
           rm -rf /tmp/ir/m
           WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/cold.log
           grep -qE "^parsed [1-9][0-9]* files$" /tmp/ir/cold.log
-          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/warm.log
+          # A rebuild of a tree nobody touched parses nothing. The map is
+          # removed rather than passing --force, because --force means "read
+          # nothing from the cache" and would parse everything again on
+          # purpose; without it the fingerprint check would skip the build
+          # entirely and there would be no parse count to look at.
+          rm /tmp/ir/m/framework_map.json
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --quiet 2> /tmp/ir/warm.log
           grep -q "^parsed 0 files$" /tmp/ir/warm.log
+          # And --force really does parse everything again.
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/forced.log
+          grep -qE "^parsed [1-9][0-9]* files$" /tmp/ir/forced.log
           rm -rf /tmp/ir/nocache
           WAWE_NO_CACHE=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/nocache --force --quiet
           for f in framework_map.json framework_map.md framework_map_brief.md; do
