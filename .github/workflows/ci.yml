@@ -1075,3 +1075,51 @@ jobs:
           grep -q "&lt;img src=x onerror=alert(1)&gt;" /tmp/htm/m/framework_map.html
           # The page itself is still a page: the renderer's own markup stays.
           grep -q "<h1>" /tmp/htm/m/framework_map.html
+
+      - name: a missing map and an unwritable target are one line and a real exit code
+        run: |
+          rm -rf /tmp/xc
+          mkdir -p /tmp/xc/empty /tmp/xc/emptyout /tmp/xc/srv /tmp/xc/rorepo
+          printf 'def f():\n    pass\n' > /tmp/xc/srv/a.py
+          # --sections got this right; --ask printed the same complaint and
+          # returned 0, and --callers answered "nothing in the map calls foo"
+          # for a search that never happened.
+          for flag in "--ask login" "--callers foo" "--sections" "--pointer"; do
+            if where-are-we --repo /tmp/xc/empty --out /tmp/xc/emptyout $flag \
+                 2> /tmp/xc/err.txt; then
+              echo "$flag returned 0 with no map"; exit 1
+            fi
+            grep -q "no map at /tmp/xc/emptyout/framework_map.md" /tmp/xc/err.txt
+          done
+          # --repo that is not a directory: exit 2, and the path in the message.
+          printf 'x\n' > /tmp/xc/notadir
+          rc=0
+          where-are-we --repo /tmp/xc/notadir --out /tmp/xc/emptyout --force \
+            --quiet --no-semantic 2> /tmp/xc/err.txt || rc=$?
+          test "$rc" = "2"
+          grep -q "/tmp/xc/notadir is not a directory" /tmp/xc/err.txt
+          # An unwritable --out, --agent-file or --init target: one line naming
+          # the path, exit 1, and no traceback.
+          mkdir -p /tmp/xc/ro /tmp/xc/ro2
+          chmod 500 /tmp/xc/ro /tmp/xc/ro2 /tmp/xc/rorepo
+          for cmd in \
+            "--repo /tmp/xc/srv --out /tmp/xc/ro/sub" \
+            "--repo /tmp/xc/srv --out /tmp/xc/ro2" \
+            "--repo /tmp/xc/srv --out /tmp/xc/ok --agent-file /tmp/xc/ro2/AGENTS.md"; do
+            if where-are-we $cmd --force --quiet --no-semantic 2> /tmp/xc/err.txt; then
+              echo "wrote into a read-only directory: $cmd"; exit 1
+            fi
+            grep -q "framework_map: cannot write /tmp/xc/ro" /tmp/xc/err.txt
+            ! grep -q "Traceback" /tmp/xc/err.txt
+          done
+          if where-are-we --repo /tmp/xc/rorepo --out /tmp/xc/emptyout --init \
+               2> /tmp/xc/err.txt; then exit 1; fi
+          grep -q "framework_map: cannot write /tmp/xc/rorepo/.framework-map.json" \
+            /tmp/xc/err.txt
+          ! grep -q "Traceback" /tmp/xc/err.txt
+          chmod 700 /tmp/xc/ro /tmp/xc/ro2 /tmp/xc/rorepo
+          # A map that is there still answers, and still returns 0.
+          where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --product none --force \
+            --quiet --no-semantic
+          where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --pointer > /dev/null
+          where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --ask f > /dev/null

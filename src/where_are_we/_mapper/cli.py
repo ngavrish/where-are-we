@@ -32,6 +32,26 @@ from .walk import (SKIP_DIRS, _config, _fingerprint, _product_roots,
                    _write_atomic, _write_atomic_group, redact)
 
 
+def _write_error(exc: OSError, fallback: str = "") -> int:
+    """One line naming the file that could not be written, and exit 1.
+
+    Every write path here used to let a PermissionError out of main(): an
+    unwritable --out, an --agent-file in a read-only directory, --init on a
+    repository checked out read-only. This tool runs from a SessionStart hook,
+    where a traceback is thirty lines of noise in a session transcript instead
+    of the one line that says which path to fix.
+
+    The atomic writer stages into `<path>.<pid>.tmp`, so the suffix is trimmed
+    off before the name is printed: the caller cares about the file it asked
+    for, not the temporary beside it.
+    """
+    path = getattr(exc, "filename", None) or fallback
+    path = re.sub(r"\.\d+\.tmp$", "", str(path))
+    print(f"framework_map: cannot write {path}: {exc.strerror or exc}",
+          file=sys.stderr)
+    return 1
+
+
 # The three map files, in the order they are renamed into place once all three
 # have been written to their temporaries.
 #
@@ -479,7 +499,10 @@ def main() -> int:
                   file=sys.stderr)
             return 2
         out_dir = os.path.abspath(args.out)
-        os.makedirs(out_dir, exist_ok=True)
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except OSError as exc:
+            return _write_error(exc, out_dir)
         roots = [k.strip() for k in args.specs.split(",") if k.strip()]
         say = None if args.quiet else (lambda line: print(line, flush=True))
         spec = specs.walk(args.spec_cmd, roots,
@@ -488,11 +511,14 @@ def main() -> int:
                           key_re=key_re, stdin=spec_stdin)
         # Both replaced only once both are written, so nothing reads a new
         # spec_map.json beside the previous spec_map.md.
-        _write_atomic_group([
-            (os.path.join(out_dir, "spec_map.json"),
-             json.dumps(spec, indent=2, ensure_ascii=False)),
-            (os.path.join(out_dir, "spec_map.md"), specs.digest(spec)),
-        ])
+        try:
+            _write_atomic_group([
+                (os.path.join(out_dir, "spec_map.json"),
+                 json.dumps(spec, indent=2, ensure_ascii=False)),
+                (os.path.join(out_dir, "spec_map.md"), specs.digest(spec)),
+            ])
+        except OSError as exc:
+            return _write_error(exc, out_dir)
         if not args.quiet:
             print(f"spec map: {len(spec['tickets'])} ticket(s) -> "
                   f"{os.path.join(out_dir, 'spec_map.md')}")
@@ -504,6 +530,15 @@ def main() -> int:
         # Both maps answer, because a question about this work is as likely to be
         # about what was asked for as about where the code is.
         spec_path = os.path.join(out_dir, "spec_map.md")
+        # No map is not an answer. --sections said so and returned 1; --ask
+        # printed the same complaint and returned 0; --callers said "nothing
+        # in the map calls X" and returned 0, which is worse than a bad exit
+        # code because it reports an empty result for a search that never
+        # happened. A CI step or a hook that checks $? believed all three.
+        if not os.path.exists(map_path):
+            print(f"no map at {map_path}: build one with "
+                  f"`where-are-we --repo . --out {args.out}`", file=sys.stderr)
+            return 1
         if args.pointer:
             changed = changed_since(os.path.abspath(args.repo), out_dir)
             print(pointer(map_path, changed=changed), end="")
@@ -689,7 +724,10 @@ def main() -> int:
     # --init also needs: --out defaults to ".", so without this it would
     # write .wawe-cache.json into whatever directory --init ran from.
     if not args.init:
-        os.makedirs(out_dir, exist_ok=True)
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except OSError as exc:
+            return _write_error(exc, out_dir)
     m = build(repo, out_dir=None if args.init else out_dir, force=args.force)
     if len(repos) > 1:
         m["also"] = {}
@@ -714,9 +752,19 @@ def main() -> int:
     m = redact(m)
     m["fingerprint"] = stamp_now
     if args.init:
-        print(init_manifest(repo, m))
+        try:
+            print(init_manifest(repo, m))
+        except OSError as exc:
+            return _write_error(exc, os.path.join(repo, ".framework-map.json"))
         return 0
-    _write_artifacts(out_dir, m, args)
+    try:
+        # The map files, the optional --html page and the --agent-file block
+        # are one write step: an unwritable --out and an unwritable
+        # --agent-file are the same complaint with a different path in it,
+        # and the OSError carries which.
+        _write_artifacts(out_dir, m, args)
+    except OSError as exc:
+        return _write_error(exc, out_dir)
 
     # The semantic index, built from the map just written plus whatever
     # corpora the caller named. Free when nothing changed (content hash),
