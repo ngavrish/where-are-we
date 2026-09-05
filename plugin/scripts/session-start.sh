@@ -27,11 +27,24 @@ fi
 out="$cwd/.wawe"
 head=$(git -C "$cwd" rev-parse HEAD 2>/dev/null || echo "")
 built=$(cat "$out/.built-at" 2>/dev/null || echo "")
-if [ ! -f "$out/framework_map.md" ] || [ -n "$head" ] && [ "$head" != "$built" ]; then
+# `||` and `&&` are equal precedence in sh, left to right, so an ungrouped
+# "no-map || have-head && moved" parses as "(no-map || have-head) && moved":
+# in a repository with no git, head and built are both empty, "" != "" is
+# false, and a repository that has never been mapped is never built. The
+# braces make the intended grouping explicit: no map -> build; a git repo
+# whose HEAD moved since the last build -> build; otherwise skip.
+if [ ! -f "$out/framework_map.md" ] || { [ -n "$head" ] && [ "$head" != "$built" ]; }; then
   # One tree walk, seconds, offline. A stale map is rebuilt on the next
   # session after a commit; edits within a session are not re-walked.
   ( cd "$cwd" && where-are-we --repo . --out .wawe --quiet >/dev/null 2>&1 ) || exit 0
-  [ -n "$head" ] && printf '%s' "$head" > "$out/.built-at"
+  if [ -n "$head" ]; then
+    # Written after the build finishes, and atomically (temp file then
+    # rename): a reader of .built-at never sees a half-written HEAD, and a
+    # build killed mid-way leaves the old stamp in place rather than a torn
+    # one that would look like the wrong commit was mapped.
+    tmp="$out/.built-at.$$.tmp"
+    printf '%s' "$head" > "$tmp" && mv "$tmp" "$out/.built-at"
+  fi
 fi
 # The map directory ignores itself, so the repository's own .gitignore is
 # never touched and `git status` stays clean whether or not one exists.
