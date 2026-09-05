@@ -219,13 +219,15 @@ jobs:
           git config user.email apt@where-are-we.dev
           # docs/demo lives on main; the orphan checkout below wipes the
           # working tree, so it is copied out first and put back under
-          # demo/ once the apt/rpm repository is in place.
-          cp -a docs/demo /tmp/demo
+          # demo/ once the apt/rpm repository is in place. Guarded both
+          # ways: a ref tagged before docs/demo existed must still publish
+          # the apt/rpm repository, not abort here.
+          [ -d docs/demo ] && cp -a docs/demo /tmp/demo || true
           git checkout --orphan gh-pages
           git rm -rq --cached . || true
           find . -maxdepth 1 ! -name repo ! -name .git ! -name . -exec rm -rf {} +
           mv repo/* . && rmdir repo
-          rm -rf demo && mv /tmp/demo demo
+          [ -d /tmp/demo ] && { rm -rf demo && mv /tmp/demo demo; } || true
           git add -A && git commit -qm "apt repository for ${{ github.ref_name }}"
           git push -qf origin gh-pages
 
