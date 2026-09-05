@@ -33,6 +33,17 @@ jobs:
           where-are-we --repo /tmp/fx --out /tmp/fxmap
           grep -q "cucumber-js" /tmp/fxmap/framework_map_brief.md
           grep -q "users" /tmp/fxmap/framework_map_brief.md
+      - name: cross-file call graph (ts/js, go)
+        run: |
+          mkdir -p /tmp/cg
+          printf 'export function charge(x) { return x }\n' > /tmp/cg/a.ts
+          printf 'import { charge } from "./a"\nexport async function pay() {\n  const r = charge(1)\n  return r\n}\nfunction local() { return pay() }\n' > /tmp/cg/b.ts
+          printf 'package m\nfunc Serve() {}\n' > /tmp/cg/s.go
+          printf 'package m\nfunc Run() { Serve() }\n' > /tmp/cg/c.go
+          where-are-we --repo /tmp/cg --out /tmp/cgmap
+          grep -q "charge (a.ts)" /tmp/cgmap/framework_map_brief.md
+          grep -q "Serve (s.go)" /tmp/cgmap/framework_map_brief.md
+          ! grep -q "b.ts:local" /tmp/cgmap/framework_map_brief.md
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
