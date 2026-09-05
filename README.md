@@ -506,6 +506,20 @@ defaults from.
 | `WAWE_STRICT` | the Claude Code plugin, not `src/` | set to `1` and the plugin's PreToolUse hook refuses `Grep`, `Glob` and `Bash` searches over the repository, so the map is asked instead | unset: searches are allowed |
 | `PYTHONIOENCODING` | the interpreter | a codec narrower than the map's text no longer fails: characters it cannot carry are replaced | unset: the locale's codec |
 
+Each variable is read in one place, and named there. `WAWE_NO_CACHE`,
+`WAWE_DEBUG_PARSES` and `WAWE_POINTER_MAX` are read once when
+`_mapper/state.py` is imported (`NO_CACHE`, `DEBUG_PARSES`, `POINTER_MAX`),
+`WAWE_MAX_FILES` when `_mapper/walk.py` is (`MAX_FILES`), `WAWE_VOCAB` when
+`_mapper/render.py` is (`VOCAB_CAP`), `WAWE_ASK_LOG` when `ask.py` is
+(`LOG_ANSWERS`), the three `WAWE_EMBED`/`WAWE_RERANK` ones when `semantic.py`
+is, and the two `WAWE_SPEC` ones when `specs.py` is. So a process that sets one
+of those after importing the package keeps the value it started with.
+
+The five that are read per call are the ones a flag writes back into the
+environment for a later stage to pick up (`AGENT_REPO`, `PRODUCT_SRC`,
+`RUN_DIR`, `RULES_REPO`, `RUNS_API_READ`), plus `WAWE_JUNIT_DIRS`, which a
+caller that builds several maps in one process sets per build.
+
 ## Keeping it honest
 
 ```bash

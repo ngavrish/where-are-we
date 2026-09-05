@@ -13,6 +13,12 @@ from . import state
 from .state import TRUNCATED
 from .walk import _write_atomic
 
+# How many vocabulary entries the brief may print, split across its groups.
+# Read here rather than 670 lines into `brief()`, where a caller of `brief()`
+# had no way to see that the function read the environment at all. No cap by
+# default: see where it is used for why the arithmetic is not close.
+VOCAB_CAP = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
+
 try:
     from ..ask import fit_lines, map_heads
 except ImportError:  # run as a plain file, with no package around it
@@ -835,7 +841,7 @@ def brief(m: dict) -> str:
         # first, while a single turn spent grepping for a phrase re-reads the
         # entire context to ask the question and again to receive the answer.
         # Truncating this to save context is saving the cheap thing.
-        cap = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
+        cap = VOCAB_CAP
         total = sum(len(v) for v in vocab.values())
         lines += ["", f"## What you can already write with ({total})", "",
                   "The vocabulary this suite already has. Write from these; adding a "

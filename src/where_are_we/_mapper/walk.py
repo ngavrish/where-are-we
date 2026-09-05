@@ -227,7 +227,7 @@ def _cached(path: str, kind: str, compute):
     with nothing recorded at all, for whoever wants a build that leaves the
     cache exactly as it was.
     """
-    if os.environ.get("WAWE_NO_CACHE"):
+    if state.NO_CACHE:
         state.PARSE_COUNT += 1
         return compute()
     try:

@@ -164,6 +164,21 @@ def reset(keep_indexes: bool = False) -> None:
     CUT_FILES.clear()
 
 
+# Whether this process may use the parse cache at all. Read here, once, and
+# named, rather than out of the environment in the middle of `build()` and
+# again in the middle of `_cached()`: the configuration a run was started with
+# belongs where the rest of it is, and a reader looking for what this package
+# is configured by should not have to find two `os.environ` calls a thousand
+# lines apart. Set to anything, it makes every build parse every file and
+# leaves the cache on disk exactly as it was.
+NO_CACHE = bool(os.environ.get("WAWE_NO_CACHE"))
+
+
+# Whether a build prints the number of files it actually parsed, to stderr,
+# so an incremental rebuild's claim can be checked instead of taken on faith.
+DEBUG_PARSES = bool(os.environ.get("WAWE_DEBUG_PARSES"))
+
+
 # What may go in a prompt, in bytes. Not a preference: a prompt is re-sent in
 # full on every turn of a session, so anything put there is paid for on every
 # turn whether it is read or not. Measured on one real run — the brief inlined

@@ -1978,3 +1978,53 @@ jobs:
           changed_since('/tmp/pol/r', '')
           print('a broken config, and a tree with no git, still build')
           "
+
+      - name: every knob is read in one named place, and still works
+        run: |
+          set -o pipefail
+          rm -rf /tmp/cfg
+          mkdir -p /tmp/cfg/r
+          printf 'def charge():\n    pass\n' > /tmp/cfg/r/a.py
+          # WAWE_VOCAB was read 670 lines into brief() and WAWE_ASK_LOG inside
+          # log_answer(), so a caller of either had no way to see that the
+          # function read the environment at all. They are module constants
+          # now, and so are the two the parse cache is driven by.
+          python - <<'EOF'
+          import pathlib, re, sys
+          # Only the six that travel as a parameter channel, or per build, are
+          # still read inside a function.
+          allowed = {"AGENT_REPO", "PRODUCT_SRC", "RUN_DIR", "RULES_REPO",
+                     "RUNS_API_READ", "WAWE_JUNIT_DIRS", "SPEC_ROOTS",
+                     "SPEC_FETCH_CMD", "SPEC_SOURCE", "HOME"}
+          bad = []
+          for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
+              indent = 0
+              for line in path.read_text().splitlines():
+                  if re.match(r"^(def |class |[A-Za-z_])", line):
+                      indent = 0
+                  elif line.strip():
+                      indent = len(line) - len(line.lstrip())
+                  for name in re.findall(r"os\.(?:getenv|environ\.get)\(\"([A-Z_]+)\"", line):
+                      if indent and name not in allowed:
+                          bad.append(f"{path}: {name} read inside a function")
+          print("\n".join(bad) or "every other knob is read once, at module level")
+          sys.exit(1 if bad else 0)
+          EOF
+          python -c "
+          from where_are_we._mapper import state, render
+          from where_are_we import ask, semantic
+          for mod, name in ((state, 'NO_CACHE'), (state, 'DEBUG_PARSES'),
+                            (state, 'POINTER_MAX'), (render, 'VOCAB_CAP'),
+                            (ask, 'LOG_ANSWERS'), (semantic, 'EMBED_CACHE')):
+              assert hasattr(mod, name), (mod.__name__, name)
+          print('every constant is where the README says it is')
+          "
+          # And the knobs still do what they say.
+          WAWE_VOCAB=1 where-are-we --repo /tmp/cfg/r --out /tmp/cfg/m --product none \
+            --force --quiet --no-semantic
+          WAWE_ASK_LOG=0 where-are-we --out /tmp/cfg/m --ask charge > /dev/null
+          test ! -f /tmp/cfg/m/.wawe-ask.log
+          where-are-we --out /tmp/cfg/m --ask charge > /dev/null
+          test -s /tmp/cfg/m/.wawe-ask.log
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cfg/r --out /tmp/cfg/m \
+            --product none --force --quiet --no-semantic 2>&1 | grep -q "parsed .* files"

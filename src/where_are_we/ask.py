@@ -19,6 +19,11 @@ RESERVE_TAIL = 96  # a section's tail line ("… 37 more matching rows; 210 rows
 RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
 
+# Whether an answer is logged. Read here, once, rather than inside
+# `log_answer()`, where a caller had no way to see that the function read the
+# environment at all. Set it to "0" to stop the log.
+LOG_ANSWERS = os.environ.get("WAWE_ASK_LOG") != "0"
+
 _ROW_PATH = re.compile(r"^- `([^`]*/)([^`/]+)`(.*)$")
 _DEF_ROW = re.compile(r"^- `([^`]+)`")  # a "## Defined here" row: the name in backticks
 
@@ -620,7 +625,7 @@ def log_answer(out_dir: str, tool: str, words: str, answer: str, room: int) -> N
     has spent. Off with `WAWE_ASK_LOG=0`. Never raises: a log is a
     convenience, not a reason to fail the question it is logging.
     """
-    if os.environ.get("WAWE_ASK_LOG") == "0":
+    if not LOG_ANSWERS:
         return
     row = {
         "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),

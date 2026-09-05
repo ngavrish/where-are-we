@@ -120,7 +120,7 @@ def build(repo: str, out_dir: str | None = None,
     # directory happened to be. WAWE_NO_CACHE=1 does the same on purpose.
     if out_dir is None:
         out_dir = os.getenv("RUN_DIR")
-    no_cache = bool(os.environ.get("WAWE_NO_CACHE")) or out_dir is None
+    no_cache = state.NO_CACHE or out_dir is None
     # `force` distrusts the cache without throwing it away: nothing in it is
     # believed, every answer is computed again, and what this build found is
     # written back over the top, so the build after a forced one is warm
@@ -561,6 +561,10 @@ def build(repo: str, out_dir: str | None = None,
     # process happened to leave behind rather than on this repository, and
     # walking all of it on every build was slow besides.
     history: dict[str, dict] = {}
+    # Read here and not once at import, unlike the other WAWE_ knobs: this one
+    # is set per build by callers that build several in one process, the
+    # golden fixtures among them, and a constant read at import would freeze
+    # the first caller's answer onto every build after it.
     junit_env = os.getenv("WAWE_JUNIT_DIRS", "")
     junit_dirs = (junit_env.split(os.pathsep) if junit_env else
                   [os.path.join(repo, d) for d in
@@ -936,7 +940,13 @@ def build(repo: str, out_dir: str | None = None,
                 testid_owners.setdefault(tid, os.path.basename(p2))
     testid_owners = dict(list(testid_owners.items())[:200])
 
-    # The rules corpus the agents are held to, by name.
+    # The rules corpus the agents are held to, by name. RULES_REPO is read
+    # here rather than at import for the same reason RUN_DIR and RUNS_API_READ
+    # are: `main()` writes all three into the environment from its own flags
+    # before it calls this, so the environment is the channel the flag travels
+    # down and a constant read at import would be read before the flag was
+    # parsed. It is a channel worth replacing with parameters, and doing that
+    # is a change to what `build()` is called with, not to where it reads.
     rules_corpus = []
     for root in (os.getenv("RULES_REPO", "/rules"), os.path.join(repo, ".cursor", "rules")):
         if not os.path.isdir(root):
@@ -2479,6 +2489,6 @@ def build(repo: str, out_dir: str | None = None,
 
     if not no_cache:
         _save_parse_cache(out_dir)
-    if os.environ.get("WAWE_DEBUG_PARSES"):
+    if state.DEBUG_PARSES:
         print(f"parsed {state.PARSE_COUNT - parses_before} files", file=sys.stderr)
     return result
