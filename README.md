@@ -548,9 +548,11 @@ committed and pasted into prompts, so three rules replace a credential with
 3. The value on a line whose left-hand side names a secret: a segment of the
    key is `secret`, `password`, `passwd`, `token`, `api_key`, `private_key`,
    `credential` or `auth`, in an assignment, a dict or JSON key, a YAML key or
-   an `export`. A quoted value is replaced wherever it sits on the line; a bare
-   value only when the key starts the line, which is what a `.env` line, an
-   `export` and a YAML key look like.
+   an `export`. A quoted value and a bare value after `=` are replaced wherever
+   they sit on the line, so a `.env` line inside a shell string counts too. A
+   bare value after `:` is only replaced when the key starts the line, which is
+   what a YAML key looks like and what keeps the type in
+   `def get_token(self, auth_token: str)` out of it.
 
 Key names are kept, so a question about where a password is set still gets the
 file and the line. Code on the right-hand side is kept too: neither value rule
