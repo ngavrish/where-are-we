@@ -101,6 +101,12 @@ _IGNORE_CACHE: dict[str, list] = {}
 _LINK_CACHE: dict[tuple, bool] = {}
 
 
+# Files a parser was handed only the first AST_LIMIT bytes of, so the map can
+# name them rather than look complete. Filled by `_slurp_source`, turned into
+# one bounded note by `build()`.
+CUT_FILES: list[str] = []
+
+
 # What the walk had to leave out. A limit that stops quietly produces a map that
 # looks complete and is not, and the reader has no way to tell — which is worse
 # than a small map, because a small map that says so can be asked to grow. Named
@@ -146,6 +152,7 @@ def reset(keep_indexes: bool = False) -> None:
     INDEXED.clear()
     LINES.clear()
     TRUNCATED.clear()
+    CUT_FILES.clear()
 
 
 # What may go in a prompt, in bytes. Not a preference: a prompt is re-sent in

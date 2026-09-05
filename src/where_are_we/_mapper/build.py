@@ -21,10 +21,70 @@ import urllib.request
 
 from . import extract, state
 from .declare import _step_texts, index_declarations
-from .state import DEFINITIONS, INDEXED, LINES
+from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
 from .walk import (SKIP_DIRS, _cached, _lines_matching, _load_parse_cache,
                    _manifest, _product_roots, _save_parse_cache, _slurp,
-                   _tree, _walk, sweep_out_dir)
+                   _slurp_source, _tree, _walk, sweep_out_dir)
+
+
+def _parse_source(path: str):
+    """`ast.parse` of as much of `path` as a parser can be given, or None.
+
+    None is what every caller here already treats as "no names in this file",
+    so nothing downstream changes shape.
+
+    A file under the limit is parsed exactly as it always was, and a genuine
+    syntax error in one still yields nothing: this does not go looking for
+    names in code that does not compile. The retreat below is only ever tried
+    on a file this package itself cut.
+    """
+    src, was_cut = _slurp_source(path)
+    if not src:
+        return None
+    try:
+        return ast.parse(src)
+    except (SyntaxError, ValueError) as exc:
+        if not was_cut:
+            return None
+        blamed = exc
+    for cut in _retreats(src, blamed):
+        try:
+            return ast.parse(src[:cut])
+        except (SyntaxError, ValueError):
+            continue
+    return None
+
+
+def _retreats(src: str, exc: BaseException) -> list:
+    """Exclusive end offsets to retry a truncated source at, best first.
+
+    The parser's own diagnosis comes first. When a cut lands inside a
+    triple-quoted string, an open bracket or a continuation, `SyntaxError`
+    names the line where that thing opened, so dropping that line and
+    everything after it closes the grammar exactly, and does it in one attempt
+    however many lines the unterminated thing swallowed.
+
+    The last top-level `def` or `class` is the fallback, for a failure that
+    carries no usable line number. Both are cheap, both are bounded, and a
+    truncated file that neither rescues is one this package reports as cut and
+    otherwise leaves alone.
+    """
+    out = []
+    lineno = getattr(exc, "lineno", None)
+    if isinstance(lineno, int) and lineno > 1:
+        at, ok = 0, True
+        for _ in range(lineno - 1):
+            nxt = src.find("\n", at)
+            if nxt < 0:
+                ok = False
+                break
+            at = nxt + 1
+        if ok and at > 0:
+            out.append(at)
+    for boundary in (src.rfind("\ndef "), src.rfind("\nclass ")):
+        if boundary > 0 and boundary + 1 not in out:
+            out.append(boundary + 1)
+    return out
 
 
 def _layer_line(paths: list, what: str) -> str:
@@ -142,9 +202,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _symbols_of(full=full):
-            try:
-                tree = ast.parse(_slurp(full))
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return None
             consts, funcs = [], []
             for node in tree.body:
@@ -167,9 +226,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _api_of(full=full, rel=rel):
-            try:
-                tree = ast.parse(_slurp(full))
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return {"api": [], "defs": []}
             out, defs = [], []
             for node in ast.walk(tree):
@@ -223,9 +281,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _doc_of(full=full):
-            try:
-                tree = ast.parse(_slurp(full))
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return None
             return ast.get_docstring(tree)
 
@@ -327,9 +384,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _hooks_of(full=full, rel=rel):
-            try:
-                tree = ast.parse(_slurp(full))
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return {}
             found = {}
             for node in tree.body:
@@ -616,9 +672,8 @@ def build(repo: str, out_dir: str | None = None,
         full = os.path.join(repo, rel)
 
         def _call_graph_of(full=full, rel=rel):
-            try:
-                tree = ast.parse(_slurp(full))
-            except (OSError, SyntaxError):
+            tree = _parse_source(full)
+            if tree is None:
                 return {}
             found = {}
             for node in tree.body:
@@ -1030,9 +1085,8 @@ def build(repo: str, out_dir: str | None = None,
             continue
 
         def _pytest_of(p2=p2):
-            try:
-                tree = ast.parse(_slurp(p2))
-            except (OSError, SyntaxError):
+            tree = _parse_source(p2)
+            if tree is None:
                 return {"cases": [], "fixs": [], "markers": []}
             cases, fixs, marks = [], [], []
             for node in ast.walk(tree):
@@ -1407,7 +1461,7 @@ def build(repo: str, out_dir: str | None = None,
             continue
         if rel == "package.json":
             try:
-                pkg = json.load(open(fp, encoding="utf-8", errors="replace"))
+                pkg = json.loads(_slurp(fp))
                 entry["package.json scripts"] = list((pkg.get("scripts") or {}).items())[:15]
             except (OSError, ValueError):
                 pass
@@ -1441,9 +1495,8 @@ def build(repo: str, out_dir: str | None = None,
             continue
 
         def _exports_of(p2=p2):
-            try:
-                tree = ast.parse(_slurp(p2))
-            except (SyntaxError, ValueError):
+            tree = _parse_source(p2)
+            if tree is None:
                 return []
             return [n.name for n in tree.body
                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
@@ -1542,7 +1595,7 @@ def build(repo: str, out_dir: str | None = None,
     pkg_json = os.path.join(repo, "package.json")
     if os.path.exists(pkg_json):
         try:
-            pkg = json.load(open(pkg_json, encoding="utf-8", errors="replace"))
+            pkg = json.loads(_slurp(pkg_json))
             ws = pkg.get("workspaces")
             workspaces = (ws.get("packages") if isinstance(ws, dict) else ws) or []
         except (OSError, ValueError):
@@ -2429,6 +2482,20 @@ def build(repo: str, out_dir: str | None = None,
             "scenarios": sum(len(v["scenarios"]) for v in features.values()),
         },
     }
+
+    # Every file a parser was only handed the first AST_LIMIT bytes of, named
+    # once, sorted, and bounded: a repository of very large modules should not
+    # push the rest of the map's head off the screen with one bullet each.
+    if state.CUT_FILES:
+        shown = sorted(state.CUT_FILES)
+        more = len(shown) - 8
+        note = ("only the first 2 MB was parsed of: "
+                + ", ".join(shown[:8])
+                + (f", and {more} more" if more > 0 else "")
+                + ". Whole lines up to that point are in the map and nothing "
+                  "after it is")
+        if note not in TRUNCATED:
+            TRUNCATED.append(note)
 
     if not no_cache:
         _save_parse_cache(out_dir)

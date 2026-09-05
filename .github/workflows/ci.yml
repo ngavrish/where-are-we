@@ -948,6 +948,72 @@ jobs:
           sys.exit(1 if kb > 190 * 1024 else 0)
           EOF
 
+      - name: a large module is parsed, not silently dropped
+        run: |
+          rm -rf /tmp/pl
+          mkdir -p /tmp/pl/a /tmp/pl/b /tmp/pl/c /tmp/pl/broken
+          # 405 KB, with byte 400,000 inside a triple-quoted string. The read
+          # cap for a parser used to be _slurp's 400,000, so the cut landed
+          # mid-string, ast.parse raised SyntaxError, and the file lost even
+          # the names on its first line.
+          python - <<'EOF'
+          head = 'def FIRST_NAME():\n    return 1\n\n\nDOC = """\n'
+          tail = '"""\n\n\ndef LAST_NAME():\n    return 2\n'
+          line = "filler line that is inside the docstring\n"
+          n = (405 * 1024 - len(head) - len(tail)) // len(line)
+          body = head + line * n + tail
+          open("/tmp/pl/a/mod.py", "w").write(body)
+          b = body.encode()
+          assert len(b) > 400000, len(b)
+          assert b[:400000].count(b'"""') % 2 == 1, "the cut is not inside the string"
+          # 508 KB of small defs: a cut there parses and silently yields fewer
+          # names than the file declares.
+          out, i = [], 0
+          while sum(len(x) for x in out) < 508 * 1024:
+              out.append(f"def gen_{i:05d}():\n    return {i}\n")
+              i += 1
+          open("/tmp/pl/b/mod.py", "w").write("".join(out))
+          # Over the 2 MB parser bound, with the cut inside a string: the file
+          # is reported as cut and the names before the string are still read.
+          head = 'def EARLY_NAME():\n    return 1\n\n\nDOC = """\n'
+          n = (2 * 1024 * 1024 - len(head)) // len(line) + 40000
+          open("/tmp/pl/c/mod.py", "w").write(
+              head + line * n + '"""\n\n\ndef LATE_NAME():\n    return 2\n')
+          # A file that genuinely does not compile still yields nothing.
+          open("/tmp/pl/broken/mod.py", "w").write(
+              "def ok_name():\n    return 1\n\ndef broken(:\n    pass\n")
+          EOF
+          for d in a b c broken; do
+            where-are-we --repo /tmp/pl/$d --out /tmp/pl/$d.out --product none \
+              --force --quiet --no-semantic
+          done
+          python - <<'EOF'
+          import json, sys
+          def names(d):
+              m = json.load(open(f"/tmp/pl/{d}.out/framework_map.json"))
+              return {n for v in (m.get("exports") or {}).values() for n in v}
+          bad = []
+          a = names("a")
+          if not {"FIRST_NAME", "LAST_NAME"} <= a:
+              bad.append(f"405 KB module: exports {sorted(a)}")
+          b = names("b")
+          if "gen_00000" not in b:
+              bad.append(f"508 KB module: exports {sorted(b)[:4]}")
+          c = names("c")
+          if "EARLY_NAME" not in c:
+              bad.append(f"over 2 MB module: exports {sorted(c)}")
+          if names("broken"):
+              bad.append("a file that does not compile yielded names")
+          print("\n".join(bad) or "every large module keeps its names")
+          sys.exit(1 if bad else 0)
+          EOF
+          # Only the file actually over the parser bound is called out, and the
+          # map names it rather than looking complete.
+          grep -q "only the first 2 MB was parsed of: /tmp/pl/c/mod.py" \
+            /tmp/pl/c.out/framework_map.md
+          ! grep -q "only the first 2 MB was parsed" /tmp/pl/a.out/framework_map.md
+          ! grep -q "only the first 2 MB was parsed" /tmp/pl/b.out/framework_map.md
+
       - name: what changed comes back verbatim, whatever the file is called
         run: |
           rm -rf /tmp/cs

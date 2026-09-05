@@ -349,6 +349,44 @@ def _slurp(path: str, limit: int = 400000) -> str:
 MAX_FILES = int(os.getenv("WAWE_MAX_FILES", "40000"))
 
 
+# What a parser may be given, and the same bound `declare.py` puts on a file
+# before it stops indexing its declarations at all. Past this a file is already
+# outside `definitions`, so there is nothing for a parse to stay consistent
+# with.
+AST_LIMIT = 2 * 1024 * 1024
+
+
+def _slurp_source(path: str, limit: int = AST_LIMIT) -> tuple[str, bool]:
+    """A file's text for a parser, cut on a line boundary, and whether it was
+    cut.
+
+    `_slurp`'s plain byte cap is right for a regex scan over a body and wrong
+    for a parser. A cut at an arbitrary byte lands mid-token as often as not,
+    `ast.parse` raises `SyntaxError`, and every caller here treats that as
+    "this file declares nothing": a 405 KB module lost even the names on its
+    first line, and the map said nothing about it having happened.
+
+    So the read goes to `AST_LIMIT`, the cut is moved back to the last newline
+    so no line is half a line, and the file is named in `state.CUT_FILES`,
+    which `build()` turns into a note in the map's own
+    `## This map is incomplete` section. A bound that stops quietly produces a
+    map that looks complete and is not.
+    """
+    body = _slurp(path, limit)
+    try:
+        cut = os.path.getsize(path) > limit
+    except OSError:
+        cut = False
+    if not cut:
+        return body, False
+    nl = body.rfind("\n")
+    if nl > 0:
+        body = body[:nl + 1]
+    if path not in state.CUT_FILES:
+        state.CUT_FILES.append(path)
+    return body, True
+
+
 def _ignores(root: str) -> list:
     """Patterns from `.wawe-ignore`, one per line, fnmatch against the relative
     path. A hundred-thousand-file monorepo does not want its build output read,
