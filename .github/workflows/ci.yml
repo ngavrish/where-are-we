@@ -24,9 +24,12 @@ jobs:
         run: python tests/golden/check.py
 
       - name: map itself
-        run: where-are-we --repo . --out /tmp/map && test -s /tmp/map/framework_map_brief.md
+        run: |
+          rm -rf /tmp/map
+          where-are-we --repo . --out /tmp/map && test -s /tmp/map/framework_map_brief.md
       - name: map a polyglot fixture
         run: |
+          rm -rf /tmp/fx /tmp/fxmap
           mkdir -p /tmp/fx/steps /tmp/fx/migrations
           printf 'from behave import step\n@step("a user exists")\ndef f(c):\n    pass\n' > /tmp/fx/steps/a.py
           printf 'Given("a logged in user", async function () {});\n' > /tmp/fx/steps.ts
@@ -37,6 +40,7 @@ jobs:
           grep -q "users" /tmp/fxmap/framework_map_brief.md
       - name: cross-file call graph (ts/js, go)
         run: |
+          rm -rf /tmp/cg /tmp/cgmap
           mkdir -p /tmp/cg
           printf 'export function charge(x) { return x }\n' > /tmp/cg/a.ts
           printf 'import { charge } from "./a"\nexport async function pay() {\n  const r = charge(1)\n  return r\n}\nfunction local() { return pay() }\n' > /tmp/cg/b.ts
@@ -48,6 +52,7 @@ jobs:
           ! grep -q "b.ts:local" /tmp/cgmap/framework_map_brief.md
       - name: map a rust/kotlin/csharp/ruby fixture
         run: |
+          rm -rf /tmp/langs /tmp/langsmap
           mkdir -p /tmp/langs
           printf 'pub fn charge() {}\nstruct Invoice;\npub(crate) enum State { A }\ntrait Pay {}\n// fn commented() {}\n' > /tmp/langs/lib.rs
           printf 'class Invoice(val id: Int)\nfun charge(): Unit = Unit\nobject Config\nsuspend fun refund() {}\n' > /tmp/langs/Pay.kt
@@ -88,6 +93,7 @@ jobs:
           test -x /tmp/fx/.git/hooks/post-checkout
       - name: cursor and codex hooks
         run: |
+          rm -rf /tmp/home /tmp/fx2
           export HOME=/tmp/home
           mkdir -p "$HOME" /tmp/fx2
           printf 'def f():\n    pass\n' > /tmp/fx2/a.py
@@ -105,6 +111,7 @@ jobs:
 
       - name: measure a synthetic session
         run: |
+          rm -rf /tmp/ms
           mkdir -p /tmp/ms
           printf '%s\n' \
             '{"type": "assistant", "message": {"role": "assistant", "content": [{"type": "tool_use", "name": "Grep", "input": {"pattern": "x"}}]}}' \
@@ -124,6 +131,7 @@ jobs:
           grep -q '"orientation_turns": 4' /tmp/ms.json
       - name: lsp
         run: |
+          rm -rf /tmp/lsp
           mkdir -p /tmp/lsp/r
           printf 'def charge(x):\n    return x\n' > /tmp/lsp/r/billing.py
           printf 'from billing import charge\n\ndef pay():\n    return charge(1)\n' > /tmp/lsp/r/api.py
@@ -132,6 +140,7 @@ jobs:
           grep -q "billing.py" /tmp/lsp-smoke.out
       - name: "spec source: github"
         run: |
+          rm -rf /tmp/ghbin /tmp/ghrepo /tmp/ghmap
           mkdir -p /tmp/ghbin /tmp/ghrepo
           cat > /tmp/ghbin/gh <<'SH'
           #!/bin/sh
@@ -164,6 +173,7 @@ jobs:
           grep -q "^n=" /tmp/ask-log-summary.txt
       - name: pointer says what changed since the last session
         run: |
+          rm -rf /tmp/pd
           mkdir -p /tmp/pd/r /tmp/pd/m
           git -C /tmp/pd/r init -q
           git -C /tmp/pd/r config user.email t@t
