@@ -117,7 +117,7 @@ def _config(repo: str) -> dict:
     try:
         import tomllib
         data = tomllib.loads(body)
-    except Exception:  # noqa: BLE001 — a file with a typo in it
+    except Exception:  # noqa: BLE001, a file with a typo in it
         return {}
     out = data.get("where-are-we") or data.get("tool", {}).get("where-are-we") or data
     # `[synonyms]` is its own top-level table, named once for the project

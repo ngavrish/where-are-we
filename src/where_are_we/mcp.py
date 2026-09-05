@@ -93,9 +93,11 @@ TOOLS = [
             "Who calls a function or step, by name: every `<file>:<func>` "
             "whose call graph mentions it. Reads the same call graphs `ask` "
             "draws its 'Called by' block from, across Python, TypeScript, "
-            "JavaScript and Go, and behave step functions. Matching is "
-            "case-sensitive and exact, like the identifier itself. `name` "
-            "takes a list; ask for several callees in one call."),
+            "JavaScript and Go, and behave step functions. Cross-file only: "
+            "a call from within the same file it is defined in is not "
+            "counted. Matching is case-sensitive and exact, like the "
+            "identifier itself. `name` takes a list; ask for several "
+            "callees in one call."),
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": ["string", "array"],

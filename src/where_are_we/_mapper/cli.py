@@ -512,10 +512,12 @@ def main() -> int:
     # out_dir itself, and only when out_dir already exists (a --docs preview,
     # a few lines up, never creates it and so never gets a cache file either).
     # --init writes into the repository, not out_dir, so it is excluded here
-    # the same way.
+    # the same way. build() itself takes out_dir=None as "no cache", which
+    # --init also needs: --out defaults to ".", so without this it would
+    # write .wawe-cache.json into whatever directory --init ran from.
     if not args.init:
         os.makedirs(out_dir, exist_ok=True)
-    m = build(repo, out_dir=out_dir)
+    m = build(repo, out_dir=None if args.init else out_dir)
     if len(repos) > 1:
         m["also"] = {}
         for extra in repos[1:]:

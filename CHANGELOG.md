@@ -20,7 +20,8 @@
 - The cross-file call graph covers TypeScript, JavaScript and Go, not only
   Python.
 - `--callers NAME`, the MCP `callers` tool, and a `## Called by` block in
-  `--ask`, answer who calls a name.
+  `--ask`, answer who calls a name, cross-file only: a call from within the
+  same file it is defined in is not counted.
 - `--ask` expands synonyms and stems terms before matching; `.wawe.toml`'s
   `[synonyms]` table adds a project's own words to the built-in groups.
 - `--install-hook` gained `cursor`, `codex` and `gemini`, each idempotent and
