@@ -536,30 +536,43 @@ recorded with the map, so a re-run on an unchanged tree costs a stat walk.
 ### What is redacted
 
 The map holds every indexed line of every indexed file, and the map gets
-committed and pasted into prompts, so three rules replace a credential with
+committed and pasted into prompts, so these rules replace a credential with
 `[redacted]` before anything is written:
 
-1. An issuer prefix anywhere in the line: `AKIA...` (AWS), `ghp_`/`gho_`/
+1. A whole PEM block, `-----BEGIN ... PRIVATE KEY-----` through
+   `-----END ...-----`, header and body alike.
+2. An issuer prefix at the start of a word: `AKIA...` (AWS), `ghp_`/`gho_`/
    `ghs_`/`ghu_`/`github_pat_` (GitHub), `xox?-...` (Slack), `sk_live_`/
    `sk_test_`/`rk_live_`/`rk_test_` (Stripe), `sk-`/`sk-proj-` (OpenAI),
-   `pypi-` (PyPI), a `-----BEGIN ... PRIVATE KEY-----` header, a JWT.
-2. The password inside a URL: `postgres://admin:pw@host/db` keeps the scheme,
+   `pypi-` (PyPI), a JWT.
+3. A base64 blob of forty characters or more that carries a `+` or ends in
+   `=` padding.
+4. The password inside a URL: `postgres://admin:pw@host/db` keeps the scheme,
    the user and the host and loses the password.
-3. The value on a line whose left-hand side names a secret: a segment of the
-   key is `secret`, `password`, `passwd`, `token`, `api_key`, `private_key`,
-   `credential` or `auth`, in an assignment, a dict or JSON key, a YAML key or
-   an `export`. A quoted value and a bare value after `=` are replaced wherever
-   they sit on the line, so a `.env` line inside a shell string counts too. A
-   bare value after `:` is only replaced when the key starts the line, which is
-   what a YAML key looks like and what keeps the type in
-   `def get_token(self, auth_token: str)` out of it.
+5. The value on a line whose left-hand side names a secret. The last segment
+   of the key has to be `secret`, `password`, `passwd`, `token`, `api_key`,
+   `private_key`, `credential`, `auth` or `authorization`, in an assignment, a
+   dict or JSON key, a YAML key or an `export`. A quoted value and a bare value
+   after `=` are replaced wherever they sit on the line, so a `.env` line
+   inside a shell string counts too. A bare value after `:` is replaced only on
+   a line shaped like YAML: the key starts the line, is not quoted, and nothing
+   after the value turns the line back into code.
 
-Key names are kept, so a question about where a password is set still gets the
-file and the line. Code on the right-hand side is kept too: neither value rule
-admits a bracket, so `token = lexer.next_token()` and
-`PASSWORD = os.environ["PW"]` are still in the map. What is deliberately not a
-rule any more is a bare run of forty base64 characters, which used to destroy
-every commit sha and every long Java package path in the map.
+Key names are kept, and so are the quotes around a redacted literal, so a
+question about where a password is set still gets the file, the line and the
+syntax. What is not redacted, deliberately:
+
+- Code on the right-hand side. No value rule admits a bracket, so
+  `token = lexer.next_token()` and `PASSWORD = os.environ["PW"]` stay.
+- A name that merely mentions a credential. The secret word has to be the last
+  segment, so `token_count`, `max_token_count`, `auth_backend`, `secret_name`,
+  `api_key_header`, `private_key_path` and `credential_kind` all stay.
+- A number, a `True`/`False`/`None`, or a bare type name, whatever the key is
+  called: `has_token = True` and the dataclass field `token: str = ""` stay.
+- A commit sha, and a path. Rule 3 needs a `+` or an `=`, and a forty-character
+  hex sha has neither. A slash is not a gate either, because
+  `src/main/java/com/example/service/impl/CustomerServiceImpl` is a run of
+  letters and slashes and nothing else.
 
 `.wawe.toml`'s `[synonyms]` table adds a project's own words to `--ask`'s
 built-in groups (login/signin/auth, invoice/bill/billing, and eighteen more):

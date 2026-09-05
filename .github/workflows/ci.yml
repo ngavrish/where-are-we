@@ -1054,6 +1054,22 @@ jobs:
             > /tmp/u16/ask.txt
           grep -q "## Defined here" /tmp/u16/ask.txt
           grep -q "cafe_login" /tmp/u16/ask.txt
+          # A byte order mark is not proof of text: a compiled file starting
+          # FF FE decodes into mojibake instead of failing, and the NUL test
+          # cannot catch it any more because the NULs were the encoding.
+          rm -rf /tmp/u16/b
+          mkdir -p /tmp/u16/b /tmp/u16/bm
+          python -c "
+          import random
+          random.seed(7)
+          open('/tmp/u16/b/blob.py','wb').write(bytes([0xFF,0xFE]) + bytes(random.randrange(256) for _ in range(4000)))
+          "
+          python -c "open('/tmp/u16/b/real.py','wb').write('def cafe_login(): pass\n'.encode('utf-16'))"
+          where-are-we --repo /tmp/u16/b --out /tmp/u16/bm --product none \
+            --force --quiet --no-semantic
+          grep -q '"cafe_login"' /tmp/u16/bm/framework_map.json
+          python -c "import json,sys; d=json.load(open('/tmp/u16/bm/framework_map.json')); sys.exit(0 if 'blob.py' not in ' '.join(d['lines']) else 1)"
+          python -c "import json,sys; d=json.load(open('/tmp/u16/bm/framework_map.json')); sys.exit(0 if sum(d['indexed'].values()) == 1 else 1)"
 
       - name: --html escapes repository content instead of interpolating it
         run: |
@@ -1118,6 +1134,21 @@ jobs:
             /tmp/xc/err.txt
           ! grep -q "Traceback" /tmp/xc/err.txt
           chmod 700 /tmp/xc/ro /tmp/xc/ro2 /tmp/xc/rorepo
+          # Only a spec map: --ask answers from it, the other three say which
+          # file is missing and which one is there.
+          rm -rf /tmp/xc/sp
+          mkdir -p /tmp/xc/sp /tmp/xc/spr
+          printf '# Specification map\n\n## Tickets\n\n- `AB-1` login must reject a blank password\n' \
+            > /tmp/xc/sp/spec_map.md
+          where-are-we --repo /tmp/xc/spr --out /tmp/xc/sp --ask login > /tmp/xc/sp.txt
+          grep -q "AB-1" /tmp/xc/sp.txt
+          for flag in "--sections" "--pointer" "--callers foo"; do
+            if where-are-we --repo /tmp/xc/spr --out /tmp/xc/sp $flag \
+                 2> /tmp/xc/err.txt; then
+              echo "$flag answered from a spec map"; exit 1
+            fi
+            grep -q "only --ask reads it" /tmp/xc/err.txt
+          done
           # A map that is there still answers, and still returns 0.
           where-are-we --repo /tmp/xc/srv --out /tmp/xc/m --product none --force \
             --quiet --no-semantic
@@ -1143,6 +1174,33 @@ jobs:
           printf 'export GITHUB_TOKEN=ghsecrettoken12345\nexport PATH=/usr/bin:$PATH\n' \
             > /tmp/sec/r/pkg/setup.sh
           printf 'AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\nDB_PASSWORD=hunter2\n' > /tmp/sec/r/.env
+          cat > /tmp/sec/r/pkg/key.pem <<'PEM'
+          -----BEGIN RSA PRIVATE KEY-----
+          MIIEowIBAAKCAQEAvR8Nx2Lp0qKZ7dJmW1sT3uYhGfB6cXeQ9oNaRtVzHkLpMwCd
+          PqRsTuVwXyZaBcDeFgHiJkLmNoPqRsTuVwXyZ+BcDeFgHiJkLmNoPqRsTuVw/yZa
+          BcDeFgHiJkLmNoPqRsTuVwXyZaBcDeFgHiJkLmNoPqRsTuVwXyZaBcDeFgHiJk==
+          -----END RSA PRIVATE KEY-----
+          PEM
+          cat > /tmp/sec/r/pkg/names.py <<'PY'
+          token_count = 3
+          max_token_count = 10
+          has_token = True
+          auth_backend = "ldap"
+          secret_name = "prod-db"
+          api_key_header = "X-Api-Key"
+          private_key_path = "/etc/ssl/key.pem"
+          credential_kind = "basic"
+          DISK_CACHE = "disk-cache-0001"
+          DOC = "docs/ask-the-map-and-not-the-tree.md"
+          work_live_configuration = "on"
+          DB_PASSWORD = "hunter2"
+          class Cfg:
+              token: str = ""
+          def f(auth):
+              return {
+                  "auth": auth,
+              }
+          PY
           where-are-we --repo /tmp/sec/r --out /tmp/sec/m --product none --force \
             --quiet --no-semantic
           where-are-we --repo /tmp/sec/r --out /tmp/sec/m --ask STRIPE_KEY > /dev/null
@@ -1162,12 +1220,46 @@ jobs:
           grep -q "db_password" /tmp/sec/m/framework_map.json
           grep -q "STRIPE_KEY" /tmp/sec/find.txt
           grep -q "redacted" /tmp/sec/find.txt
-          # The bare base64 rule used to destroy both of these.
+          # The bare base64 rule used to destroy both of these. It is back,
+          # gated on a `+` or an `=` in the run, and a sha and a Java package
+          # path have neither.
           grep -q "a3f5c9e2b7d1084f6a2c5e8b1d4f7a0c3e6b9d2f" /tmp/sec/m/framework_map.json
           grep -q "com/example/service/impl/CustomerServiceImpl.java" \
             /tmp/sec/m/framework_map.json
           grep -q "keep-this-value" /tmp/sec/m/framework_map.json
           grep -q "export PATH=/usr/bin" /tmp/sec/m/framework_map.json
+          # A private key is redacted as a block. Only the header used to go,
+          # which left the base64 body in the map and coming back out of find.
+          ! grep -q "MIIEowIBAAKCAQEAvR8Nx2Lp0qKZ" /tmp/sec/m/framework_map.json
+          ! grep -q "BEGIN RSA PRIVATE KEY" /tmp/sec/m/framework_map.json
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"find","arguments":{"phrase":"MIIEowIBAAKCAQEA"}}}' \
+            | where-are-we --repo /tmp/sec/r --out /tmp/sec/m --mcp > /tmp/sec/pem.txt
+          ! grep -q "MIIEowIBAAKCAQEAvR8" /tmp/sec/pem.txt
+          # Code that merely mentions a credential is not a credential. Every
+          # one of these was redacted before the secret word had to be the
+          # last segment of the identifier.
+          python - <<'EOF'
+          import json, sys
+          lines = set()
+          for rows in json.load(open("/tmp/sec/m/framework_map.json"))["lines"].values():
+              lines.update(r.strip() for r in rows)
+          keep = ['token_count = 3', 'max_token_count = 10', 'has_token = True',
+                  'auth_backend = "ldap"', 'secret_name = "prod-db"',
+                  'api_key_header = "X-Api-Key"',
+                  'private_key_path = "/etc/ssl/key.pem"',
+                  'credential_kind = "basic"', 'token: str = ""',
+                  '"auth": auth,', 'DISK_CACHE = "disk-cache-0001"',
+                  'DOC = "docs/ask-the-map-and-not-the-tree.md"',
+                  'work_live_configuration = "on"',
+                  # A quoted value keeps its quotes: the line is still the
+                  # syntax it was, and the reader can see it was a literal.
+                  'DB_PASSWORD = "[redacted]"']
+          missing = [k for k in keep if k not in lines]
+          if missing:
+              print("redacted something that is not a secret:", missing)
+              sys.exit(1)
+          print("kept", len(keep), "lines that only mention a credential")
+          EOF
 
       - name: every environment variable the code reads is in the README table
         run: |
