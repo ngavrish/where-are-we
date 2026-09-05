@@ -283,6 +283,27 @@ _BOMS = (
 )
 
 
+def _mostly_printable(text: str, sample: int = 2048) -> bool:
+    """Is this decoded text, or a binary file that happened to start FF FE?
+
+    The NUL test cannot answer that once a byte order mark has been honoured:
+    UTF-16 decodes any even number of bytes into something, and four kilobytes
+    of random bytes came back as mojibake that was then indexed as source. So
+    the decoded characters are counted instead. A replacement character is
+    what `errors="replace"` leaves where the bytes were not valid, and an
+    unassigned or private-use code point is what random bytes decode to, so
+    neither counts as printable here even though `str.isprintable` says the
+    first one is. Real text clears 95 per cent easily; the random fixture
+    scores under half.
+    """
+    head = text[:sample]
+    if not head:
+        return True
+    good = sum(1 for ch in head
+               if (ch in "\t\n\r") or (ch.isprintable() and ch != "\ufffd"))
+    return good * 100 >= len(head) * 95
+
+
 def _decode(raw: bytes):
     """This file's bytes as text, or None if it is not text at all.
 
@@ -292,13 +313,19 @@ def _decode(raw: bytes):
     so `ask` reported a reach it did not have. Sniffing the byte order mark
     first decodes those files properly and leaves the NUL test to do its real
     job, which is rejecting compiled output.
+
+    The mark is not proof on its own: a compiled file whose first two bytes
+    happen to be FF FE decodes into mojibake rather than failing, and the NUL
+    test can no longer catch it because the NULs were the encoding. Anything
+    reached through a mark has to read as text as well.
     """
     for bom, encoding in _BOMS:
         if raw.startswith(bom):
             try:
-                return raw.decode(encoding, errors="replace")
+                text = raw.decode(encoding, errors="replace")
             except (UnicodeDecodeError, LookupError):
                 return None
+            return text if _mostly_printable(text) else None
     return raw.decode("utf-8", errors="replace")
 
 
