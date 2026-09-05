@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import subprocess
 from typing import Any, Callable
 
@@ -46,6 +47,12 @@ DEFAULT_LIMIT = int(os.getenv("WAWE_SPEC_LIMIT", "60"))
 # Keys look like PROJ-123 in every tracker worth the name; a bare number is not
 # a key and matching one turns every "fixed 42 tests" into a fetch.
 KEY = re.compile(r"\b[A-Z][A-Z0-9_]{1,9}-\d+\b")
+
+# What a GitHub owner or repo name is allowed to look like. `_github_owner_repo`
+# reads both off the `origin` remote and hands them straight to a `shell=True`
+# command; without this check, an origin crafted to fail the pattern below
+# would instead smuggle shell syntax into that command.
+GITHUB_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 # GitHub spells a key "#12", never as a bare number: a bare number is as
 # common in a body as a test count, but nothing else writes "#12" on purpose.
@@ -111,7 +118,7 @@ def command_for(source: str, repo: str) -> tuple[str, re.Pattern]:
     """
     if source == "github":
         owner_repo = _github_owner_repo(repo)
-        cmd = (f"gh issue view {{key}} --repo {owner_repo} "
+        cmd = (f"gh issue view {{key}} --repo {shlex.quote(owner_repo)} "
                "--json number,title,body,state,labels,url,comments")
         return cmd, GITHUB_KEY
     if source == "linear":
@@ -139,7 +146,7 @@ def _github_owner_repo(repo: str) -> str:
                          capture_output=True, text=True, timeout=10)
     url = out.stdout.strip()
     m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?/?$", url)
-    if not m:
+    if not m or not GITHUB_NAME.match(m.group(1)) or not GITHUB_NAME.match(m.group(2)):
         raise ValueError("origin is not a github remote: "
                           f"{url or out.stderr.strip() or '(no origin set)'}")
     return f"{m.group(1)}/{m.group(2)}"

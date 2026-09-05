@@ -275,6 +275,24 @@ jobs:
             --specs '#12' --spec-source github --quiet
           grep -q '#12' /tmp/ghmap/spec_map.md
           grep -q '#7' /tmp/ghmap/spec_map.md
+      - name: "spec source: github rejects a malicious origin"
+        run: |
+          rm -rf /tmp/ghpwn /tmp/ghpwnmap
+          rm -f /tmp/PWNED_MARKER
+          mkdir -p /tmp/ghpwn
+          git -C /tmp/ghpwn init -q
+          # No slash in the injected suffix: the owner/name regex still
+          # matches (a slash there would already fall through to the plain
+          # "no github.com match" refusal), so this exercises the new name
+          # validation itself.
+          git -C /tmp/ghpwn remote add origin 'https://github.com/o/n;touch${IFS}PWNED_MARKER'
+          cd /tmp
+          if where-are-we --repo /tmp/ghpwn --out /tmp/ghpwnmap \
+            --specs '#1' --spec-source github --quiet; then
+            echo "expected --spec-source github to refuse this origin" >&2
+            exit 1
+          fi
+          test ! -e /tmp/PWNED_MARKER
       - name: every map answer is logged
         run: |
           printf '%s\n' \
