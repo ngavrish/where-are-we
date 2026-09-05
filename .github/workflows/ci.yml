@@ -311,6 +311,11 @@ jobs:
           grep -q '"tool": "defines"' /tmp/map/.wawe-ask.log
           grep -q '"tool": "sections"' /tmp/map/.wawe-ask.log
           grep -q '"tool": "callers"' /tmp/map/.wawe-ask.log
+          # The CHANGELOG says every one of these is logged from both the CLI
+          # and MCP, above; the CLI's own --sections is the one flag that
+          # historically forgot to log, so check it here too.
+          where-are-we --out /tmp/map --sections >/dev/null
+          grep -q '"tool": "sections"' /tmp/map/.wawe-ask.log
           wawe-measure --ask-log /tmp/map | tee /tmp/ask-log-summary.txt
           grep -q "^n=" /tmp/ask-log-summary.txt
       - name: pointer says what changed since the last session

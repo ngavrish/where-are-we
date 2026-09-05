@@ -348,10 +348,12 @@ def main() -> int:
             return 0
         if args.sections:
             try:
-                print("\n".join(map_heads(map_path)))
+                answer = "\n".join(map_heads(map_path))
             except OSError as exc:
                 print(f"no map at {map_path}: {exc}", file=sys.stderr)
                 return 1
+            log_answer(out_dir, "sections", "", answer, len(answer))
+            print(answer)
             return 0
         if args.callers:
             json_path = os.path.join(out_dir, "framework_map.json")
