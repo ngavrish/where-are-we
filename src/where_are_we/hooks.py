@@ -22,6 +22,42 @@ _BLOCK_END = "<!-- where-are-we:end -->"
 _MCP_ARGS = ["--repo", ".", "--out", ".wawe", "--mcp"]
 
 
+def _symlink_refusal(path: str, boundary: str) -> str | None:
+    """None when it is safe to write `path`; otherwise the message to hand
+    back instead of writing anything.
+
+    Checks the target itself and every directory between it and `boundary`
+    (the repository, or the home directory for the two files this writes
+    under `~`). A symlink anywhere in that chain redirects the write to a
+    file the caller never named -- following it is how a hook installer
+    truncates something outside the repository it was pointed at.
+    """
+    boundary = os.path.abspath(boundary)
+    check = os.path.abspath(path)
+    while True:
+        if os.path.islink(check):
+            return f"{check} is a symlink; nothing was written"
+        if check == boundary:
+            return None
+        parent = os.path.dirname(check)
+        if parent == check:
+            return None
+        check = parent
+
+
+def _write_file(path: str, data: str) -> str:
+    """Write `data` to `path`, turning an unwritable directory (a read-only
+    HOME, a full disk) into a message instead of a traceback. Returns "" on
+    success."""
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(data)
+        return ""
+    except OSError as exc:
+        return f"cannot write {path}: {exc}; nothing was written"
+
+
 def _ensure_map(repo: str) -> None:
     """Build the map into <repo>/.wawe if it is not there yet, same three
     files main() writes, and keep .wawe out of the repository's own history --
@@ -48,12 +84,14 @@ def _ensure_map(repo: str) -> None:
         fh.write("*\n")
 
 
-def _merge_block(path: str, block_body: str) -> bool:
+def _merge_block(path: str, block_body: str, boundary: str) -> tuple[bool, str]:
     """Replace the where-are-we block between markers, or append one.
 
     Whatever else is in the file -- a human's prose, another tool's block --
-    stays. Returns whether the file's content actually changed, so a caller
-    can tell "installed" from "already installed".
+    stays. Returns (changed, error): `changed` lets a caller tell "installed"
+    from "already installed"; `error` is non-empty (and `changed` is always
+    False alongside it) when `path` cannot be written -- a symlink inside
+    `boundary`, or an unwritable directory.
     """
     block = f"{_BLOCK_START}\n{block_body}{_BLOCK_END}\n"
     try:
@@ -67,11 +105,14 @@ def _merge_block(path: str, block_body: str) -> bool:
     else:
         new = (cur.rstrip() + "\n\n" if cur.strip() else "") + block
     if new == cur:
-        return False
-    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(new)
-    return True
+        return False, ""
+    bad = _symlink_refusal(path, boundary)
+    if bad:
+        return False, bad
+    err = _write_file(path, new)
+    if err:
+        return False, err
+    return True, ""
 
 
 def _load_json_conf(path: str, key: str) -> tuple[dict | None, str]:
@@ -100,14 +141,17 @@ def _mcp_entry_changed(conf: dict) -> bool:
     return conf.get("mcpServers", {}).get("where-are-we") != entry
 
 
-def _write_mcp_conf(path: str, conf: dict) -> None:
+def _write_mcp_conf(path: str, conf: dict, boundary: str) -> str:
     """Add the where-are-we server to a Cursor/Gemini style mcpServers file,
-    leaving any server already configured there untouched."""
+    leaving any server already configured there untouched. Returns "" on
+    success, or the message to hand back when `path` is a symlink inside
+    `boundary` or its directory cannot be written."""
+    bad = _symlink_refusal(path, boundary)
+    if bad:
+        return bad
     conf.setdefault("mcpServers", {})["where-are-we"] = {
         "command": "where-are-we", "args": list(_MCP_ARGS)}
-    os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(conf, fh, indent=2)
+    return _write_file(path, json.dumps(conf, indent=2, ensure_ascii=False))
 
 
 def _install_git(repo: str, product: str, out: str, agent_file: str) -> str:
@@ -124,6 +168,7 @@ def _install_git(repo: str, product: str, out: str, agent_file: str) -> str:
     if not os.path.isdir(hooks_dir):
         return f"{hooks_dir} does not exist -- is {repo} a git repository?"
     written = []
+    refused = ""
     for name in ("post-checkout", "post-merge", "post-commit"):
         path = os.path.join(hooks_dir, name)
         body = ""
@@ -134,13 +179,22 @@ def _install_git(repo: str, product: str, out: str, agent_file: str) -> str:
                 body = ""
             if "where-are-we" in body:
                 continue
+        bad = _symlink_refusal(path, repo)
+        if bad:
+            refused = bad
+            break
         if not body.strip():
             body = "#!/bin/sh\n"
         body = body.rstrip("\n") + f"\n\n# keep the map in step with the tree\n{line}\n"
-        with open(path, "w", encoding="utf-8") as fh:
-            fh.write(body)
+        err = _write_file(path, body)
+        if err:
+            refused = err
+            break
         os.chmod(path, 0o755)
         written.append(name)
+    if refused:
+        prefix = f"installed: {', '.join(written)}; " if written else ""
+        return prefix + refused
     return "installed: " + ", ".join(written) if written else "already installed"
 
 
@@ -163,9 +217,12 @@ def _install_claude(repo: str, product: str, out: str, agent_file: str, home: st
            for e in entries for h in e.get("hooks", [])):
         return f"already installed in {settings}"
     entries.append({"hooks": [{"type": "command", "command": line}]})
-    os.makedirs(os.path.dirname(settings), exist_ok=True)
-    with open(settings, "w", encoding="utf-8") as fh:
-        json.dump(conf, fh, indent=2)
+    bad = _symlink_refusal(settings, home)
+    if bad:
+        return bad
+    err = _write_file(settings, json.dumps(conf, indent=2, ensure_ascii=False))
+    if err:
+        return err
     return f"installed in {settings} (SessionStart)"
 
 
@@ -194,11 +251,16 @@ def _install_cursor(repo: str) -> str:
     changed_mcp = _mcp_entry_changed(conf)
 
     if changed_rule:
-        os.makedirs(os.path.dirname(rule_path), exist_ok=True)
-        with open(rule_path, "w", encoding="utf-8") as fh:
-            fh.write(content)
+        bad = _symlink_refusal(rule_path, repo)
+        if bad:
+            return bad
+        err = _write_file(rule_path, content)
+        if err:
+            return err
     if changed_mcp:
-        _write_mcp_conf(mcp_path, conf)
+        err = _write_mcp_conf(mcp_path, conf, repo)
+        if err:
+            return err
 
     if changed_rule or changed_mcp:
         return f"installed: {rule_path}, {mcp_path}"
@@ -210,7 +272,9 @@ def _install_codex(repo: str, home: str) -> str:
 
     agents_path = os.path.join(repo, "AGENTS.md")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
-    changed_agents = _merge_block(agents_path, mapper.pointer(map_path))
+    changed_agents, err = _merge_block(agents_path, mapper.pointer(map_path), repo)
+    if err:
+        return err
 
     toml_path = os.path.join(home, ".codex", "config.toml")
     try:
@@ -224,9 +288,12 @@ def _install_codex(repo: str, home: str) -> str:
                    'command = "where-are-we"\n'
                    'args = ["--repo", ".", "--out", ".wawe", "--mcp"]\n')
         new = (cur.rstrip("\n") + "\n\n" if cur.strip() else "") + section
-        os.makedirs(os.path.dirname(toml_path), exist_ok=True)
-        with open(toml_path, "w", encoding="utf-8") as fh:
-            fh.write(new)
+        bad = _symlink_refusal(toml_path, home)
+        if bad:
+            return bad
+        err = _write_file(toml_path, new)
+        if err:
+            return err
 
     if changed_agents or changed_toml:
         return f"installed: {agents_path}, {toml_path}"
@@ -244,10 +311,14 @@ def _install_gemini(repo: str) -> str:
     if error:
         return error
 
-    changed_md = _merge_block(md_path, mapper.pointer(map_path))
+    changed_md, err = _merge_block(md_path, mapper.pointer(map_path), repo)
+    if err:
+        return err
     changed_settings = _mcp_entry_changed(conf)
     if changed_settings:
-        _write_mcp_conf(settings_path, conf)
+        err = _write_mcp_conf(settings_path, conf, repo)
+        if err:
+            return err
 
     if changed_md or changed_settings:
         return f"installed: {md_path}, {settings_path}"
@@ -264,7 +335,14 @@ def install(repo: str, kind: str, product: str, out: str, agent_file: str,
     be a second map in a different place."""
     if kind == "agent":
         kind = "claude"
-    home = home or os.path.expanduser("~")
+    if home is None:
+        # claude and codex write under ~; os.path.expanduser falls back to
+        # the passwd entry when HOME is unset, which is the *real* home of
+        # whoever is running this process -- exactly wrong for a CI job or a
+        # sandboxed harness that never set it on purpose.
+        if kind in ("claude", "codex") and not os.environ.get("HOME"):
+            return "HOME is not set; nothing was written"
+        home = os.path.expanduser("~")
 
     if kind == "git":
         return _install_git(repo, product, out, agent_file)
