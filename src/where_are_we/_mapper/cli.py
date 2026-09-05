@@ -536,9 +536,23 @@ def main() -> int:
         # in the map calls X" and returned 0, which is worse than a bad exit
         # code because it reports an empty result for a search that never
         # happened. A CI step or a hook that checks $? believed all three.
-        if not os.path.exists(map_path):
+        #
+        # "No map" means neither map. A `--specs` run writes spec_map.md
+        # without a framework_map.md beside it, and `--ask` has always read
+        # both, so a question about a ticket in a directory that holds only
+        # the specification map is still a question this can answer.
+        have_map = os.path.exists(map_path)
+        have_spec = os.path.exists(spec_path)
+        if not have_map and not have_spec:
             print(f"no map at {map_path}: build one with "
                   f"`where-are-we --repo . --out {args.out}`", file=sys.stderr)
+            return 1
+        if not have_map and not args.ask:
+            # --pointer, --sections and --callers read the code map and only
+            # the code map, so for them the spec map beside it is not an
+            # answer either. Say which file is missing and which one is there.
+            print(f"no map at {map_path}: {spec_path} is there, and only "
+                  f"--ask reads it", file=sys.stderr)
             return 1
         if args.pointer:
             changed = changed_since(os.path.abspath(args.repo), out_dir)
@@ -566,9 +580,12 @@ def main() -> int:
         # project's `[synonyms]` still has to reach `ask()` from here.
         syn = _config(os.path.abspath(args.repo)).get("synonyms")
         _ask.set_synonyms(syn if isinstance(syn, dict) else {})
-        answer = ask(map_path, args.ask)
-        if os.path.exists(spec_path):
-            answer += "\n\n" + ask(spec_path, args.ask)
+        parts = []
+        if have_map:
+            parts.append(ask(map_path, args.ask))
+        if have_spec:
+            parts.append(ask(spec_path, args.ask))
+        answer = "\n\n".join(parts)
         answer += meaning_tail(out_dir, args.ask, answer)
         log_answer(out_dir, "ask", args.ask, answer, 12000)  # ask()'s own default limit
         print(answer)
