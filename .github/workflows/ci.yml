@@ -139,6 +139,18 @@ jobs:
         run: |
           where-are-we --repo . --out /tmp/map | tee /tmp/first
           where-are-we --repo . --out /tmp/map | grep -q "unchanged since it was built"
+      - name: incremental rebuild
+        run: |
+          mkdir -p /tmp/ir/r/steps /tmp/ir/r/app
+          for i in $(seq 0 29); do
+            printf 'from behave import step\n@step("thing %s")\ndef f%s(c):\n    c.page.go%s()\n' "$i" "$i" "$i" > /tmp/ir/r/steps/s$i.py
+            printf 'def g%s():\n    return %s\n' "$i" "$i" > /tmp/ir/r/app/m$i.py
+          done
+          rm -rf /tmp/ir/m
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/cold.log
+          grep -qE "^parsed [1-9][0-9]* files$" /tmp/ir/cold.log
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/ir/r --out /tmp/ir/m --force --quiet 2> /tmp/ir/warm.log
+          grep -q "^parsed 0 files$" /tmp/ir/warm.log
 
       - name: measure a synthetic session
         run: |

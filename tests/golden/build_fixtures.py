@@ -340,7 +340,7 @@ def build_all(root: str) -> dict:
             # falls back to that same default.
             os.environ["WAWE_JUNIT_DIRS"] = os.path.join(repo, ".no-junit-dirs")
 
-            m = mapper.build(repo)
+            m = mapper.build(repo, out_dir=out_dir)
             os.makedirs(out_dir, exist_ok=True)
             with open(os.path.join(out_dir, "framework_map.json"), "w",
                       encoding="utf-8") as fh:

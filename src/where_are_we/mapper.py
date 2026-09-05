@@ -286,8 +286,15 @@ def _declared_names(body: str, ext: str, path: str = "") -> list:
     optional parser this is exactly `_regex_declared_names`, byte for byte:
     the CI path never installs `tree-sitter-languages`, so it never takes the
     branch below.
+
+    The regex pass is routed through `_cached`, keyed on `path`, the same as
+    every other real parse in this file. `_ts_symbols` below caches itself on
+    the same key; this one cannot, since it only has a path when a caller
+    handed it one, so an empty `path` here just means "always recompute,
+    never persist" rather than a crash.
     """
-    regex_hits = _regex_declared_names(body, ext)
+    regex_hits = _cached(path, f"regex_declared:{ext}",
+                         lambda: _regex_declared_names(body, ext))
     ts_lang = TS_LANG_BY_EXT.get(ext)
     if not ts_lang or not path:
         return regex_hits
@@ -379,50 +386,94 @@ def _load_parse_cache(out_dir: str) -> None:
 
 def _save_parse_cache(out_dir: str) -> None:
     try:
+        # build() calls this before its caller has necessarily written
+        # anything to out_dir; a first build against a fresh --out would
+        # otherwise fail here with the directory missing, silently, and never
+        # cache a thing.
+        os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, _PARSE_CACHE_FILE), "w", encoding="utf-8") as fh:
             json.dump(_PARSE_CACHE, fh)
     except OSError:
         pass
 
 
+# Incremented on every parse actually done: an ast.parse, a tree-sitter parse,
+# or an index_declarations regex pass over a file's body. A rebuild of a tree
+# nobody touched should add nothing to it, and WAWE_DEBUG_PARSES=1 prints the
+# count so that claim can be checked instead of taken on faith.
+PARSE_COUNT = 0
+
+
+def _cached(path: str, kind: str, compute):
+    """Run `compute()` once per file per kind, and reuse the answer after that.
+
+    Keyed by the path and the kind of thing being computed, so the same file
+    can hold a cached step-phrase list and a cached call graph without one
+    overwriting the other. The stored mtime and size are what say whether the
+    file has actually changed since; a build that trusted only the path would
+    hand back last month's answer for a file the sha changed underneath.
+
+    WAWE_NO_CACHE=1 makes this a plain call to `compute()`, for whoever wants
+    to be certain the cache is not the reason an answer looks a certain way.
+    """
+    global PARSE_COUNT
+    if os.environ.get("WAWE_NO_CACHE"):
+        PARSE_COUNT += 1
+        return compute()
+    try:
+        st = os.stat(path)
+    except OSError:
+        PARSE_COUNT += 1
+        return compute()
+    key = f"{kind}\x1e{path}"
+    entry = _PARSE_CACHE.get(key)
+    if (entry is not None and entry.get("mtime") == st.st_mtime
+            and entry.get("size") == st.st_size):
+        return entry["value"]
+    value = compute()
+    PARSE_COUNT += 1
+    _PARSE_CACHE[key] = {"mtime": st.st_mtime, "size": st.st_size, "value": value}
+    return value
+
+
 def _step_texts(path: str) -> list[str]:
     """The step phrases a steps module declares, from its decorators."""
-    try:
-        key = f"{path}:{int(os.path.getmtime(path))}"
-    except OSError:
-        key = ""
-    if key and key in _PARSE_CACHE:
-        return _PARSE_CACHE[key]
-    out: list[str] = []
-    try:
-        tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
-    except (OSError, SyntaxError):
-        return out
-    for node in ast.walk(tree):
-        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            continue
-        for dec in node.decorator_list:
-            if not isinstance(dec, ast.Call) or not dec.args:
+    def _parse():
+        out: list[str] = []
+        defs: list[tuple] = []
+        try:
+            tree = ast.parse(open(path, encoding="utf-8", errors="replace").read())
+        except (OSError, SyntaxError):
+            return {"texts": out, "defs": defs}
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
-            name = getattr(dec.func, "id", "") or getattr(dec.func, "attr", "")
-            if name.lower() not in STEP_DECORATORS:
-                continue
-            arg = dec.args[0]
-            if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
-                out.append(arg.value)
-                # Where it is, not only that it exists.
-                #
-                # An agent that has been told a phrase exists still has to find
-                # it, and finds it the only way it can: grep. Watched over one
-                # run, a scenario author ran forty searches by hand against
-                # three questions to the map — because the map answered "this
-                # step is in that module" and grep answers "line 214". Same
-                # question, and only one of the two answers ends the search.
-                DEFINITIONS.setdefault(arg.value, f"{path}:{node.lineno}")
-                DEFINITIONS.setdefault(f"def {node.name}", f"{path}:{node.lineno}")
-    if key:
-        _PARSE_CACHE[key] = out
-    return out
+            for dec in node.decorator_list:
+                if not isinstance(dec, ast.Call) or not dec.args:
+                    continue
+                name = getattr(dec.func, "id", "") or getattr(dec.func, "attr", "")
+                if name.lower() not in STEP_DECORATORS:
+                    continue
+                arg = dec.args[0]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    out.append(arg.value)
+                    # Where it is, not only that it exists.
+                    #
+                    # An agent that has been told a phrase exists still has to
+                    # find it, and finds it the only way it can: grep. Watched
+                    # over one run, a scenario author ran forty searches by
+                    # hand against three questions to the map, because the map
+                    # answered "this step is in that module" and grep answers
+                    # "line 214". Same question, and only one of the two
+                    # answers ends the search.
+                    defs.append((arg.value, f"{path}:{node.lineno}"))
+                    defs.append((f"def {node.name}", f"{path}:{node.lineno}"))
+        return {"texts": out, "defs": defs}
+
+    result = _cached(path, "step_texts", _parse)
+    for name, loc in result["defs"]:
+        DEFINITIONS.setdefault(name, loc)
+    return result["texts"]
 
 
 
@@ -537,53 +588,57 @@ def _ts_symbols(path: str, lang: str) -> list:
     parser = _tree_sitter(lang)
     if parser is None:
         return []
-    try:
-        tree = parser.parse(_slurp(path).encode())
-    except Exception:  # noqa: BLE001
-        return []
-    wanted = {"function_declaration", "class_declaration", "method_definition",
-              "interface_declaration", "type_alias_declaration", "enum_declaration",
-              "lexical_declaration", "type_declaration", "func_declaration",
-              # rust
-              "function_item", "struct_item", "enum_item", "trait_item",
-              "const_item", "static_item", "mod_item", "type_item",
-              # kotlin (class_declaration also covers its "interface" spelling)
-              "object_declaration",
-              # c_sharp (class_declaration, interface_declaration and
-              # enum_declaration already listed above)
-              "struct_declaration", "record_declaration", "delegate_declaration",
-              "method_declaration",
-              # ruby
-              "method", "singleton_method", "class", "module"}
-    # Languages with no export keyword: a top-level declaration is visible by
-    # definition, so gating on `export_statement` here would just drop every
-    # name in every file.
-    no_export_keyword = {"go", "rust", "kotlin", "c_sharp", "ruby"}
-    out = []
 
-    def walk(node, exported=False):
-        if node.type == "export_statement":
-            exported = True
-        if node.type in wanted:
+    def _parse():
+        try:
+            tree = parser.parse(_slurp(path).encode())
+        except Exception:  # noqa: BLE001
+            return []
+        wanted = {"function_declaration", "class_declaration", "method_definition",
+                  "interface_declaration", "type_alias_declaration", "enum_declaration",
+                  "lexical_declaration", "type_declaration", "func_declaration",
+                  # rust
+                  "function_item", "struct_item", "enum_item", "trait_item",
+                  "const_item", "static_item", "mod_item", "type_item",
+                  # kotlin (class_declaration also covers its "interface" spelling)
+                  "object_declaration",
+                  # c_sharp (class_declaration, interface_declaration and
+                  # enum_declaration already listed above)
+                  "struct_declaration", "record_declaration", "delegate_declaration",
+                  "method_declaration",
+                  # ruby
+                  "method", "singleton_method", "class", "module"}
+        # Languages with no export keyword: a top-level declaration is visible by
+        # definition, so gating on `export_statement` here would just drop every
+        # name in every file.
+        no_export_keyword = {"go", "rust", "kotlin", "c_sharp", "ruby"}
+        out = []
+
+        def walk(node, exported=False):
+            if node.type == "export_statement":
+                exported = True
+            if node.type in wanted:
+                for child in node.children:
+                    if child.type in ("identifier", "type_identifier",
+                                       "property_identifier", "simple_identifier",
+                                       "constant"):
+                        name = child.text.decode(errors="replace")
+                        if exported or lang in no_export_keyword:
+                            out.append(name)
+                        break
             for child in node.children:
-                if child.type in ("identifier", "type_identifier",
-                                   "property_identifier", "simple_identifier",
-                                   "constant"):
-                    name = child.text.decode(errors="replace")
-                    if exported or lang in no_export_keyword:
-                        out.append(name)
-                    break
-        for child in node.children:
-            walk(child, exported)
+                walk(child, exported)
 
-    walk(tree.root_node)
-    # No cap: the regex path this stands in for has none either, and a file
-    # with more than a handful of declarations silently losing the ones past
-    # some count is exactly the "indexed here, not there" gap this project
-    # exists to close. Whatever bounds the reader sees are bounds `brief()`
-    # applies once, in one place, when it renders the table for a prompt;
-    # `framework_map.json` and `declarations_in` stay complete.
-    return sorted(set(out))
+        walk(tree.root_node)
+        # No cap: the regex path this stands in for has none either, and a file
+        # with more than a handful of declarations silently losing the ones past
+        # some count is exactly the "indexed here, not there" gap this project
+        # exists to close. Whatever bounds the reader sees are bounds `brief()`
+        # applies once, in one place, when it renders the table for a prompt;
+        # `framework_map.json` and `declarations_in` stay complete.
+        return sorted(set(out))
+
+    return _cached(path, f"ts:{lang}", _parse)
 
 
 
@@ -853,7 +908,18 @@ def _layer_line(paths: list, what: str) -> str:
     return f"{what} — {len(paths)} files under {where}"
 
 
-def build(repo: str) -> dict:
+def build(repo: str, out_dir: str | None = None) -> dict:
+    # Where the parse cache lives: the run directory a caller names, or
+    # $RUN_DIR, or the current directory, in that order. WAWE_NO_CACHE=1
+    # skips loading and saving it, so a diagnostic run touches nothing on
+    # disk that a normal run would not have touched anyway.
+    out_dir = out_dir if out_dir is not None else os.getenv("RUN_DIR", ".")
+    no_cache = bool(os.environ.get("WAWE_NO_CACHE"))
+    if not no_cache:
+        _load_parse_cache(out_dir)
+    global PARSE_COUNT
+    parses_before = PARSE_COUNT
+
     steps: dict[str, list[str]] = {}
     for p in _walk(repo, ".py"):
         rel = os.path.relpath(p, repo)
@@ -927,44 +993,54 @@ def build(repo: str) -> dict:
     # thing branches grepped for, one module at a time.
     symbols: dict[str, dict] = {}
     for rel in steps:
-        try:
-            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
-                                  errors="replace").read())
-        except (OSError, SyntaxError):
-            continue
-        consts, funcs = [], []
-        for node in tree.body:
-            if isinstance(node, ast.Assign):
-                for t in node.targets:
-                    if isinstance(t, ast.Name) and t.id.isupper():
-                        consts.append(t.id)
-            elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if not node.name.startswith("__"):
-                    funcs.append(node.name)
-        if consts or funcs:
-            symbols[rel] = {"constants": sorted(consts), "functions": sorted(funcs)}
+        full = os.path.join(repo, rel)
+
+        def _symbols_of(full=full):
+            try:
+                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+            except (OSError, SyntaxError):
+                return None
+            consts, funcs = [], []
+            for node in tree.body:
+                if isinstance(node, ast.Assign):
+                    for t in node.targets:
+                        if isinstance(t, ast.Name) and t.id.isupper():
+                            consts.append(t.id)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    if not node.name.startswith("__"):
+                        funcs.append(node.name)
+            return {"constants": sorted(consts), "functions": sorted(funcs)}
+
+        found_symbols = _cached(full, "symbols", _symbols_of)
+        if found_symbols and (found_symbols["constants"] or found_symbols["functions"]):
+            symbols[rel] = found_symbols
 
     def _public_api(rel: str) -> list[str]:
         """The surface a step is allowed to call, with signatures. Without it an
         agent either greps the class or invents a method that does not exist."""
-        try:
-            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
-                                  errors="replace").read())
-        except (OSError, SyntaxError):
-            return []
-        out = []
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                for sub in node.body:
-                    if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                            and not sub.name.startswith("_"):
-                        args = [a.arg for a in sub.args.args if a.arg != "self"]
-                        out.append(f"{node.name}.{sub.name}({', '.join(args)})")
-                        DEFINITIONS.setdefault(
-                            f"{node.name}.{sub.name}",
-                            f"{rel}:{sub.lineno}")
-                DEFINITIONS.setdefault(f"class {node.name}", f"{rel}:{node.lineno}")
-        return sorted(out)
+        full = os.path.join(repo, rel)
+
+        def _api_of(full=full, rel=rel):
+            try:
+                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+            except (OSError, SyntaxError):
+                return {"api": [], "defs": []}
+            out, defs = [], []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ClassDef):
+                    for sub in node.body:
+                        if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                                and not sub.name.startswith("_"):
+                            args = [a.arg for a in sub.args.args if a.arg != "self"]
+                            out.append(f"{node.name}.{sub.name}({', '.join(args)})")
+                            defs.append((f"{node.name}.{sub.name}", f"{rel}:{sub.lineno}"))
+                    defs.append((f"class {node.name}", f"{rel}:{node.lineno}"))
+            return {"api": sorted(out), "defs": defs}
+
+        api_result = _cached(full, "public_api", _api_of)
+        for name, loc in api_result["defs"]:
+            DEFINITIONS.setdefault(name, loc)
+        return api_result["api"]
 
     api = {rel: _public_api(rel) for rel in page_objects + drivers}
     api = {k: v for k, v in api.items() if v}
@@ -999,12 +1075,16 @@ def build(repo: str) -> dict:
 
     module_docs = {}
     for rel in list(steps) + page_objects + drivers + envs:
-        try:
-            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
-                                  errors="replace").read())
-            d = ast.get_docstring(tree)
-        except (OSError, SyntaxError):
-            continue
+        full = os.path.join(repo, rel)
+
+        def _doc_of(full=full):
+            try:
+                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+            except (OSError, SyntaxError):
+                return None
+            return ast.get_docstring(tree)
+
+        d = _cached(full, "module_doc", _doc_of)
         if d:
             module_docs[rel] = d.strip().split("\n\n")[0][:400]
 
@@ -1099,18 +1179,24 @@ def build(repo: str) -> dict:
     # 6. behave hooks, by what they actually do.
     hooks = {}
     for rel in envs:
-        try:
-            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
-                                  errors="replace").read())
-        except (OSError, SyntaxError):
-            continue
-        for node in tree.body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                    and node.name.startswith(("before_", "after_")):
-                doc = (ast.get_docstring(node) or "").strip().split("\n")[0]
-                calls = sorted({c.func.attr for c in ast.walk(node)
-                                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
-                hooks[f"{rel}:{node.name}"] = {"doc": doc[:200], "calls": calls[:12]}
+        full = os.path.join(repo, rel)
+
+        def _hooks_of(full=full, rel=rel):
+            try:
+                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+            except (OSError, SyntaxError):
+                return {}
+            found = {}
+            for node in tree.body:
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                        and node.name.startswith(("before_", "after_")):
+                    doc = (ast.get_docstring(node) or "").strip().split("\n")[0]
+                    calls = sorted({c.func.attr for c in ast.walk(node)
+                                    if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
+                    found[f"{rel}:{node.name}"] = {"doc": doc[:200], "calls": calls[:12]}
+            return found
+
+        hooks.update(_cached(full, "hooks", _hooks_of))
 
     # 7. Quarantine and known flakiness, from the tags the suite already uses.
     quarantine = {}
@@ -1385,18 +1471,24 @@ def build(repo: str) -> dict:
     # graph an agent otherwise rebuilds by reading a module top to bottom.
     call_graph: dict[str, list] = {}
     for rel in steps:
-        try:
-            tree = ast.parse(open(os.path.join(repo, rel), encoding="utf-8",
-                                  errors="replace").read())
-        except (OSError, SyntaxError):
-            continue
-        for node in tree.body:
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            calls = sorted({c.func.attr for c in ast.walk(node)
-                            if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
-            if calls:
-                call_graph[f"{os.path.basename(rel)}:{node.name}"] = calls[:12]
+        full = os.path.join(repo, rel)
+
+        def _call_graph_of(full=full, rel=rel):
+            try:
+                tree = ast.parse(open(full, encoding="utf-8", errors="replace").read())
+            except (OSError, SyntaxError):
+                return {}
+            found = {}
+            for node in tree.body:
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                calls = sorted({c.func.attr for c in ast.walk(node)
+                                if isinstance(c, ast.Call) and isinstance(c.func, ast.Attribute)})
+                if calls:
+                    found[f"{os.path.basename(rel)}:{node.name}"] = calls[:12]
+            return found
+
+        call_graph.update(_cached(full, "call_graph", _call_graph_of))
     call_graph = dict(list(call_graph.items())[:120])
 
     # What a finished run leaves behind, and where.
@@ -1771,27 +1863,33 @@ def build(repo: str) -> dict:
         base = os.path.basename(p2)
         if not (base.startswith("test_") or base.endswith("_test.py") or base == "conftest.py"):
             continue
-        try:
-            tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
-        except (OSError, SyntaxError):
-            continue
-        cases, fixs = [], []
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            decs = []
-            for d in node.decorator_list:
-                f = d.func if isinstance(d, ast.Call) else d
-                decs.append(getattr(f, "attr", "") or getattr(f, "id", ""))
-            if node.name.startswith("test"):
-                cases.append(node.name + (f" [{', '.join(decs)}]" if decs else ""))
-                markers += [x for x in decs if x not in ("parametrize", "fixture")]
-            elif "fixture" in decs:
-                fixs.append(node.name)
-        if cases:
-            pytest_tests[rel] = cases[:30]
-        if fixs:
-            fixtures[rel] = fixs[:30]
+
+        def _pytest_of(p2=p2):
+            try:
+                tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
+            except (OSError, SyntaxError):
+                return {"cases": [], "fixs": [], "markers": []}
+            cases, fixs, marks = [], [], []
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                decs = []
+                for d in node.decorator_list:
+                    f = d.func if isinstance(d, ast.Call) else d
+                    decs.append(getattr(f, "attr", "") or getattr(f, "id", ""))
+                if node.name.startswith("test"):
+                    cases.append(node.name + (f" [{', '.join(decs)}]" if decs else ""))
+                    marks += [x for x in decs if x not in ("parametrize", "fixture")]
+                elif "fixture" in decs:
+                    fixs.append(node.name)
+            return {"cases": cases, "fixs": fixs, "markers": marks}
+
+        pytest_found = _cached(p2, "pytest_ast", _pytest_of)
+        if pytest_found["cases"]:
+            pytest_tests[rel] = pytest_found["cases"][:30]
+        if pytest_found["fixs"]:
+            fixtures[rel] = pytest_found["fixs"][:30]
+        markers += pytest_found["markers"]
 
     js_tests: dict[str, list] = {}
     for ext in (".spec.ts", ".spec.js", ".test.ts", ".test.js"):
@@ -2178,13 +2276,17 @@ def build(repo: str) -> dict:
         rel = os.path.relpath(p2, repo)
         if "/test" in "/" + rel or "/steps/" in "/" + rel:
             continue
-        try:
-            tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
-        except (OSError, SyntaxError):
-            continue
-        names = [n.name for n in tree.body
-                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
-                 and not n.name.startswith("_")]
+
+        def _exports_of(p2=p2):
+            try:
+                tree = ast.parse(open(p2, encoding="utf-8", errors="replace").read())
+            except (OSError, SyntaxError):
+                return []
+            return [n.name for n in tree.body
+                    if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+                    and not n.name.startswith("_")]
+
+        names = _cached(p2, "exports_py", _exports_of)
         if names:
             exports[rel] = names[:20]
     for ext in (".ts", ".tsx", ".js"):
@@ -2411,37 +2513,47 @@ def build(repo: str) -> dict:
                 for k, v in frontend.items()}
 
     # Function-level call graph across files: who calls what, beyond imports.
+    # One parse per file gathers both the names it defines and the raw call
+    # names inside each of them; resolving those against every file's
+    # definitions has to wait until all of them have been read, so it happens
+    # in a second, parse-free pass below.
     func_calls: dict[str, list] = {}
     defined_at: dict[str, str] = {}
+    raw_calls_by_rel: dict[str, dict] = {}
     for rel in code_files:
         if not rel.endswith(".py"):
             continue
-        try:
-            tree = ast.parse(_read(rel))
-        except (SyntaxError, ValueError):
-            continue
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                defined_at.setdefault(node.name, rel)
-    for rel in code_files:
-        if not rel.endswith(".py"):
-            continue
-        try:
-            tree = ast.parse(_read(rel))
-        except (SyntaxError, ValueError):
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
+        full = os.path.join(repo, rel)
+
+        def _func_calls_of(rel=rel):
+            try:
+                tree = ast.parse(_read(rel))
+            except (SyntaxError, ValueError):
+                return {"defs": [], "calls": {}}
+            defs = []
+            calls = {}
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                defs.append(node.name)
+                targets = sorted({getattr(c.func, "id", "") or getattr(c.func, "attr", "")
+                                   for c in ast.walk(node) if isinstance(c, ast.Call)})
+                calls[node.name] = [t for t in targets if t]
+            return {"defs": defs, "calls": calls}
+
+        func_info = _cached(full, "func_calls", _func_calls_of)
+        raw_calls_by_rel[rel] = func_info["calls"]
+        for name in func_info["defs"]:
+            defined_at.setdefault(name, rel)
+    for rel, calls in raw_calls_by_rel.items():
+        for func_name, raw_targets in calls.items():
             targets = set()
-            for c in ast.walk(node):
-                if isinstance(c, ast.Call):
-                    name = getattr(c.func, "id", "") or getattr(c.func, "attr", "")
-                    home = defined_at.get(name)
-                    if home and home != rel:
-                        targets.add(f"{name} ({os.path.basename(home)})")
+            for name in raw_targets:
+                home = defined_at.get(name)
+                if home and home != rel:
+                    targets.add(f"{name} ({os.path.basename(home)})")
             if targets:
-                func_calls[f"{os.path.basename(rel)}:{node.name}"] = sorted(targets)[:8]
+                func_calls[f"{os.path.basename(rel)}:{func_name}"] = sorted(targets)[:8]
 
     # Same call graph for TypeScript, JavaScript and Go: there is no AST here,
     # so a definition is found by pattern and a call graph body by matching
@@ -3060,20 +3172,27 @@ def build(repo: str) -> dict:
     for rel in code_files:
         if not rel.endswith(".py"):
             continue
-        try:
-            tree = ast.parse(_slurp(os.path.join(repo, rel)))
-        except (SyntaxError, ValueError):
-            continue
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            branches = sum(isinstance(x, (ast.If, ast.For, ast.While, ast.Try,
-                                          ast.BoolOp, ast.ExceptHandler))
-                           for x in ast.walk(node))
-            length = (getattr(node, "end_lineno", node.lineno) or node.lineno) - node.lineno
-            if branches >= 8 or length >= 80:
-                complexity.append(f"{os.path.basename(rel)}:{node.name} "
-                                  f"({length} lines, {branches} branches)")
+        full = os.path.join(repo, rel)
+
+        def _complexity_of(full=full, rel=rel):
+            try:
+                tree = ast.parse(_slurp(full))
+            except (SyntaxError, ValueError):
+                return []
+            found = []
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                branches = sum(isinstance(x, (ast.If, ast.For, ast.While, ast.Try,
+                                              ast.BoolOp, ast.ExceptHandler))
+                               for x in ast.walk(node))
+                length = (getattr(node, "end_lineno", node.lineno) or node.lineno) - node.lineno
+                if branches >= 8 or length >= 80:
+                    found.append(f"{os.path.basename(rel)}:{node.name} "
+                                 f"({length} lines, {branches} branches)")
+            return found
+
+        complexity += _cached(full, "complexity", _complexity_of)
     complexity = sorted(complexity, key=lambda x: -int(re.search(r"\((\d+) lines", x).group(1)))[:25]
 
     # Blocks of code that appear more than once, by their shape.
@@ -3246,7 +3365,7 @@ def build(repo: str) -> dict:
 
     stated = _manifest(repo)
 
-    return {
+    result = {
         "schema": "where-are-we/1",
         "repo": repo,
         "stated": stated,
@@ -3418,6 +3537,12 @@ def build(repo: str) -> dict:
             "scenarios": sum(len(v["scenarios"]) for v in features.values()),
         },
     }
+
+    if not no_cache:
+        _save_parse_cache(out_dir)
+    if os.environ.get("WAWE_DEBUG_PARSES"):
+        print(f"parsed {PARSE_COUNT - parses_before} files", file=sys.stderr)
+    return result
 
 
 def digest(m: dict) -> str:
@@ -4853,7 +4978,7 @@ def main() -> int:
     # that is there was built. Otherwise the map on disk is the map that would
     # be built, and a second walk of the tree buys nothing.
     if args.docs:
-        m2 = build(repo)
+        m2 = build(repo, out_dir=out_dir)
         planned = propose_docs(repo, m2, apply=(args.docs == "write"))
         if not planned:
             print("nothing to add: every directory already explains itself")
@@ -4874,7 +4999,7 @@ def main() -> int:
             now_fp = _fingerprint(repo)
             if now_fp != last:
                 last = now_fp
-                m2 = build(repo)
+                m2 = build(repo, out_dir=out_dir)
                 m2["fingerprint"] = now_fp
                 os.makedirs(out_dir, exist_ok=True)
                 with open(os.path.join(out_dir, "framework_map.json"), "w",
@@ -4921,7 +5046,7 @@ def main() -> int:
         except (OSError, ValueError):
             print("no previous map in " + out_dir)
             return 1
-        now = build(repo)
+        now = build(repo, out_dir=out_dir)
         changed = []
         for key in sorted((set(prev) | set(now)) - {"fingerprint", "repo"}):
             a, b = prev.get(key), now.get(key)
@@ -4947,7 +5072,7 @@ def main() -> int:
     # split across checkouts, are one system to whoever has to work on them.
     repos = [repo] + [os.path.abspath(x) for x in
                       (args.also.split(",") if args.also else []) if x]
-    m = build(repo)
+    m = build(repo, out_dir=out_dir)
     if len(repos) > 1:
         m["also"] = {}
         for extra in repos[1:]:
@@ -4956,7 +5081,7 @@ def main() -> int:
             os.environ["AGENT_REPO"] = extra
             _WALK_CACHE.clear()
             _IGNORE_CACHE.clear()
-            m["also"][os.path.basename(extra)] = build(extra)
+            m["also"][os.path.basename(extra)] = build(extra, out_dir=out_dir)
         os.environ["AGENT_REPO"] = repo
         # The name index is a copy taken when the first root finished; the line
         # index is the live dict. So a second root's lines were searchable and
