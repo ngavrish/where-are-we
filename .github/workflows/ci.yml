@@ -401,3 +401,37 @@ jobs:
           print("lsp malformed params and unicode URI: OK")
           EOF
 
+      - name: mcp and lsp exit 0 quietly when stdout closes early
+        run: |
+          rm -rf /tmp/epipe
+          mkdir -p /tmp/epipe/pkg
+          printf 'def charge(x):\n    return x\n' > /tmp/epipe/pkg/billing.py
+          where-are-we --repo /tmp/epipe --out /tmp/epipe/.wawe --force --no-semantic --quiet
+          python -c '
+          for i in range(200):
+              print("{\"jsonrpc\":\"2.0\",\"id\":%d,\"method\":\"tools/call\",\"params\":{\"name\":\"sections\",\"arguments\":{}}}" % i)
+          ' > /tmp/epipe/mcp-reqs.jsonl
+          cat /tmp/epipe/mcp-reqs.jsonl \
+            | where-are-we --repo /tmp/epipe --out /tmp/epipe/.wawe --mcp 2> /tmp/epipe/mcp.err \
+            | head -c 10 > /dev/null
+          test "${PIPESTATUS[0]}" = "0"
+          test ! -s /tmp/epipe/mcp.err
+          python - <<'EOF' > /tmp/epipe/lsp-reqs.bin
+          import json
+          import sys
+
+          def frame(obj):
+              body = json.dumps(obj).encode()
+              return b"Content-Length: %d\r\n\r\n%s" % (len(body), body)
+
+          for i in range(200):
+              sys.stdout.buffer.write(frame(
+                  {"jsonrpc": "2.0", "id": i, "method": "workspace/symbol",
+                   "params": {"query": "cha"}}))
+          EOF
+          cat /tmp/epipe/lsp-reqs.bin \
+            | where-are-we --repo /tmp/epipe --out /tmp/epipe/.wawe --lsp 2> /tmp/epipe/lsp.err \
+            | head -c 10 > /dev/null
+          test "${PIPESTATUS[0]}" = "0"
+          test ! -s /tmp/epipe/lsp.err
+
