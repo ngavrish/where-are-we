@@ -38,6 +38,18 @@ jobs:
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
           git -C /tmp/fx init -q && where-are-we --repo /tmp/fx --install-hook git
           test -x /tmp/fx/.git/hooks/post-checkout
+      - name: cursor and codex hooks
+        run: |
+          export HOME=/tmp/home
+          mkdir -p "$HOME" /tmp/fx2
+          printf 'def f():\n    pass\n' > /tmp/fx2/a.py
+          where-are-we --repo /tmp/fx2 --install-hook cursor | grep -q installed
+          test -f /tmp/fx2/.cursor/rules/where-are-we.mdc
+          grep -q "where-are-we" /tmp/fx2/.cursor/mcp.json
+          where-are-we --repo /tmp/fx2 --install-hook cursor | grep -q already
+          where-are-we --repo /tmp/fx2 --install-hook codex | grep -q installed
+          grep -q "mcp_servers.where-are-we" "$HOME/.codex/config.toml"
+          where-are-we --repo /tmp/fx2 --install-hook codex | grep -q already
       - name: idempotent
         run: |
           where-are-we --repo . --out /tmp/map | tee /tmp/first
