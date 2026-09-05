@@ -588,7 +588,10 @@ jobs:
           assert r == {"key": "X-1", "error": "the tracker did not answer in 2s"}, r
           PY
           sleep 1
-          ! pgrep -f "sleep 30"
+          # The timed-out fetch must not leave its child behind.
+          if pgrep -f "sleep 30"; then
+            echo "the timed-out fetch left a child process running"; exit 1
+          fi
       - name: "plugin session-start.sh maps a repository with no git"
         run: |
           rm -rf /tmp/ssnogit
@@ -1256,6 +1259,9 @@ jobs:
           quoted_password = "12345678"
           max_token = 4096
           num_tokens = 10
+          MAX_TOKENS = 1000000
+          max_buffer_tokens = 1048576
+          TIMEOUT_TOKEN = 2000000
           class Cfg:
               token: str = ""
           def f(auth):
@@ -1328,6 +1334,12 @@ jobs:
                   '"auth": auth,', 'DISK_CACHE = "disk-cache-0001"',
                   'DOC = "docs/ask-the-map-and-not-the-tree.md"',
                   'work_live_configuration = "on"',
+                  # A count has no ceiling. A six-digit cap redacted all
+                  # three of these, which are a context window, a buffer
+                  # size and a millisecond timeout.
+                  'MAX_TOKENS = 1000000', 'max_buffer_tokens = 1048576',
+                  'TIMEOUT_TOKEN = 2000000',
+                  'max_token = 4096', 'num_tokens = 10',
                   # A quoted value keeps its quotes: the line is still the
                   # syntax it was, and the reader can see it was a literal.
                   'DB_PASSWORD = "[redacted]"']
