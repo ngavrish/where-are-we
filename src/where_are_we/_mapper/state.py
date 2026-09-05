@@ -94,6 +94,11 @@ _WALK_CACHE: dict[tuple, list] = {}
 _IGNORE_CACHE: dict[str, list] = {}
 
 
+# What `git ls-files` says a root already tracks, per root. One subprocess per
+# build, because the answer is needed once per walked file and git is not.
+_TRACKED_CACHE: dict[str, tuple] = {}
+
+
 # Whether a walked path is a symlink leaving the tree, per (root, path). One
 # build walks the same repository about a dozen times, once per topic, and
 # the answer costs an lstat; asking it once per file instead of once per file
@@ -133,9 +138,10 @@ def reset(keep_indexes: bool = False) -> None:
     stay searchable in the first root's map; that path says so here instead
     of relying on the absence of a reset.
 
-    The four caches always go, `--also` included: they answer "which files
-    are under this root", "what does this file say" and "does this path leave
-    the tree", and a second root is a different question with the same key.
+    The five caches always go, `--also` included: they answer "which files
+    are under this root", "what does this file say", "does this path leave the
+    tree" and "what does git already track here", and a second root is a
+    different question with the same key.
 
     `_PARSE_CACHE` is deliberately not cleared. It is not this build's
     working state: it is loaded from `out_dir` at the top of every build and
@@ -144,6 +150,7 @@ def reset(keep_indexes: bool = False) -> None:
     """
     _WALK_CACHE.clear()
     _IGNORE_CACHE.clear()
+    _TRACKED_CACHE.clear()
     _FILE_CACHE.clear()
     _LINK_CACHE.clear()
     if keep_indexes:

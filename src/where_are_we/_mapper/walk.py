@@ -14,7 +14,7 @@ import subprocess
 
 from . import state
 from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
-                    _WALK_CACHE)
+                    _TRACKED_CACHE, _WALK_CACHE)
 
 # `CACHE_SCHEMA`, `PARSE_COUNT`, `_PARSE_CACHE` and `__version__` are reached
 # through `state` rather than imported by name: three of them are rebound, and
@@ -515,6 +515,44 @@ def _ignored(rel: str, pats: list) -> bool:
     return False
 
 
+def _tracked(root: str) -> tuple:
+    """What git already tracks under `root`: (files, directories holding one),
+    as paths relative to `root`.
+
+    git does not ignore a file it already tracks, and neither may this. A
+    `.gitignore` line is a rule about what to start tracking, so a repository
+    that has committed something its own ignore file names keeps it. This
+    repository is one: it says `.wawe/` and commits three example maps under
+    `docs/examples/*/.wawe/`, and pruning by ignore rules alone dropped all
+    nine of them out of its own map.
+
+    One `git ls-files` per root per build. Empty for a root with no git, where
+    "tracked" means nothing and the ignore rules stand on their own.
+    """
+    if root in _TRACKED_CACHE:
+        return _TRACKED_CACHE[root]
+    files: set = set()
+    dirs: set = set()
+    try:
+        out = subprocess.run(["git", "-C", root, "ls-files", "-z"],
+                             capture_output=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError):
+        out = b""
+    for raw in out.split(b"\0"):
+        if not raw:
+            continue
+        rel = raw.decode("utf-8", "replace")
+        files.add(rel)
+        parent = os.path.dirname(rel)
+        while parent:
+            if parent in dirs:
+                break
+            dirs.add(parent)
+            parent = os.path.dirname(parent)
+    _TRACKED_CACHE[root] = (frozenset(files), frozenset(dirs))
+    return _TRACKED_CACHE[root]
+
+
 def _indexable(root: str):
     """Every file under `root` that this map would index, as full paths.
 
@@ -531,18 +569,27 @@ def _indexable(root: str):
     a smaller one by a pattern that names a bare directory at any depth, which
     is what such a pattern means in a .gitignore. It also stops an ignored
     directory spending the entry budget `_tree` counts.
+
+    Nothing git already tracks is dropped either way, because git would not
+    drop it: see `_tracked`. An ignored path that is untracked still goes.
     """
     base_repo = os.getenv("AGENT_REPO", root)
     pats = _ignores(base_repo)
+    keep_files, keep_dirs = _tracked(base_repo) if pats else (frozenset(), frozenset())
     for base, dirs, files in _tree(root):
         if pats:
-            dirs[:] = [d for d in dirs
-                       if not _ignored(os.path.relpath(os.path.join(base, d),
-                                                       base_repo), pats)]
+            kept = []
+            for d in dirs:
+                rel = os.path.relpath(os.path.join(base, d), base_repo)
+                if not _ignored(rel, pats) or rel in keep_dirs:
+                    kept.append(d)
+            dirs[:] = kept
         for f in files:
             full = os.path.join(base, f)
-            if pats and _ignored(os.path.relpath(full, base_repo), pats):
-                continue
+            if pats:
+                rel = os.path.relpath(full, base_repo)
+                if _ignored(rel, pats) and rel not in keep_files:
+                    continue
             yield full
 
 
