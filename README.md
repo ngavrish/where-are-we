@@ -206,6 +206,10 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | `## This map is incomplete` | Every bound that cut is written at the top |
 | Whole rows, a ceiling, a tail | An answer never pretends to be complete: what was left out is counted |
 | The map says what it maps | "a map of this repository" vs "of this suite and the product it tests", from the map's own counts (0.12.2) |
+| A map file is never torn | Every artefact is written to a temporary and renamed into place; a reader sees the previous map or the new one, never a half-written one, and a build killed mid-way leaves the previous map intact (CI step `every artefact is replaced, never truncated in place`) |
+| The servers stay up | MCP and LSP answer malformed `params`, `arguments` or `limit` with a JSON-RPC error and keep serving; both exit quietly when stdout closes (CI steps `mcp malformed params...`, `lsp malformed params...`, `mcp and lsp exit 0 quietly when stdout closes early`) |
+| `--html` escapes repository content | A docstring or a file name holding markup renders as text on the page (CI step `--html escapes repository content instead of interpolating it`) |
+| A source in UTF-16 is read | A file with a byte order mark is decoded, indexed and answerable; a binary that merely starts with one is not (CI step `a UTF-16 source file is decoded, indexed and answerable`) |
 
 ### How to measure it on your own sessions
 
@@ -420,7 +424,7 @@ has. Unset keeps the old behaviour.
 
 ## What it reads
 
-- **Code** — languages, entry points, make targets, npm scripts, container
+- **Code** (UTF-8, or UTF-16/UTF-32 with a byte order mark) — languages, entry points, make targets, npm scripts, container
   commands, HTTP routes and status codes, data model, module public surface,
   call and package graphs, cycles, unimported files, complexity hotspots,
   duplicate blocks.
