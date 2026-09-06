@@ -23,11 +23,16 @@ precise = ["tree-sitter-languages>=1.10", "tree-sitter>=0.21,<0.22"]
 # Local embeddings for the semantic half of --ask: ONNX models on CPU, no
 # service, no database - the index is two flat files beside the map.
 semantic = ["fastembed>=0.4", "numpy>=1.24"]
+# Only `wawe-eval --agent` needs it, and only that half calls a model. The
+# deterministic half of the eval reads the same map files everything else
+# reads, so the core stays dependency free.
+eval-agent = ["anthropic>=0.40"]
 
 [project.scripts]
 where-are-we = "where_are_we.cli:main"
 wawe-readmes = "where_are_we.readmes:main"
 wawe-measure = "where_are_we.measure:main"
+wawe-eval = "where_are_we.eval:main"
 
 [build-system]
 requires = ["hatchling"]

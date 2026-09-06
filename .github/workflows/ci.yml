@@ -2118,3 +2118,29 @@ jobs:
           assert _config('/tmp/deep/repo') == {}, 'a config that cannot be parsed is no config'
           print('a config built to be parsed reads as no config')
           "
+
+      - name: "wawe-eval: the budget loses no row the map holds"
+        run: |
+          set -o pipefail
+          rm -rf /tmp/wawe-eval
+          # The same three fixtures the golden suite builds, built the same
+          # way: `build_all` writes the repo and then maps it exactly as
+          # `main()` does. `check.py` calls this; so does this step, rather
+          # than mapping this checkout, so the numbers below are about the
+          # budget and not about whatever landed in the repository this week.
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/wawe-eval')
+          "
+          # Redirected, not piped: the exit code is the assertion. wawe-eval
+          # exits 1 when a budgeted answer plus its `more` handles fails to
+          # give back a row the whole answer had, and 0 when every question
+          # comes back whole.
+          wawe-eval --map /tmp/wawe-eval/suite/out --questions 100 \
+            --budgets 350,1500 > /tmp/wawe-eval-out.txt
+          cat /tmp/wawe-eval-out.txt
+          grep -q "first_answer_recall" /tmp/wawe-eval-out.txt
+          grep -qE "^ +350 +100 +0\." /tmp/wawe-eval-out.txt
+          grep -qE "^ +1500 +100 +0\." /tmp/wawe-eval-out.txt
