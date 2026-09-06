@@ -2118,3 +2118,75 @@ jobs:
           assert _config('/tmp/deep/repo') == {}, 'a config that cannot be parsed is no config'
           print('a config built to be parsed reads as no config')
           "
+
+      - name: "wawe-eval: the budget loses no row the map holds"
+        run: |
+          set -o pipefail
+          rm -rf /tmp/wawe-eval
+          # The same three fixtures the golden suite builds, built the same
+          # way: `build_all` writes the repo and then maps it exactly as
+          # `main()` does. `check.py` calls this; so does this step, rather
+          # than mapping this checkout, so the numbers below are about the
+          # budget and not about whatever landed in the repository this week.
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/wawe-eval')
+          "
+          # Redirected, not piped: the exit code is the gate. wawe-eval exits
+          # 1 when a budgeted answer plus its `more` handles fails to give
+          # back a row the whole answer had, and 0 when every question comes
+          # back whole.
+          wawe-eval --map /tmp/wawe-eval/suite/out --questions 100 \
+            --budgets 350,1500 > /tmp/wawe-eval-out.txt
+          cat /tmp/wawe-eval-out.txt
+          # An exit code of 0 also comes back from a run that measured
+          # nothing, so the same run is asked for its numbers and they are
+          # checked for being numbers: both budgets present, a hundred
+          # questions each, every recall a fraction. Deterministic output, so
+          # this is the table above in another shape, not a second sample.
+          wawe-eval --map /tmp/wawe-eval/suite/out --questions 100 \
+            --budgets 350,1500 --json > /tmp/wawe-eval.json
+          python -c "
+          import json
+          report = json.load(open('/tmp/wawe-eval.json'))
+          rows = report['budgets']
+          assert [r['budget'] for r in rows] == [350, 1500], rows
+          for r in rows:
+              assert r['questions'] == 100, r
+              for key in ('first_answer_recall', 'pooled_recall', 'top5_recall'):
+                  v = r[key]
+                  assert isinstance(v, float) and 0.0 <= v <= 1.0, (key, r)
+              assert r['mean_bytes'] > 0, r
+              # Rows the map holds that are longer than the budget: nothing
+              # can print them there, so they are counted and named rather
+              # than asserted. A number, not a claim about it.
+              n = r['rows_over_budget']
+              assert isinstance(n, int) and n >= 0, r
+              assert sum(r['rows_over_budget_by_question'].values()) == n, r
+          assert sum(report['questions_by_kind'].values()) == 100, report
+          print('wawe-eval: 2 budgets, 100 questions each, every recall in [0, 1]')
+          "
+          # The property this step is named for needs `more` to exist. Until
+          # Task 1 merges there is no handle to follow, the run says so, and
+          # asserting it here would fail the build for a tool that is not in
+          # it yet. Gated on the flag `more` brings with it, so the assertion
+          # arms itself the moment that lands and nothing here has to change.
+          if where-are-we --help | grep -q -- --more; then
+            if grep -q "handles: not available in this build" /tmp/wawe-eval-out.txt; then
+              echo "unexpected match: grep -q 'handles: not available in this build' /tmp/wawe-eval-out.txt"; exit 1
+            fi
+            python -c "
+          import json
+          rows = json.load(open('/tmp/wawe-eval.json'))['budgets']
+          for r in rows:
+              # Over the rows that fit the budget. A row longer than the
+              # budget cannot be shown at it by the first answer or by
+              # `more`, which reports it; it is in rows_over_budget and out
+              # of this.
+              assert r['recall_with_handles'] == 1.0, r
+              assert r['chains_cut_short'] == 0, r
+          print('wawe-eval: recall with handles 1.0 over every row that fits')
+          "
+          fi

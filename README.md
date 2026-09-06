@@ -157,6 +157,7 @@ as estimates.
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
 | `find` (MCP) | Where a phrase or string lives, with the line | Not measured | Same |
 | `sections` (MCP), `--sections` | The headings, now map + brief (75 vs 3 before 0.12.1) | Measured 2026-09-03: a code repository's `--sections` went from 3 empty suite headings to 75 | — |
+| `wawe-eval` | Generates questions from the map, asks each at no budget to get the rows the map holds for it, and reports what a budgeted answer shows of those, three ways: macro (per question), pooled (all rows), and over the five rows that ranked highest, plus a count of the rows too long to print at that budget at all. With `more` in the build it also reports what the answer plus its handles reaches | Measured 2026-09-07 on the suite fixture, 100 questions, seed 0: first-answer recall 0.476 / 0.857 / 0.9999 at 350 / 1500 / 12000 bytes; pooled 0.105 / 0.305 / 0.999; top-5 0.725 / 1.000 / 1.000; 34 / 0 / 0 rows longer than the budget; mean answer 303 / 885 / 2051 bytes. Recall with handles, over the rows that fit, is asserted 1.0 by the CI step `wawe-eval: the budget loses no row the map holds`, which exits 1 on any such row a handle fails to return, from the release that adds `more` onwards | `--agent` compares the map tools against grep and read on the same questions; not run in CI |
 | `--for author|coder`, `--only`, `--skip`, `--max-lines` | A brief tailored to who reads it; capped per section | Not measured in tokens; the per-section cap keeps every head (3×50 rows at 30 lines → every head present, before: the last sections dropped) | Token count of the brief per audience |
 
 ### The other map
@@ -251,6 +252,80 @@ and searched more, not less: this is one developer's mixed transcripts, not
 a before/after comparison, and settling the "orientation replaced by one
 --ask" claim above needs matched sessions on the same task, one with the map
 and one without.
+
+## Does the budget lose answers
+
+Every answer `ask` gives is cut to a byte budget. `wawe-eval` measures what
+that cut costs. It generates questions from the map itself (every declared
+name, every step phrase's distinctive word, the longest word of every
+section heading), asks each one at no budget at all to get the rows the map
+holds for it, and then asks it again at each budget.
+
+**First-answer recall is the share of the rows of the full answer that the
+budgeted answer shows before any `more`, averaged over the questions.**
+
+```bash
+wawe-eval --map .wawe --questions 100 --budgets 350,1500,12000
+```
+
+Two averages are published, because they answer different questions and
+neither is "the" recall:
+
+- **first-answer recall** is the macro average: each question's recall is
+  computed, then those are averaged, so a question with two rows counts as
+  much as a question with three hundred. This is the number for "what does a
+  typical question lose".
+- **pooled recall** is the micro average: all rows shown over all rows there
+  were, so the biggest questions dominate. This is the number for "what
+  share of everything the map could have said was said".
+- **top-5 recall** is rank aware: `ask` ranks what it shows, so this is the
+  share of the *first five* rows of the full answer that survived the cut,
+  averaged per question. It is the number for "was the answer at the top
+  still there".
+- **rows over budget** is not a recall at all. It counts reference rows
+  longer than the whole budget, which nothing can print at that budget: not
+  the first answer, and not `more`, which reports such a row rather than
+  skipping it. On the suite fixture one 446 character row does this, and it
+  turns up in 34 of the 100 questions at 350 bytes and in none at 1500.
+  These rows count against first-answer recall, because a reader who asked
+  for them did not get them; they are left out of the recall the exit code
+  asserts, because that one is about rows a handle could have returned.
+
+Measured 2026-09-07 on the three golden fixtures, 100 questions per fixture
+(fewer where the map has fewer), seed 0, built under the fixed root
+`/tmp/wawe-eval` the CI step uses:
+
+| fixture | questions | budget | first-answer recall | pooled recall | top-5 recall | rows over budget | mean bytes |
+|---|---|---|---|---|---|---|---|
+| suite | 100 of 285 | 350 | 0.476 | 0.105 | 0.725 | 34 | 303 |
+| suite | 100 of 285 | 1500 | 0.857 | 0.305 | 1.000 | 0 | 885 |
+| suite | 100 of 285 | 12000 | 0.9999 | 0.999 | 1.000 | 0 | 2051 |
+| code | 12 of 23 | 350 | 0.776 | 0.610 | 0.806 | 0 | 234 |
+| code | 12 of 23 | 1500 | 1.000 | 1.000 | 1.000 | 0 | 342 |
+| poly | 10 of 21 | 350 | 0.775 | 0.719 | 0.798 | 0 | 257 |
+| poly | 10 of 21 | 1500 | 1.000 | 1.000 | 1.000 | 0 | 302 |
+
+Read the suite row at 350 bytes together: a 303 byte answer holds about half
+of what a typical question could have said and a tenth of every row across
+all of them, and three quarters of the five rows that ranked highest. That
+is the shape of the cut. It is not a claim that nothing was lost.
+
+The claim that nothing is lost belongs to `more`, the tool that fetches what
+a tail line says was left out. When this build has it, `wawe-eval` prints a
+`recall_with_handles` column: the rows that fit the budget, counted after
+every `more:` handle in the answer has been followed and every handle in the
+replies after that. That column has to be 1.0 at every budget, `wawe-eval`
+exits 1 when it is not, and the CI step `wawe-eval: the budget loses no row
+the map holds` is that exit code. On a build without `more` the column reads `-` and the
+run prints `handles: not available in this build`; the numbers above are
+from such a build, so the 1.0 claim is not yet made here.
+
+`--agent` is the other half: the same questions asked through the Claude API
+twice, once with the map tools and once with grep and read over the
+repository, scored against answers taken from `framework_map.json`. It needs
+`ANTHROPIC_API_KEY` and `pip install "where-are-we[eval-agent]"`, refuses
+cleanly without them, costs money, and is not run in CI. How to read the
+table and how to run the A/B: [`docs/examples/eval.md`](docs/examples/eval.md).
 
 ## Command line
 
