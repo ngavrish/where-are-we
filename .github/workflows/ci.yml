@@ -538,7 +538,21 @@ jobs:
             exit 1
           fi
           grep -qx "echo PRECIOUS" /tmp/symgitoutside/hook.sh
-          test -x /tmp/symgit/.git/hooks/post-checkout
+          # One unit: a refused third hook installs nothing, and the message
+          # does not open with "installed:".
+          test ! -e /tmp/symgit/.git/hooks/post-checkout
+          test ! -e /tmp/symgit/.git/hooks/post-merge
+          out=$(where-are-we --repo /tmp/symgit --out /tmp/symgitout --install-hook git 2>&1 || true)
+          case "$out" in installed:*) echo "partial install reported as success: $out" >&2; exit 1;; esac
+          # Fix the cause and rerun: all three land.
+          rm /tmp/symgit/.git/hooks/post-commit
+          where-are-we --repo /tmp/symgit --out /tmp/symgitout --install-hook git
+          for h in post-checkout post-merge post-commit; do grep -q where-are-we /tmp/symgit/.git/hooks/$h; done
+          # The cursor pair behaves the same: a symlinked mcp.json leaves no rule file.
+          rm -rf /tmp/symcur && mkdir -p /tmp/symcur/.cursor && printf 'def f():\n    pass\n' > /tmp/symcur/a.py
+          ln -s /tmp/symgitoutside/hook.sh /tmp/symcur/.cursor/mcp.json
+          if where-are-we --repo /tmp/symcur --out /tmp/symcur/.wawe --install-hook cursor; then exit 1; fi
+          test ! -e /tmp/symcur/.cursor/rules/where-are-we.mdc
       - name: HOME unset or unwritable is a message, not a traceback
         run: |
           rm -rf /tmp/homefx /tmp/rohome

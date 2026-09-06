@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.3
+
+- `--install-hook` installs as one unit. Every target is checked before
+  anything is written, so a refused hook, rule file or settings file leaves
+  nothing behind and the message names the cause; a rerun after the cause
+  is fixed installs the rest. Until now `git` could stop after
+  `post-checkout` and report `installed: post-checkout; ...`, which read as
+  success while the map went stale on the first commit, and the cursor,
+  gemini and codex pairs could leave their first file behind.
+- A symlinked `mcp.json` or `settings.json` is refused as a symlink, not as
+  "not valid JSON".
+
 ## 1.1.2
 
 Three audits (concurrency, robustness, design) ran against 1.1.1; every

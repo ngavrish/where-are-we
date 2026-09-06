@@ -181,11 +181,16 @@ def _trigger_command(repo: str, product: str, out: str, agent_file: str) -> str:
 
 
 def _install_git(repo: str, line: str) -> str:
+    """The three hooks are one unit: every target is checked before any is
+    written, so a refusal names its reason with nothing installed, and a
+    rerun after the cause is fixed installs the rest. Until 1.1.3 a refused
+    third hook left the first two in place and said "installed: ..." first,
+    which read as success while the map went stale on the first commit.
+    """
     hooks_dir = os.path.join(repo, ".git", "hooks")
     if not os.path.isdir(hooks_dir):
         return f"{hooks_dir} does not exist -- is {repo} a git repository?"
-    written = []
-    refused = ""
+    todo = []
     for name in ("post-checkout", "post-merge", "post-commit"):
         path = os.path.join(hooks_dir, name)
         body = ""
@@ -198,21 +203,22 @@ def _install_git(repo: str, line: str) -> str:
                 continue
         bad = _symlink_refusal(path, repo)
         if bad:
-            refused = bad
-            break
+            return bad
         if not body.strip():
             body = "#!/bin/sh\n"
         body = body.rstrip("\n") + f"\n\n# keep the map in step with the tree\n{line}\n"
+        todo.append((name, path, body))
+    if not todo:
+        return "already installed"
+    written = []
+    for name, path, body in todo:
         err = _write_file(path, body)
         if err:
-            refused = err
-            break
+            prefix = f"installed: {', '.join(written)}; " if written else ""
+            return prefix + err
         os.chmod(path, 0o755)
         written.append(name)
-    if refused:
-        prefix = f"installed: {', '.join(written)}; " if written else ""
-        return prefix + refused
-    return "installed: " + ", ".join(written) if written else "already installed"
+    return "installed: " + ", ".join(written)
 
 
 def _install_claude(line: str, home: str) -> str:
@@ -239,6 +245,11 @@ def _install_cursor(repo: str) -> str:
     mcp_path = os.path.join(repo, ".cursor", "mcp.json")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
 
+    # A symlinked config is refused as a symlink, not as "not valid JSON":
+    # the check comes before the read so the message names the real cause.
+    bad = _symlink_refusal(mcp_path, repo)
+    if bad:
+        return bad
     conf, error = _load_json_conf(mcp_path, "mcpServers")
     if error:
         return error
@@ -256,10 +267,14 @@ def _install_cursor(repo: str) -> str:
     changed_rule = cur != content
     changed_mcp = _mcp_entry_changed(conf)
 
+    # Both files are checked before either is written: a refused mcp.json
+    # must not leave a fresh rule file behind, and the other way round.
+    for path, changed in ((rule_path, changed_rule), (mcp_path, changed_mcp)):
+        if changed:
+            bad = _symlink_refusal(path, repo)
+            if bad:
+                return bad
     if changed_rule:
-        bad = _symlink_refusal(rule_path, repo)
-        if bad:
-            return bad
         err = _write_file(rule_path, content)
         if err:
             return err
@@ -276,11 +291,17 @@ def _install_cursor(repo: str) -> str:
 def _install_codex(repo: str, home: str) -> str:
     agents_path = os.path.join(repo, "AGENTS.md")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
+    toml_path = os.path.join(home, ".codex", "config.toml")
+    # Both targets checked before AGENTS.md is merged, so a refused toml does
+    # not leave the markdown half installed.
+    for path, boundary in ((agents_path, repo), (toml_path, home)):
+        bad = _symlink_refusal(path, boundary)
+        if bad:
+            return bad
     changed_agents, err = _merge_block(agents_path, mapper.pointer(map_path), repo)
     if err:
         return err
 
-    toml_path = os.path.join(home, ".codex", "config.toml")
     try:
         with open(toml_path, encoding="utf-8") as fh:
             cur = fh.read()
@@ -309,14 +330,24 @@ def _install_gemini(repo: str) -> str:
     settings_path = os.path.join(repo, ".gemini", "settings.json")
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
 
+    bad = _symlink_refusal(settings_path, repo)
+    if bad:
+        return bad
     conf, error = _load_json_conf(settings_path, "mcpServers")
     if error:
         return error
+    changed_settings = _mcp_entry_changed(conf)
+    # Checked before the markdown block is merged, so a refused settings
+    # file does not leave GEMINI.md half installed.
+    for path, changed in ((md_path, True), (settings_path, changed_settings)):
+        if changed:
+            bad = _symlink_refusal(path, repo)
+            if bad:
+                return bad
 
     changed_md, err = _merge_block(md_path, mapper.pointer(map_path), repo)
     if err:
         return err
-    changed_settings = _mcp_entry_changed(conf)
     if changed_settings:
         err = _write_mcp_conf(settings_path, conf, repo)
         if err:
