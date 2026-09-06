@@ -42,6 +42,22 @@ try:
 except ImportError:  # run as a plain file, with no package around it
     import mapper as _mapper  # type: ignore[no-redef]
 
+# The MCP server is the shape an agent actually asks in, so `--agent` splits
+# its budget with the server's own helpers rather than a second copy of the
+# arithmetic. Optional because eval.py has to import on a tree where mcp.py
+# is not reachable (run as a plain file); the constants below are then the
+# fallback, and they are the same numbers.
+try:
+    from . import mcp as _mcp
+except ImportError:  # run as a plain file, with no package around it
+    try:
+        import mcp as _mcp  # type: ignore[no-redef]
+    except ImportError:
+        _mcp = None  # type: ignore[assignment]
+
+_ANSWER_BUDGET = 12000
+_HIT_BUDGET = 40
+
 
 # A handle as it appears in a tail line: `… 37 more matching rows
 # (more:rows:steps-that-overlap:invoice:12)`. The brackets are optional
@@ -80,19 +96,31 @@ def handles_available() -> bool:
     return hasattr(_ask, "more")
 
 
-def rows(answer: str) -> set:
-    """Every map row in an answer, with the directory grouping undone.
+def ordered_rows(answer: str) -> list:
+    """Every map row in an answer, in the order the answer printed them,
+    with the directory grouping undone and repeats dropped.
 
     A row is a `- ` line. Heads (`## ...`), tails (`… ...`), bold subheads
     and the "(also matched: ...)" note are not rows and are dropped: they
     are the answer talking about itself, not content the map holds.
+
+    The order matters for one column: `ask` ranks what it shows, so the
+    first rows of the unbudgeted answer are the ones a reader was most
+    likely after, and `top5_recall` asks whether those in particular
+    survived the cut.
     """
-    out, directory = set(), None
+    out, seen, directory = [], set(), None
+
+    def add(row):
+        if row not in seen:
+            seen.add(row)
+            out.append(row)
+
     for line in answer.splitlines():
         if not line.strip():
             continue
         if line.startswith("  - `") and directory is not None:
-            out.add("- `" + directory + line[len("  - `"):])
+            add("- `" + directory + line[len("  - `"):])
             continue
         head = _DIR_HEAD.match(line)
         if head:
@@ -100,8 +128,13 @@ def rows(answer: str) -> set:
             continue
         directory = None
         if line.startswith("- "):
-            out.add(line)
+            add(line)
     return out
+
+
+def rows(answer: str) -> set:
+    """`ordered_rows` as a set, for the callers that only ask what is in it."""
+    return set(ordered_rows(answer))
 
 
 def handles(answer: str) -> list:
@@ -134,12 +167,15 @@ def _distinctive(phrase: str, frequency: collections.Counter) -> str:
     return min(words, key=lambda w: (frequency[w], -len(w), w))
 
 
-def _key_noun(head: str) -> str:
-    """A section heading's key noun: its longest word that is not furniture.
+def _longest_word(head: str) -> str:
+    """The longest word of a section heading, skipping the small words that
+    carry no subject.
 
     "## Step definitions" gives "definitions", "## Routes served" gives
     "served". Later words win ties, because an English heading puts the
-    thing it is about last.
+    thing it is about last. It is the longest word and nothing cleverer:
+    no part of speech is known here, so calling it the heading's noun would
+    claim more than the code does.
     """
     words = [w for w in re.split(r"[^A-Za-z0-9_]+", head[2:].lower())
              if len(w) > 1 and w not in _STOPWORDS]
@@ -152,13 +188,20 @@ def _key_noun(head: str) -> str:
     return best
 
 
-def question_pool(out_dir: str) -> list:
-    """Every question the map can ask itself, sorted.
+KINDS = ("name", "step", "heading")
+
+
+def question_pool(out_dir: str) -> dict:
+    """Every question the map can ask itself, sorted, by where it came from.
 
     Three sources, as the brief names them: every declared name, every step
-    phrase's distinctive word, every section heading's key noun. Sorted
-    rather than left in map order so a seed picks the same sample whatever
-    order the map happened to write its indexes in.
+    phrase's distinctive word, and the longest word of every section
+    heading. Sorted rather than left in map order so a seed picks the same
+    sample whatever order the map happened to write its indexes in.
+
+    A word that two sources produce is kept once, under the first source in
+    `KINDS` that produced it, so the per-kind counts add up to the pool and
+    the same question is never asked twice under two names.
     """
     map_path = os.path.join(out_dir, "framework_map.md")
     try:
@@ -167,11 +210,18 @@ def question_pool(out_dir: str) -> list:
     except (OSError, ValueError):
         m = {}
 
-    pool = set()
+    pool = {kind: set() for kind in KINDS}
+    seen = set()
+
+    def add(kind, word):
+        if word not in seen:
+            seen.add(word)
+            pool[kind].add(word)
+
     for name in (m.get("definitions") or {}):
         name = str(name).strip()
         if len(name) > 1:
-            pool.add(name)
+            add("name", name)
 
     phrases = []
     for value in (m.get("steps") or {}).values():
@@ -185,17 +235,17 @@ def question_pool(out_dir: str) -> list:
     for phrase in phrases:
         word = _distinctive(phrase, frequency)
         if word:
-            pool.add(word)
+            add("step", word)
 
     try:
         for head in _ask.map_heads(map_path):
-            noun = _key_noun(head)
-            if noun:
-                pool.add(noun)
+            word = _longest_word(head)
+            if word:
+                add("heading", word)
     except OSError:
         pass
 
-    return sorted(pool)
+    return {kind: sorted(words) for kind, words in pool.items()}
 
 
 def _shuffled(items: list, seed: int) -> list:
@@ -228,32 +278,77 @@ def _chase(map_path: str, answer: str, budget: int, max_calls: int) -> tuple:
     return found, calls, bool(pending)
 
 
+# One question is asked at the reference limit and once per budget, and a
+# run that repeats a budget, or asks at a budget the reference limit already
+# covered, would otherwise read and rank the whole map again for an answer it
+# already has. Keyed on what the answer depends on and nothing else.
+_ANSWERS: dict = {}
+
+
+def answer_for(map_path: str, words: str, budget: int) -> str:
+    """`ask()` through a memo keyed on (map, words, budget)."""
+    key = (map_path, words, budget)
+    if key not in _ANSWERS:
+        _ANSWERS[key] = _ask.ask(map_path, words, budget)
+    return _ANSWERS[key]
+
+
+def _pick(map_path: str, pools: dict, n: int, seed: int) -> tuple:
+    """`n` questions that actually match something, balanced across the
+    sources that have anything.
+
+    Up to a third of the run from each kind first, then the rest filled from
+    whatever is left over, so a map with two thousand declared names and
+    thirty headings does not answer for the headings with two questions. A
+    question the map cannot answer at any budget measures nothing about the
+    budget: it is counted, not scored, and the walk carries on.
+    """
+    quota = max(1, -(-n // 3))
+    asked, references, per_kind, leftovers, skipped = [], {}, collections.Counter(), [], 0
+
+    def take(word):
+        reference = ordered_rows(answer_for(map_path, word, 10 ** 9))
+        if not reference:
+            return False
+        asked.append(word)
+        references[word] = reference
+        return True
+
+    for kind in KINDS:
+        for word in _shuffled(pools.get(kind) or [], seed):
+            if len(asked) >= n or per_kind[kind] >= quota:
+                leftovers.append((kind, word))
+                continue
+            if take(word):
+                per_kind[kind] += 1
+            else:
+                skipped += 1
+    for kind, word in _shuffled(leftovers, seed):
+        if len(asked) >= n:
+            break
+        if take(word):
+            per_kind[kind] += 1
+        else:
+            skipped += 1
+    return asked, references, per_kind, skipped
+
+
 def evaluate(out_dir: str, n: int, budgets: list, seed: int,
              max_calls: int = 400) -> dict:
     """The deterministic report: per budget, what the first answer holds and
     what the first answer plus its handles holds, against the whole answer."""
     map_path = os.path.join(out_dir, "framework_map.md")
     have = handles_available()
-    pool = question_pool(out_dir)
-
-    asked, references, skipped = [], {}, 0
-    for word in _shuffled(pool, seed):
-        if len(asked) >= n:
-            break
-        reference = rows(_ask.ask(map_path, word, 10 ** 9))
-        if not reference:
-            # A question the map cannot answer at any budget measures
-            # nothing about the budget. Counted, not scored.
-            skipped += 1
-            continue
-        asked.append(word)
-        references[word] = reference
+    pools = question_pool(out_dir)
+    asked, references, per_kind, skipped = _pick(map_path, pools, n, seed)
 
     report = {
         "map": out_dir,
         "seed": seed,
-        "pool": len(pool),
+        "pool": sum(len(v) for v in pools.values()),
+        "pool_by_kind": {kind: len(pools.get(kind) or []) for kind in KINDS},
         "questions": len(asked),
+        "questions_by_kind": {kind: per_kind[kind] for kind in KINDS},
         "skipped_no_rows": skipped,
         "handles": have,
         "budgets": [],
@@ -261,39 +356,52 @@ def evaluate(out_dir: str, n: int, budgets: list, seed: int,
     }
 
     for budget in budgets:
-        first_recalls, full_recalls, sizes = [], [], []
+        first_recalls, full_recalls, sizes, top5 = [], [], [], []
+        pooled_hit, pooled_total = 0, 0
         worst_calls, truncated = 0, 0
         for word in asked:
             reference = references[word]
-            answer = _ask.ask(map_path, word, budget)
+            wanted = set(reference)
+            answer = answer_for(map_path, word, budget)
             sizes.append(len(answer))
-            first = rows(answer) & reference
-            first_recalls.append(len(first) / len(reference))
+            shown = rows(answer)
+            first = shown & wanted
+            first_recalls.append(len(first) / len(wanted))
+            # Macro above, micro here: the mean of per question recalls
+            # weights a question with two rows the same as one with three
+            # hundred, and the ratio of all rows shown to all rows there is
+            # weights by size. They answer different questions and both are
+            # reported rather than one being called the recall.
+            pooled_hit += len(first)
+            pooled_total += len(wanted)
+            head = reference[:5]
+            top5.append(sum(1 for row in head if row in shown) / len(head))
             if not have:
                 continue
             found, calls, unfinished = _chase(map_path, answer, budget, max_calls)
             worst_calls = max(worst_calls, calls)
             truncated += 1 if unfinished else 0
-            full = (first | (found & reference))
-            recall = len(full) / len(reference)
+            full = first | (found & wanted)
+            recall = len(full) / len(wanted)
             full_recalls.append(recall)
             if recall < 1.0:
                 report["losses"].append({
                     "budget": budget, "words": word,
                     "recall": round(recall, 4),
-                    "missing": len(reference) - len(full),
-                    "reference_rows": len(reference),
+                    "missing": len(wanted) - len(full),
+                    "reference_rows": len(wanted),
                 })
-        row = {
+        report["budgets"].append({
             "budget": budget,
             "questions": len(asked),
             "first_answer_recall": round(_mean(first_recalls), 4),
+            "pooled_recall": round(pooled_hit / pooled_total, 4) if pooled_total else 0.0,
+            "top5_recall": round(_mean(top5), 4),
             "recall_with_handles": (round(_mean(full_recalls), 4) if have else None),
             "mean_bytes": round(_mean(sizes), 1),
             "max_more_calls": worst_calls if have else None,
             "chains_cut_short": truncated if have else None,
-        }
-        report["budgets"].append(row)
+        })
     return report
 
 
@@ -301,8 +409,8 @@ def _mean(values: list) -> float:
     return (sum(values) / len(values)) if values else 0.0
 
 
-_COLUMNS = ("budget", "questions", "first_answer_recall", "recall_with_handles",
-            "mean_bytes")
+_COLUMNS = ("budget", "questions", "first_answer_recall", "pooled_recall",
+            "top5_recall", "recall_with_handles", "mean_bytes")
 
 
 def print_table(report: dict) -> None:
@@ -317,8 +425,10 @@ def print_table(report: dict) -> None:
     print("  ".join(c.rjust(widths[c]) for c in _COLUMNS))
     for row in rows_out:
         print("  ".join(str(row[c]).rjust(widths[c]) for c in _COLUMNS))
+    by_kind = ", ".join(f"{kind} {report['questions_by_kind'][kind]}"
+                        f"/{report['pool_by_kind'][kind]}" for kind in KINDS)
     print(f"map: {report['map']}  questions: {report['questions']} "
-          f"of {report['pool']} in the pool  seed: {report['seed']}")
+          f"of {report['pool']} in the pool ({by_kind})  seed: {report['seed']}")
     if not report["handles"]:
         print("handles: not available in this build")
 
@@ -430,14 +540,39 @@ def agent_questions(out_dir: str, repo: str, n: int, seed: int) -> list:
     return interleaved[:n]
 
 
+def _each(value) -> list:
+    """`mcp._each`: one argument or several."""
+    if _mcp is not None:
+        return _mcp._each(value)
+    if isinstance(value, (list, tuple)):
+        return [str(x) for x in value if str(x).strip()]
+    text = str(value or "").strip()
+    return [text] if text else []
+
+
+def _share(budget: int, n: int, floor: int) -> int:
+    """`mcp._share`: a batch splits the budget one question would have had."""
+    if _mcp is not None:
+        return _mcp._share(budget, n, floor)
+    return max(floor, budget // max(1, n))
+
+
+def _joined(pairs) -> str:
+    """`mcp._joined`: answers labelled by their question, one left bare."""
+    if _mcp is not None:
+        return _mcp._joined(pairs)
+    pairs = list(pairs)
+    if len(pairs) == 1:
+        return pairs[0][1]
+    return "\n\n".join(f"### {q}\n{a}" for q, a in pairs)
+
+
 def _map_tools() -> list:
     """The map tools exactly as the MCP server declares them, renamed to the
     Messages API's `input_schema`. Read from `mcp.TOOLS` rather than copied,
     so a tool added there is evaluated here without an edit."""
-    try:
-        from . import mcp as _mcp
-    except ImportError:  # run as a plain file, with no package around it
-        import mcp as _mcp  # type: ignore[no-redef]
+    if _mcp is None:
+        return []
     out = []
     for tool in _mcp.TOOLS:
         out.append({"name": tool["name"],
@@ -453,9 +588,22 @@ def _run_map_tool(name: str, args: dict, out_dir: str) -> str:
     map_path = os.path.join(out_dir, "framework_map.md")
     json_path = os.path.join(out_dir, "framework_map.json")
     if name == "ask":
-        words = args.get("words")
-        words = " ".join(words) if isinstance(words, list) else str(words or "")
-        return _ask.ask(map_path, words, 4000)
+        # The server answers a list of words as several questions sharing one
+        # budget, and labels them. Same split here, through the server's own
+        # `_each`, `_share` and `_joined`, so the arm is measured on the
+        # answers a real session gets rather than on a second arrangement of
+        # the same map.
+        asked = _each(args.get("words")) or [""]
+        room = _share(_ANSWER_BUDGET, len(asked), 1500)
+        spec = os.path.join(out_dir, "spec_map.md")
+        each = room // 2 if os.path.exists(spec) else room
+        pairs = []
+        for words in asked:
+            body = _ask.ask(map_path, words, each)
+            if os.path.exists(spec):
+                body += "\n\n" + _ask.ask(spec, words, each)
+            pairs.append((words, body))
+        return _joined(pairs)
     if name == "defines":
         wanted = args.get("name")
         wanted = wanted if isinstance(wanted, list) else [str(wanted or "")]
@@ -471,13 +619,17 @@ def _run_map_tool(name: str, args: dict, out_dir: str) -> str:
                          else f"nothing in the map calls {w}")
         return "\n".join(lines)
     if name == "find":
-        phrase = args.get("phrase")
-        phrase = phrase if isinstance(phrase, list) else [str(phrase or "")]
-        return "\n\n".join(_mapper.find_text(out_dir, str(p), 40) for p in phrase)
+        # `limit` is in the tool's schema, so an agent that sets it gets what
+        # it asked for; the batch splits it the way the server does.
+        phrases = _each(args.get("phrase")) or [""]
+        asked_limit = args.get("limit")
+        limit = int(asked_limit) if isinstance(asked_limit, int) else _HIT_BUDGET
+        room = _share(limit, len(phrases), 5)
+        return _joined([(p, _mapper.find_text(out_dir, p, room)) for p in phrases])
     if name == "sections":
         return "\n".join(_ask.map_heads(map_path))
     if name == "more" and hasattr(_ask, "more"):
-        return _ask.more(map_path, str(args.get("handle") or ""), 4000)
+        return _ask.more(map_path, str(args.get("handle") or ""), _ANSWER_BUDGET)
     return f"no tool named {name!r}"
 
 
@@ -657,32 +809,50 @@ def run_agent(out_dir: str, repo: str, n: int, seed: int, model: str,
                         "key": question["key"], "question": question["question"],
                         "expected": question["expected"]})
             results.append(row)
+        # After every question, not at the end. Each question is two model
+        # calls that cost money, and a rate limit or a dropped connection on
+        # question nine used to throw the eight already paid for away.
+        # `asked` says how far the file got, so a partial file reads as a
+        # partial run rather than a complete one with a suspicious total.
+        _write_agent_json(json_path, model, out_dir, repo, seed,
+                          len(questions), results, arms)
 
-    report = {"model": model, "map": out_dir, "repo": repo, "seed": seed,
-              "questions": len(questions), "results": results, "arms": []}
+    summaries = _write_agent_json(json_path, model, out_dir, repo, seed,
+                                  len(questions), results, arms)
     headers = ("arm", "questions", "correct", "accuracy", "tokens_in",
                "tokens_out", "tool_calls")
-    table = []
+    widths = {h: max(len(h), *(len(str(r[h])) for r in summaries)) for h in headers}
+    print("  ".join(h.rjust(widths[h]) for h in headers))
+    for row in summaries:
+        print("  ".join(str(row[h]).rjust(widths[h]) for h in headers))
+    print(f"wrote {json_path}")
+    return 0
+
+
+def _write_agent_json(json_path: str, model: str, out_dir: str, repo: str,
+                      seed: int, planned: int, results: list, arms) -> list:
+    """The report as it stands, written to a temporary and renamed into
+    place, the way every other artefact this project writes is: a reader
+    that opens the file mid-run sees the previous whole one, never half of
+    this one. Returns the per arm summaries so the caller can print them."""
+    summaries = []
     for arm, _, _ in arms:
         mine = [r for r in results if r["arm"] == arm]
         correct = sum(1 for r in mine if r["correct"])
-        summary = {"arm": arm, "questions": len(mine), "correct": correct,
-                   "accuracy": round(correct / len(mine), 4) if mine else 0.0,
-                   "tokens_in": sum(r["tokens_in"] for r in mine),
-                   "tokens_out": sum(r["tokens_out"] for r in mine),
-                   "tool_calls": sum(r["tool_calls"] for r in mine)}
-        report["arms"].append(summary)
-        table.append(summary)
-
-    widths = {h: max(len(h), *(len(str(r[h])) for r in table)) for h in headers}
-    print("  ".join(h.rjust(widths[h]) for h in headers))
-    for row in table:
-        print("  ".join(str(row[h]).rjust(widths[h]) for h in headers))
-
-    with open(json_path, "w", encoding="utf-8") as fh:
+        summaries.append({"arm": arm, "questions": len(mine), "correct": correct,
+                          "accuracy": round(correct / len(mine), 4) if mine else 0.0,
+                          "tokens_in": sum(r["tokens_in"] for r in mine),
+                          "tokens_out": sum(r["tokens_out"] for r in mine),
+                          "tool_calls": sum(r["tool_calls"] for r in mine)})
+    report = {"model": model, "map": out_dir, "repo": repo, "seed": seed,
+              "questions": planned, "asked": len(results) // max(1, len(arms)),
+              "complete": len(results) == planned * len(arms),
+              "results": results, "arms": summaries}
+    tmp = json_path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(report, fh, indent=2, sort_keys=True)
-    print(f"wrote {json_path}")
-    return 0
+    os.replace(tmp, json_path)
+    return summaries
 
 
 # --------------------------------------------------------------------- main
@@ -736,9 +906,15 @@ def main(argv: list | None = None) -> int:
         return run_agent(out_dir, repo, args.questions, args.seed, args.model,
                          args.agent_json, args.max_turns)
 
-    budgets = [int(b) for b in str(args.budgets).split(",") if b.strip()]
+    try:
+        budgets = [int(b) for b in str(args.budgets).split(",") if b.strip()]
+    except ValueError:
+        parser.error(f"--budgets takes comma separated whole numbers, not "
+                     f"{args.budgets!r}")
     if not budgets:
         parser.error("--budgets needs at least one number")
+    if any(b < 0 for b in budgets):
+        parser.error("--budgets takes byte counts, which are not negative")
     report = evaluate(out_dir, args.questions, budgets, args.seed, args.max_more)
 
     if args.json:

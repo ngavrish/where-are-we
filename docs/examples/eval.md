@@ -18,11 +18,12 @@ wawe-eval --map .wawe --questions 100 --budgets 350,1500,12000
 ```
 
 ```
-budget  questions  first_answer_recall  recall_with_handles  mean_bytes
-   350        100               0.5358                  1.0       283.4
-  1500        100               0.8284                  1.0       798.3
- 12000        100               0.9998                  1.0      2309.3
-map: /tmp/wawe-eval/suite/out  questions: 100 of 285 in the pool  seed: 0
+budget  questions  first_answer_recall  pooled_recall  top5_recall  recall_with_handles  mean_bytes
+   350        100               0.4756         0.1046       0.7245                    -       302.6
+  1500        100               0.8572         0.3047          1.0                    -       884.9
+ 12000        100               0.9999          0.999          1.0                    -      2050.9
+map: /tmp/wawe-eval/suite/out  questions: 100 of 285 in the pool (name 59/224, step 35/37, heading 6/24)  seed: 0
+handles: not available in this build
 ```
 
 ### How to read it
@@ -30,21 +31,38 @@ map: /tmp/wawe-eval/suite/out  questions: 100 of 285 in the pool  seed: 0
 **The questions come from the map, not from a person.** Three sources, as
 many of each as the map has: every declared name, every step phrase's most
 distinctive word (the one that separates that phrase from the others), and
-every section heading's key noun. They are sorted, shuffled by `--seed`, and
-walked until `--questions` of them match something. A question the map
-cannot answer at any budget measures nothing about the budget, so it is
-skipped and counted (`skipped_no_rows` in `--json`).
+the longest word of every section heading. They are sorted, shuffled by
+`--seed`, and walked until `--questions` of them match something, taking up
+to a third of the run from each source that has anything before filling the
+rest from what is left: a map with two thousand declared names and thirty
+headings would otherwise answer for the headings with two questions. The
+line under the table says how many came from each source and how big each
+source was. A question the map cannot answer at any budget measures nothing
+about the budget, so it is skipped and counted (`skipped_no_rows` in
+`--json`).
 
 **The reference is the whole answer.** For each question, `ask(words, 10**9)`
 is asked once: every row the map holds for those words, with no budget at
 all. Rows are compared with the directory grouping undone, so the same row
 is the same string whether or not a neighbour happened to fit beside it.
 
-**`first_answer_recall`** is the share of those rows the budgeted answer
-holds on its own, averaged over the questions. It is meant to be below 1.0.
-That is what a budget is: at 350 bytes about half the rows are there, at
-1500 about four fifths, and at 12000 almost all of them. The number is not a
-score to raise; it is the size of the thing the next column has to cover.
+**`first_answer_recall`** is the share of the rows of the full answer that
+the budgeted answer shows before any `more`, averaged over the questions. It
+is a macro average: each question's recall is computed, then those are
+averaged, so a question with two rows counts as much as a question with
+three hundred. It is meant to be below 1.0. That is what a budget is, and
+the number is not a score to raise; it is the size of the thing
+`recall_with_handles` has to cover.
+
+**`pooled_recall`** is the same quantity averaged the other way: all rows
+shown over all rows there were, so the biggest questions dominate. It runs
+well below the macro number, which is the honest reading of a budget: the
+questions with the most to say lose the most.
+
+**`top5_recall`** is rank aware. `ask` ranks what it shows, so this is the
+share of the *first five* rows of the full answer that survived the cut,
+averaged per question. A budget that drops the tail and keeps the top scores
+high here and low on the other two, which is the intended behaviour.
 
 **`recall_with_handles`** is the share those same rows reach once every
 `more:` handle in the budgeted answer has been followed, and every handle
@@ -64,16 +82,25 @@ line up front rather than filling to the ceiling.
 
 `--json` prints the same numbers plus `max_more_calls` (the longest handle
 chain any one question needed), `chains_cut_short` (chains stopped by
-`--max-more`, which should be zero), the pool size, and one entry per lost
-row under `losses`.
+`--max-more`, which should be zero), `questions_by_kind` and `pool_by_kind`,
+and one entry per lost row under `losses`.
+
+An answer is asked for once and remembered, keyed on the map, the words and
+the budget, so a run that repeats a budget, or asks at a budget the
+unbudgeted reference already covered, does not read and rank the whole map
+twice for the same answer.
 
 ### In CI
 
 The CI step `wawe-eval: the budget loses no row the map holds` builds the
 three golden fixtures and runs the suite fixture at 350 and 1500 bytes over
-100 questions. The exit code is the assertion: 0 when every question comes
-back whole. Nothing about it is sampled or timed, so it either passes or
-names the question that broke.
+100 questions. The exit code is the gate: 0 when every question comes back
+whole, 1 naming the questions that lost rows. A second, `--json` run is
+checked for having measured anything at all (both budgets present, a hundred
+questions each, every recall a fraction), because an exit code of 0 also
+comes back from a run that measured nothing. And when the build has `more`
+in it, a run that prints `handles: not available in this build` fails the
+step: the property the step is named for is the one it must not skip.
 
 ## The agent half
 
