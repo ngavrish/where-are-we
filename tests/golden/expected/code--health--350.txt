@@ -5,8 +5,4 @@
 ## Which code touches which table
 - `api.py`: /health, /invoice, /invoice/{id} ↔ fastapi
 
-## HTTP routes this codebase serves (3)
-- GET /health  (api.py)
-… 2 rows in this section do not mention these words
-
-… more sections match; ask for something narrower
+… more sections match; ask for something narrower, or more:sections:health:1

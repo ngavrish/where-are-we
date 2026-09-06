@@ -7,8 +7,8 @@
 
 ## HTTP routes this codebase serves (3)
 - GET /health  (api.py)
-… 2 rows in this section do not mention these words
+… 2 rows in this section do not mention these words (more:unmatched:http-routes-this-b638:health:0)
 
 ## Public surface of the code
 - `app/api.py`: list_invoices, get_invoice, health
-… 3 rows in this section do not mention these words
+… 3 rows in this section do not mention these words (more:unmatched:public-surface-of-the-0f82:health:0)

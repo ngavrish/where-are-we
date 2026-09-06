@@ -5,9 +5,6 @@
 
 ## What each step calls
 - `pay_steps.py:step_pay_7` → click_7
-… 24 rows in this section do not mention these words
+… 24 rows in this section do not mention these words (more:unmatched:what-each-step-calls-6470:click_7:0)
 
-… more sections match; ask for something narrower
-
-## Called by `click_7`
-- pay_steps.py:step_pay_7
+… more sections: more:sections:click_7:1

@@ -14,6 +14,11 @@ import re
 from .state import DEFINITIONS, INDEXED, LINES
 from .walk import _cached, _slurp
 
+try:
+    from ..ask import _encode
+except ImportError:  # run as a plain file, with no package around it
+    from ask import _encode  # type: ignore[no-redef]
+
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
 
@@ -89,11 +94,23 @@ _DECLARES = re.compile(
     re.I)
 
 
-def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
+def find_text(out_dir: str, phrase: str, limit: int = 40,
+              offset: int = 0, room: int = 0) -> str:
     """Every line holding this phrase, with its file and line number.
 
     Reads the lines the mapper kept. Case-insensitive, because nobody
     remembers the case of a label they saw once.
+
+    `offset` skips that many of the ranked hits before printing, which is how
+    `more:find:` continues an answer this cut short. The ranking and the
+    per-file cap below are recomputed from the map on disk both times, so the
+    hit at a given offset is the same hit on both calls as long as the map is.
+
+    `room`, when given, is a ceiling in characters as well as `limit`'s ceiling
+    in hits, and the block comes back no longer than it. `more()` passes it:
+    what a handle fetches lands in the conversation exactly like the answer
+    that printed it, and forty hits of a hundred and sixty characters is 1,892
+    characters against a caller that asked for 1,500.
     """
     phrase = (phrase or "").strip()
     if len(phrase) < 2:
@@ -158,19 +175,63 @@ def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
     # No single file may take the whole answer. Forty hits from one generated
     # table is the same as no answer, and the second-best file is often the one
     # that was wanted.
-    per_file, kept = {}, []
+    # The per-file cap and the ranking above make one fixed list of hits,
+    # ranked and thinned the same way on every call over the same map. That
+    # list, not this answer, is what an offset counts into: `taken` is how far
+    # into it we are when the limit stops us, and a `more:find:` handle
+    # carries that number so the next call starts on the next hit.
+    per_file, capped = {}, []
     for score, path, number, text in hits:
         if per_file.get(path, 0) >= _PER_FILE_CAP:
             continue
         per_file[path] = per_file.get(path, 0) + 1
-        kept.append(f"- {path}:{number}: {text}")
-        if len(kept) >= limit:
-            break
-    tail = ""
-    if len(hits) > len(kept):
-        tail = (f"\n… {len(hits)} lines hold it across {len(per_file)} files; "
-                f"these are the {len(kept)} that rank highest")
-    return "\n".join(kept) + tail
+        capped.append(f"- {path}:{number}: {text}")
+    if offset >= len(capped):
+        return (f"no such handle in this map: {len(capped)} lines hold "
+                f"{phrase!r} once no one file may take the whole answer, "
+                f"and this handle asks for number {offset + 1}")
+    def block(n: int, form: int = 0) -> str:
+        """`n` hits from `offset`, with the line that says what is left.
+
+        `form` is what that line gives up as the room runs out: 0 is the
+        sentence with the handle, 1 is the handle with a count in front of it,
+        2 is the sentence with no handle at all. Same ladder as a section's
+        tail and the "more sections match" note: the handle is the last thing
+        to go, because it is the only part a reader can act on.
+        """
+        kept = capped[offset:offset + n]
+        reached = offset + len(kept)
+        if len(hits) <= reached:
+            return "\n".join(kept)
+        # Only when there is a next hit to hand over: the rest may all have
+        # been the per-file cap's doing, and those are not reachable by asking
+        # again, so a handle promising them would be a lie.
+        handle = (f"more:find:{_encode(phrase)}:{reached}"
+                  if reached < len(capped) else "")
+        if form == 1 and handle:
+            return "\n".join(kept) + f"\n… {len(hits) - reached} more ({handle})"
+        shown = (f"these are the {len(kept)} that rank highest" if not offset
+                 else f"these are {len(kept)} of them, from number {offset + 1}")
+        suffix = f" ({handle})" if form == 0 and handle else ""
+        return ("\n".join(kept)
+                + f"\n… {len(hits)} lines hold it across {len(per_file)} files; "
+                + shown + suffix)
+
+    if not room:
+        return block(limit)
+    # Whole hits, from the front, while the finished block fits. A prefix and
+    # not a best fit, because `capped` is already the ranking: taking a later,
+    # shorter hit over the one in front of it would print the sixth-best line
+    # and call it the fifth.
+    most = min(limit, len(capped) - offset)
+    for form in (0, 1, 2):
+        for n in range(most, 0, -1):
+            out = block(n, form)
+            if len(out) <= room:
+                return out
+    return (f"no such handle in this map: hit {offset + 1} of {len(capped)} "
+            f"and the line saying what is left do not fit in {room} "
+            f"characters together")
 
 
 # Extensions where a tree-sitter grammar can stand in for the regex table,

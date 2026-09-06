@@ -148,3 +148,9 @@ poly	invoice	12000
 poly	invoice checkout	0
 poly	invoice checkout	10
 poly	invoice checkout	50
+suite	page.click	350
+suite	page.click	1500
+suite	page.click	12000
+suite	page-object	350
+suite	checkout.py	1500
+suite	page-object methods nothing calls	350

@@ -19,5 +19,6 @@
 - `def step_pay_1` — <root>/suite/repo/steps/pay_steps.py:11
 - `def step_pay_20` — <root>/suite/repo/steps/pay_steps.py:87
 - `def step_pay_21` — <root>/suite/repo/steps/pay_steps.py:91
-- `def step_pay_22` — <root>/suite/repo/steps/pay_steps.py:95
-… 22 more definitions
+… 23 more definitions (more:defs:invoice%20checkout:17)
+
+… more sections: more:sections:invoice%20checkout:0

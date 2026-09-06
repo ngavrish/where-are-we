@@ -2,5 +2,6 @@
 
 - `Failed login` — <root>/suite/repo/features/login.feature:8
 - `Successful login` — <root>/suite/repo/features/login.feature:3
-- `step_login_error` — <root>/suite/repo/steps/login_steps.py:27
-… 5 more definitions
+… 6 more definitions (more:defs:login:2)
+
+… more sections: more:sections:login:0

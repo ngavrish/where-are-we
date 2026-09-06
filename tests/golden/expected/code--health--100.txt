@@ -1,5 +1,5 @@
 ## Defined here
 
-… 1 more definitions
+… 1 more definitions (more:defs:health:0)
 
-… more sections match; ask for something narrower
+… more sections: more:sections:health:0

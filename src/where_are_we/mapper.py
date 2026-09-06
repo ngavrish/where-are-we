@@ -58,7 +58,7 @@ import types
 
 try:
     from ._mapper import state
-    from .ask import _definitions_for, ask, definitions_for
+    from .ask import _definitions_for, ask, definitions_for, more
     from ._mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                                _SECRET_SHAPES, _cached, _config, _fingerprint,
                                _ignored, _ignores, _lines_matching,
@@ -78,7 +78,7 @@ try:
     from ._mapper.build import _layer_line, build
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
-    from ask import _definitions_for, ask, definitions_for
+    from ask import _definitions_for, ask, definitions_for, more
     from _mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                               _SECRET_SHAPES, _cached, _config, _fingerprint,
                               _ignored, _ignores, _lines_matching,
@@ -161,7 +161,7 @@ __all__ = [
     "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "brief", "build",
     "changed_since", "declarations_in", "definitions_for", "digest",
     "find_text", "fingerprint", "for_audience", "index_declarations",
-    "index_lines", "meaning_tail", "pointer", "redact",
+    "index_lines", "meaning_tail", "more", "pointer", "redact",
 ]
 
 

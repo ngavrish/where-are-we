@@ -7,17 +7,47 @@ count what didn't" — the definitions block, a section's matching rows, and
 below it is naming what goes in and out.
 """
 
+import hashlib
 import json
 import os
 import re
 from datetime import datetime, timezone
 
-RESERVE_TAIL = 96  # a section's tail line ("… 37 more matching rows; 210 rows
-# in this section do not mention these words"), paid for up front so the tail
-# never pushes an answer past its limit. Longer than any tail the two counts
-# can produce.
+RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
+# rows; 210 rows in this section do not mention these words"), paid for up
+# front so the tail never pushes an answer past its limit. Longer than any
+# tail the two counts can produce.
 RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
+# What a tail's `(more:...)` handles cost is not a constant and is not
+# reserved up front. Reserving a fixed amount from every section's row budget
+# would have cost a row in 26 of the 150 golden answers, including sections
+# that print no tail at all and so carry no handle; the room a tail actually
+# leaves over already covers the handle in 74 of the 76 places the golden
+# suite prints one. So `_rows_chunk` and `_defined_here` fit their rows first,
+# build the finished block, measure it, and hand room back to the tail only
+# when the handle does not fit beside the rows, and then exactly the handle's
+# own length. A row nobody can ask for again is worse than a row this answer
+# does not print, so the handle wins that trade and the rows go.
+#
+# The give-back was capped at a constant, which was the same mistake one step
+# down: a handle carries the question itself, percent-encoded, so a
+# 200-character question is a 290-character handle and a 200-character one in
+# a script that needs three bytes a character is 794, and past the cap those
+# sections printed a tail with no handle and their rows were unreachable. The
+# cap is now the section's own row budget: a tail may give up every row it
+# had, and no more. A question longer than the whole budget still cannot
+# carry a per-section handle; then the tail keeps its counts, and the
+# `sections` handle points back at the section so a wider call can reach it.
+
+# Handles: `more:<kind>:<payload>`, a string an answer prints and `more()`
+# resolves. Nothing is stored between the two calls. The payload names the
+# section, the words and how far into the list this answer got, and `more()`
+# recomputes the same ranking from the same map on disk and continues from
+# there. A map rebuilt in between may no longer hold that section, or may
+# hold fewer rows in it, and then the handle is stale and says so.
+HANDLE_PREFIX = "more:"
+_SLUG_BAD = re.compile(r"[^a-z0-9_]+")
 
 # Whether an answer is logged. Read here, once, rather than inside
 # `log_answer()`, where a caller had no way to see that the function read the
@@ -139,6 +169,126 @@ def _expand(terms: list) -> list:
     return out
 
 
+def _slug(text: str) -> str:
+    """`text` as a handle field: lower case, `[a-z0-9_]` kept, every other run
+    of characters one `-`.
+
+    Lossy on purpose, and the loss is the price of a handle a reader can read:
+    `## Step phrases that overlap` is `step-phrases-that-overlap`, and asking
+    for it again finds the section by that same slug rather than by an opaque
+    id. `:` cannot survive this, which is what lets the payload use it as its
+    field separator.
+    """
+    return _SLUG_BAD.sub("-", (text or "").lower()).strip("-") or "-"
+
+
+SLUG_HEAD_MAX = 24  # how long a section slug may be before its hash suffix. A
+# handle is a tail line's whole cost, and a tail line is paid for out of the
+# section's own rows: `## Biggest feature files (scenario line numbers are in
+# the full map)` slugs to 63 characters, and left whole it cost four sections
+# of the 12,000-character answer for this suite. Cut on whole pieces, never
+# mid-word, so the short slug is still a name a reader can read, and `more()`
+# matches it by recomputing the same cut from the same heading.
+
+
+def _cut_slug(slug: str, cap: int) -> str:
+    """`slug` at `cap` characters, dropping whole `-` pieces from the end.
+
+    Never a half word: the piece that would straddle the cap goes, unless it
+    is the first one, which is truncated because something has to be left.
+    """
+    if len(slug) <= cap:
+        return slug
+    pieces = slug.split("-")
+    out = pieces[0][:cap]
+    for piece in pieces[1:]:
+        if len(out) + 1 + len(piece) > cap:
+            break
+        out += "-" + piece
+    return out
+
+
+def _head_slug(head: str) -> str:
+    """A section heading as a handle field: its slug, cut, then four hex
+    digits of the whole heading.
+
+    The cut alone is not an identifier. `## What you can already write with
+    (85)` and `## What you can already write with (40)` both cut to
+    `what-you-can-already`, and `more()` resolves a slug by taking the first
+    ranked section that matches, so one of them was unreachable. The suffix is
+    of the heading before the cut, so two headings that differ anywhere differ
+    here; blake2s rather than `hash()` because it has to be the same number in
+    the next process.
+    """
+    text = head.lstrip("#").strip()
+    digest = hashlib.blake2s(text.encode("utf-8"), digest_size=2).hexdigest()
+    return f"{_cut_slug(_slug(text), SLUG_HEAD_MAX)}-{digest}"
+
+
+# Everything a handle field may carry as itself. Everything else is
+# percent-encoded, so the field holds no space, no parenthesis and no `:`, and
+# the parser regex a reader is given still finds the whole handle.
+_FIELD_SAFE = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+
+
+def _encode(text: str) -> str:
+    """The question, exactly, as one handle field.
+
+    Percent-encoded UTF-8, like a URL: `pre-commit` is `pre%2Dcommit` and
+    `支払い処理` is its bytes. Lossless on purpose, and the reason is not
+    tidiness. A slug of the words dropped their punctuation, so the handle on
+    `ask("pre-commit")`'s tail re-asked the map about `pre` and `commit`, two
+    different words with two different rankings, and handed back rows that
+    were not the rows that answer left out. A word in a script this cannot
+    spell in ASCII slugged to nothing at all.
+    """
+    out = []
+    for byte in (text or "").encode("utf-8"):
+        char = chr(byte)
+        out.append(char if char in _FIELD_SAFE else f"%{byte:02X}")
+    return "".join(out) or "%20"
+
+
+def _decode(field: str) -> str:
+    """A handle field back into the question that made it.
+
+    Raises `ValueError` on a field this did not write: a truncated escape, or
+    bytes that are not UTF-8. `more()` turns that into a stale handle rather
+    than asking the map a question nobody typed.
+    """
+    raw, i = bytearray(), 0
+    while i < len(field):
+        if field[i] == "%":
+            if len(field) - i < 3:
+                raise ValueError(f"{field!r} ends in a half escape")
+            raw.append(int(field[i + 1:i + 3], 16))
+            i += 3
+        else:
+            raw.append(ord(field[i]))
+            i += 1
+    return raw.decode("utf-8")
+
+
+def fit_indices(lines: list, budget: int, cost=len, sep: int = 1) -> list:
+    """The indices of the whole lines that fit, in order, while
+    `used + cost(line) + sep <= budget`.
+
+    Best-fit, not a prefix: a line that does not fit is skipped, and a later,
+    shorter line may still fit. Split out of `fit_lines` because a handle has
+    to say where in the list this answer stopped, and the lines alone cannot
+    say that when two of them read the same.
+    """
+    kept, used = [], 0
+    for i, line in enumerate(lines):
+        c = cost(line)
+        if used + c + sep > budget:
+            continue
+        kept.append(i)
+        used += c + sep
+    return kept
+
+
 def fit_lines(lines: list, budget: int, cost=len, sep: int = 1) -> tuple:
     """Whole lines, in order, while `used + cost(line) + sep <= budget`.
 
@@ -146,15 +296,25 @@ def fit_lines(lines: list, budget: int, cost=len, sep: int = 1) -> tuple:
     and a later, shorter line may still fit. Returns the kept lines and how
     many were dropped.
     """
-    kept, used, dropped = [], 0, 0
-    for line in lines:
-        c = cost(line)
-        if used + c + sep > budget:
-            dropped += 1
-            continue
-        kept.append(line)
-        used += c + sep
-    return kept, dropped
+    kept = fit_indices(lines, budget, cost, sep)
+    return [lines[i] for i in kept], len(lines) - len(kept)
+
+
+def _first_gap(total: int, kept: list) -> int:
+    """The first index in `range(total)` that `kept` does not hold; `total`
+    when it holds every one.
+
+    This is what a handle's offset is: the first item the answer did not
+    print. Where the fit skipped one long item and kept a shorter one after
+    it, `more()` starting here repeats that shorter item rather than lose the
+    one in between, because a repeated row is a smaller fault than a row no
+    handle can ever reach.
+    """
+    have = set(kept)
+    for i in range(total):
+        if i not in have:
+            return i
+    return total
 
 
 def _group_dirs(rows: list) -> list:
@@ -191,9 +351,15 @@ def _group_dirs(rows: list) -> list:
     return out
 
 
-def _defined_here(exact: list, room: int) -> str:
+def _defined_here(exact: list, room: int, words: str = "",
+                  base: int = 0) -> tuple:
     """The definitions block, whole lines up to `room`, with a count of what
-    did not fit. Empty when not even one definition fits.
+    did not fit and, when `words` is given, the handle that fetches it.
+
+    Returns `(block, reached)`: the text, and how far into `exact` this got,
+    counted from `base`. `more()` needs the second one to know whether it made
+    any progress at all, and refuses to print a handle that would send a
+    caller back to the same place.
 
     The section loop bounds itself against `limit`; this block runs first, so
     30 short definitions used to come back 1186 characters at every limit
@@ -203,12 +369,40 @@ def _defined_here(exact: list, room: int) -> str:
     head = "## Defined here\n"
     budget = room - RESERVE_DEFINED
     if budget <= len(head):
-        return ""  # not even the head fits: nothing, not a head with a count
-    kept_rows, dropped = fit_lines(exact, budget - len(head))
-    kept = [head] + kept_rows
-    if dropped:
-        kept.append(f"… {dropped} more definitions")
-    return "\n".join(kept) if len(kept) > 1 else ""
+        return "", base  # not even the head fits: nothing, not a head with a count
+    slug = _encode(words) if words else ""
+
+    def build(give: int, handle: bool) -> tuple:
+        idx = fit_indices(exact, budget - len(head) - give)
+        kept = [head] + [exact[i] for i in idx]
+        got = base + _first_gap(len(exact), idx)
+        line = ""
+        if len(exact) - len(idx):
+            suffix = f" (more:defs:{slug}:{got})" if handle and slug else ""
+            line = f"… {len(exact) - len(idx)} more definitions{suffix}"
+            kept.append(line)
+        return ("\n".join(kept) if len(kept) > 1 else ""), got, line
+
+    give, fits, most = 0, False, budget - len(head)
+    block, reached, tail = build(0, True)
+    for _ in range(4):
+        if len(block) <= room:
+            fits = True
+            break
+        if give >= most:
+            break  # every row is already given up and it still does not fit
+        # The handle's own cost, not the overflow: see `_rows_chunk`, where
+        # paying the overflow back a few characters at a time freed no row and
+        # lost the handle anyway.
+        plain = build(give, False)[2]
+        give = min(most, max(give + len(block) - room,
+                             len(tail) - len(plain)))
+        block, reached, tail = build(give, True)
+    if not fits and len(block) > room:
+        # Print the count without a handle, which is what this block did
+        # before handles existed and is bounded by RESERVE_DEFINED.
+        block, reached, tail = build(0, False)
+    return block, reached
 
 
 # Ranking, with the two things counting words leaves out.
@@ -350,7 +544,14 @@ def map_heads(map_path: str) -> list:
 def _split_rows(body: list, terms: list) -> tuple:
     """This section's rows that mention a term, and how many did not. A bare
     bold subhead — structure, not a row — is neither shown nor counted."""
-    matching, unmatched = [], 0
+    matching, other = _rows_by_match(body, terms)
+    return matching, len(other)
+
+
+def _rows_by_match(body: list, terms: list) -> tuple:
+    """The same split as `_split_rows`, with the rows that did not match kept
+    rather than counted: `more:unmatched:` has to print them."""
+    matching, other = [], []
     for line in body:
         if not line.strip():
             continue
@@ -359,12 +560,12 @@ def _split_rows(body: list, terms: list) -> tuple:
         if any(t in line.lower() for t in terms):
             matching.append(line)
         else:
-            unmatched += 1
-    return matching, unmatched
+            other.append(line)
+    return matching, other
 
 
 def _definitions_block(map_path: str, terms: list, room: int,
-                       extra: list | None = None) -> str:
+                       extra: list | None = None, words: str = "") -> str:
     """`## Defined here`, bounded to `room`; empty when nothing was defined
     under these terms.
 
@@ -377,19 +578,71 @@ def _definitions_block(map_path: str, terms: list, room: int,
     exact = definitions_for(map_path, terms, extra)
     if not exact:
         return ""
-    return _defined_here(exact, room)
+    return _defined_here(exact, room, words)[0]
 
 
-def _section_answer(head: str, body: list, terms: list, room: int) -> tuple:
-    """One section's answer: matching rows, grouped by directory, with a tail
-    saying what didn't fit or didn't match.
+def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
+               offset: int, kind: str = "rows") -> str:
+    """The one line under a section that says what was left out, with the
+    handle that fetches it when `sec` and `words` are given.
 
-    Returns `(chunk, attempted)`. `chunk` is empty when the section has
-    nothing to show. `attempted` is true whenever the section's head alone
-    fit in `room` — independent of whether a chunk came out of it — and feeds
-    `seen`, for the "more sections match" note.
+    Two clauses, joined by `; `, exactly as before handles: what did not fit
+    ("… 37 more matching rows") and what never matched ("210 rows in this
+    section do not mention these words"). They are two different lists and
+    either can be asked for, but only one handle goes on a line: two of them
+    cost about 110 characters, which is a section's worth of rows at the
+    budgets these answers are actually cut to. The rows are the ones the
+    question was about, so on a line that has both they get the handle, and
+    the other list is reachable by hand from the same two slugs with the kind
+    changed and the offset at zero.
     """
-    matching, unmatched = _split_rows(body, terms)
+    parts = []
+    if dropped:
+        noun = ("more matching rows" if kind == "rows"
+                else "more rows that do not mention these words")
+        h = f" (more:{kind}:{sec}:{words}:{offset})" if sec and words else ""
+        parts.append(f"… {dropped} {noun}{h}")
+    if unmatched:
+        h = (f" (more:unmatched:{sec}:{words}:0)"
+             if sec and words and not dropped else "")
+        parts.append(f"{unmatched} rows in this section do not mention "
+                     f"these words{h}")
+    if not parts:
+        return ""
+    return "; ".join(parts) if dropped else "… " + parts[0]
+
+
+def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
+                sec: str = "", words: str = "", base: int = 0,
+                kind: str = "rows") -> tuple:
+    """`head` plus as many of `rows` as fit in `room`, grouped by directory,
+    with the tail that says what was left and how to ask for it.
+
+    Returns `(chunk, attempted, reached, handed)`: the two `_section_answer`
+    has always handed back, how far into `rows` this got counted from `base`,
+    and whether every row it did not print is reachable from the handle it
+    did print. Shared with `more()`, which continues one of these lists from
+    an offset and has to cut it under exactly the same rules, or the answer a
+    handle gives would not be the answer the handle promised.
+
+    `handed` is false when the room left was enough for the tail's prose but
+    not for its handle: the rows are then unreachable from this tail, the
+    `sections` handle above is pointed back at this section instead, and the
+    walk in `more()` stops rather than step past it.
+
+    A handle carries the question, so a long question makes a long handle, and
+    below about two and a half times its length there is no budget in which a
+    section can print both rows and a handle for the rest of them. Measured on
+    the suite fixture with a 200-character question: 304 characters of handle
+    needs 800 characters of budget before nothing is out of reach, and 584
+    needs 1,500. Under that, the answer is honest rather than complete: the
+    tail keeps its counts, the note above carries the `sections` handle, and
+    the same question at a wider budget reaches the rest.
+
+    `reached` counts rows, not printed lines. `_group_dirs` runs after the
+    fit and prints a directory head (``- `steps/` ``) that is not a row, so a
+    handle counting output lines would skip one row per link of a chain.
+    """
     # `room` is a ceiling, not a target. The tail line is paid for up front,
     # the head is included only if it fits, and no row is forced in: a first
     # row longer than the room is a dropped row, not an exception. Measured
@@ -397,19 +650,67 @@ def _section_answer(head: str, body: list, terms: list, room: int) -> tuple:
     # when the head and first row were forced.
     budget = room - RESERVE_TAIL
     if budget <= len(head):
-        return "", False  # this section's head alone would overrun; skip it, not every section after
-    kept_rows, dropped = fit_lines(matching, budget - len(head))
-    kept = [head] + _group_dirs(kept_rows)
-    tail = []
-    if dropped:
-        tail.append(f"… {dropped} more matching rows")
-    if unmatched:
-        tail.append(f"{unmatched} rows in this section do not mention these words")
-    if tail:
-        kept.append("; ".join(tail) if dropped else "… " + tail[0])
-    if len(kept) == 1:
-        return "", True
-    return "\n".join(kept), True
+        # This section's head alone would overrun; skip it, not every section
+        # after it.
+        return "", False, base, True
+    def build(give: int, handles: bool) -> tuple:
+        idx = fit_indices(rows, budget - len(head) - give)
+        got = base + _first_gap(len(rows), idx)
+        line = _tail_line(len(rows) - len(idx), unmatched,
+                          sec if handles else "", words if handles else "",
+                          got, kind)
+        body = [head] + _group_dirs([rows[i] for i in idx])
+        return "\n".join(body + ([line] if line else [])), got, len(body), line
+
+    give, fits, most = 0, False, budget - len(head)
+    chunk, reached, lines, tail = build(0, True)
+    for _ in range(4):
+        if len(chunk) <= room:
+            fits = True
+            break
+        if give >= most:
+            break  # every row is already given up and it still does not fit
+        # Give the tail exactly what its handles cost, not the overflow: the
+        # overflow is smaller than one row, so paying it back a few characters
+        # at a time frees no row at all and the four goes run out with the
+        # handles still unaffordable. Measured on `## How a feature file is
+        # written here` at 262 characters, where the chain lost the section.
+        plain = build(give, False)[3]
+        give = min(most, max(give + len(chunk) - room,
+                             len(tail) - len(plain)))
+        chunk, reached, lines, tail = build(give, True)
+    if not fits and len(chunk) > room:
+        # The handles still overrun the ceiling. Print the tail without them:
+        # that is what this line said before handles existed, and RESERVE_TAIL
+        # is the room already set aside for it.
+        chunk, reached, lines, tail = build(0, False)
+    handed = reached >= base + len(rows) or f"more:{kind}:" in tail
+    if lines == 1 and not tail:
+        return "", True, reached, handed
+    return chunk, True, reached, handed
+
+
+def _section_answer(head: str, body: list, terms: list, room: int,
+                    words: str = "") -> tuple:
+    """One section's answer: matching rows, grouped by directory, with a tail
+    saying what didn't fit or didn't match.
+
+    Returns `(chunk, attempted, handed)`. `chunk` is empty when the section
+    has nothing to show. `attempted` is true whenever the section's head alone
+    fit in `room` — independent of whether a chunk came out of it — and feeds
+    `seen`, for the "more sections match" note. `handed` says whether the rows
+    it left out can be asked for; when they cannot, the "more sections match"
+    handle is pointed back at this section instead of past it.
+
+    `words` is the question as it was asked, unexpanded: the handle carries
+    it so `more()` can expand it the same way and rank the same sections.
+    Without it the tail is the plain one this printed before handles.
+    """
+    matching, unmatched = _split_rows(body, terms)
+    chunk, attempted, _reached, handed = _rows_chunk(
+        head, matching, unmatched, room,
+        _head_slug(head) if words else "", _encode(words) if words else "")
+    return chunk, attempted, handed
 
 
 def callers(map_json_path: str, name: str) -> list:
@@ -508,12 +809,129 @@ def _also_matched(def_block: str, section_chunks: list, terms: list, candidates:
     return f"(also matched: {', '.join(extra)})\n\n" if extra else ""
 
 
-def _more_note(room: int) -> str:
+def _more_note(room: int, words: str = "", offset: int = 0,
+               unshown: bool = True) -> str:
     """The "more sections match" note, only if it fits: a note that says
     "more" when there is no more, or that pushes the answer past its limit,
-    is the defect this guards."""
-    note = "… more sections match; ask for something narrower"
-    return note if len(note) + 2 <= room else ""
+    is the defect this guards.
+
+    With `words` it also carries the handle for the sections that went
+    unshown. When that longer note does not fit but the plain one does, the
+    plain one goes out: half the note is still true.
+    """
+    for form in _note_forms(words, offset, unshown):
+        if len(form) + 2 <= room:
+            return form
+    return ""
+
+
+def _note_forms(words: str, offset: int, unshown: bool = True) -> list:
+    """The note under an answer that could not finish, longest first.
+
+    The order is what the answer gives up first. The long form is the sentence
+    with the handle after it. The short form is the handle with just enough
+    words to say what it is: at limit 100 the sentence alone is half the
+    answer, and a note that says there is more without saying how to get it is
+    a fact with nothing behind it. The bare sentence is last, because it is
+    the one that leaves those sections unreachable.
+
+    `unshown` is false in the other case this note answers: every matching
+    section was shown, but one of them could not print the handle for the rows
+    it cut, because the question is long and a handle carries the question.
+    Then "more sections match" would not be true, and only the forms that
+    carry the handle are worth printing at all.
+    """
+    plain = "… more sections match; ask for something narrower"
+    if not words:
+        return [plain] if unshown else []
+    field = _encode(words)
+    if not unshown:
+        return [f"… more of these sections than fit here; "
+                f"more:sections:{field}:{offset}"]
+    return [f"{plain}, or more:sections:{field}:{offset}",
+            f"… more sections: more:sections:{field}:{offset}",
+            plain]
+
+
+_HANDLE_KIND = re.compile(r"more:([a-z]+):")
+
+
+# The one kind of handle a `sections` handle cannot stand in for.
+#
+# Room bought for one part of an answer is paid for by another, and the only
+# price never worth paying is a list the reader could have asked for in full,
+# traded for one they could not. A `sections` handle re-renders the sections
+# from the first one this answer could not finish, and a section that could
+# not print its own `rows` handle is exactly what sets that index, so giving
+# up `rows` (or `unmatched`, which points at lines no answer to this question
+# would have printed) to buy the `sections` handle loses nothing: the wider
+# call reaches those rows. `## Defined here` past its cap is a different list,
+# reached only through `more:defs:`, and nothing else stands in for it.
+_KEPT_KINDS = frozenset(("defs",))
+
+
+def _handle_kinds(blocks: list) -> set:
+    """The handles in an answer whose loss no other handle would make good."""
+    return set(_HANDLE_KIND.findall("\n\n".join(blocks))) & _KEPT_KINDS
+
+
+def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
+              words: str, scored: list, room: int, hold: int) -> tuple:
+    """The answer's blocks, in order, with `hold` characters kept back from
+    everything above the "more sections match" note so the note can still be
+    printed.
+
+    Returns `(out, def_block, section_chunks, wanted_note, note, unshown)`,
+    where `unshown` says whether a matching section went unshown, as against
+    one shown without a handle for the rows it cut. `ask()`
+    runs this once with `hold` at zero and, only when a note was wanted and
+    came out without its handle, once more with room set aside for it: a
+    pointer to the sections nobody saw is worth more than the row it costs,
+    and the row it costs is one the tail's own handle can fetch back.
+    """
+    out, section_chunks = [], []
+    start = room
+    room -= hold
+    def_block = _definitions_block(map_path, terms, room, candidates, words)
+    if def_block:
+        out.append(def_block)
+        room -= len(def_block) + 2
+    seen = 0
+    first_unshown = len(scored)
+    for i, (_hits, h, b) in enumerate(scored):
+        chunk, attempted, handed = _section_answer(h, b, expanded, room, words)
+        if attempted:
+            seen += 1
+        # Where a `more:sections:` handle resumes: the first section this
+        # answer could not show, or could not show all of and could not print
+        # a handle for. The second kind is printed here as well as pointed at,
+        # so a chained walk sees it twice rather than not at all.
+        if (not attempted or not handed) and first_unshown == len(scored):
+            first_unshown = i
+        if chunk:
+            out.append(chunk)
+            section_chunks.append(chunk)
+            room -= len(chunk) + 2
+    # `hold` was set aside for the note and the blank line before it, and
+    # every block above has already been charged its own blank line, so the
+    # two characters `_more_note` adds again are given back with it. Never
+    # past `start`: with nothing printed there is no blank line to pay for.
+    room = min(room + hold + 2, start) if hold else room
+    note = ""
+    if first_unshown < len(scored):
+        # Only when a matching section really went unshown, or was shown
+        # without the handle for what it cut, and only if the note itself
+        # fits: a note that says "more" when there is no more, or that pushes
+        # the answer past its limit, is the defect this guards.
+        note = _more_note(room, words, first_unshown, seen < len(scored))
+        if note:
+            out.append(note)
+            room -= len(note) + 2
+    cblock = _callers_block(map_path, words, room)
+    if cblock:
+        out.append(cblock)
+    return (out, def_block, section_chunks, first_unshown < len(scored), note,
+            seen < len(scored))
 
 
 def ask(map_path: str, words: str, limit: int = 12000) -> str:
@@ -553,7 +971,8 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     blocks = [(h, b) for h, b in _blocks(text) if h.strip() != "## Defined here"]
     scored = _rank(blocks, expanded, half)
     if not scored:
-        block = _definitions_block(map_path, terms, limit - note_room, candidates)
+        block = _definitions_block(map_path, terms, limit - note_room,
+                                   candidates, words)
         if block:
             return _also_matched(block, [], terms, candidates) + block
         cblock = _callers_block(map_path, words, limit)
@@ -582,34 +1001,210 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         return f"no match for {words!r}.{looked}"
 
     scored.sort(key=lambda x: -round(x[0], 2))  # same rounding as _rank's own sort, so this no-op re-sort cannot undo it
-    out, room = [], limit - note_room
-    def_block = _definitions_block(map_path, terms, room, candidates)
-    if def_block:
-        out.append(def_block)
-        room -= len(def_block) + 2
-    seen = 0
-    section_chunks = []
-    for hits, h, b in scored:
-        chunk, attempted = _section_answer(h, b, expanded, room)
-        if attempted:
-            seen += 1
-        if chunk:
-            out.append(chunk)
-            section_chunks.append(chunk)
-            room -= len(chunk) + 2
-    if seen < len(scored):
-        # Only when a matching section really went unshown, and only if the
-        # note itself fits: a note that says "more" when there is no more, or
-        # that pushes the answer past its limit, is the defect this guards.
-        note = _more_note(room)
-        if note:
-            out.append(note)
-            room -= len(note) + 2
-    cblock = _callers_block(map_path, words, room)
-    if cblock:
-        out.append(cblock)
+    room = limit - note_room
+    args = (map_path, terms, expanded, candidates, words, scored)
+    built = _assemble(*args, room, 0)
+    if built[3] and "more:sections:" not in built[4]:
+        # A section went unshown and the note that says so did not fit, or fit
+        # only in the form that cannot say where to look. Buy it back with
+        # room from the blocks above, trying the three forms of the note in
+        # turn, and keep the first answer that is better than this one.
+        #
+        # Better is not "has a note". Two rules bound the trade. The room
+        # has to come from somewhere, and it must not come out of the
+        # definitions handle: at limit 100 an answer with `… 2 more
+        # definitions (more:defs:click_7:0)` can reach all 41 of them, and a
+        # note pointing at the sections does not reach those definitions,
+        # which are a different list. And it must not come out of the whole
+        # `## Defined here` block, because where a name was declared is the
+        # question this tool is asked most.
+        for form in _note_forms(words, len(scored), built[5]):
+            if built[4] and ("more:sections:" in built[4]
+                             or "more:sections:" not in form):
+                break
+            retry = _assemble(*args, room, len(form) + 2)
+            if not retry[4] or ("more:sections:" in form
+                                and "more:sections:" not in retry[4]):
+                continue
+            if (_handle_kinds(retry[0]) >= _handle_kinds(built[0])
+                    and (retry[1] or not built[1])):
+                built = retry
+                break
+    out, def_block, section_chunks = built[0], built[1], built[2]
     answer = "\n\n".join(out)
     return _also_matched(def_block, section_chunks, terms, candidates) + answer
+
+
+def _stale(reason: str) -> str:
+    """What `more()` says when a handle no longer names anything.
+
+    One sentence, always the same opening, because a caller that chains
+    handles has to be able to tell "there is nothing more" from an answer.
+    """
+    return f"no such handle in this map: {reason}"
+
+
+def _handle_words(field: str) -> tuple:
+    """`(words, terms, expanded, candidates)` for a handle's words field.
+
+    The same four things `ask()` computes from the question it was given, from
+    the same string it was given: the field is the question itself, not a slug
+    of it, so `terms` here is the list `ask()` split, character for character,
+    and the ranking and the row filter behind a handle are the ones that
+    printed it.
+    """
+    words = _decode(field)
+    terms = [w.lower() for w in re.split(r"[\s,]+", words) if len(w) > 1]
+    if not terms:
+        return words, [], [], []
+    expanded = _expand(terms)
+    candidates = [t for t in expanded if t not in terms]
+    return words, terms, expanded, candidates
+
+
+def _ranked(map_path: str, expanded: list, terms: list) -> list:
+    """The map's sections that mention these words, best first: `ask()`'s own
+    ranking, recomputed from the file on disk."""
+    text = map_text(map_path)
+    blocks = [(h, b) for h, b in _blocks(text) if h.strip() != "## Defined here"]
+    scored = _rank(blocks, expanded, set(expanded) - set(terms))
+    scored.sort(key=lambda x: -round(x[0], 2))
+    return scored
+
+
+def more(map_path: str, handle: str, limit: int = 4000) -> str:
+    """The rest of a list an answer cut short, from the handle it printed.
+
+    Every place `ask()` and `find` stop early now print where they stopped:
+    `more:rows:<section>:<words>:<offset>` and its four siblings. Nothing is
+    written down between the two calls. This reads the same map, ranks it the
+    same way, filters the same rows, and continues from `offset`, so the only
+    state is the handle itself and a map that has not changed underneath it.
+
+    When it has changed, the handle is stale rather than wrong: a section the
+    rebuild dropped, or a list that is now shorter than the offset, comes back
+    as `no such handle in this map: ...` instead of a slice of some other
+    list.
+
+    The slice obeys the same rules the first answer did: whole rows, `limit`
+    as a ceiling and not a target, and a tail carrying the next handle when
+    there is still more after this.
+    """
+    handle = (handle or "").strip()
+    if not handle.startswith(HANDLE_PREFIX):
+        return _stale(f"{handle!r} is not a handle; they start with 'more:'")
+    parts = handle[len(HANDLE_PREFIX):].split(":")
+    kind = parts[0] if parts else ""
+    fields = parts[1:]
+    widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2}
+    if kind not in widths:
+        return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
+                      "sections, find")
+    if len(fields) != widths[kind]:
+        return _stale(f"a more:{kind} handle has {widths[kind]} fields after "
+                      f"the kind, this one has {len(fields)}")
+    try:
+        offset = int(fields[-1])
+    except ValueError:
+        return _stale(f"{fields[-1]!r} is not an offset")
+    if offset < 0:
+        return _stale("an offset cannot be negative")
+
+    if kind == "find":
+        try:
+            from ._mapper.declare import find_text
+        except ImportError:  # run as a plain file, with no package around it
+            from _mapper.declare import find_text  # type: ignore[no-redef]
+        try:
+            phrase = _decode(fields[0])
+        except ValueError as exc:
+            return _stale(f"{fields[0]!r} is not a phrase this wrote: {exc}")
+        # Two ceilings, because `find` counts hits and `more` counts
+        # characters: 40 is `find`'s own limit, so `more` never returns more
+        # hits than `find` would, and `room` is this call's budget, which
+        # `find_text` fills with whole hits and no more.
+        return find_text(os.path.dirname(map_path) or ".", phrase, 40,
+                         offset, room=limit)
+
+    try:
+        words, terms, expanded, candidates = _handle_words(fields[-2])
+    except ValueError as exc:
+        return _stale(f"{fields[-2]!r} is not a question this wrote: {exc}")
+    if not terms:
+        return _stale(f"{words!r} holds no word to ask about")
+
+    if kind == "defs":
+        rows = definitions_for(map_path, terms, candidates, cap=0)
+        if offset >= len(rows):
+            return _stale(f"{len(rows)} names in this map hold {words!r}, "
+                          f"and this handle asks for number {offset + 1}")
+        block, reached = _defined_here(rows[offset:], limit, words, offset)
+        if reached == offset:
+            return _stale(f"definition {offset + 1} of {len(rows)} does not "
+                          f"fit in {limit} characters")
+        return block
+
+    try:
+        scored = _ranked(map_path, expanded, terms)
+    except OSError as exc:
+        return f"no map at {map_path}: {exc}"
+
+    if kind == "sections":
+        if offset >= len(scored):
+            return _stale(f"{len(scored)} sections mention {words!r}, and this "
+                          f"handle asks for number {offset + 1}")
+        # Contiguous, unlike `ask()`'s own loop: this is walking a list from
+        # an offset, and the handle it prints has to be further along than the
+        # one it was given or a caller chaining handles never terminates. So
+        # it stops at the first section that does not fit rather than skipping
+        # it for a shorter one behind it.
+        # The note is held back before anything else is printed, not offered
+        # whatever is left at the end. It carries the handle that continues
+        # this walk, and a continuation that cannot say where it stopped ends
+        # the chain in the middle of the list it was asked to finish.
+        hold = len(f"… more sections match; ask for something narrower, or "
+                   f"more:sections:{_encode(words)}:{len(scored)}") + 2
+        out, room, reached = [], limit - hold, offset
+        for i, (_hits, h, b) in enumerate(scored[offset:], offset):
+            chunk, attempted, handed = _section_answer(h, b, expanded, room,
+                                                       words)
+            if not attempted:
+                break
+            if chunk and not handed and i > offset:
+                break  # leave this whole section to the next call, with room
+            reached = i + 1
+            if chunk:
+                out.append(chunk)
+                room -= len(chunk) + 2
+        if reached == offset:
+            return _stale(f"section {offset + 1} of {len(scored)} does not "
+                          f"fit in {limit} characters")
+        room += hold
+        if reached < len(scored):
+            note = _more_note(room, words, reached)
+            if note:
+                out.append(note)
+        return "\n\n".join(out) or (
+            f"sections {offset + 1} to {reached} of {len(scored)} hold no row "
+            f"that mentions {words!r}")
+
+    for _hits, h, b in scored:
+        if _head_slug(h) != fields[0]:
+            continue
+        matching, other = _rows_by_match(b, expanded)
+        rows = matching if kind == "rows" else other
+        what = "matching rows" if kind == "rows" else "rows that do not mention it"
+        if offset >= len(rows):
+            return _stale(f"{h.lstrip('#').strip()!r} has {len(rows)} "
+                          f"{what} for {words!r}, and this handle asks for "
+                          f"number {offset + 1}")
+        chunk, _attempted, reached, _handed = _rows_chunk(
+            h, rows[offset:], 0, limit, fields[0], _encode(words), offset, kind)
+        if reached == offset:
+            return _stale(f"row {offset + 1} of {len(rows)} does not fit in "
+                          f"{limit} characters")
+        return chunk
+    return _stale(f"no section called {fields[0]!r} mentions {words!r}")
 
 
 LOG_NAME = ".wawe-ask.log"
@@ -649,8 +1244,14 @@ def log_answer(out_dir: str, tool: str, words: str, answer: str, room: int) -> N
 # imported this module for `fit_lines` and this module imported the facade to
 # reach back, which is the cycle the fourteen-line comment that used to sit in
 # `_defined_block` was apologising for.
+DEFINITIONS_CAP = 40  # how many definitions one answer prints; `more()` passes
+# `cap=0` to see past it, which is the only way rows 41 and after were ever
+# reachable.
+
+
 def definitions_for(map_path: str, terms: list[str],
-                    extra: list[str] | None = None) -> list[str]:
+                    extra: list[str] | None = None,
+                    cap: int = DEFINITIONS_CAP) -> list[str]:
     """Exact places, from the map's own index of what was defined where.
 
     Answered before any prose, because this is the question actually being
@@ -682,7 +1283,8 @@ def definitions_for(map_path: str, terms: list[str],
             literal.append(row)
         elif any(t in low for t in extra):
             expansion.append(row)
-    return (sorted(literal) + sorted(expansion))[:40]
+    rows = sorted(literal) + sorted(expansion)
+    return rows[:cap] if cap else rows
 
 
 # The name this was called before it was admitted to be public, kept so a

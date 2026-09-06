@@ -1,8 +1,5 @@
-(also matched: checkout)
-
 ## Defined here
 
-- `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
 - `CheckoutPage.click_10` — pages/checkout.py:34
 - `CheckoutPage.click_11` — pages/checkout.py:37
 - `CheckoutPage.click_12` — pages/checkout.py:40
@@ -27,6 +24,9 @@
 - `CheckoutPage.click_2` — pages/checkout.py:10
 - `CheckoutPage.click_30` — pages/checkout.py:94
 - `CheckoutPage.click_31` — pages/checkout.py:97
-… 15 more definitions (more:defs:charge:25)
+- `CheckoutPage.click_32` — pages/checkout.py:100
+- `CheckoutPage.click_33` — pages/checkout.py:103
+- `CheckoutPage.click_34` — pages/checkout.py:106
+… 13 more definitions (more:defs:page%2Eclick:27)
 
-… more sections match; ask for something narrower, or more:sections:charge:0
+… more sections match; ask for something narrower, or more:sections:page%2Eclick:0

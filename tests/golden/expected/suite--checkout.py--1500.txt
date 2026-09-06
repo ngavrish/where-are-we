@@ -1,0 +1,26 @@
+## Where things are
+- **Page objects**: `pages/checkout.py`
+
+## Public surface of the code
+- `pages/checkout.py`: CheckoutPage
+
+## Files nothing imports
+- `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
+
+## Largest files
+- steps/pay_steps.py (2 KB), pages/checkout.py (1 KB), steps/login_steps.py (0 KB)
+
+## Page-object methods nothing calls
+- `checkout.py`: CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17()
+
+## What each module says it is for
+- `pages/checkout.py` — The checkout page: every element pay_steps.py clicks through.
+… 2 rows in this section do not mention these words (more:unmatched:what-each-module-says-it-5395:checkout%2Epy:0)
+
+## What a step may call
+- `pages/checkout.py`: CheckoutPage.click_1(), CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17(), CheckoutPage.click_18(), CheckoutPage.click_19(), CheckoutPage.click_2(), CheckoutPage.click_20(), CheckoutPage.click_21(), CheckoutPage.click_22(), CheckoutPage.click_23() … +24 more in the full map
+
+## How this suite is built
+… 1 more matching rows; 5 rows in this section do not mention these words
+
+… more sections match; ask for something narrower, or more:sections:checkout%2Epy:7

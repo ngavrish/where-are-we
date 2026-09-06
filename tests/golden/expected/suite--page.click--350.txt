@@ -1,0 +1,9 @@
+## Defined here
+
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+- `CheckoutPage.click_13` — pages/checkout.py:43
+… 36 more definitions (more:defs:page%2Eclick:4)
+
+… more sections match; ask for something narrower, or more:sections:page%2Eclick:0

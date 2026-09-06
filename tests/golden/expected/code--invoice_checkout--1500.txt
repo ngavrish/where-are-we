@@ -10,7 +10,7 @@
   - `api.py`: list_invoices, get_invoice, health
   - `billing.py`: charge, refund
   - `models.py`: Invoice, Customer
-… 1 rows in this section do not mention these words
+… 1 rows in this section do not mention these words (more:unmatched:public-surface-of-the-0f82:invoice%20checkout:0)
 
 ## Files nothing imports
 - `app/api.py`, `app/billing.py`, `app/cli.py`, `app/models.py`
@@ -24,8 +24,8 @@
 ## HTTP routes this codebase serves (3)
 - GET /invoice  (api.py)
 - GET /invoice/{id}  (api.py)
-… 1 rows in this section do not mention these words
+… 1 rows in this section do not mention these words (more:unmatched:http-routes-this-b638:invoice%20checkout:0)
 
 ## Data model
 - `Invoice (models.py)`: amount, customer_id, id, name
-… 1 rows in this section do not mention these words
+… 1 rows in this section do not mention these words (more:unmatched:data-model-f581:invoice%20checkout:0)
