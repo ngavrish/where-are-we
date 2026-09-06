@@ -2,6 +2,6 @@
 
 - `def step_pay_10` — <root>/suite/repo/steps/pay_steps.py:47
 - `def step_pay_11` — <root>/suite/repo/steps/pay_steps.py:51
-… 38 more definitions (more:defs:pay-step:2)
+… 38 more definitions (more:defs:pay%20step:2)
 
-… more sections match; ask for something narrower, or more:sections:pay-step:0
+… more sections match; ask for something narrower, or more:sections:pay%20step:0

@@ -5,4 +5,4 @@
 - `Invoice` — <root>/code/repo/app/models.py:9
 - `charge` — <root>/code/repo/app/billing.py:4
 
-… more sections match; ask for something narrower, or more:sections:invoice-checkout:0
+… more sections match; ask for something narrower, or more:sections:invoice%20checkout:0

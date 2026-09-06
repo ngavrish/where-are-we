@@ -55,7 +55,7 @@ Feature: Pay for an order
   Scenario: Customer pays with a new card
     When they add a new card and pay for the invoice
     Then the payment is charged
-… 7 rows in this section do not mention these words (more:unmatched:how-a-feature-file-is:charge:0)
+… 7 rows in this section do not mention these words (more:unmatched:how-a-feature-file-is-dfa2:charge:0)
 
 ### `steps/pay_steps.py` — 40 steps
 - pay step 1
@@ -101,7 +101,7 @@ Feature: Pay for an order
 
 ## Feature files
 - `features/checkout/pay.feature` — 3 scenarios
-… 1 rows in this section do not mention these words (more:unmatched:feature-files:charge:0)
+… 1 rows in this section do not mention these words (more:unmatched:feature-files-a979:charge:0)
 
 ## What you can already write with (85)
 - pay step 1
@@ -184,7 +184,7 @@ Feature: Pay for an order
 - CheckoutPage.click_7()
 - CheckoutPage.click_8()
 - CheckoutPage.click_9()
-… 6 rows in this section do not mention these words (more:unmatched:what-you-can-already:charge:0)
+… 6 rows in this section do not mention these words (more:unmatched:what-you-can-already-d971:charge:0)
 
 ## Files nothing imports
 - `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
@@ -217,11 +217,11 @@ Feature: Pay for an order
 ## What each module says it is for
 - `steps/pay_steps.py` — Step definitions for paying at checkout.
 - `pages/checkout.py` — The checkout page: every element pay_steps.py clicks through.
-… 1 rows in this section do not mention these words (more:unmatched:what-each-module-says-it:charge:0)
+… 1 rows in this section do not mention these words (more:unmatched:what-each-module-says-it-5395:charge:0)
 
 ## Biggest feature files (scenario line numbers are in the full map)
 - `features/checkout/pay.feature` — 3 scenarios
-… 1 rows in this section do not mention these words (more:unmatched:biggest-feature-files:charge:0)
+… 1 rows in this section do not mention these words (more:unmatched:biggest-feature-files-9216:charge:0)
 
 ## Step phrases no feature uses (20) — dead weight, do not imitate
 - `pay_steps.py`: pay step 1; pay step 2; pay step 3; pay step 4
@@ -250,7 +250,7 @@ Feature: Pay for an order
 
 ## Step modules, largest first
 - `steps/pay_steps.py` — 40 steps
-… 1 rows in this section do not mention these words (more:unmatched:step-modules-largest:charge:0)
+… 1 rows in this section do not mention these words (more:unmatched:step-modules-largest-d7a2:charge:0)
 
 ## Where things are
 - **Page objects**: `pages/checkout.py`
@@ -264,7 +264,7 @@ Feature: Pay for an order
 ## How this suite is built
 - **features** — Gherkin features — 2 files under features, features/checkout
 - **Page objects**: `pages/checkout.py`
-… 4 rows in this section do not mention these words (more:unmatched:how-this-suite-is-built:charge:0)
+… 4 rows in this section do not mention these words (more:unmatched:how-this-suite-is-built-eb0e:charge:0)
 
 ## Page-object methods nothing calls
 - `checkout.py`: CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17()

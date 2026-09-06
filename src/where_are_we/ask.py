@@ -7,6 +7,7 @@ count what didn't" — the definitions block, a section's matching rows, and
 below it is naming what goes in and out.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -18,7 +19,7 @@ RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
 # tail the two counts can produce.
 RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
-RESERVE_HANDLE = 128  # the most room a tail may take back from its own rows
+RESERVE_HANDLE = 256  # the most room a tail may take back from its own rows
 # to fit the `(more:...)` handles on it.
 #
 # Charged when the tail needs it, not up front like the two above. Reserving
@@ -30,10 +31,13 @@ RESERVE_HANDLE = 128  # the most room a tail may take back from its own rows
 # room back to the tail only when the handle does not fit beside the rows.
 # A row nobody can ask for again is worse than a row this answer does not
 # print, so the handle wins that trade and the row goes. This is the ceiling
-# on that trade: a question made of one 400-character word slugs to a handle
-# as long as itself, and without a cap it would empty the section it points
-# at. Past the cap the tail goes out without its handle, which is the line
-# this printed before handles existed.
+# on that trade: a handle carries the question itself, percent-encoded, so a
+# 400-character word is a 1,200-character handle, and without a cap it would
+# empty the section it points at. Set above what a realistic question costs
+# (`支払い処理` is 45 characters encoded, a section slug is 29, the rest of a
+# two-clause tail about 100) so a question in a script this cannot spell in
+# ASCII keeps its handle. Past the cap the tail goes out without one, which
+# is the line this printed before handles existed.
 
 # Handles: `more:<kind>:<payload>`, a string an answer prints and `more()`
 # resolves. Nothing is stored between the two calls. The payload names the
@@ -177,13 +181,13 @@ def _slug(text: str) -> str:
     return _SLUG_BAD.sub("-", (text or "").lower()).strip("-") or "-"
 
 
-SLUG_WORDS_MAX = 40  # how long a handle's two slug fields may be. A handle is
-SLUG_HEAD_MAX = 24   # a tail line's whole cost, and a tail line is paid for
-# out of the section's own rows: `## Biggest feature files (scenario line
-# numbers are in the full map)` slugs to 63 characters, and left whole it cost
-# four sections of the 12,000-character answer for this suite. Cut on whole
-# pieces, never mid-word, so the short slug is still a name a reader can read
-# and `more()` can match it by recomputing the same cut from the same heading.
+SLUG_HEAD_MAX = 24  # how long a section slug may be before its hash suffix. A
+# handle is a tail line's whole cost, and a tail line is paid for out of the
+# section's own rows: `## Biggest feature files (scenario line numbers are in
+# the full map)` slugs to 63 characters, and left whole it cost four sections
+# of the 12,000-character answer for this suite. Cut on whole pieces, never
+# mid-word, so the short slug is still a name a reader can read, and `more()`
+# matches it by recomputing the same cut from the same heading.
 
 
 def _cut_slug(slug: str, cap: int) -> str:
@@ -203,26 +207,66 @@ def _cut_slug(slug: str, cap: int) -> str:
     return out
 
 
-def _words_slug(words: str) -> str:
-    """The question as a handle field: the words, cut to whole words."""
-    return _cut_slug(_slug(words), SLUG_WORDS_MAX)
-
-
 def _head_slug(head: str) -> str:
-    """A section heading's slug, without its `#` marks."""
-    return _cut_slug(_slug(head.lstrip("#").strip()), SLUG_HEAD_MAX)
+    """A section heading as a handle field: its slug, cut, then four hex
+    digits of the whole heading.
 
-
-def _unslug(slug: str) -> list:
-    """The words a `words-slug` was made of.
-
-    `_slug` joined them with `-` and dropped whatever was not `[a-z0-9_]`, so
-    this splits on `-` and hands back what is left. A word whose punctuation
-    mattered (`sign-in`, `charge(`) comes back as the pieces the slug spells,
-    which is what `more()` then asks the map about: the handle carries the
-    question as the slug can write it, not as it was typed.
+    The cut alone is not an identifier. `## What you can already write with
+    (85)` and `## What you can already write with (40)` both cut to
+    `what-you-can-already`, and `more()` resolves a slug by taking the first
+    ranked section that matches, so one of them was unreachable. The suffix is
+    of the heading before the cut, so two headings that differ anywhere differ
+    here; blake2s rather than `hash()` because it has to be the same number in
+    the next process.
     """
-    return [w for w in slug.split("-") if len(w) > 1]
+    text = head.lstrip("#").strip()
+    digest = hashlib.blake2s(text.encode("utf-8"), digest_size=2).hexdigest()
+    return f"{_cut_slug(_slug(text), SLUG_HEAD_MAX)}-{digest}"
+
+
+# Everything a handle field may carry as itself. Everything else is
+# percent-encoded, so the field holds no space, no parenthesis and no `:`, and
+# the parser regex a reader is given still finds the whole handle.
+_FIELD_SAFE = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+
+
+def _encode(text: str) -> str:
+    """The question, exactly, as one handle field.
+
+    Percent-encoded UTF-8, like a URL: `pre-commit` is `pre%2Dcommit` and
+    `支払い処理` is its bytes. Lossless on purpose, and the reason is not
+    tidiness. A slug of the words dropped their punctuation, so the handle on
+    `ask("pre-commit")`'s tail re-asked the map about `pre` and `commit`, two
+    different words with two different rankings, and handed back rows that
+    were not the rows that answer left out. A word in a script this cannot
+    spell in ASCII slugged to nothing at all.
+    """
+    out = []
+    for byte in (text or "").encode("utf-8"):
+        char = chr(byte)
+        out.append(char if char in _FIELD_SAFE else f"%{byte:02X}")
+    return "".join(out) or "%20"
+
+
+def _decode(field: str) -> str:
+    """A handle field back into the question that made it.
+
+    Raises `ValueError` on a field this did not write: a truncated escape, or
+    bytes that are not UTF-8. `more()` turns that into a stale handle rather
+    than asking the map a question nobody typed.
+    """
+    raw, i = bytearray(), 0
+    while i < len(field):
+        if field[i] == "%":
+            if len(field) - i < 3:
+                raise ValueError(f"{field!r} ends in a half escape")
+            raw.append(int(field[i + 1:i + 3], 16))
+            i += 3
+        else:
+            raw.append(ord(field[i]))
+            i += 1
+    return raw.decode("utf-8")
 
 
 def fit_indices(lines: list, budget: int, cost=len, sep: int = 1) -> list:
@@ -325,7 +369,7 @@ def _defined_here(exact: list, room: int, words: str = "",
     budget = room - RESERVE_DEFINED
     if budget <= len(head):
         return "", base  # not even the head fits: nothing, not a head with a count
-    slug = _words_slug(words) if words else ""
+    slug = _encode(words) if words else ""
 
     def build(give: int, handle: bool) -> tuple:
         idx = fit_indices(exact, budget - len(head) - give)
@@ -651,7 +695,7 @@ def _section_answer(head: str, body: list, terms: list, room: int,
     matching, unmatched = _split_rows(body, terms)
     chunk, attempted, _reached, handed = _rows_chunk(
         head, matching, unmatched, room,
-        _head_slug(head) if words else "", _words_slug(words) if words else "")
+        _head_slug(head) if words else "", _encode(words) if words else "")
     return chunk, attempted, handed
 
 
@@ -762,7 +806,7 @@ def _more_note(room: int, words: str = "", offset: int = 0) -> str:
     """
     note = "… more sections match; ask for something narrower"
     if words:
-        withh = f"{note}, or more:sections:{_words_slug(words)}:{offset}"
+        withh = f"{note}, or more:sections:{_encode(words)}:{offset}"
         if len(withh) + 2 <= room:
             return withh
     return note if len(note) + 2 <= room else ""
@@ -894,7 +938,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         # way left to reach those sections, so buy it back with room from the
         # blocks above and keep whichever of the two answers prints it.
         hold = len(f"… more sections match; ask for something narrower, or "
-                   f"more:sections:{_words_slug(words)}:{len(scored)}") + 2
+                   f"more:sections:{_encode(words)}:{len(scored)}") + 2
         retry = _assemble(*args, room, hold)
         # Not at any price: at limit 100 the note is half the answer, and
         # buying it with the whole `## Defined here` block leaves a reply that
@@ -902,6 +946,16 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         # tool is asked most, so that block outranks the note.
         if "more:sections:" in retry[4] and (retry[1] or not built[1]):
             built = retry
+        elif not built[4]:
+            # The handled note cost more than the answer could pay, and
+            # without this the answer would not say there are more sections at
+            # all. The short note is half the news and a quarter of the price;
+            # print it rather than drop the fact silently.
+            plain = _assemble(*args, room,
+                              len("… more sections match; ask for something "
+                                  "narrower") + 2)
+            if plain[4] and (plain[1] or not built[1]):
+                built = plain
     out, def_block, section_chunks = built[0], built[1], built[2]
     answer = "\n\n".join(out)
     return _also_matched(def_block, section_chunks, terms, candidates) + answer
@@ -916,20 +970,22 @@ def _stale(reason: str) -> str:
     return f"no such handle in this map: {reason}"
 
 
-def _handle_words(slug: str) -> tuple:
-    """`(words, terms, expanded, candidates)` for a handle's words slug.
+def _handle_words(field: str) -> tuple:
+    """`(words, terms, expanded, candidates)` for a handle's words field.
 
-    The same four things `ask()` computes from the question it was given, so
-    the ranking and the row filter behind a handle are the ones that printed
-    it. `words` is the slug spelled back with spaces, which re-slugs to the
-    same slug: a handle that `more()` prints chains back to itself.
+    The same four things `ask()` computes from the question it was given, from
+    the same string it was given: the field is the question itself, not a slug
+    of it, so `terms` here is the list `ask()` split, character for character,
+    and the ranking and the row filter behind a handle are the ones that
+    printed it.
     """
-    terms = _unslug(slug)
+    words = _decode(field)
+    terms = [w.lower() for w in re.split(r"[\s,]+", words) if len(w) > 1]
     if not terms:
-        return "", [], [], []
+        return words, [], [], []
     expanded = _expand(terms)
     candidates = [t for t in expanded if t not in terms]
-    return " ".join(terms), terms, expanded, candidates
+    return words, terms, expanded, candidates
 
 
 def _ranked(map_path: str, expanded: list, terms: list) -> list:
@@ -985,18 +1041,23 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
             from ._mapper.declare import find_text
         except ImportError:  # run as a plain file, with no package around it
             from _mapper.declare import find_text  # type: ignore[no-redef]
-        phrase = " ".join(_unslug(fields[0])) or fields[0]
-        # `find` counts hits, not characters. A hit line is a path, a line
-        # number and up to 160 characters of the line, so a hundred characters
-        # a hit is the rate that turns this call's character budget into the
-        # count `find_text` takes; 40 is `find`'s own default and its ceiling
-        # here, so `more` never returns a longer block than `find` would.
-        return find_text(os.path.dirname(map_path) or ".", phrase,
-                         max(1, min(40, limit // 100)), offset)
+        try:
+            phrase = _decode(fields[0])
+        except ValueError as exc:
+            return _stale(f"{fields[0]!r} is not a phrase this wrote: {exc}")
+        # Two ceilings, because `find` counts hits and `more` counts
+        # characters: 40 is `find`'s own limit, so `more` never returns more
+        # hits than `find` would, and `room` is this call's budget, which
+        # `find_text` fills with whole hits and no more.
+        return find_text(os.path.dirname(map_path) or ".", phrase, 40,
+                         offset, room=limit)
 
-    words, terms, expanded, candidates = _handle_words(fields[-2])
+    try:
+        words, terms, expanded, candidates = _handle_words(fields[-2])
+    except ValueError as exc:
+        return _stale(f"{fields[-2]!r} is not a question this wrote: {exc}")
     if not terms:
-        return _stale(f"{fields[-2]!r} holds no word to ask about")
+        return _stale(f"{words!r} holds no word to ask about")
 
     if kind == "defs":
         rows = definitions_for(map_path, terms, candidates, cap=0)
@@ -1028,7 +1089,7 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         # this walk, and a continuation that cannot say where it stopped ends
         # the chain in the middle of the list it was asked to finish.
         hold = len(f"… more sections match; ask for something narrower, or "
-                   f"more:sections:{_words_slug(words)}:{len(scored)}") + 2
+                   f"more:sections:{_encode(words)}:{len(scored)}") + 2
         out, room, reached = [], limit - hold, offset
         for i, (_hits, h, b) in enumerate(scored[offset:], offset):
             chunk, attempted, handed = _section_answer(h, b, expanded, room,
@@ -1064,7 +1125,7 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
                           f"{what} for {words!r}, and this handle asks for "
                           f"number {offset + 1}")
         chunk, _attempted, reached, _handed = _rows_chunk(
-            h, rows[offset:], 0, limit, fields[0], _words_slug(words), offset, kind)
+            h, rows[offset:], 0, limit, fields[0], _encode(words), offset, kind)
         if reached == offset:
             return _stale(f"row {offset + 1} of {len(rows)} does not fit in "
                           f"{limit} characters")

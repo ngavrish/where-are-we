@@ -2252,7 +2252,76 @@ jobs:
           assert a and b and not (a & b), "find's handle repeated its own hits"
           print(f"find: {len(a)} hits, {len(b)} more behind the handle, none repeated")
           EOF
-          # 5. Six tools, and the MCP `more` and `--more` answer the same.
+          # 5. A handle carries the question, not a slug of it. A slug turned
+          #    `pre-commit` into two words and `支払い処理` into nothing, so the
+          #    handle re-asked the map a question nobody typed and returned
+          #    rows that were not the ones left out.
+          python - <<'EOF'
+          import re, sys
+          sys.path.insert(0, "src")
+          from where_are_we import mapper
+          from where_are_we.ask import _encode, _decode, _handle_words
+          HANDLE = re.compile(r"\(?(more:[a-z]+:[^)\s]+)\)?")
+          m = "/tmp/more/m/framework_map.md"
+
+          for words in ("pre-commit", "where-are-we", "page.click", "pay step 1",
+                        "支払い処理", "facturación"):
+              field = _encode(words)
+              assert " " not in field and "(" not in field and ")" not in field, field
+              assert _decode(field) == words, field
+              mine = [w.lower() for w in re.split(r"[\s,]+", words) if len(w) > 1]
+              assert _handle_words(field)[1] == mine, (words, _handle_words(field)[1])
+          print("six punctuated and non-Latin questions survive a handle whole")
+
+          # And on the map: what the handle fetches is what the answer left out.
+          words = "pay invoice"
+          full = mapper.ask(m, words, 10 ** 9)
+          answer = mapper.ask(m, words, 1500)
+          rows = lambda s: {l for l in s.splitlines() if l.startswith("- ")}
+          got, seen, queue = rows(answer), set(), HANDLE.findall(answer)
+          while queue:
+              h = queue.pop(0)
+              if h in seen or h.split(":")[1] not in ("rows", "sections", "defs"):
+                  continue
+              seen.add(h)
+              out = mapper.more(m, h, 1500)
+              if out.startswith("no such handle"):
+                  continue
+              got |= rows(out)
+              queue += [n for n in HANDLE.findall(out) if n not in seen]
+          # `rows` here is every `- ` line, definitions included, so the
+          # definitions handle is chased with the rest; `more:defs` sees past
+          # the block's 40-row cap, which is why this is >= and not ==.
+          assert got >= rows(full), sorted(rows(full) - got)[:3]
+          print(f"{words!r}: {len(rows(answer))} rows in the answer, {len(got)} after its handles")
+
+          # `find`'s phrase survives too, and every line it hands back holds it.
+          for phrase in ("pay invoice 1", "context.page"):
+              hits = mapper.find_text("/tmp/more/m", phrase, 2)
+              found = re.search(r"\(more:find:[^)]+\)", hits)
+              if not found:
+                  continue
+              rest = mapper.more(m, found.group(0).strip("()"), 4000)
+              lines = [l for l in (hits + "\n" + rest).splitlines() if l.startswith("- ")]
+              assert lines, phrase
+              assert all(phrase.lower() in l.lower() for l in lines), phrase
+              whole = [l for l in mapper.find_text("/tmp/more/m", phrase, 10 ** 6).splitlines()
+                       if l.startswith("- ")]
+              assert lines == whole[:len(lines)], phrase
+              print(f"find {phrase!r}: {len(lines)} lines across the handle, every one holds it")
+
+          # Every kind of `more` answer is bounded by the room it was given.
+          handle = open("/tmp/more/handle.txt").read().strip()
+          finds = re.search(r"\(more:find:[^)]+\)",
+                            mapper.find_text("/tmp/more/m", "invoice", 2)).group(0).strip("()")
+          for h in (handle, finds):
+              for limit in (100, 200, 1500):
+                  out = mapper.more(m, h, limit)
+                  assert len(out) <= limit or out.startswith("no such handle"), \
+                      (h, limit, len(out))
+          print("more() answers fit the room they were given at 100, 200 and 1500")
+          EOF
+          # 6. Six tools, and the MCP `more` and `--more` answer the same.
           printf '%s\n%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
             "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"more\",\"arguments\":{\"handle\":\"$(cat /tmp/more/handle.txt)\"}}}" \

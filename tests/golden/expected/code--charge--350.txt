@@ -4,4 +4,4 @@
 
 ## Public surface of the code
 - `app/billing.py`: charge, refund
-… 3 rows in this section do not mention these words (more:unmatched:public-surface-of-the:charge:0)
+… 3 rows in this section do not mention these words (more:unmatched:public-surface-of-the-0f82:charge:0)

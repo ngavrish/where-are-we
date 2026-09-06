@@ -15,9 +15,9 @@ from .state import DEFINITIONS, INDEXED, LINES
 from .walk import _cached, _slurp
 
 try:
-    from ..ask import _slug
+    from ..ask import _encode
 except ImportError:  # run as a plain file, with no package around it
-    from ask import _slug  # type: ignore[no-redef]
+    from ask import _encode  # type: ignore[no-redef]
 
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
@@ -95,7 +95,7 @@ _DECLARES = re.compile(
 
 
 def find_text(out_dir: str, phrase: str, limit: int = 40,
-              offset: int = 0) -> str:
+              offset: int = 0, room: int = 0) -> str:
     """Every line holding this phrase, with its file and line number.
 
     Reads the lines the mapper kept. Case-insensitive, because nobody
@@ -105,6 +105,12 @@ def find_text(out_dir: str, phrase: str, limit: int = 40,
     `more:find:` continues an answer this cut short. The ranking and the
     per-file cap below are recomputed from the map on disk both times, so the
     hit at a given offset is the same hit on both calls as long as the map is.
+
+    `room`, when given, is a ceiling in characters as well as `limit`'s ceiling
+    in hits, and the block comes back no longer than it. `more()` passes it:
+    what a handle fetches lands in the conversation exactly like the answer
+    that printed it, and forty hits of a hundred and sixty characters is 1,892
+    characters against a caller that asked for 1,500.
     """
     phrase = (phrase or "").strip()
     if len(phrase) < 2:
@@ -184,20 +190,34 @@ def find_text(out_dir: str, phrase: str, limit: int = 40,
         return (f"no such handle in this map: {len(capped)} lines hold "
                 f"{phrase!r} once no one file may take the whole answer, "
                 f"and this handle asks for number {offset + 1}")
-    kept = capped[offset:offset + limit]
-    reached = offset + len(kept)
-    tail = ""
-    if len(hits) > reached:
-        shown = (f"these are the {len(kept)} that rank highest" if not offset
-                 else f"these are {len(kept)} of them, from number {offset + 1}")
-        # Only when there is a next hit to hand over: the rest may all have
-        # been the per-file cap's doing, and those are not reachable by
-        # asking again, so a handle promising them would be a lie.
-        handle = (f" (more:find:{_slug(phrase)}:{reached})"
-                  if reached < len(capped) else "")
-        tail = (f"\n… {len(hits)} lines hold it across {len(per_file)} files; "
-                + shown + handle)
-    return "\n".join(kept) + tail
+    def block(n: int) -> str:
+        kept = capped[offset:offset + n]
+        reached = offset + len(kept)
+        tail = ""
+        if len(hits) > reached:
+            shown = (f"these are the {len(kept)} that rank highest" if not offset
+                     else f"these are {len(kept)} of them, from number {offset + 1}")
+            # Only when there is a next hit to hand over: the rest may all have
+            # been the per-file cap's doing, and those are not reachable by
+            # asking again, so a handle promising them would be a lie.
+            handle = (f" (more:find:{_encode(phrase)}:{reached})"
+                      if reached < len(capped) else "")
+            tail = (f"\n… {len(hits)} lines hold it across {len(per_file)} files; "
+                    + shown + handle)
+        return "\n".join(kept) + tail
+
+    if not room:
+        return block(limit)
+    # Whole hits, from the front, while the finished block fits. A prefix and
+    # not a best fit, because `capped` is already the ranking: taking a later,
+    # shorter hit over the one in front of it would print the sixth-best line
+    # and call it the fifth.
+    for n in range(min(limit, len(capped) - offset), 0, -1):
+        out = block(n)
+        if len(out) <= room:
+            return out
+    return (f"no such handle in this map: hit {offset + 1} of {len(capped)} "
+            f"does not fit in {room} characters")
 
 
 # Extensions where a tree-sitter grammar can stand in for the regex table,

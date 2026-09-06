@@ -1015,7 +1015,9 @@ def pointer(map_path: str, brief_path: str = "", changed: list[str] | None = Non
         f"    where-are-we --out {os.path.dirname(map_path) or '.'} --ask \"the words you need\"",
         "",
         "That prints only the rows that mention those words, whole, and says how much "
-        "of each section it left out. "
+        "of each section it left out. Where it says so it ends with a handle "
+        "(`more:rows:...`); `--more HANDLE`, or the `more` tool, returns that part "
+        "rather than the part you have already read. "
         f"`--sections` lists what is in it. `grep` on `{map_path}` works too; "
         "reading the whole file does not — it lands in every message after it.",
         "",

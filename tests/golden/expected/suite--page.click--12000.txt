@@ -1,0 +1,91 @@
+## Defined here
+
+- `CheckoutPage.click_10` — pages/checkout.py:34
+- `CheckoutPage.click_11` — pages/checkout.py:37
+- `CheckoutPage.click_12` — pages/checkout.py:40
+- `CheckoutPage.click_13` — pages/checkout.py:43
+- `CheckoutPage.click_14` — pages/checkout.py:46
+- `CheckoutPage.click_15` — pages/checkout.py:49
+- `CheckoutPage.click_16` — pages/checkout.py:52
+- `CheckoutPage.click_17` — pages/checkout.py:55
+- `CheckoutPage.click_18` — pages/checkout.py:58
+- `CheckoutPage.click_19` — pages/checkout.py:61
+- `CheckoutPage.click_1` — pages/checkout.py:7
+- `CheckoutPage.click_20` — pages/checkout.py:64
+- `CheckoutPage.click_21` — pages/checkout.py:67
+- `CheckoutPage.click_22` — pages/checkout.py:70
+- `CheckoutPage.click_23` — pages/checkout.py:73
+- `CheckoutPage.click_24` — pages/checkout.py:76
+- `CheckoutPage.click_25` — pages/checkout.py:79
+- `CheckoutPage.click_26` — pages/checkout.py:82
+- `CheckoutPage.click_27` — pages/checkout.py:85
+- `CheckoutPage.click_28` — pages/checkout.py:88
+- `CheckoutPage.click_29` — pages/checkout.py:91
+- `CheckoutPage.click_2` — pages/checkout.py:10
+- `CheckoutPage.click_30` — pages/checkout.py:94
+- `CheckoutPage.click_31` — pages/checkout.py:97
+- `CheckoutPage.click_32` — pages/checkout.py:100
+- `CheckoutPage.click_33` — pages/checkout.py:103
+- `CheckoutPage.click_34` — pages/checkout.py:106
+- `CheckoutPage.click_35` — pages/checkout.py:109
+- `CheckoutPage.click_36` — pages/checkout.py:112
+- `CheckoutPage.click_37` — pages/checkout.py:115
+- `CheckoutPage.click_38` — pages/checkout.py:118
+- `CheckoutPage.click_39` — pages/checkout.py:121
+- `CheckoutPage.click_3` — pages/checkout.py:13
+- `CheckoutPage.click_40` — pages/checkout.py:124
+- `CheckoutPage.click_4` — pages/checkout.py:16
+- `CheckoutPage.click_5` — pages/checkout.py:19
+- `CheckoutPage.click_6` — pages/checkout.py:22
+- `CheckoutPage.click_7` — pages/checkout.py:25
+- `CheckoutPage.click_8` — pages/checkout.py:28
+- `CheckoutPage.click_9` — pages/checkout.py:31
+
+## Page-object methods nothing calls
+- `checkout.py`: CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17()
+
+## What a step may call
+- `pages/checkout.py`: CheckoutPage.click_1(), CheckoutPage.click_10(), CheckoutPage.click_11(), CheckoutPage.click_12(), CheckoutPage.click_13(), CheckoutPage.click_14(), CheckoutPage.click_15(), CheckoutPage.click_16(), CheckoutPage.click_17(), CheckoutPage.click_18(), CheckoutPage.click_19(), CheckoutPage.click_2(), CheckoutPage.click_20(), CheckoutPage.click_21(), CheckoutPage.click_22(), CheckoutPage.click_23() … +24 more in the full map
+
+## What you can already write with (85)
+- CheckoutPage.click_1()
+- CheckoutPage.click_10()
+- CheckoutPage.click_11()
+- CheckoutPage.click_12()
+- CheckoutPage.click_13()
+- CheckoutPage.click_14()
+- CheckoutPage.click_15()
+- CheckoutPage.click_16()
+- CheckoutPage.click_17()
+- CheckoutPage.click_18()
+- CheckoutPage.click_19()
+- CheckoutPage.click_2()
+- CheckoutPage.click_20()
+- CheckoutPage.click_21()
+- CheckoutPage.click_22()
+- CheckoutPage.click_23()
+- CheckoutPage.click_24()
+- CheckoutPage.click_25()
+- CheckoutPage.click_26()
+- CheckoutPage.click_27()
+- CheckoutPage.click_28()
+- CheckoutPage.click_29()
+- CheckoutPage.click_3()
+- CheckoutPage.click_30()
+- CheckoutPage.click_31()
+- CheckoutPage.click_32()
+- CheckoutPage.click_33()
+- CheckoutPage.click_34()
+- CheckoutPage.click_35()
+- CheckoutPage.click_36()
+- CheckoutPage.click_37()
+- CheckoutPage.click_38()
+- CheckoutPage.click_39()
+- CheckoutPage.click_4()
+- CheckoutPage.click_40()
+- CheckoutPage.click_5()
+- CheckoutPage.click_6()
+- CheckoutPage.click_7()
+- CheckoutPage.click_8()
+- CheckoutPage.click_9()
+… 46 rows in this section do not mention these words (more:unmatched:what-you-can-already-d971:page%2Eclick:0)

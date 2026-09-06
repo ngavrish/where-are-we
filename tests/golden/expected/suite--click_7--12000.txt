@@ -5,11 +5,11 @@
 
 ## What each step calls
 - `pay_steps.py:step_pay_7` → click_7
-… 24 rows in this section do not mention these words (more:unmatched:what-each-step-calls:click_7:0)
+… 24 rows in this section do not mention these words (more:unmatched:what-each-step-calls-6470:click_7:0)
 
 ## What you can already write with (85)
 - CheckoutPage.click_7()
-… 85 rows in this section do not mention these words (more:unmatched:what-you-can-already:click_7:0)
+… 85 rows in this section do not mention these words (more:unmatched:what-you-can-already-d971:click_7:0)
 
 ## Called by `click_7`
 - pay_steps.py:step_pay_7
