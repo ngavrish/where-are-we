@@ -2320,6 +2320,46 @@ jobs:
                   assert len(out) <= limit or out.startswith("no such handle"), \
                       (h, limit, len(out))
           print("more() answers fit the room they were given at 100, 200 and 1500")
+
+          # A `find` chain advances at a budget too small for the long tail:
+          # the tail drops to its short form, and only then its handle.
+          h, seen_hits, calls = "more:find:invoice:0", 0, 0
+          while h and calls < 60:
+              out = mapper.more(m, h, 150)
+              assert len(out) <= 150 or out.startswith("no such handle"), len(out)
+              seen_hits += len([l for l in out.splitlines() if l.startswith("- ")])
+              calls += 1
+              nxt = re.search(r"\(more:find:[^)]+\)", out)
+              h = nxt.group(0).strip("()") if nxt else ""
+          assert calls > 3, f"the find chain stopped after {calls} calls at 150 characters"
+          print(f"find chains at 150 characters: {calls} calls, {seen_hits} hits")
+
+          # A long question makes a long handle. Where the handle fits, the
+          # chain still reaches every row; the docstring says what happens
+          # below that budget.
+          rows2 = lambda s: {l for l in s.splitlines() if l.startswith("- ")}
+          long_q = ("pay invoice charge step click page feature scenario " * 4)[:200]
+          field = _encode(long_q)
+          assert len(field) > 200 and " " not in field
+          whole = rows2(mapper.ask(m, long_q, 10 ** 9))
+          for limit in (4000, 12000):
+              answer = mapper.ask(m, long_q, limit)
+              assert len(answer) <= limit, (limit, len(answer))
+              got, seen, queue = rows2(answer), set(), HANDLE.findall(answer)
+              while queue:
+                  hh = queue.pop(0)
+                  if hh in seen or hh.split(":")[1] not in ("rows", "sections", "defs"):
+                      continue
+                  seen.add(hh)
+                  out = mapper.more(m, hh, limit)
+                  if out.startswith("no such handle"):
+                      continue
+                  got |= rows2(out)
+                  queue += [n for n in HANDLE.findall(out) if n not in seen]
+              missing = whole - got
+              print(f"a {len(long_q)}-character question ({len(field)}-character "
+                    f"handle field) at {limit}: {len(whole)} rows, {len(missing)} out of reach")
+              assert not missing, sorted(missing)[:2]
           EOF
           # 6. Six tools, and the MCP `more` and `--more` answer the same.
           printf '%s\n%s\n' \

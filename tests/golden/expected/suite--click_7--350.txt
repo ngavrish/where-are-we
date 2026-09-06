@@ -4,6 +4,7 @@
 - `click_7` — <root>/suite/repo/pages/checkout.py:25
 
 ## What each step calls
-… 1 more matching rows; 24 rows in this section do not mention these words
+- `pay_steps.py:step_pay_7` → click_7
+… 24 rows in this section do not mention these words (more:unmatched:what-each-step-calls-6470:click_7:0)
 
-… more sections match; ask for something narrower, or more:sections:click_7:0
+… more sections: more:sections:click_7:1

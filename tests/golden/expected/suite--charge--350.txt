@@ -4,6 +4,7 @@
 
 - `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
 - `CheckoutPage.click_10` — pages/checkout.py:34
-… 38 more definitions (more:defs:charge:2)
+- `CheckoutPage.click_11` — pages/checkout.py:37
+… 37 more definitions (more:defs:charge:3)
 
-… more sections match; ask for something narrower, or more:sections:charge:0
+… more sections: more:sections:charge:0

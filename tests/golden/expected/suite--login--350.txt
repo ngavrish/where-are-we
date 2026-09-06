@@ -1,6 +1,7 @@
 ## Defined here
 
 - `Failed login` — <root>/suite/repo/features/login.feature:8
-… 7 more definitions (more:defs:login:1)
+- `Successful login` — <root>/suite/repo/features/login.feature:3
+… 6 more definitions (more:defs:login:2)
 
-… more sections match; ask for something narrower, or more:sections:login:0
+… more sections: more:sections:login:0

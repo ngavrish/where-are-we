@@ -152,5 +152,5 @@ suite	page.click	350
 suite	page.click	1500
 suite	page.click	12000
 suite	page-object	350
-suite	page-object	1500
-suite	page-object	12000
+suite	checkout.py	1500
+suite	page-object methods nothing calls	350
