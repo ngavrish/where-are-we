@@ -18,6 +18,6 @@
 - `def step_pay_19` — <root>/suite/repo/steps/pay_steps.py:83
 - `def step_pay_1` — <root>/suite/repo/steps/pay_steps.py:11
 - `def step_pay_20` — <root>/suite/repo/steps/pay_steps.py:87
-- `def step_pay_21` — <root>/suite/repo/steps/pay_steps.py:91
-- `def step_pay_22` — <root>/suite/repo/steps/pay_steps.py:95
-… 22 more definitions
+… 24 more definitions (more:defs:invoice-checkout:16)
+
+… more sections match; ask for something narrower, or more:sections:invoice-checkout:0

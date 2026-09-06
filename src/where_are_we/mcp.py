@@ -92,6 +92,29 @@ TOOLS = [
         },
     },
     {
+        "name": "more",
+        "description": (
+            "Fetch what an answer left out, by the handle it printed. Every "
+            "place `ask` and `find` cut a list short they end with one, in "
+            "parentheses: `… 37 more matching rows (more:rows:step-phrases:"
+            "invoice:12)`. Pass that string here and the rest of that same "
+            "list comes back, continuing where the answer stopped, with the "
+            "next handle when there is still more after it. Use it instead of "
+            "asking the same question again at a bigger budget: this returns "
+            "the part you have not seen rather than the part you have. "
+            "`handle` takes a list."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "handle": {"type": ["string", "array"],
+                           "items": {"type": "string"},
+                           "description": ("a handle an answer printed, or a "
+                                           "list of them")},
+            },
+            "required": ["handle"],
+        },
+    },
+    {
         "name": "sections",
         "description": "List what the map contains, by section heading.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -318,6 +341,21 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             a = mapper.find_text(out_dir, p, room)
             log_answer(out_dir, "find", p, a, room)
             pairs.append((p, a))
+        _reply(_text(_joined(pairs)), ident)
+    elif name == "more":
+        handle_field = args.get("handle")
+        if handle_field is not None and not _is_str_or_str_list(handle_field):
+            raise _BadParams("handle must be a string or a list of strings")
+        handles = _each(handle_field) or [""]
+        # The same budget `ask` gets, split the same way across a list: what
+        # a handle fetches lands in the conversation exactly like the answer
+        # that printed it, and costs the same on every turn after.
+        room = _share(_ANSWER_BUDGET, len(handles), 1500)
+        pairs = []
+        for h in handles:
+            a = mapper.more(map_path, h, room)
+            log_answer(out_dir, "more", h, a, room)
+            pairs.append((h, a))
         _reply(_text(_joined(pairs)), ident)
     elif name == "sections":
         try:

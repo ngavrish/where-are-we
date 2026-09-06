@@ -1,10 +1,8 @@
-(also matched: charge, bill, billing)
+(also matched: charge)
 
 ## Defined here
 
 - `Invoice` — <root>/code/repo/app/models.py:9
 - `charge` — <root>/code/repo/app/billing.py:4
 
-## Public surface of the code
-- `app/billing.py`: charge, refund
-… 2 more matching rows; 1 rows in this section do not mention these words
+… more sections match; ask for something narrower, or more:sections:invoice-checkout:0

@@ -2118,3 +2118,153 @@ jobs:
           assert _config('/tmp/deep/repo') == {}, 'a config that cannot be parsed is no config'
           print('a config built to be parsed reads as no config')
           "
+
+      - name: the more tool returns what an answer left out
+        run: |
+          set -o pipefail
+          rm -rf /tmp/more
+          mkdir -p /tmp/more/repo/steps /tmp/more/repo/features
+          # One section with far more matching rows than any small budget
+          # holds, so every answer below is cut and every cut prints a handle.
+          python - <<'EOF'
+          import pathlib
+          steps = pathlib.Path("/tmp/more/repo/steps/pay_steps.py")
+          body = ["from behave import step", ""]
+          for i in range(1, 201):
+              body += [f'@step("pay invoice {i}")',
+                       f"def step_pay_invoice_{i}(context):",
+                       f"    context.page.charge_{i}()", ""]
+          steps.write_text("\n".join(body))
+          feat = pathlib.Path("/tmp/more/repo/features/pay.feature")
+          feat.write_text("Feature: Pay an invoice\n"
+                          + "".join(f"  Scenario: pay invoice {i}\n"
+                                    f"    Given pay invoice {i}\n"
+                                    for i in range(1, 201)))
+          EOF
+          where-are-we --repo /tmp/more/repo --out /tmp/more/m --product none \
+            --force --quiet --no-semantic
+          # 1. A cut answer prints a handle, in the wording the tail contract
+          #    fixes: `… N more matching rows (more:rows:<section>:<words>:<n>)`.
+          where-are-we --out /tmp/more/m --ask "invoice" > /tmp/more/ask.txt
+          grep -qE '… [0-9]+ more matching rows \(more:rows:[a-z0-9_-]+:invoice:[0-9]+\)' /tmp/more/ask.txt
+          # 2. Every handle parses with the one regex a reader is given, and
+          #    holds no space. The rows one is the handle the rest of this
+          #    step follows: an `unmatched` handle answers about the rows that
+          #    never matched, which is a different list on purpose.
+          grep -cE '\(?(more:[a-z]+:[^)[:space:]]+)\)?' /tmp/more/ask.txt
+          grep -oE '\(more:rows:[^)]+\)' /tmp/more/ask.txt | head -1 \
+            | tr -d '()' > /tmp/more/handle.txt
+          test -s /tmp/more/handle.txt
+          cat /tmp/more/handle.txt
+          # 3. `more` returns rows the answer did not print, and they are rows
+          #    the unbudgeted answer holds: what was left out, not something else.
+          where-are-we --out /tmp/more/m \
+            --more "$(cat /tmp/more/handle.txt)" > /tmp/more/rest.txt
+          python - <<'EOF'
+          import pathlib, re, subprocess, sys
+          sys.path.insert(0, "src")
+          from where_are_we import mapper
+          m = "/tmp/more/m/framework_map.md"
+          HANDLE = re.compile(r"\(?(more:[a-z]+:[^)\s]+)\)?")
+
+          def rows(answer):
+              out, prefix, keep = set(), None, False
+              for line in answer.splitlines():
+                  if line.startswith("#"):
+                      keep = not line.startswith(("## Defined here", "## Called by"))
+                      prefix = None
+                      continue
+                  if not keep or line.startswith("…") or not line.strip():
+                      continue
+                  head = re.match(r"^- `([^`]*/)`$", line)
+                  if head:
+                      prefix = head.group(1)
+                      continue
+                  leaf = re.match(r"^  - `([^`]+)`(.*)$", line)
+                  if leaf and prefix:
+                      out.add(f"- `{prefix}{leaf.group(1)}`{leaf.group(2)}")
+                      continue
+                  prefix = None
+                  out.add(line)
+              return out
+
+          first = pathlib.Path("/tmp/more/ask.txt").read_text()
+          rest = pathlib.Path("/tmp/more/rest.txt").read_text()
+          full = rows(mapper.ask(m, "invoice", 10 ** 9))
+          assert rows(first) <= full, "the answer holds a row the map does not"
+          assert not (rows(first) & rows(rest)), "more repeated what the answer printed"
+          assert rows(rest) <= full, "more returned a row the map does not hold"
+
+          # Chased to exhaustion, the handles reconstruct the whole row set.
+          for limit in (1500, 12000):
+              answer = mapper.ask(m, "invoice", limit)
+              got, seen, queue = rows(answer), set(), HANDLE.findall(answer)
+              calls = 0
+              while queue:
+                  h = queue.pop(0)
+                  if h in seen or h.split(":")[1] not in ("rows", "sections"):
+                      continue
+                  seen.add(h)
+                  more = mapper.more(m, h, limit)
+                  calls += 1
+                  if more.startswith("no such handle"):
+                      continue
+                  got |= rows(more)
+                  queue += [n for n in HANDLE.findall(more) if n not in seen]
+              print(f"limit {limit}: {len(rows(answer))} rows in the answer, "
+                    f"{len(got)} after {calls} more() calls, {len(full)} in the map")
+              assert got == full, sorted(full - got)[:3]
+
+          # A handle against a map that no longer holds the section is stale,
+          # not a slice of some other list.
+          handle = pathlib.Path("/tmp/more/handle.txt").read_text().strip()
+          section = handle.split(":")[2]
+          for name in ("framework_map.md", "framework_map_brief.md"):
+              p = pathlib.Path("/tmp/more/m2") / name
+              p.parent.mkdir(exist_ok=True)
+              keep, skip = [], False
+              for line in (pathlib.Path("/tmp/more/m") / name).read_text().splitlines():
+                  if line.startswith("## "):
+                      from where_are_we.ask import _head_slug
+                      skip = _head_slug(line) == section
+                  if not skip:
+                      keep.append(line)
+              p.write_text("\n".join(keep) + "\n")
+          (pathlib.Path("/tmp/more/m2") / "framework_map.json").write_bytes(
+              (pathlib.Path("/tmp/more/m") / "framework_map.json").read_bytes())
+          stale = mapper.more("/tmp/more/m2/framework_map.md", handle, 4000)
+          print("stale:", stale)
+          assert stale.startswith("no such handle in this map: "), stale
+          assert "banana" not in mapper.more(m, "more:banana:x:0", 4000).split(":")[0]
+          EOF
+          # 4. `find`'s own tail carries a handle, and `more` continues it.
+          where-are-we --out /tmp/more/m --ask "charge" > /dev/null
+          python - <<'EOF'
+          import re, sys
+          sys.path.insert(0, "src")
+          from where_are_we import mapper
+          hits = mapper.find_text("/tmp/more/m", "invoice", 5)
+          print(hits.splitlines()[-1])
+          handle = re.search(r"\(more:find:[^)]+\)", hits).group(0).strip("()")
+          rest = mapper.more("/tmp/more/m/framework_map.md", handle, 4000)
+          a = {l for l in hits.splitlines() if l.startswith("- ")}
+          b = {l for l in rest.splitlines() if l.startswith("- ")}
+          assert a and b and not (a & b), "find's handle repeated its own hits"
+          print(f"find: {len(a)} hits, {len(b)} more behind the handle, none repeated")
+          EOF
+          # 5. Six tools, and the MCP `more` and `--more` answer the same.
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"more\",\"arguments\":{\"handle\":\"$(cat /tmp/more/handle.txt)\"}}}" \
+            | where-are-we --mcp --out /tmp/more/m > /tmp/more/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/more/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          print("tools/list:", len(names), names)
+          assert names == ["ask", "callers", "defines", "find", "more", "sections"], names
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/more/rest.txt").read_text()
+          assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
+          print("MCP more and --more agree, byte for byte")
+          EOF

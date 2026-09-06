@@ -127,7 +127,7 @@ Feature: Pay for an order
   Scenario: Customer pays with a new card
     When they add a new card and pay for the invoice
     Then the payment is charged
-… 7 rows in this section do not mention these words
+… 7 rows in this section do not mention these words (more:unmatched:how-a-feature-file-is:pay-step:0)
 
 ## What you can already write with (85)
 - pay step 1
@@ -210,7 +210,7 @@ Feature: Pay for an order
 - CheckoutPage.click_7()
 - CheckoutPage.click_8()
 - CheckoutPage.click_9()
-… 6 rows in this section do not mention these words
+… 6 rows in this section do not mention these words (more:unmatched:what-you-can-already:pay-step:0)
 
 ## Files nothing imports
 - `pages/checkout.py`, `steps/login_steps.py`, `steps/pay_steps.py`
@@ -226,11 +226,11 @@ Feature: Pay for an order
 
 ## Feature files
 - `features/checkout/pay.feature` — 3 scenarios
-… 1 rows in this section do not mention these words
+… 1 rows in this section do not mention these words (more:unmatched:feature-files:pay-step:0)
 
 ## Biggest feature files (scenario line numbers are in the full map)
 - `features/checkout/pay.feature` — 3 scenarios
-… 1 rows in this section do not mention these words
+… 1 rows in this section do not mention these words (more:unmatched:biggest-feature-files:pay-step:0)
 
 ## What each step calls
 - `pay_steps.py:step_pay_1` → click_1
@@ -285,7 +285,7 @@ Feature: Pay for an order
 - `pay_steps.py:step_pay_27` → click_27 (checkout.py)
 
 ### `steps/login_steps.py` — 5 steps
-… 5 rows in this section do not mention these words
+… 5 rows in this section do not mention these words (more:unmatched:steps-login_steps-py-5:pay-step:0)
 
 # Framework map
 Built from `<root>/suite/repo` at the start of this run: 2 step modules, 45 step phrases, 2 feature files, 5 scenarios.
@@ -303,16 +303,9 @@ Built from `<root>/suite/repo` at the start of this run: 2 step modules, 45 step
 - **features** — Gherkin features — 2 files under features, features/checkout
 - **steps** — step definitions the features bind to — 2 files under steps
 - **Page objects**: `pages/checkout.py`
-… 3 rows in this section do not mention these words
+… 3 rows in this section do not mention these words (more:unmatched:how-this-suite-is-built:pay-step:0)
 
 ## Where things are
 - **Page objects**: `pages/checkout.py`
 
-## Public surface of the code
-- `pages/checkout.py`: CheckoutPage
-
-## Backend the tests touch
-- tables queried: behave, pages.checkout
-
-## Page-object methods nothing calls
-… 1 more matching rows
+… more sections match; ask for something narrower, or more:sections:pay-step:22

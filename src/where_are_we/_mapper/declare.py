@@ -14,6 +14,11 @@ import re
 from .state import DEFINITIONS, INDEXED, LINES
 from .walk import _cached, _slurp
 
+try:
+    from ..ask import _slug
+except ImportError:  # run as a plain file, with no package around it
+    from ask import _slug  # type: ignore[no-redef]
+
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
 
@@ -89,11 +94,17 @@ _DECLARES = re.compile(
     re.I)
 
 
-def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
+def find_text(out_dir: str, phrase: str, limit: int = 40,
+              offset: int = 0) -> str:
     """Every line holding this phrase, with its file and line number.
 
     Reads the lines the mapper kept. Case-insensitive, because nobody
     remembers the case of a label they saw once.
+
+    `offset` skips that many of the ranked hits before printing, which is how
+    `more:find:` continues an answer this cut short. The ranking and the
+    per-file cap below are recomputed from the map on disk both times, so the
+    hit at a given offset is the same hit on both calls as long as the map is.
     """
     phrase = (phrase or "").strip()
     if len(phrase) < 2:
@@ -158,18 +169,34 @@ def find_text(out_dir: str, phrase: str, limit: int = 40) -> str:
     # No single file may take the whole answer. Forty hits from one generated
     # table is the same as no answer, and the second-best file is often the one
     # that was wanted.
-    per_file, kept = {}, []
+    # The per-file cap and the ranking above make one fixed list of hits,
+    # ranked and thinned the same way on every call over the same map. That
+    # list, not this answer, is what an offset counts into: `taken` is how far
+    # into it we are when the limit stops us, and a `more:find:` handle
+    # carries that number so the next call starts on the next hit.
+    per_file, capped = {}, []
     for score, path, number, text in hits:
         if per_file.get(path, 0) >= _PER_FILE_CAP:
             continue
         per_file[path] = per_file.get(path, 0) + 1
-        kept.append(f"- {path}:{number}: {text}")
-        if len(kept) >= limit:
-            break
+        capped.append(f"- {path}:{number}: {text}")
+    if offset >= len(capped):
+        return (f"no such handle in this map: {len(capped)} lines hold "
+                f"{phrase!r} once no one file may take the whole answer, "
+                f"and this handle asks for number {offset + 1}")
+    kept = capped[offset:offset + limit]
+    reached = offset + len(kept)
     tail = ""
-    if len(hits) > len(kept):
+    if len(hits) > reached:
+        shown = (f"these are the {len(kept)} that rank highest" if not offset
+                 else f"these are {len(kept)} of them, from number {offset + 1}")
+        # Only when there is a next hit to hand over: the rest may all have
+        # been the per-file cap's doing, and those are not reachable by
+        # asking again, so a handle promising them would be a lie.
+        handle = (f" (more:find:{_slug(phrase)}:{reached})"
+                  if reached < len(capped) else "")
         tail = (f"\n… {len(hits)} lines hold it across {len(per_file)} files; "
-                f"these are the {len(kept)} that rank highest")
+                + shown + handle)
     return "\n".join(kept) + tail
 
 

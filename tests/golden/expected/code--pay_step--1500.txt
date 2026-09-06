@@ -9,8 +9,8 @@ Built from `<root>/code/repo` at the start of this run: 0 step modules, 0 step p
 
 ## Public surface of the code
 - `app/billing.py`: charge, refund
-… 3 rows in this section do not mention these words
+… 3 rows in this section do not mention these words (more:unmatched:public-surface-of-the:pay-step:0)
 
 ## How this suite is built
 - **steps** — step definitions the features bind to: none found
-… 4 rows in this section do not mention these words
+… 4 rows in this section do not mention these words (more:unmatched:how-this-suite-is-built:pay-step:0)

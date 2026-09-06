@@ -5,10 +5,6 @@
 - `charge` — <root>/code/repo/app/billing.py:4
 
 # Framework map
-… 1 more matching rows
+… 1 more matching rows (more:rows:framework-map:pay-step:0)
 
-## Public surface of the code
-- `app/billing.py`: charge, refund
-… 3 rows in this section do not mention these words
-
-… more sections match; ask for something narrower
+… more sections match; ask for something narrower, or more:sections:pay-step:3

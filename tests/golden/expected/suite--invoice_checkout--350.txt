@@ -3,7 +3,6 @@
 ## Defined here
 
 - `Customer pays and the charge is declined` — <root>/suite/repo/features/checkout/pay.feature:9
-- `Customer pays with a new card` — <root>/suite/repo/features/checkout/pay.feature:15
-… 38 more definitions
+… 39 more definitions (more:defs:invoice-checkout:1)
 
-… more sections match; ask for something narrower
+… more sections match; ask for something narrower, or more:sections:invoice-checkout:0

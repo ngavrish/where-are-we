@@ -429,6 +429,12 @@ def main() -> int:
                          "print the rows that mention these words, whole, with a "
                          "count of what was left out, and nothing else. Reads "
                          "framework_map.md under --out.")
+    ap.add_argument("--more", default="", dest="more_handle", metavar="HANDLE",
+                    help="print what an answer left out, by the handle it "
+                         "ended with: `--more 'more:rows:step-phrases:"
+                         "invoice:12'`. Continues that same list where the "
+                         "answer stopped and ends with the next handle if "
+                         "there is more still. Reads the map under --out")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -535,7 +541,8 @@ def main() -> int:
                   f"{os.path.join(out_dir, 'spec_map.md')}")
         return 0
 
-    if args.sections or args.ask or args.pointer or args.callers:
+    if (args.sections or args.ask or args.pointer or args.callers
+            or args.more_handle):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -563,7 +570,8 @@ def main() -> int:
         # `--ask x --callers foo` runs --callers, and gating on "did anyone
         # say --ask" let it answer "nothing in the map calls foo" from a
         # directory with no code map in it at all.
-        if not have_map and (args.pointer or args.sections or args.callers):
+        if not have_map and (args.pointer or args.sections or args.callers
+                             or args.more_handle):
             # These three read the code map and only the code map, so for
             # them the spec map beside it is not an answer. Say which file is
             # missing and which one is there.
@@ -581,6 +589,14 @@ def main() -> int:
                 print(f"no map at {map_path}: {exc}", file=sys.stderr)
                 return 1
             log_answer(out_dir, "sections", "", answer, len(answer))
+            print(answer)
+            return 0
+        if args.more_handle:
+            # `--more` is the same call the MCP `more` tool makes, at the same
+            # budget `--ask` prints at, so a handle read off a CLI answer and
+            # a handle read off a tool result resolve to the same text.
+            answer = _ask.more(map_path, args.more_handle, 12000)
+            log_answer(out_dir, "more", args.more_handle, answer, 12000)
             print(answer)
             return 0
         if args.callers:

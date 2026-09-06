@@ -27,6 +27,6 @@
 - `CheckoutPage.click_2` — pages/checkout.py:10
 - `CheckoutPage.click_30` — pages/checkout.py:94
 - `CheckoutPage.click_31` — pages/checkout.py:97
-- `CheckoutPage.click_32` — pages/checkout.py:100
-- `CheckoutPage.click_33` — pages/checkout.py:103
-… 13 more definitions
+… 15 more definitions (more:defs:charge:25)
+
+… more sections match; ask for something narrower, or more:sections:charge:0
