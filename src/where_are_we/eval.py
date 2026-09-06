@@ -70,6 +70,14 @@ _HANDLE = re.compile(r"\(?(more:[a-z]+:[^)\s]+)\)?")
 # words. The reference answer never holds those rows, so following them
 # could only add rows outside the set being measured, at the cost of a
 # `more` call per section. Every other kind is chased.
+#
+# A tail that reports both counts ("… 37 more matching rows; 210 rows in
+# this section do not mention these words (more:rows:...)") carries the
+# `rows` handle only: the `unmatched` one is the same payload with the kind
+# swapped, so it is derived rather than printed, and there is nothing extra
+# for the parser to find. An `unmatched` handle appears on its own only when
+# a section has no unshown matching rows left to offer, and that one is
+# skipped here.
 _SKIP_KINDS = ("unmatched",)
 
 # A directory head written by `_group_dirs` (`- ``app/```) and the rows
@@ -359,6 +367,7 @@ def evaluate(out_dir: str, n: int, budgets: list, seed: int,
         first_recalls, full_recalls, sizes, top5 = [], [], [], []
         pooled_hit, pooled_total = 0, 0
         worst_calls, truncated = 0, 0
+        oversize_total, oversize_by_question = 0, {}
         for word in asked:
             reference = references[word]
             wanted = set(reference)
@@ -366,6 +375,9 @@ def evaluate(out_dir: str, n: int, budgets: list, seed: int,
             sizes.append(len(answer))
             shown = rows(answer)
             first = shown & wanted
+            # Over-budget rows count here. A row longer than the whole
+            # budget is a real thing the reader asked for and did not get,
+            # and hiding it would flatter the budget.
             first_recalls.append(len(first) / len(wanted))
             # Macro above, micro here: the mean of per question recalls
             # weights a question with two rows the same as one with three
@@ -376,20 +388,35 @@ def evaluate(out_dir: str, n: int, budgets: list, seed: int,
             pooled_total += len(wanted)
             head = reference[:5]
             top5.append(sum(1 for row in head if row in shown) / len(head))
+            # A row longer than the budget cannot be printed at that budget
+            # by anything: not the first answer, and not `more`, which
+            # reports it rather than skipping it. Measured on the suite
+            # fixture, one 446 character row does this at budget 350. It is
+            # counted and named here, and left out of the recall the exit
+            # code asserts, which is about rows a handle could have returned.
+            oversize = {row for row in wanted if len(row) > budget}
+            if oversize:
+                oversize_total += len(oversize)
+                oversize_by_question[word] = len(oversize)
             if not have:
                 continue
             found, calls, unfinished = _chase(map_path, answer, budget, max_calls)
             worst_calls = max(worst_calls, calls)
             truncated += 1 if unfinished else 0
             full = first | (found & wanted)
-            recall = len(full) / len(wanted)
+            fits = wanted - oversize
+            if not fits:
+                continue  # nothing at this budget could have come back
+            recall = len(full & fits) / len(fits)
             full_recalls.append(recall)
             if recall < 1.0:
                 report["losses"].append({
                     "budget": budget, "words": word,
                     "recall": round(recall, 4),
-                    "missing": len(wanted) - len(full),
+                    "missing": len(fits) - len(full & fits),
                     "reference_rows": len(wanted),
+                    "rows_that_fit": len(fits),
+                    "rows_over_budget": len(oversize),
                 })
         report["budgets"].append({
             "budget": budget,
@@ -398,6 +425,8 @@ def evaluate(out_dir: str, n: int, budgets: list, seed: int,
             "pooled_recall": round(pooled_hit / pooled_total, 4) if pooled_total else 0.0,
             "top5_recall": round(_mean(top5), 4),
             "recall_with_handles": (round(_mean(full_recalls), 4) if have else None),
+            "rows_over_budget": oversize_total,
+            "rows_over_budget_by_question": dict(sorted(oversize_by_question.items())),
             "mean_bytes": round(_mean(sizes), 1),
             "max_more_calls": worst_calls if have else None,
             "chains_cut_short": truncated if have else None,
@@ -410,7 +439,8 @@ def _mean(values: list) -> float:
 
 
 _COLUMNS = ("budget", "questions", "first_answer_recall", "pooled_recall",
-            "top5_recall", "recall_with_handles", "mean_bytes")
+            "top5_recall", "recall_with_handles", "rows_over_budget",
+            "mean_bytes")
 
 
 def print_table(report: dict) -> None:
@@ -923,15 +953,18 @@ def main(argv: list | None = None) -> int:
         print_table(report)
 
     if report["handles"] and report["losses"]:
-        # A row the map holds, that the budgeted answer cut, that no handle
-        # gave back. That is a bug in `more`, not a property of the budget,
-        # so it fails the run rather than printing a number nobody reads.
+        # A row the map holds, that fits the budget, that the budgeted answer
+        # cut, and that no handle gave back. That is a bug in `more`, not a
+        # property of the budget, so it fails the run rather than printing a
+        # number nobody reads. A row longer than the budget is not one of
+        # these: it is counted in rows_over_budget and named, not asserted.
         print(f"{len(report['losses'])} question(s) lost rows no handle "
               "returned:", file=sys.stderr)
         for loss in report["losses"][:10]:
             print(f"- budget {loss['budget']}, {loss['words']!r}: "
-                  f"{loss['missing']} of {loss['reference_rows']} rows missing",
-                  file=sys.stderr)
+                  f"{loss['missing']} of {loss['rows_that_fit']} rows that fit "
+                  f"the budget missing ({loss['rows_over_budget']} more were "
+                  "longer than the budget and are not counted)", file=sys.stderr)
         return 1
     return 0
 

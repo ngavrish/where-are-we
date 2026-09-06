@@ -18,10 +18,10 @@ wawe-eval --map .wawe --questions 100 --budgets 350,1500,12000
 ```
 
 ```
-budget  questions  first_answer_recall  pooled_recall  top5_recall  recall_with_handles  mean_bytes
-   350        100               0.4756         0.1046       0.7245                    -       302.6
-  1500        100               0.8572         0.3047          1.0                    -       884.9
- 12000        100               0.9999          0.999          1.0                    -      2050.9
+budget  questions  first_answer_recall  pooled_recall  top5_recall  recall_with_handles  rows_over_budget  mean_bytes
+   350        100               0.4756         0.1046       0.7245                    -                34       302.6
+  1500        100               0.8572         0.3047          1.0                    -                 0       884.9
+ 12000        100               0.9999          0.999          1.0                    -                 0      2050.9
 map: /tmp/wawe-eval/suite/out  questions: 100 of 285 in the pool (name 59/224, step 35/37, heading 6/24)  seed: 0
 handles: not available in this build
 ```
@@ -64,12 +64,21 @@ share of the *first five* rows of the full answer that survived the cut,
 averaged per question. A budget that drops the tail and keeps the top scores
 high here and low on the other two, which is the intended behaviour.
 
-**`recall_with_handles`** is the share those same rows reach once every
-`more:` handle in the budgeted answer has been followed, and every handle
-in the replies after that, until none is left. This one is meant to be 1.0
-at every budget, and `wawe-eval` exits 1 if it is not, naming the questions
-that lost rows. A budget that hides a row is the design. A budget that
-loses a row is a bug in `more`.
+**`rows_over_budget`** counts reference rows longer than the whole budget.
+A row of 446 characters cannot be printed at a budget of 350 by anything:
+not the first answer, and not `more`, which reports such a row rather than
+skipping it. It is a property of the map and the budget, not of `more`, so
+it is counted and named, per question in `--json` and as a total in the
+table, and never asserted. These rows do count against `first_answer_recall`
+and `pooled_recall`, because a reader who asked for them did not get them.
+
+**`recall_with_handles`** is the share of the rows *that fit the budget*
+reached once every `more:` handle in the budgeted answer has been followed,
+and every handle in the replies after that, until none is left. This one is
+meant to be 1.0 at every budget, and `wawe-eval` exits 1 if it is not,
+naming the questions that lost rows and how many of their rows were over
+budget and therefore not counted. A budget that hides a row is the design.
+A budget that loses a row it could have shown is a bug in `more`.
 
 A dash in that column and `handles: not available in this build` under the
 table means this build has no `more` tool: the deterministic half still
@@ -80,10 +89,11 @@ the rest.
 well under the budget, because `ask` keeps whole rows and pays for its tail
 line up front rather than filling to the ceiling.
 
-`--json` prints the same numbers plus `max_more_calls` (the longest handle
-chain any one question needed), `chains_cut_short` (chains stopped by
-`--max-more`, which should be zero), `questions_by_kind` and `pool_by_kind`,
-and one entry per lost row under `losses`.
+`--json` prints the same numbers plus `rows_over_budget_by_question`,
+`max_more_calls` (the longest handle chain any one question needed),
+`chains_cut_short` (chains stopped by `--max-more`, which should be zero),
+`questions_by_kind` and `pool_by_kind`, and one entry per lost row under
+`losses`.
 
 An answer is asked for once and remembered, keyed on the map, the words and
 the budget, so a run that repeats a budget, or asks at a budget the
