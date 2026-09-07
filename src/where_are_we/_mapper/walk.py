@@ -168,6 +168,26 @@ def _write_atomic_group(pairs) -> None:
             raise
 
 
+# Every kind `_cached` is asked for, and the two families whose kind carries
+# the language or the extension it parsed. A record under any other kind was
+# written by a release whose shape has since changed: `func_edges_2` held six
+# tables where `func_edges_3` holds seven, and nothing reads one again. They
+# are dropped when the cache is written, so an upgraded checkout stops
+# carrying a table nothing can read. A CI step asserts this list is the list
+# of kinds the source asks for.
+CACHE_KINDS = frozenset((
+    "call_graph", "complexity", "exports_py", "func_edges_3", "hooks",
+    "module_doc", "public_api", "py_spans", "pytest_ast", "redactions",
+    "step_texts", "symbols"))
+CACHE_KIND_PREFIXES = ("spans:", "ts:")
+
+
+def _kind_is_live(key: str) -> bool:
+    """Whether a cache key's kind is one this release still computes."""
+    kind = key.split("\x1e", 1)[0]
+    return kind in CACHE_KINDS or kind.startswith(CACHE_KIND_PREFIXES)
+
+
 def _load_parse_cache(out_dir: str) -> None:
     """Every `(kind, path)` -> `{"sha", "value"}` entry and every
     `path -> {"mtime", "size", "ctime", "sha"}` hash a previous build
@@ -215,9 +235,10 @@ def _save_parse_cache(out_dir: str) -> None:
         return
     try:
         # A file that moved or was deleted since the last build otherwise
-        # keeps its stale entry forever: nothing else ever prunes one.
+        # keeps its stale entry forever, and so does a record under a kind
+        # this release no longer computes: nothing else ever prunes either.
         live = {k: v for k, v in state._PARSE_CACHE.items()
-                if os.path.exists(k.split("\x1e", 1)[-1])}
+                if os.path.exists(k.split("\x1e", 1)[-1]) and _kind_is_live(k)}
         hashes = {k: v for k, v in state._HASH_CACHE.items()
                   if os.path.exists(k)}
         doc = {"schema": state.CACHE_SCHEMA, "version": state.__version__,

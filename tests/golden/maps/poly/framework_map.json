@@ -342,6 +342,17 @@
       "resolution": "declaration"
     },
     {
+      "subject": "<root>/poly/repo/b.ts:payInvoice",
+      "edge": "calls",
+      "object": "charge",
+      "file": "<root>/poly/repo/a.ts",
+      "candidates": [
+        "<root>/poly/repo/a.ts"
+      ],
+      "line": 4,
+      "resolution": "sole_declarer"
+    },
+    {
       "subject": "<root>/poly/repo/main.go",
       "edge": "declares",
       "object": "Serve",
@@ -395,17 +406,6 @@
       ],
       "line": 1,
       "resolution": "declaration"
-    },
-    {
-      "subject": "b.ts:payInvoice",
-      "edge": "calls",
-      "object": "charge",
-      "file": "a.ts",
-      "candidates": [
-        "a.ts"
-      ],
-      "line": 4,
-      "resolution": "sole_declarer"
     }
   ],
   "data_flow": {},

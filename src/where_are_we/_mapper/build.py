@@ -240,6 +240,42 @@ def _bound_shapes(node) -> list:
     return out
 
 
+def declares_rows(spans: dict, repo: str) -> list:
+    """The `declares` rows of `xrefs`: one per site in `spans`.
+
+    Written here rather than inside `build` because `--also` rebuilds them:
+    the first root's copy of `spans` is taken before the extra roots are
+    walked, and `cli.py` re-lifts the merged index. A table whose `declares`
+    rows named fewer files than the `spans` key beside them would break the
+    one thing this table promises, that a row is a site.
+
+    Paths are absolute, which is the spelling every row in `xrefs` uses; a
+    site the page object and step tables recorded relative to the repository
+    is joined to it here.
+    """
+    out = []
+    for name in sorted(spans):
+        for site in spans[name] or ():
+            path = site["file"]
+            if not os.path.isabs(path):
+                path = os.path.join(repo, path)
+            out.append({"subject": path, "edge": "declares", "object": name,
+                        "file": path, "candidates": [path],
+                        "line": site["start"], "resolution": "declaration"})
+    return out
+
+
+def sort_xrefs(rows: list) -> list:
+    """`xrefs` in its stored order: by subject, object, line, edge, rule.
+
+    A table rather than a walk order, and the same bytes whatever order the
+    filesystem handed the files over in. Every row carries a line, so there
+    is nothing here that has to stand in for a missing one.
+    """
+    return sorted(rows, key=lambda r: (r["subject"], r["object"], r["line"],
+                                       r["edge"], r["resolution"]))
+
+
 def build(repo: str, out_dir: str | None = None,
           keep_indexes: bool = False, force: bool = False,
           redact_lines: bool = True) -> dict:
@@ -1756,8 +1792,10 @@ def build(repo: str, out_dir: str | None = None,
             models[f"{name} (prisma)"] = re.findall(r"^\s*(\w+)\s+\w", fields, re.M)[:15]
     models = dict(list(models.items())[:30])
 
-    # How the top-level packages depend on each other.
+    # How the top-level packages depend on each other, and the import line
+    # in each file that says so.
     import_graph: dict[str, set] = {}
+    import_sites: dict = {}
     tops = {d for d in os.listdir(repo)
             if os.path.isdir(os.path.join(repo, d)) and d not in SKIP_DIRS}
     for p2 in _walk(repo, ".py") + _walk(repo, ".ts") + _walk(repo, ".js"):
@@ -1769,11 +1807,20 @@ def build(repo: str, out_dir: str | None = None,
             body = _slurp(p2)
         except OSError:
             continue
-        for mod in re.findall(r"(?:^from\s+([\w.]+)|^import\s+([\w.]+)|from\s+[\"\']([^\"\']+))",
-                              body, re.M):
-            name = (mod[0] or mod[1] or mod[2]).lstrip("./").split(".")[0].split("/")[0]
+        for mod in re.finditer(r"(?:^from\s+([\w.]+)|^import\s+([\w.]+)|from\s+[\"\']([^\"\']+))",
+                               body, re.M):
+            name = (mod.group(1) or mod.group(2) or mod.group(3)) \
+                .lstrip("./").split(".")[0].split("/")[0]
             if name in tops and name != top:
                 import_graph.setdefault(top, set()).add(name)
+                # The line as well as the pair, for the `imports` rows of
+                # `xrefs`: this key is a summary of who depends on whom, and
+                # a row that could not say which line said so would be that
+                # summary written out again in seven fields. One row per file
+                # per package, at the first line that imports it.
+                site = (top, name, p2)
+                import_sites.setdefault(
+                    site, body.count("\n", 0, mod.start()) + 1)
     import_graph = {k: sorted(v)[:10] for k, v in sorted(import_graph.items())[:25]}
 
     # Monorepo layout, if this is one.
@@ -1919,9 +1966,22 @@ def build(repo: str, out_dir: str | None = None,
     func_calls: dict[str, list] = {}
     # Every edge the two passes below write, one row each, before either
     # cap: the table `call_graph_files` is rendered from, and the one
-    # `call_graph_stats` counts. `declares` and `imports` rows join them at
-    # the end of the build, where `spans` and `import_graph` are finished.
+    # `call_graph_stats` counts. `declares` rows join them at the end of the
+    # build, where `spans` is finished.
     xrefs: list = []
+
+    def _row_path(path: str) -> str:
+        """One spelling for every path in `xrefs`: the absolute one.
+
+        The call graph works in paths relative to the repository and `spans`
+        records mostly absolute ones (the page object and step tables record
+        a relative one), so a table that copied each source's spelling could
+        not be joined to itself: a `calls` row's `file` would not match the
+        `declares` row for the file it names. Absolute, because that is what
+        `definitions` and most of `spans` hold, and a reader who has one of
+        those has the path this table uses.
+        """
+        return path if os.path.isabs(path) else os.path.join(repo, path)
     defined_at: dict[str, str] = {}
     # Every indexed file that declares a name, per language group. A name one
     # file declares has one home and the `(file)` half of an edge is a fact; a
@@ -1964,7 +2024,7 @@ def build(repo: str, out_dir: str | None = None,
             return "?"
         return ""
 
-    def _edge(lang: str, rel: str, func: str, name: str, where, mark: str,
+    def _edge(lang: str, rel: str, func: str, name: str, where,
               resolution: str, line) -> None:
         """One cross-file edge: the row it writes, and the counter it moves.
 
@@ -1977,17 +2037,19 @@ def build(repo: str, out_dir: str | None = None,
         out of several made the byte a property of the filesystem.
 
         `resolution` is the rule that placed the edge, written by the rule
-        itself where it settles the candidate list. `mark` and `resolution`
-        say one thing between them: a marked edge is `ambiguous` and no other
-        value carries a mark.
+        itself where it settles the candidate list, and it is the only thing
+        that says whether the edge is a choice: the mark, the null `file` and
+        the counter the row moves are all read off it here, so a rule that
+        forgot to clear one of them is a rule that cannot exist.
         """
-        _stats(lang)["marked" if mark else "edges"] += 1
-        xrefs.append({"subject": f"{rel}:{func}", "edge": "calls",
+        marked = resolution == "ambiguous"
+        _stats(lang)["marked" if marked else "edges"] += 1
+        xrefs.append({"subject": f"{_row_path(rel)}:{func}", "edge": "calls",
                       "object": name,
-                      "file": (sorted(where)[0]
-                               if not mark and len(where) == 1 else None),
-                      "candidates": sorted(where), "line": line,
-                      "resolution": resolution})
+                      "file": (None if marked or len(where) != 1
+                               else _row_path(sorted(where)[0])),
+                      "candidates": sorted(_row_path(w) for w in where),
+                      "line": line, "resolution": resolution})
 
     def _edge_text(row: dict) -> str:
         """One `calls` row as `call_graph_files` spells it.
@@ -2487,12 +2549,13 @@ def build(repo: str, out_dir: str | None = None,
             at_here = at_by_func.get(func_name) or {}
             for name in raw_targets:
                 where = homes_py.get(name) or set()
-                mark = _count("python", name, homes_py)
                 # The rule that placed this edge, as far as the walk has got:
                 # one file declares the name, or several do and nothing below
                 # says which. Each rule that settles the list overwrites this
-                # where it settles it.
-                resolution = "ambiguous" if mark else "sole_declarer"
+                # where it settles it, and there is no second variable saying
+                # the same thing: `resolution == "ambiguous"` is the mark.
+                resolution = ("ambiguous" if _count("python", name, homes_py)
+                              else "sole_declarer")
                 if not where:
                     continue
                 if rel in where and (name in bare or len(where) == 1):
@@ -2509,11 +2572,17 @@ def build(repo: str, out_dir: str | None = None,
                 # module this function calls the name on for an attribute
                 # call. `[module, level, package]`, the package being what
                 # says whether the module belongs to this tree.
+                # `said_from` is the rule that will have answered if one of
+                # those modules settles the list, recorded here where the
+                # table is chosen rather than worked out again from the same
+                # condition further down.
                 if name in bare:
                     from_mod = imports.get(name)
                     said = [[from_mod[0], from_mod[1], from_mod[0]]] if from_mod else []
+                    said_from = "import_line"
                 else:
                     said = mods.get(name) or []
+                    said_from = "receiver_import"
                 if said and not any(_module_is_here(pkg, lvl, rel, py_files,
                                                     where)
                                     for _mod, lvl, pkg in said):
@@ -2565,8 +2634,8 @@ def build(repo: str, out_dir: str | None = None,
                     if len(inherited) == 1:
                         # One base, in one other file, declares it. That is
                         # where the call lands.
-                        where, mark, resolution = inherited, "", "base_class"
-                if mark:
+                        where, resolution = inherited, "base_class"
+                if resolution == "ambiguous":
                     # The caller named the module it meant. One home under the
                     # modules it named is an answer, not a guess.
                     hits: set = set()
@@ -2575,11 +2644,9 @@ def build(repo: str, out_dir: str | None = None,
                     if len(hits) == 1:
                         # The `from M import name` line of a plain call, and
                         # the module a receiver was bound to for an attribute
-                        # call: two rules reading two tables, and a row says
-                        # which of them answered.
-                        where, mark = hits, ""
-                        resolution = ("import_line" if name in bare
-                                      else "receiver_import")
+                        # call: two rules reading two tables, and the row
+                        # carries whichever of them chose `said`.
+                        where, resolution = hits, said_from
                     elif not hits:
                         # None of the modules the caller named declares the
                         # name, and one of them may still be a facade that
@@ -2592,9 +2659,8 @@ def build(repo: str, out_dir: str | None = None,
                             through = _reexport_home(next(iter(carriers)),
                                                      name, where)
                             if len(through) == 1:
-                                where, mark = through, ""
-                                resolution = "re_export"
-                _edge("python", rel, func_name, name, where, mark, resolution,
+                                where, resolution = through, "re_export"
+                _edge("python", rel, func_name, name, where, resolution,
                       at_here.get(name))
 
     # Same call graph for TypeScript, JavaScript and Go: there is no AST here,
@@ -2714,19 +2780,19 @@ def build(repo: str, out_dir: str | None = None,
                                  line_idx + 1 + fn_body.count("\n", 0, m.start()))
             for callee in sorted(first):
                 where = homes.get(callee) or set()
-                mark = _count(lang, callee, homes)
-                resolution = "ambiguous" if mark else "sole_declarer"
+                resolution = ("ambiguous" if _count(lang, callee, homes)
+                              else "sole_declarer")
                 if not where or rel in where:
                     # This file declares the callee itself. There is no
                     # receiver to read here, and the body scan starts at the
                     # signature line, so a function's own name reads as a
                     # call: an edge out of this file would be that misread.
                     continue
-                if mark:
+                if resolution == "ambiguous":
                     hits = _spec_homes(imported.get(callee) or "", rel, where)
                     if len(hits) == 1:
-                        where, mark, resolution = hits, "", "import_line"
-                _edge(lang, rel, name, callee, where, mark, resolution,
+                        where, resolution = hits, "import_line"
+                _edge(lang, rel, name, callee, where, resolution,
                       first[callee])
 
     # `call_graph_files`, from the rows the two passes wrote. One cap across
@@ -3230,32 +3296,23 @@ def build(repo: str, out_dir: str | None = None,
             for full in hashes_before_map
             if full.startswith(repo + os.sep) and not os.path.exists(full))
 
-    # The other two edges of `xrefs`, from the two keys that already hold
-    # them. A `declares` row is a span, so it names the file as `spans` and
-    # `definitions` do, which is the path a reader joins it back on; a
-    # `calls` row names the file as the call graph does, relative to the
-    # repository, and both are the spelling of the table the row came from.
-    # An `imports` row is a package depending on a package, which is all
-    # `import_graph` holds: no file to name and no one line to point at,
-    # since it is every import line of a package read together.
-    for name in sorted(spans):
-        for site in spans[name]:
-            xrefs.append({"subject": site["file"], "edge": "declares",
-                          "object": name, "file": site["file"],
-                          "candidates": [site["file"]],
-                          "line": site["start"], "resolution": "declaration"})
-    for package, used in (import_graph or {}).items():
-        for other in used:
-            xrefs.append({"subject": package, "edge": "imports",
-                          "object": other, "file": None, "candidates": [],
-                          "line": None, "resolution": "import_line"})
-    # Sorted by subject, object and line, so the table is a table rather
-    # than a walk order. `line` is null on an `imports` row and on a call
-    # site no parser gave a line, and `None` does not compare with an
-    # integer: -1 sorts a row with no line first among its own name's.
-    xrefs.sort(key=lambda r: (r["subject"], r["object"],
-                              -1 if r["line"] is None else r["line"],
-                              r["edge"], r["resolution"]))
+    # The other two edges of `xrefs`. A `declares` row is a `spans` site,
+    # written by `declares_rows` because `--also` rebuilds them from the
+    # merged index after the extra roots are walked. An `imports` row is one
+    # import line of one file, kept for the package pairs `import_graph`
+    # summarises: the pair without the line is that key written out again in
+    # seven fields, and the line is the half of it this table adds.
+    xrefs += declares_rows(spans, repo)
+    for (package, other, path), line in sorted(import_sites.items()):
+        if other not in (import_graph.get(package) or ()):
+            # A pair the cap above dropped. `import_graph` is the summary and
+            # this table does not disagree with it.
+            continue
+        xrefs.append({"subject": _row_path(path), "edge": "imports",
+                      "object": other, "file": _row_path(other),
+                      "candidates": [_row_path(other)], "line": line,
+                      "resolution": "import_statement"})
+    xrefs = sort_xrefs(xrefs)
 
     result = {
         "schema": "where-are-we/1",

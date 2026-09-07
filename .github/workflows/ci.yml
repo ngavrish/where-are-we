@@ -4392,7 +4392,9 @@ jobs:
           # which steps ran before it.
           rm -rf /tmp/xref
           mkdir -p /tmp/xref/mark /tmp/xref/py /tmp/xref/reex /tmp/xref/mod \
-                   /tmp/xref/base
+                   /tmp/xref/base /tmp/xref/dup/a /tmp/xref/dup/b \
+                   /tmp/xref/also/a /tmp/xref/also/b /tmp/xref/pkg/steps \
+                   /tmp/xref/pkg/pages
           # ts/js: `charge` in two files, called with nothing to say which,
           # and called from a file that imports it from one of them.
           printf 'export function charge(amount: number): string {\n  return `a ${amount}`;\n}\n' > /tmp/xref/mark/a.ts
@@ -4416,15 +4418,33 @@ jobs:
           printf 'def walk(x):\n    return x\n' > /tmp/xref/mod/mymod.py
           printf 'import mymod\n\n\ndef g(u):\n    return mymod.walk(u)\n' > /tmp/xref/mod/c.py
           printf 'import ast\n\n\ndef f(src):\n    return [n for n in ast.walk(ast.parse(src))]\n' > /tmp/xref/mod/w.py
-          # And the base class, followed only on the evidence of an import.
+          # The base class, followed only on the evidence of an import.
           printf 'def add(x):\n    return x\n' > /tmp/xref/base/a.py
           printf 'class Base:\n    def add(self, x):\n        return x\n' > /tmp/xref/base/base.py
           printf 'from base import Base\n\n\nclass G(Base):\n    def go2(self):\n        return self.add(1)\n' > /tmp/xref/base/g.py
           printf 'class E(Base):\n    def run(self):\n        return self.add(1)\n' > /tmp/xref/base/e.py
-          for d in mark py reex mod base; do
+          # Two files of one basename, each declaring `f`. They share a key in
+          # `call_graph_files`, which is keyed by basename, and the later one
+          # written wins it; the rows keep both, under the whole path.
+          printf 'def f():\n    return charge(1)\n' > /tmp/xref/dup/a/x.py
+          printf 'def f():\n    return refund(1)\n' > /tmp/xref/dup/b/x.py
+          printf 'def charge(v):\n    return v\n' > /tmp/xref/dup/charge.py
+          printf 'def refund(v):\n    return v\n' > /tmp/xref/dup/refund.py
+          # Two roots in one map. `--also` merges the second root's names into
+          # the first root's `spans`, and the `declares` rows are rebuilt from
+          # the merged index rather than left as the first root's copy.
+          printf 'ONLY_IN_A = 1\n\n\ndef shared_name():\n    return 1\n' > /tmp/xref/also/a/alpha.py
+          printf 'ONLY_IN_B = 1\n\n\ndef only_b():\n    return 2\n\n\ndef use_b():\n    return only_b()\n' > /tmp/xref/also/b/beta.py
+          # Two top-level packages, one importing the other: the `imports`
+          # rows, with the file the import line is in and the line it is on.
+          printf 'def open_checkout():\n    return 1\n' > /tmp/xref/pkg/pages/checkout.py
+          printf 'import os\n\nfrom pages.checkout import open_checkout\n\n\ndef step_pay():\n    return open_checkout()\n' > /tmp/xref/pkg/steps/pay.py
+          for d in mark py reex mod base dup pkg; do
             where-are-we --repo "/tmp/xref/$d" --out "/tmp/xref/$d-out" \
               --product none --force --quiet --no-semantic
           done
+          where-are-we --repo /tmp/xref/also/a --out /tmp/xref/also-out \
+            --also /tmp/xref/also/b --product none --force --quiet --no-semantic
           # The golden fixtures, built here for the same reason, and this
           # repository, which is the only tree in the step with a `spans`
           # table worth counting.
@@ -4443,7 +4463,8 @@ jobs:
           # carrying anything else is a rule that wrote a value nobody
           # documented.
           CLOSED = {"sole_declarer", "import_line", "receiver_import",
-                    "re_export", "base_class", "declaration", "ambiguous"}
+                    "re_export", "base_class", "declaration", "ambiguous",
+                    "import_statement"}
           EDGES = {"calls", "declares", "imports"}
           LANG = {".py": "python", ".ts": "ts_js", ".tsx": "ts_js",
                   ".js": "ts_js", ".jsx": "ts_js", ".go": "go"}
@@ -4451,30 +4472,32 @@ jobs:
           def read(path):
               return json.load(open(f"{path}/framework_map.json"))
 
-          def rendered(m):
-              """`call_graph_files` rebuilt from the `calls` rows alone.
+          def text(row):
+              """One `calls` row as `call_graph_files` spells it: `charge
+              (a.py)`, and `charge (a.py|b.py)?` where the row names more than
+              one candidate."""
+              files = "|".join(sorted({os.path.basename(c)
+                                       for c in row["candidates"]}))
+              mark = "?" if row["resolution"] == "ambiguous" else ""
+              return f"{row['object']} ({files}){mark}"
 
-              The same two spellings the map writes: `charge (a.py)`, and
-              `charge (a.py|b.py)?` where the row names more than one
-              candidate. The 8 callees a key keeps is the map's own cap, and
-              a key is a basename, which is what the graph is keyed by.
-              """
+          def by_subject(m):
+              """The `calls` rows grouped the way the renderer groups them,
+              by whole-path subject, and cut to the 8 callees a key keeps."""
               out = {}
               for r in m["xrefs"]:
-                  if r["edge"] != "calls":
-                      continue
-                  rel, _, func = r["subject"].rpartition(":")
-                  key = f"{os.path.basename(rel)}:{func}"
-                  files = "|".join(sorted({os.path.basename(c)
-                                           for c in r["candidates"]}))
-                  mark = "?" if r["resolution"] == "ambiguous" else ""
-                  out.setdefault(key, set()).add(
-                      f"{r['object']} ({files}){mark}")
-              return {k: sorted(v)[:8] for k, v in out.items()}
+                  if r["edge"] == "calls":
+                      out.setdefault(r["subject"], set()).add(text(r))
+              return {s: sorted(v)[:8] for s, v in out.items()}
+
+          def home(path, m):
+              """A `spans` file as `xrefs` spells it: absolute."""
+              return path if os.path.isabs(path) else os.path.join(m["repo"], path)
 
           def check(name, path):
               """What holds of every map: the closed set, the sort, the
-              rendering, and the two counters agreeing with the rows."""
+              rendering, the join, and the two counters agreeing with the
+              rows."""
               m = read(path)
               rows = m["xrefs"]
               for r in rows:
@@ -4482,8 +4505,11 @@ jobs:
                                     "candidates", "line", "resolution"}, r
                   assert r["edge"] in EDGES, r
                   assert r["resolution"] in CLOSED, r
+                  assert isinstance(r["line"], int) and r["line"] > 0, r
+                  assert os.path.isabs(r["subject"].rsplit(":", 1)[0]), r
+                  for candidate in r["candidates"]:
+                      assert os.path.isabs(candidate), r
                   if r["edge"] == "calls":
-                      assert isinstance(r["line"], int) and r["line"] > 0, r
                       assert r["candidates"], r
                       if r["resolution"] == "ambiguous":
                           assert r["file"] is None and len(r["candidates"]) > 1, r
@@ -4492,22 +4518,44 @@ jobs:
                           assert len(r["candidates"]) == 1, r
                   if r["edge"] == "declares":
                       assert r["resolution"] == "declaration", r
-                      assert r["file"] == r["subject"], r
-                      assert isinstance(r["line"], int) and r["line"] > 0, r
+                      assert r["file"] == r["subject"] == r["candidates"][0], r
                   if r["edge"] == "imports":
-                      assert r["resolution"] == "import_line", r
-                      assert r["file"] is None and r["candidates"] == [], r
-              key = lambda r: (r["subject"], r["object"],
-                               -1 if r["line"] is None else r["line"],
+                      assert r["resolution"] == "import_statement", r
+                      assert r["file"] == r["candidates"][0], r
+                      assert os.path.isabs(r["subject"]), r
+              key = lambda r: (r["subject"], r["object"], r["line"],
                                r["edge"], r["resolution"])
               assert [key(r) for r in rows] == sorted(key(r) for r in rows), \
                   f"{name}: xrefs is not sorted by subject, object, line"
+              # One path spelling, so the table joins to itself: the file a
+              # `calls` row settled on is the subject of the `declares` rows
+              # for that file.
+              declared = {r["subject"] for r in rows if r["edge"] == "declares"}
+              for r in rows:
+                  if r["edge"] == "calls":
+                      for candidate in r["candidates"]:
+                          assert candidate in declared, (name, r)
               # Every string the map prints, from the rows and from nothing
-              # else.
-              back = rendered(m)
+              # else. A graph key is a basename and a subject is a whole path,
+              # so where two files share a basename the key is whichever of
+              # them the walk wrote last and the rows hold both; the table
+              # does not record the walk order, so the assertion there is that
+              # the key is one of them.
+              rendered = by_subject(m)
+              same_key = {}
+              for subject, edges in rendered.items():
+                  rel, _, func = subject.rpartition(":")
+                  same_key.setdefault(f"{os.path.basename(rel)}:{func}",
+                                      []).append(edges)
               for graph_key, edges in m["call_graph_files"].items():
-                  assert back.get(graph_key) == edges, (name, graph_key,
-                                                        edges, back.get(graph_key))
+                  candidates = same_key.get(graph_key)
+                  assert candidates, (name, graph_key, "no rows for this key")
+                  if len(candidates) == 1:
+                      assert candidates[0] == edges, (name, graph_key, edges,
+                                                      candidates[0])
+                  else:
+                      assert edges in candidates, (name, graph_key, edges,
+                                                   candidates)
               # A `?` edge has exactly the ambiguous rows its candidate list
               # names: the same files, and no other row for that pair.
               for graph_key, edges in m["call_graph_files"].items():
@@ -4520,8 +4568,8 @@ jobs:
                               and r["object"] == callee
                               and f"{os.path.basename(r['subject'].rsplit(':', 1)[0])}:"
                                   f"{r['subject'].rsplit(':', 1)[-1]}" == graph_key]
-                      assert len(hits) == 1, (name, graph_key, edge, hits)
-                      assert hits[0]["resolution"] == "ambiguous", hits
+                      assert hits, (name, graph_key, edge)
+                      assert all(h["resolution"] == "ambiguous" for h in hits), hits
                       assert sorted(os.path.basename(c)
                                     for c in hits[0]["candidates"]) == named, hits
               # `call_graph_stats` counts the rows, per language: `marked` is
@@ -4536,18 +4584,23 @@ jobs:
               for lang, stats in m["call_graph_stats"].items():
                   assert stats["marked"] == marked.get(lang, 0), (name, lang, stats)
                   assert stats["edges"] == placed.get(lang, 0), (name, lang, stats)
-              # And the declarations and the package imports are the two keys
-              # they were taken from, row for row.
-              spans = sorted((site["file"], name_, site["start"])
+              # And the declarations are `spans`, site for site, whatever
+              # spelling `spans` recorded a site under.
+              spans = sorted((home(site["file"], m), name_, site["start"])
                              for name_, sites in m["spans"].items()
                              for site in sites)
               assert sorted((r["subject"], r["object"], r["line"])
-                            for r in rows if r["edge"] == "declares") == spans, name
-              imports = sorted((pkg, other)
-                               for pkg, used in m["import_graph"].items()
-                               for other in used)
-              assert sorted((r["subject"], r["object"])
-                            for r in rows if r["edge"] == "imports") == imports, name
+                            for r in rows if r["edge"] == "declares") == spans, \
+                  f"{name}: declares rows are not the spans sites"
+              # The `imports` rows are the pairs `import_graph` names, with
+              # the file and the line that key cannot hold.
+              pairs = sorted((pkg, other)
+                             for pkg, used in m["import_graph"].items()
+                             for other in used)
+              rel_of = lambda p: os.path.relpath(p, m["repo"]).split(os.sep)[0]
+              assert sorted({(rel_of(r["subject"]), r["object"])
+                             for r in rows if r["edge"] == "imports"}) == pairs, \
+                  f"{name}: imports rows are not the import_graph pairs"
               return m, rows
 
           def resolution(rows, subject_end, callee):
@@ -4563,6 +4616,9 @@ jobs:
                              ("reex", "/tmp/xref/reex-out"),
                              ("mod", "/tmp/xref/mod-out"),
                              ("base", "/tmp/xref/base-out"),
+                             ("dup", "/tmp/xref/dup-out"),
+                             ("pkg", "/tmp/xref/pkg-out"),
+                             ("also", "/tmp/xref/also-out"),
                              ("poly", "/tmp/xref/golden/poly/out"),
                              ("code", "/tmp/xref/golden/code/out"),
                              ("suite", "/tmp/xref/golden/suite/out"),
@@ -4570,7 +4626,9 @@ jobs:
               _m, rows = check(name, path)
               seen |= {r["resolution"] for r in rows}
               print(f"{name}: {len(rows)} rows, "
-                    f"{len([r for r in rows if r['edge'] == 'calls'])} of them calls")
+                    f"{len([r for r in rows if r['edge'] == 'calls'])} of them "
+                    f"calls, {len([r for r in rows if r['edge'] == 'imports'])} "
+                    f"imports")
 
           # One rule at a time, on the fixture that isolates it.
           mark = read("/tmp/xref/mark-out")["xrefs"]
@@ -4589,7 +4647,7 @@ jobs:
           mod = read("/tmp/xref/mod-out")["xrefs"]
           got, row = resolution(mod, "c.py:g", "walk")
           assert got == "receiver_import", row
-          assert row["file"] == "mymod.py" and row["line"] == 5, row
+          assert row["file"].endswith("/mymod.py") and row["line"] == 5, row
           # A call through the standard library is refused before any rule
           # runs, so it has no row either.
           assert not [r for r in mod if r["edge"] == "calls"
@@ -4599,6 +4657,28 @@ jobs:
           assert resolution(base, "e.py:run", "add")[0] == "ambiguous"
           poly = read("/tmp/xref/golden/poly/out")["xrefs"]
           assert resolution(poly, "b.ts:payInvoice", "charge")[0] == "sole_declarer"
+          # Two files of one basename: one graph key, two subjects, and the
+          # rows hold the callee each of them really calls.
+          dup = read("/tmp/xref/dup-out")
+          assert list(dup["call_graph_files"]) == ["x.py:f"], dup["call_graph_files"]
+          calls = sorted((r["subject"], r["object"]) for r in dup["xrefs"]
+                         if r["edge"] == "calls")
+          assert [c[1] for c in calls] == ["charge", "refund"], calls
+          assert calls[0][0].endswith("/a/x.py:f") and \
+              calls[1][0].endswith("/b/x.py:f"), calls
+          # Two roots: every name in the merged `spans` has its row, which is
+          # what `check` asserted above for this map as for every other.
+          also = read("/tmp/xref/also-out")
+          assert "ONLY_IN_B" in also["spans"], sorted(also["spans"])
+          assert {r["object"] for r in also["xrefs"] if r["edge"] == "declares"} \
+              == set(also["spans"]), "an --also map's rows are not its spans"
+          # And the import line, named by file and line.
+          pkg = read("/tmp/xref/pkg-out")
+          rows = [r for r in pkg["xrefs"] if r["edge"] == "imports"]
+          assert len(rows) == 1, rows
+          assert rows[0]["subject"].endswith("/steps/pay.py"), rows
+          assert rows[0]["object"] == "pages" and rows[0]["line"] == 3, rows
+          assert rows[0]["file"].endswith("/pages"), rows
           # Every value in the closed set was written by the rule that names
           # it, somewhere in this step, and nothing outside it was written at
           # all.
@@ -4643,6 +4723,52 @@ jobs:
           b = json.load(open("/tmp/xref/base-out2/framework_map.json"))["xrefs"]
           assert a == b, "two builds of one tree wrote two tables"
           print("two builds, one table:", len(a), "rows")
+          EOF
+          # The cache kind this table's line numbers moved to. The registry
+          # that keeps a retired kind out of the cache file is the list of
+          # kinds the source asks for, and a record under a retired one is
+          # dropped when the cache is written rather than carried forever.
+          python - <<'EOF'
+          import pathlib, re
+          from where_are_we._mapper.walk import CACHE_KINDS, CACHE_KIND_PREFIXES
+          src = "\n".join(p.read_text() for p in
+                          pathlib.Path("src/where_are_we").rglob("*.py"))
+          asked = set(re.findall(r'_cached\(\s*[\w.\[\]"\']+\s*,\s*f?"([^"]+)"',
+                                 src))
+          literal = {k for k in asked if "{" not in k}
+          families = {k.split("{")[0] for k in asked if "{" in k}
+          assert literal == set(CACHE_KINDS), (literal ^ set(CACHE_KINDS))
+          assert families == set(CACHE_KIND_PREFIXES), \
+              (families ^ set(CACHE_KIND_PREFIXES))
+          print("cache kinds:", len(literal), "literal,", sorted(families))
+          EOF
+          rm -rf /tmp/xref/cache
+          cp -r /tmp/xref/base /tmp/xref/cache
+          where-are-we --repo /tmp/xref/cache --out /tmp/xref/cache-out \
+            --product none --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          path = "/tmp/xref/cache-out/.wawe-cache.json"
+          doc = json.load(open(path))
+          entry = next(iter(doc["entries"]))
+          # A record written by a release whose shape has since changed, as
+          # an upgraded checkout carries one.
+          doc["entries"]["func_edges_2\x1e" + entry.split("\x1e", 1)[-1]] = \
+              {"mtime": 0, "size": 0, "value": {}}
+          json.dump(doc, open(path, "w"))
+          EOF
+          # A build that finds the tree unchanged writes nothing, so the
+          # cache is only rewritten once something moves.
+          printf 'def later(x):\n    return x\n' > /tmp/xref/cache/later.py
+          where-are-we --repo /tmp/xref/cache --out /tmp/xref/cache-out \
+            --product none --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          doc = json.load(open("/tmp/xref/cache-out/.wawe-cache.json"))
+          kinds = {k.split("\x1e", 1)[0] for k in doc["entries"]}
+          assert "func_edges_2" not in kinds, sorted(kinds)
+          assert "func_edges_3" in kinds, sorted(kinds)
+          print("retired cache kinds dropped; kinds kept:", len(kinds))
           EOF
 
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"

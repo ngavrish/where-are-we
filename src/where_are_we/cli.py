@@ -31,7 +31,7 @@ try:
     from .ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask, at, callees_line,
                        callers, context, file_list, impact, log_answer,
                        map_heads, rank_lines, spans_for)
-    from ._mapper.build import build
+    from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
                                  changed_since, cost, ctags, digest, export,
                                  for_audience, meaning_tail, pointer)
@@ -52,7 +52,8 @@ except ImportError:  # run as a plain file, with no package around it
     from ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask,  # type: ignore[no-redef]
                      at, callees_line, callers, context, file_list, impact,
                      log_answer, map_heads, rank_lines, spans_for)
-    from _mapper.build import build  # type: ignore[no-redef]
+    from _mapper.build import (build,  # type: ignore[no-redef]
+                               declares_rows, sort_xrefs)
     from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
                                 _as_dict, _cap_sections, brief, changed_since,
                                 cost, ctags, digest, export, for_audience,
@@ -1336,6 +1337,15 @@ def main() -> int:
         # And every home of every one of them, for the same reason: the spans
         # index is a copy taken when the first root finished.
         m["spans"] = spans_index()
+        # `xrefs` holds one row per span, so those rows are a copy of a copy:
+        # rebuilt here from the merged index, or a merged map would carry a
+        # table that names fewer files than the `spans` key beside it. The
+        # `calls` and `imports` rows are the first root's, as
+        # `call_graph_files` and `import_graph` are: a second root's call
+        # graph is under `also`, and SCHEMA.md says so.
+        m["xrefs"] = sort_xrefs(
+            [r for r in (m.get("xrefs") or []) if r["edge"] != "declares"]
+            + declares_rows(m["spans"], repo))
         m["indexed"] = dict(sorted(INDEXED.items()))
     m = redact(m)
     m["fingerprint"] = stamp_now

@@ -1090,8 +1090,9 @@ def _resolutions(m: dict) -> dict:
     subject is read down to its basename here. Two files of one basename
     share a key in the graph and share it here.
 
-    `None` where the map holds no `xrefs` at all, which is every map built
-    before 1.5.0: no rows is not the same fact as no rule.
+    Empty where the map holds no `xrefs` at all, which is every map built
+    before 1.5.0, and empty where it holds only declarations: either way
+    there is no call edge here to name a rule for.
     """
     rows = m.get("xrefs")
     if not rows:
@@ -1151,9 +1152,10 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
     # The rule behind each edge, and the hops it explains. A map with no
     # `xrefs` key says nothing about any edge, and this answer then reads
     # exactly as 1.4.x wrote it.
-    how_by_edge = _resolutions(m) if m.get("xrefs") else {}
+    how_by_edge = _resolutions(m)
     how_by_hop: list = []
-    caveat = _impact_caveat(target, depth, bool(m.get("xrefs")))
+    has_rows = bool(m.get("xrefs"))
+    caveat = _impact_caveat(target, depth, has_rows)
 
     hops, notes, gave = [], [], {}
     seen_keys = set(_keys_named(m, target))
@@ -1204,7 +1206,7 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
         printed.update(shown)
         if shown:
             lines.append(f"depth {i}: " + ", ".join(shown))
-            if m.get("xrefs"):
+            if has_rows:
                 how = how_by_hop[i - 1]
                 lines.append("how: " + ", ".join(
                     f"{key} {'/'.join(sorted(how.get(key) or {STEP_GRAPH_HOW}))}"
