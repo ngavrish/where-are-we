@@ -1069,3 +1069,89 @@ def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
             break
         out += piece
     return out
+
+
+# The tags file: what the map already holds, in the format every editor reads.
+#
+# The three pseudo tags universal-ctags writes at the top of every file it
+# produces. They are rows like any other and they sort first: `!` is 0x21 in
+# the C locale and every name this writes starts above it, which is what
+# `!_TAG_FILE_SORTED 1` promises a reader doing a binary search.
+CTAGS_HEADER = (
+    "!_TAG_FILE_FORMAT\t2\t/extended format/",
+    "!_TAG_FILE_SORTED\t1\t/0=unsorted, 1=sorted, 2=foldcase/",
+    "!_TAG_PROGRAM_NAME\twhere-are-we\t//",
+)
+
+CTAGS_NAME = "tags"
+
+
+def _ctags_ok(field: str) -> bool:
+    """Whether one field can go in a tags file as it stands.
+
+    A tab ends a field and a newline ends a row, so neither can appear inside
+    one; and a name starting with `!` would land among the pseudo tags, where
+    a reader stops looking for real ones. The map holds step phrases and
+    scenario titles as well as identifiers, so this is a real filter and not
+    a formality. A field this refuses drops its row rather than being
+    rewritten: a name spelled differently from the source is worse than a
+    name the editor cannot jump to.
+    """
+    return bool(field) and not (set(field) & {"\t", "\n", "\r"}) \
+        and field[0] > "!"
+
+
+def ctags(m: dict) -> str:
+    """`spans` as a universal-ctags `tags` file.
+
+    `spans` already is a tags file with the fields renamed: a name, the file
+    it is declared in, the line it starts on, what kind of thing it is, and
+    where a parser knew it, the line it ends on. Written out in the format
+    vim, emacs, helix, kakoune and `readtags` have read for thirty years, it
+    works with no server running, over a checkout mounted read only, in a
+    language whose server is not installed on this machine.
+
+    The EX command is the line number (`10;"`), not a search pattern: the
+    line number is what the map holds, and a pattern would have to be
+    reconstructed out of a file that may have moved since the build.
+
+    Sorted as whole rows, compared as bytes, which is what `LC_ALL=C sort`
+    does and what the header's `!_TAG_FILE_SORTED 1` promises the reader
+    doing the binary search. A row starts with the name and a tab, and a tab
+    is below every byte a name or a path can hold here, so that is the name
+    first, then the file, then the line number as it is written: two sites of
+    one name in one file at lines 38 and 384 come back 384 first, because
+    `4` is below `;`. Sorting those two by their value instead would put a
+    file on disk that `sort -c` rejects and a binary search can miss.
+    """
+    repo = m.get("repo") or ""
+    rows = set()
+    for name, sites in _as_dict(m.get("spans")).items():
+        if not _ctags_ok(name):
+            continue
+        for site in sites:
+            if not isinstance(site, dict):
+                continue
+            path, start = site.get("file"), site.get("start")
+            kind = site.get("kind") or "unknown"
+            if not path or not isinstance(start, int):
+                continue
+            # Relative to the repository root, which is what an editor
+            # opening the tags file from that root can resolve. A path
+            # outside the root keeps whatever it had: `--also` folds other
+            # checkouts into one map and their files are not under it.
+            if repo and os.path.isabs(path):
+                try:
+                    path = os.path.relpath(path, repo)
+                except ValueError:  # a different drive on Windows
+                    pass
+            if not _ctags_ok(path) or not _ctags_ok(kind):
+                continue
+            end = site.get("end")
+            row = f'{name}\t{path}\t{start};"\tkind:{kind}\tline:{start}'
+            if isinstance(end, int):
+                row += f"\tend:{end}"
+            rows.add(row)
+    lines = list(CTAGS_HEADER) + sorted(rows, key=lambda r: r.encode("utf-8"))
+    return "\n".join(lines) + "\n"
+

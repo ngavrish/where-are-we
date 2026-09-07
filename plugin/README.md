@@ -61,6 +61,11 @@ disk (read, writes-map-dir, writes-repo, writes-config, network) for a guard
 that checks a command before it runs, and `--dry-run` names every path a write
 would touch without touching it.
 
+One more the plugin does not turn on for you: `--ctags` writes `.wawe/tags`
+beside the map, in the format vim, emacs, helix, kakoune and `readtags` have
+always read, so an editor open on the same checkout jumps to a definition with
+no language server running.
+
 ## Try it without installing
 
     claude --plugin-dir /path/to/where-are-we/plugin

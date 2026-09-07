@@ -9,6 +9,7 @@
     "--callers": "read",
     "--context": "read",
     "--corpus": "read",
+    "--ctags": "writes-map-dir",
     "--defines": "read",
     "--diff": "writes-map-dir",
     "--docs": "writes-repo",

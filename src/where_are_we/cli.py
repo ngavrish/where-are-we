@@ -32,8 +32,9 @@ try:
                        callers, context, file_list, impact, log_answer,
                        map_heads, rank_lines, spans_for)
     from ._mapper.build import build
-    from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
-                                 digest, for_audience, meaning_tail, pointer)
+    from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
+                                 changed_since, ctags, digest, for_audience,
+                                 meaning_tail, pointer)
     from ._mapper.declare import spans_index
     from ._mapper import state
     from ._mapper.state import DEFINITIONS, INDEXED
@@ -52,9 +53,10 @@ except ImportError:  # run as a plain file, with no package around it
                      at, callees_line, callers, context, file_list, impact,
                      log_answer, map_heads, rank_lines, spans_for)
     from _mapper.build import build  # type: ignore[no-redef]
-    from _mapper.render import (_as_dict, _cap_sections, brief,  # type: ignore[no-redef]
-                                changed_since, digest, for_audience,
-                                meaning_tail, pointer)
+    from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
+                                _as_dict, _cap_sections, brief, changed_since,
+                                ctags, digest, for_audience, meaning_tail,
+                                pointer)
     from _mapper.declare import spans_index  # type: ignore[no-redef]
     from _mapper import state  # type: ignore[no-redef]
     from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
@@ -170,6 +172,11 @@ def _write_artifacts(out_dir: str, m: dict, args) -> None:
                 "h2{border-color:#333}code{background:#222}}</style>"
                 + "\n".join(body_html))
         _write_atomic(os.path.join(out_dir, "framework_map.html"), html)
+    if args.ctags:
+        # Atomically like every other artefact: an editor reads `tags` while
+        # a build is running exactly as often as the MCP server reads the
+        # JSON, and a half-written tags file is a binary search over garbage.
+        _write_atomic(os.path.join(out_dir, CTAGS_NAME), ctags(m))
     if args.agent_file:
         # Between markers, because these files are shared: whatever a human or
         # another tool put there is not this tool's to delete.
@@ -488,6 +495,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="rebuild whenever the tree moves, checking every SECONDS")
     ap.add_argument("--html", action="store_true",
                     help="also write framework_map.html — the brief, readable in a browser")
+    ap.add_argument("--ctags", action="store_true",
+                    help="also write <out>/tags: every declaration the map "
+                         "holds in universal-ctags format, sorted by name in "
+                         "the C locale, with the kind, the line it starts on "
+                         "and, where a parser knew it, the line it ends on. "
+                         "vim, emacs, helix, kakoune and readtags read it with "
+                         "no server running")
     ap.add_argument("--force", action="store_true",
                     help="rebuild even when the existing map still matches the "
                          "repository (by default a map is built when it is missing "
@@ -753,6 +767,8 @@ def _dry_run(args, repo: str) -> int:
                    os.path.join(out_dir, "framework_map.md")]
         if args.html:
             targets.append(os.path.join(out_dir, "framework_map.html"))
+        if args.ctags:
+            targets.append(os.path.join(out_dir, CTAGS_NAME))
         if args.agent_file:
             targets.append(os.path.abspath(args.agent_file))
     for path in targets:

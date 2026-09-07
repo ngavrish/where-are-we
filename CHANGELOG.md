@@ -134,6 +134,21 @@
   writers run is unchanged and idempotent, so the published map is byte for
   byte what it was. `build(redact_lines=False)` is for a caller that wants the
   raw lines, which is the golden fixture builder and nothing else.
+- `--ctags` writes `<out>/tags` beside the map: every declaration site the
+  `spans` key holds, in universal-ctags format, with the line number as the EX
+  command, `kind:`, `line:` and, where a parser knew it, `end:`. The map was
+  already a tags file with the fields renamed; writing one costs a sort and a
+  format string and buys vim, emacs, helix, kakoune, `readtags` and everything
+  else that has read the format for thirty years, with no server running, over
+  a checkout mounted read only, in a language whose server is not installed on
+  the machine. Rows are sorted as bytes over the whole row, which is what
+  `LC_ALL=C sort` checks and what the file's own `!_TAG_FILE_SORTED 1` promises
+  a reader doing a binary search; a name or a path holding a tab or a newline
+  is left out rather than rewritten, since a name spelled differently from the
+  source is worse than a name the editor cannot jump to. Written atomically
+  like every other artefact, and named by `--dry-run` before it exists.
+- The effects table gains `--ctags` as `writes-map-dir`, beside `--html`,
+  which is the other flag that adds a file to the map directory.
 - The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a

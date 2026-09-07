@@ -924,6 +924,112 @@ jobs:
           where-are-we --effects -- --rank billing.py | head -1 | grep -qx 'read'
           where-are-we --effects -- --ask charge --files billing/ | head -1 | grep -qx 'read'
           where-are-we --effects --json | diff -u src/where_are_we/effects.json -
+      - name: --ctags writes a sorted, correct tags file
+        run: |
+          set -o pipefail
+          rm -rf /tmp/ct
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/ct")
+          EOF
+          # Every row is a declaration site the map holds, with the same
+          # file, line, kind and end line; every site the map holds has a
+          # row unless its name or its path cannot go in the format at all;
+          # and the rows are in the byte order the header promises.
+          cat > /tmp/ct/check.py <<'EOF'
+          import json, os, sys
+          out, repo = os.environ["OUT"], os.environ["REPO"]
+          m = json.load(open(os.path.join(out, "framework_map.json")))
+          rows = [l.rstrip("\n") for l in open(os.path.join(out, "tags"))
+                  if not l.startswith("!_TAG_")]
+          def rel(p):
+              return os.path.relpath(p, repo) if os.path.isabs(p) else p
+          want = set()
+          for name, sites in m["spans"].items():
+              if not name or name[0] <= "!" or set(name) & {"\t", "\n", "\r"}:
+                  continue
+              for s in sites:
+                  path, kind = rel(s["file"]), s["kind"] or "unknown"
+                  if set(path + kind) & {"\t", "\n", "\r"}:
+                      continue
+                  row = f'{name}\t{path}\t{s["start"]};"\tkind:{kind}\tline:{s["start"]}'
+                  if isinstance(s["end"], int):
+                      row += f'\tend:{s["end"]}'
+                  want.add(row)
+          missing = sorted(want - set(rows))
+          extra = sorted(set(rows) - want)
+          unsorted = rows != sorted(rows, key=str.encode)
+          print(f"{out}: {len(rows)} rows in tags, {len(want)} sites in spans, "
+                f"missing: {missing[:5]}, not in the map: {extra[:5]}, "
+                f"out of byte order: {unsorted}")
+          sys.exit(1 if (missing or extra or unsorted) else 0)
+          EOF
+          R=/tmp/ct/code/repo
+          where-are-we --repo $R --out /tmp/ct/one --product none --ctags \
+            --force --quiet --no-semantic
+          head -5 /tmp/ct/one/tags
+          # The three pseudo tags the format is read by. Each is a row like
+          # any other and each sorts above every name, which is what the
+          # sorted flag promises a reader doing a binary search.
+          grep -qxF "$(printf '!_TAG_FILE_FORMAT\t2\t/extended format/')" /tmp/ct/one/tags
+          grep -qxF "$(printf '!_TAG_FILE_SORTED\t1\t/0=unsorted, 1=sorted, 2=foldcase/')" /tmp/ct/one/tags
+          grep -qxF "$(printf '!_TAG_PROGRAM_NAME\twhere-are-we\t//')" /tmp/ct/one/tags
+          # The format's own requirement, in the locale the format means.
+          LC_ALL=C sort -c /tmp/ct/one/tags
+          OUT=/tmp/ct/one REPO=$R python /tmp/ct/check.py
+          # A known symbol's row names the file and the line the map holds
+          # for it, and that line of that file really does declare it.
+          ROW=$(awk -F'\t' '$1 == "charge" { print; exit }' /tmp/ct/one/tags)
+          echo "$ROW"
+          FILE=$(printf '%s\n' "$ROW" | cut -f2)
+          LINE=$(printf '%s\n' "$ROW" | cut -f3 | tr -d ';"')
+          test "$FILE" = "app/billing.py"
+          sed -n "${LINE}p" "$R/$FILE" | grep -q "charge"
+          printf '%s\n' "$ROW" | grep -q "kind:function"
+          # The suite fixture too, where most names are scenario titles and
+          # step phrases with spaces in them rather than identifiers: the
+          # same order holds and the same cross-check passes over 200 rows.
+          S=/tmp/ct/suite/repo
+          where-are-we --repo $S --out /tmp/ct/suite-tags --product none \
+            --ctags --force --quiet --no-semantic
+          LC_ALL=C sort -c /tmp/ct/suite-tags/tags
+          OUT=/tmp/ct/suite-tags REPO=$S python /tmp/ct/check.py
+          test "$(grep -c . /tmp/ct/suite-tags/tags)" -gt 200
+          grep -qF "$(printf 'Log in\tfeatures/login.feature\t1;\"\tkind:feature')" \
+            /tmp/ct/suite-tags/tags
+          # Two builds of one tree, byte for byte.
+          where-are-we --repo $R --out /tmp/ct/two --product none --ctags \
+            --force --quiet --no-semantic
+          cmp /tmp/ct/one/tags /tmp/ct/two/tags
+          # The preview names it before the build writes it.
+          where-are-we --repo $R --out /tmp/ct/preview --ctags --dry-run \
+            > /tmp/ct/dry.txt
+          cat /tmp/ct/dry.txt
+          grep -qx "would write /tmp/ct/preview/tags" /tmp/ct/dry.txt
+          if test -e /tmp/ct/preview; then
+            echo "a preview of --ctags wrote its output directory"; exit 1
+          fi
+          # And a build without the flag writes no tags file at all.
+          where-are-we --repo $R --out /tmp/ct/plain --product none --force \
+            --quiet --no-semantic
+          if test -e /tmp/ct/plain/tags; then
+            echo "a build without --ctags wrote a tags file"; exit 1
+          fi
+          # readtags is the reader the format exists for. It is checked when
+          # the runner has it or can install it; when the package cannot be
+          # installed (no network, a runner without apt) the step says so and
+          # carries on, because every assertion above is the format's own
+          # requirement rather than a stand-in for a reader.
+          if command -v readtags > /dev/null 2>&1 \
+             || { sudo apt-get update -qq && sudo apt-get install -y universal-ctags; }; then
+            readtags -t /tmp/ct/one/tags charge | tee /tmp/ct/readtags.txt
+            test "$(cut -f1 /tmp/ct/readtags.txt | head -1)" = "charge"
+            test "$(cut -f2 /tmp/ct/readtags.txt | head -1)" = "app/billing.py"
+          else
+            echo "universal-ctags is not installable on this runner: readtags was not run"
+          fi
       - name: who calls X
         run: |
           mkdir -p /tmp/wc
@@ -1580,15 +1686,18 @@ jobs:
           for i in $(seq 1 400); do
             printf 'C%s = %s\ndef f%s(x):\n    return x\n' "$i" "$i" "$i" > /tmp/aw/r/pkg/m$i.py
           done
-          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
-          # A reader polling the three map files while a build runs must never
-          # see a size other than the settled one. On the old in-place writes
-          # every one of them passed through zero bytes.
-          (where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic &)
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic --ctags
+          # A reader polling the map files while a build runs must never see a
+          # size other than the settled one. On the old in-place writes every
+          # one of them passed through zero bytes. `tags` is in the list
+          # because an editor reads it exactly the way the MCP server reads
+          # the JSON, and through a build.
+          (where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic --ctags &)
           python - <<'EOF'
           import os, sys, time
           out = "/tmp/aw/m"
-          names = ["framework_map.json", "framework_map.md", "framework_map_brief.md"]
+          names = ["framework_map.json", "framework_map.md", "framework_map_brief.md",
+                   "tags"]
           seen = {n: set() for n in names}
           t0 = time.time()
           while time.time() - t0 < 6:
@@ -1609,6 +1718,7 @@ jobs:
           # A build killed while it writes leaves the previous three files
           # exactly as they were, and no half-written JSON.
           md5_before=$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)
+          tags_before=$(md5sum /tmp/aw/m/tags | cut -d" " -f1)
           printf 'KILLED_BUILD_MARKER = 1\n' > /tmp/aw/r/pkg/late.py
           python - <<'EOF'
           import os, signal, subprocess, time
@@ -1618,7 +1728,7 @@ jobs:
                       for n in os.listdir(out) if n.startswith("framework_map")}
           base = watched()
           p = subprocess.Popen(["where-are-we", "--repo", "/tmp/aw/r", "--out", out,
-                                "--force", "--quiet", "--no-semantic"],
+                                "--force", "--quiet", "--no-semantic", "--ctags"],
                                env=dict(os.environ, WAWE_NO_CACHE="1"))
           t0 = time.time()
           while time.time() - t0 < 60 and p.poll() is None:
@@ -1629,14 +1739,19 @@ jobs:
           print("child exit", p.returncode)
           EOF
           test "$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)" = "$md5_before"
+          test "$(md5sum /tmp/aw/m/tags | cut -d" " -f1)" = "$tags_before"
           python -c "import json; json.load(open('/tmp/aw/m/framework_map.json'))"
           if grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json; then
             echo "unexpected match: grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json"; exit 1
           fi
+          if grep -q KILLED_BUILD_MARKER /tmp/aw/m/tags; then
+            echo "unexpected match: grep -q KILLED_BUILD_MARKER /tmp/aw/m/tags"; exit 1
+          fi
           # The next build sweeps away the temporary the killed one left.
-          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic --ctags
           test -z "$(find /tmp/aw/m -name '*.tmp')"
           grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json
+          grep -q KILLED_BUILD_MARKER /tmp/aw/m/tags
 
       - name: a build starts from nothing, whatever ran before it
         run: |
@@ -1996,7 +2111,7 @@ jobs:
           PY
           export W
           PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo "$W/repo" \
-            --out "$W/repo/.wawe" --watch 1 --no-semantic --html \
+            --out "$W/repo/.wawe" --watch 1 --no-semantic --html --ctags \
             > "$W/watch.log" 2>&1 &
           WP=$!
           python "$W/waitfor.py" one
@@ -2023,6 +2138,8 @@ jobs:
           # watched directory said there was no map.
           test -s "$W/repo/.wawe/framework_map.md"
           test -s "$W/repo/.wawe/framework_map.html"
+          test -s "$W/repo/.wawe/tags"
+          LC_ALL=C sort -c "$W/repo/.wawe/tags"
           where-are-we --repo "$W/repo" --out "$W/repo/.wawe" --ask one \
             | grep -q "Defined here"
           # One failing iteration is printed and the watcher keeps going.
@@ -4162,7 +4279,8 @@ jobs:
           xargs sha256sum < /tmp/dryout/files.before | sha256sum > /tmp/dryout/hash.before
           where-are-we --repo /tmp/dry/repo --init --dry-run > /tmp/dryout/init.txt
           where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
-            --agent-file /tmp/dry/repo/AGENTS.md --dry-run > /tmp/dryout/agent.txt
+            --agent-file /tmp/dry/repo/AGENTS.md --ctags --dry-run \
+            > /tmp/dryout/agent.txt
           where-are-we --repo /tmp/dry/repo --install-hook git --dry-run \
             > /tmp/dryout/git.txt
           where-are-we --repo /tmp/dry/repo --install-hook claude --dry-run \
@@ -4203,6 +4321,7 @@ jobs:
           grep -qx "would write /tmp/dry/repo/.framework-map.json" /tmp/dryout/init.txt
           grep -qx "would write /tmp/dry/repo/AGENTS.md" /tmp/dryout/agent.txt
           grep -qx "would write /tmp/dry/repo/.wawe/framework_map.md" /tmp/dryout/agent.txt
+          grep -qx "would write /tmp/dry/repo/.wawe/tags" /tmp/dryout/agent.txt
           for hook in post-checkout post-merge post-commit; do
             grep -qx "would write /tmp/dry/repo/.git/hooks/$hook" /tmp/dryout/git.txt
           done
@@ -4218,7 +4337,7 @@ jobs:
           where-are-we --repo /tmp/dry/repo --install-hook claude
           where-are-we --repo /tmp/dry/repo --init
           where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
-            --agent-file /tmp/dry/repo/AGENTS.md --quiet --no-semantic
+            --agent-file /tmp/dry/repo/AGENTS.md --ctags --quiet --no-semantic
           sed 's/^would write //;s/^would replace //' \
             /tmp/dryout/init.txt /tmp/dryout/agent.txt /tmp/dryout/git.txt \
             /tmp/dryout/claude.txt | sort -u > /tmp/dryout/promised

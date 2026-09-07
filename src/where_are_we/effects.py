@@ -78,6 +78,7 @@ EFFECTS = {
     "--diff": "writes-map-dir",
     "--out": "writes-map-dir",
     "--html": "writes-map-dir",
+    "--ctags": "writes-map-dir",
     "--force": "writes-map-dir",
     "--watch": "writes-map-dir",
     "--agent-file": "writes-repo",
