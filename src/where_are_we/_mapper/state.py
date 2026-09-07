@@ -88,8 +88,48 @@ LINES: dict[str, list] = {}
 # would take `row[0]` of a string and index a character. `spans:<ext>` is a
 # new kind an old cache simply misses, and `step_texts` gained a list the
 # reader treats as optional; neither of those alone would need a bump.
-CACHE_SCHEMA = 2
+#
+# 3: an entry is validated against the sha256 of the file's bytes rather than
+# against its mtime and size, so the entry holds `sha` where it used to hold
+# `mtime` and `size`. A schema 2 entry read under this rule has no `sha` at
+# all and would be discarded one by one; discarding the file is the same
+# answer arrived at once.
+CACHE_SCHEMA = 3
 _PARSE_CACHE: dict = {}
+
+
+# What each file's bytes hashed to, and the (mtime, size, ctime) it had when
+# that hash was taken: `path -> {"mtime", "size", "ctime", "sha"}`. Persisted
+# beside the parse cache in the same file, and loaded from it.
+#
+# This is the pre-filter that keeps content addressing affordable. Hashing
+# every indexed file on every build would read the whole tree twice; hashing
+# only the files whose stat block moved reads nothing on a tree nobody
+# touched, and a build that reads nothing is the warm build the README
+# publishes a number for.
+#
+# `ctime` is in there because `mtime` and `size` alone are exactly the blind
+# spot this cache exists to close. A same-size rewrite with the timestamp put
+# back (rsync --times, cp -p, tar -p, a restore from a build cache, `git
+# checkout` of a line the same length) leaves both unchanged, and a pre-filter
+# reading only those two would skip the hash and serve the stale parse. The
+# inode change time cannot be set from userland: writing the file moves it,
+# and so does the `utimes` call that puts the mtime back. On a filesystem
+# where `st_ctime` means creation time instead (Windows), this degrades to
+# the mtime-and-size pre-filter, which is what the tool did before.
+_HASH_CACHE: dict = {}
+
+
+# Incremented on every sha256 actually computed, the way `PARSE_COUNT` counts
+# parses: a rebuild of a tree nobody touched should add nothing to either, and
+# WAWE_DEBUG_PARSES=1 prints both so the claim can be checked.
+HASH_COUNT = 0
+
+
+# The files whose content hash differs from the one the loaded cache holds for
+# them, relative to the repository, filled by `build()` and read by `--diff`.
+# The map's `content_root` says the tree moved; this says which files moved it.
+HASHES_MOVED: list[str] = []
 
 
 # Whether this build may answer from the parse cache, as opposed to only
@@ -166,11 +206,13 @@ def reset(keep_indexes: bool = False) -> None:
     tree" and "what does git already track here", and a second root is a
     different question with the same key.
 
-    `_PARSE_CACHE` is deliberately not cleared. It is not this build's
-    working state: it is loaded from `out_dir` at the top of every build and
-    validated per file against mtime and size, and it is the whole reason a
-    rebuild of a tree nobody touched parses nothing.
+    `_PARSE_CACHE` and `_HASH_CACHE` are deliberately not cleared. They are
+    not this build's working state: both are loaded from `out_dir` at the top
+    of every build and validated per file against what `os.stat` says now,
+    and they are the whole reason a rebuild of a tree nobody touched parses
+    nothing and hashes nothing.
     """
+    HASHES_MOVED.clear()
     _WALK_CACHE.clear()
     _IGNORE_CACHE.clear()
     _TRACKED_CACHE.clear()
@@ -196,8 +238,11 @@ def reset(keep_indexes: bool = False) -> None:
 NO_CACHE = bool(os.environ.get("WAWE_NO_CACHE"))
 
 
-# Whether a build prints the number of files it actually parsed, to stderr,
-# so an incremental rebuild's claim can be checked instead of taken on faith.
+# Whether a build prints the number of files it actually parsed and the number
+# it actually hashed, to stderr, so an incremental rebuild's claim can be
+# checked instead of taken on faith. Both, because the parse count alone
+# cannot tell a tree that was hashed and found unchanged from one the
+# pre-filter never read at all.
 DEBUG_PARSES = bool(os.environ.get("WAWE_DEBUG_PARSES"))
 
 

@@ -6,6 +6,7 @@ are in this repository", "what does this one say" and "has it changed since the
 last build", and the rest of the package is built on those answers.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -16,9 +17,10 @@ from . import state
 from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
                     _TRACKED_CACHE, _WALK_CACHE)
 
-# `CACHE_SCHEMA`, `PARSE_COUNT`, `_PARSE_CACHE` and `__version__` are reached
-# through `state` rather than imported by name: three of them are rebound, and
-# a name imported by value would go on holding whatever it held at import time.
+# `CACHE_SCHEMA`, `HASH_COUNT`, `PARSE_COUNT`, `_HASH_CACHE`, `_PARSE_CACHE`
+# and `__version__` are reached through `state` rather than imported by name:
+# several of them are rebound, and a name imported by value would go on
+# holding whatever it held at import time.
 
 
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
@@ -167,23 +169,29 @@ def _write_atomic_group(pairs) -> None:
 
 
 def _load_parse_cache(out_dir: str) -> None:
-    """Every `(kind, path)` -> `{"mtime", "size", "value"}` entry a previous
-    build persisted, if it was written by this schema and this version of
-    the tool; otherwise the whole file is discarded rather than trusted
-    entry by entry.
+    """Every `(kind, path)` -> `{"sha", "value"}` entry and every
+    `path -> {"mtime", "size", "ctime", "sha"}` hash a previous build
+    persisted, if the file was written by this schema and this version of the
+    tool; otherwise the whole file is discarded rather than trusted entry by
+    entry.
 
     Walking the tree is cheap; parsing every module is not, and a repository
-    where three files changed does not need the other nine hundred re-parsed."""
+    where three files changed does not need the other nine hundred re-parsed.
+    The hashes ride along in the same file because they answer the same
+    question one step earlier: which files are worth looking at again."""
     try:
         with open(os.path.join(out_dir, _PARSE_CACHE_FILE), encoding="utf-8") as fh:
             doc = json.load(fh)
         if (doc.get("schema") != state.CACHE_SCHEMA
                 or doc.get("version") != state.__version__):
             state._PARSE_CACHE = {}
+            state._HASH_CACHE = {}
             return
         state._PARSE_CACHE = doc.get("entries") or {}
+        state._HASH_CACHE = doc.get("hashes") or {}
     except (OSError, ValueError):
         state._PARSE_CACHE = {}
+        state._HASH_CACHE = {}
 
 
 def _save_parse_cache(out_dir: str) -> None:
@@ -198,8 +206,10 @@ def _save_parse_cache(out_dir: str) -> None:
         # keeps its stale entry forever: nothing else ever prunes one.
         live = {k: v for k, v in state._PARSE_CACHE.items()
                 if os.path.exists(k.split("\x1e", 1)[-1])}
+        hashes = {k: v for k, v in state._HASH_CACHE.items()
+                  if os.path.exists(k)}
         doc = {"schema": state.CACHE_SCHEMA, "version": state.__version__,
-               "entries": live}
+               "entries": live, "hashes": hashes}
         # Atomically: a reader that lands mid-write used to see a prefix,
         # fail to parse it and throw the whole cache away, and re-parse a
         # tree nobody had touched.
@@ -208,20 +218,126 @@ def _save_parse_cache(out_dir: str) -> None:
         pass
 
 
+# How much of a file is read at a time while hashing it. A whole file in
+# memory is what `_slurp` already refuses to do for the large ones, and a hash
+# has no reason to hold more than the block it is folding in.
+_HASH_CHUNK = 1024 * 1024
+
+
+def content_hash(path: str) -> str | None:
+    """The sha256 of a file's bytes, hex, or None for a file that cannot be
+    read. Computed once per file per build, and once per change after that.
+
+    The stat block is the pre-filter and the hash is the answer. If `path` has
+    the mtime, size and ctime it had when its hash was last taken, that hash
+    still describes it and nothing is read; otherwise the bytes are read in
+    blocks and folded into a fresh digest. On a tree nobody touched that is
+    one `stat` per file and no reads at all, which is the whole reason this is
+    affordable enough to key the parse cache on.
+
+    Read `state._HASH_CACHE` for why the ctime is in the pre-filter: without
+    it, the one case content addressing exists to catch (a same-size rewrite
+    with the timestamp put back) is the one case the pre-filter would skip.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    entry = state._HASH_CACHE.get(path)
+    if (entry is not None and entry.get("mtime") == st.st_mtime_ns
+            and entry.get("size") == st.st_size
+            and entry.get("ctime") == st.st_ctime_ns):
+        return entry.get("sha")
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            while True:
+                block = fh.read(_HASH_CHUNK)
+                if not block:
+                    break
+                digest.update(block)
+    except OSError:
+        return None
+    sha = digest.hexdigest()
+    state.HASH_COUNT += 1
+    state._HASH_CACHE[path] = {"mtime": st.st_mtime_ns, "size": st.st_size,
+                               "ctime": st.st_ctime_ns, "sha": sha}
+    return sha
+
+
+def content_pairs(repo: str) -> list:
+    """Every indexed file under `repo` as `(path relative to repo, sha256)`,
+    sorted by path. A file that cannot be read is left out rather than given
+    an invented hash: it is not in the map either.
+
+    The set is `_indexable`'s, which is the set the walk indexes and the set
+    `fingerprint` stamps, so all three are answering about the same files.
+    """
+    pairs = []
+    for full in _indexable(repo):
+        sha = content_hash(full)
+        if sha is None:
+            continue
+        pairs.append((os.path.relpath(full, repo).replace(os.sep, "/"), sha))
+    pairs.sort()
+    return pairs
+
+
+def content_root(repo: str) -> str:
+    """One sha256 over the sorted `(relative path, hash)` pairs: what the tree
+    says, rather than when it last said it.
+
+    `fingerprint` answers "has anything been written here since", from the
+    commit and the newest mtime, and that is the cheap question. This answers
+    "is the content the same", and it is the one an mtime cannot be made to
+    answer: a rewrite that kept its length and had its timestamp put back
+    moves this and not that. Both are kept, because the mtime is what makes
+    the check cheap and this is what makes it true.
+
+    Deterministic by construction: the pairs are sorted, the separators cannot
+    occur in a hex digest, and a path is written as it reads relative to the
+    repository root with forward slashes on every platform.
+    """
+    return _root_of(content_pairs(repo))
+
+
+def _root_of(pairs) -> str:
+    """The root digest of already-collected `(relative path, hash)` pairs.
+
+    Split out from `content_root` for `build()`, which needs the pairs
+    themselves as well (it reports which of them moved) and must arrive at the
+    same digest the command line compares against, byte for byte, rather than
+    at its own copy of this loop.
+    """
+    digest = hashlib.sha256()
+    for rel, sha in pairs:
+        digest.update(rel.encode("utf-8", "surrogateescape"))
+        digest.update(b"\0")
+        digest.update(sha.encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def _cached(path: str, kind: str, compute):
     """Run `compute()` once per file per kind, and reuse the answer after that.
 
-    Keyed by the path and the kind of thing being computed, so the same file
+    Keyed by the path, the kind of thing being computed and the sha256 of the
+    file's bytes. The path and the kind pick the entry out, so the same file
     can hold a cached step-phrase list and a cached call graph without one
-    overwriting the other. The stored mtime and size are what say whether the
-    file has actually changed since; a build that trusted only the path would
-    hand back last month's answer for a file the sha changed underneath.
-    That check has a blind spot: a file rewritten with the same byte count
-    inside the same filesystem timestamp tick keeps its old mtime and size,
-    and the stale value is served. `--force` is the escape hatch: it sets
-    `state.PARSE_CACHE_READS` False for that build, so nothing here is
-    believed and every answer is computed again, and the cache is rewritten
-    from what that build found.
+    overwriting the other; the hash is what says the entry still describes the
+    file. A build that trusted only the path would hand back last month's
+    answer for a file that had been rewritten underneath it.
+
+    The key used to be the path, the kind, the mtime and the size, and that
+    had a blind spot: a file rewritten with the same byte count and its
+    timestamp put back keeps both, and the stale value was served. `--force`
+    was the only escape. The hash has no such spot, and `content_hash` keeps
+    the mtime and size as its own pre-filter so that the tree nobody touched
+    still costs one `stat` per file and no reads.
+
+    `--force` still sets `state.PARSE_CACHE_READS` False for that build, so
+    nothing here is believed and every answer is computed again, and the cache
+    is rewritten from what that build found.
 
     WAWE_NO_CACHE=1 goes further and makes this a plain call to `compute()`
     with nothing recorded at all, for whoever wants a build that leaves the
@@ -230,20 +346,18 @@ def _cached(path: str, kind: str, compute):
     if state.NO_CACHE:
         state.PARSE_COUNT += 1
         return compute()
-    try:
-        st = os.stat(path)
-    except OSError:
+    sha = content_hash(path)
+    if sha is None:
         state.PARSE_COUNT += 1
         return compute()
     key = f"{kind}\x1e{path}"
     if state.PARSE_CACHE_READS:
         entry = state._PARSE_CACHE.get(key)
-        if (entry is not None and entry.get("mtime") == st.st_mtime
-                and entry.get("size") == st.st_size):
+        if entry is not None and entry.get("sha") == sha:
             return entry["value"]
     value = compute()
     state.PARSE_COUNT += 1
-    state._PARSE_CACHE[key] = {"mtime": st.st_mtime, "size": st.st_size, "value": value}
+    state._PARSE_CACHE[key] = {"sha": sha, "value": value}
     return value
 
 

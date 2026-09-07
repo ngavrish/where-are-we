@@ -65,7 +65,8 @@ try:
                                _ignored, _ignores, _lines_matching,
                                _load_parse_cache, _looks_like_suite, _manifest,
                                _product_roots, _save_parse_cache, _slurp,
-                               _walk, fingerprint, redact)
+                               _walk, content_hash, content_pairs,
+                               content_root, fingerprint, redact)
     from ._mapper.declare import (DECLARATIONS, STEP_DECORATORS,
                                   TS_LANG_BY_EXT, _DECLARES, _PER_FILE_CAP,
                                   TS_END_BY_EXT, _TS_PARSERS, _declared_names,
@@ -88,6 +89,7 @@ except ImportError:  # run as a plain file, with no package around it
                               _ignored, _ignores, _lines_matching,
                               _load_parse_cache, _looks_like_suite, _manifest,
                               _product_roots, _save_parse_cache, _slurp, _walk,
+                              content_hash, content_pairs, content_root,
                               fingerprint, redact)
     from _mapper.declare import (DECLARATIONS, STEP_DECORATORS, TS_END_BY_EXT,
                                  TS_LANG_BY_EXT,
@@ -113,8 +115,8 @@ __version__ = state.__version__
 # run, so an assignment would go nowhere the package can see.
 _STATE_NAMES = frozenset((
     "DEFINITIONS", "SPANS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
-    "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE", "_IGNORE_CACHE",
-    "_PARSE_CACHE", "_WALK_CACHE",
+    "HASH_COUNT", "HASHES_MOVED", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
+    "_HASH_CACHE", "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE",
 ))
 
 
@@ -163,13 +165,14 @@ def _cli():
 __all__ = [
     "DECLARATIONS", "DEFINITIONS", "INDEXED", "LINES", "MAX_FILES",
     "SKIP_DIRS", "SPANS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
-    "CACHE_SCHEMA", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
-    "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief",
-    "build", "changed_since", "context", "declarations_in",
-    "definitions_for", "digest", "file_list", "find_text", "fingerprint",
-    "for_audience", "index_declarations", "index_lines", "meaning_tail",
-    "more", "pointer", "rank_lines", "record_span", "redact", "spans_for",
-    "spans_index",
+    "CACHE_SCHEMA", "HASHES_MOVED", "HASH_COUNT", "PARSE_COUNT",
+    "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE", "_IGNORE_CACHE",
+    "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief", "build",
+    "changed_since", "content_hash", "content_pairs", "content_root",
+    "context", "declarations_in", "definitions_for", "digest", "file_list",
+    "find_text", "fingerprint", "for_audience", "index_declarations",
+    "index_lines", "meaning_tail", "more", "pointer", "rank_lines",
+    "record_span", "redact", "spans_for", "spans_index",
 ]
 
 
