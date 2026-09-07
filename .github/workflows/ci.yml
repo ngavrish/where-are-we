@@ -6404,11 +6404,15 @@ jobs:
           handle = open("/tmp/more/handle.txt").read().strip()
           finds = re.search(r"\(more:find:[^)]+\)",
                             mapper.find_text("/tmp/more/m", "invoice", 2)).group(0).strip("()")
+          # No `or out.startswith("no such handle")` in either assertion below:
+          # a refusal is not an answer that fitted, and reading it as one is
+          # what let the `sections` overrun stand for a round. The budget is a
+          # ceiling and a printed handle always fetches something.
           for h in (handle, finds):
               for limit in (100, 200, 1500):
                   out = mapper.more(m, h, limit)
-                  assert len(out) <= limit or out.startswith("no such handle"), \
-                      (h, limit, len(out))
+                  assert len(out) <= limit, (h, limit, len(out))
+                  assert not out.startswith("no such handle"), (h, limit, out)
           print("more() answers fit the room they were given at 100, 200 and 1500")
 
           # A `find` chain advances at a budget too small for the long tail:
@@ -6416,7 +6420,8 @@ jobs:
           h, seen_hits, calls = "more:find:invoice:0", 0, 0
           while h and calls < 60:
               out = mapper.more(m, h, 150)
-              assert len(out) <= 150 or out.startswith("no such handle"), len(out)
+              assert len(out) <= 150, len(out)
+              assert not out.startswith("no such handle"), out
               seen_hits += len([l for l in out.splitlines() if l.startswith("- ")])
               calls += 1
               nxt = re.search(r"\(more:find:[^)]+\)", out)
@@ -6470,6 +6475,63 @@ jobs:
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
           print("MCP more and --more agree, byte for byte")
+          EOF
+          # 7. A `find` chain never dead-ends on a hit longer than the budget.
+          #    `find_text` used to refuse there ("hit 1 of N and the line
+          #    saying what is left do not fit"), and the refusal was itself
+          #    over the budget: 111 characters against a caller that asked
+          #    for 60. Now it prints that one hit cut and marked, and puts the
+          #    handle on the hit after it, which is what every other `more:`
+          #    chain does in the same corner. The fixture is a file whose
+          #    lines are far longer than any budget below.
+          mkdir -p /tmp/more/long/src
+          python - <<'EOF'
+          import pathlib
+          body = ["def wide():"]
+          for i in range(1, 9):
+              body.append('    row_%d = "%s"' % (i, ("invoice %d " % i) * 30))
+          body.append("    return row_1")
+          pathlib.Path("/tmp/more/long/src/wide.py").write_text("\n".join(body) + "\n")
+          EOF
+          where-are-we --repo /tmp/more/long --out /tmp/more/lm --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import re, sys
+          sys.path.insert(0, "src")
+          from where_are_we import mapper
+          m = "/tmp/more/lm/framework_map.md"
+          whole = [l for l in mapper.find_text("/tmp/more/lm", "invoice", 10 ** 6).splitlines()
+                   if l.startswith("- ")]
+          # 192 characters a row: the path, plus the 160 `find_text` keeps of
+          # the line. Longer than most of the budgets below, which is the
+          # corner this exists for.
+          assert whole and min(len(l) for l in whole) > 150, [len(l) for l in whole]
+          over = refusals = cut = 0
+          for budget in range(60, 401, 5):
+              h, got, calls = "more:find:invoice:0", [], 0
+              while h and calls < 200:
+                  out = mapper.more(m, h, budget)
+                  calls += 1
+                  if len(out) > budget:
+                      over += 1
+                  if out.startswith("no such handle"):
+                      refusals += 1
+                      break
+                  cut += out.count("(row cut to fit;")
+                  got += [l for l in out.splitlines() if l.startswith("- ")]
+                  nxt = re.search(r"\(more:find:[^)]+\)", out)
+                  h = nxt.group(0).strip("()") if nxt else ""
+              # Above the budget at which a handle fits beside a cut row, the
+              # chain reaches every hit; below it there is no chain to have
+              # and the answer is the one cut row, which is `_cut_row`'s
+              # stated ladder rather than a refusal.
+              if budget >= 80:
+                  assert len(got) == len(whole), (budget, len(got), len(whole))
+          print(f"find chains over rows of {len(whole[0])} characters, 69 budgets "
+                f"from 60 to 400: {over} over budget, {refusals} refusals, "
+                f"{cut} cut rows delivered")
+          assert (over, refusals) == (0, 0)
+          assert cut > 100, cut
           EOF
 
       - name: a sections chain never overruns its budget and never refuses
