@@ -20,9 +20,11 @@ RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
 # tail the two counts can produce.
 RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
-RESERVE_CONTEXT = 24  # the "… N more lines" tail under one `context` block,
-# paid for up front the same way. Longer than that line can be: the count is
-# a line number and no block is a million lines long.
+RESERVE_CONTEXT = 48  # the "… N more lines" tail under one `context` block,
+# paid for up front the same way. Longer than that line can be without its
+# handle, which is the longer of its two forms: "… 123456 more lines; no room
+# for a handle" is 41 characters, and the count is a line number, so no block
+# gets near six digits of them.
 # What a tail's `(more:...)` handles cost is not a constant and is not
 # reserved up front. Reserving a fixed amount from every section's row budget
 # would have cost a row in 26 of the 150 golden answers, including sections
@@ -647,31 +649,67 @@ def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
     fit and prints a directory head (``- `steps/` ``) that is not a row, so a
     handle counting output lines would skip one row per link of a chain.
     """
-    # `room` is a ceiling, not a target. The tail line is paid for up front,
-    # the head is included only if it fits, and no row is forced in: a first
-    # row longer than the room is a dropped row, not an exception. Measured
-    # at review: a 3 KB head with limit=50 came back 68 times over budget
-    # when the head and first row were forced.
-    budget = room - RESERVE_TAIL
-    if budget <= len(head):
+    def tail_for(dropped: int, got: int, handles: bool) -> str:
+        return _tail_line(dropped, unmatched, sec if handles else "",
+                          words if handles else "", got, kind)
+
+    chunk, reached, lines, tail = _fit_chunk(head, rows, room, RESERVE_TAIL,
+                                             tail_for, _group_dirs, base)
+    if not lines:
         # This section's head alone would overrun; skip it, not every section
         # after it.
         return "", False, base, True
+    handed = reached >= base + len(rows) or f"more:{kind}:" in tail
+    if lines == 1 and not tail:
+        return "", True, reached, handed
+    return chunk, True, reached, handed
+
+
+def _fit_chunk(head: str, rows: list, room: int, reserve: int, tail_for,
+               render=None, base: int = 0) -> tuple:
+    """`head` plus as many of `rows` as fit in `room`, and the tail that says
+    what was left out.
+
+    Returns `(chunk, reached, body_lines, tail)`: the text, how far into
+    `rows` this got counted from `base`, how many lines of it are head and
+    rows rather than tail, and the tail itself. `body_lines` is zero, and
+    `chunk` empty, when the head alone would overrun.
+
+    `room` is a ceiling, not a target. The tail line is paid for up front out
+    of `reserve`, the head is included only if it fits, and no row is forced
+    in: a first row longer than the room is a dropped row, not an exception.
+    Measured at review: a 3 KB head with limit=50 came back 68 times over
+    budget when the head and first row were forced.
+
+    `tail_for(dropped, reached, handles)` builds the tail, and is where the
+    two callers differ: `_rows_chunk` writes a section's two counts and a
+    `more:rows:` handle, `_context_chunk` a line count and a `more:ctx:` one.
+    `render`, when given, is applied to the rows that fit before they are
+    printed, which is how `_rows_chunk` groups them by directory after the
+    cut rather than before it.
+
+    Both callers used to hold their own copy of the loop below, which is the
+    give-back trade and nothing else: it is the one part of a cut that is not
+    obvious, and a fix to it landing in one copy and not the other is the
+    defect that shape invites.
+    """
+    budget = room - reserve
+    if budget <= len(head):
+        return "", base, 0, ""
+
     def build(give: int, handles: bool) -> tuple:
         idx = fit_indices(rows, budget - len(head) - give)
         got = base + _first_gap(len(rows), idx)
-        line = _tail_line(len(rows) - len(idx), unmatched,
-                          sec if handles else "", words if handles else "",
-                          got, kind)
-        body = [head] + _group_dirs([rows[i] for i in idx])
+        kept = [rows[i] for i in idx]
+        body = [head] + (render(kept) if render else kept)
+        line = tail_for(len(rows) - len(idx), got, handles)
         return "\n".join(body + ([line] if line else [])), got, len(body), line
 
-    give, fits, most = 0, False, budget - len(head)
+    give, most = 0, budget - len(head)
     chunk, reached, lines, tail = build(0, True)
     for _ in range(4):
         if len(chunk) <= room:
-            fits = True
-            break
+            return chunk, reached, lines, tail
         if give >= most:
             break  # every row is already given up and it still does not fit
         # Give the tail exactly what its handles cost, not the overflow: the
@@ -683,15 +721,12 @@ def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
         give = min(most, max(give + len(chunk) - room,
                              len(tail) - len(plain)))
         chunk, reached, lines, tail = build(give, True)
-    if not fits and len(chunk) > room:
+    if len(chunk) > room:
         # The handles still overrun the ceiling. Print the tail without them:
-        # that is what this line said before handles existed, and RESERVE_TAIL
+        # that is what this line said before handles existed, and the reserve
         # is the room already set aside for it.
         chunk, reached, lines, tail = build(0, False)
-    handed = reached >= base + len(rows) or f"more:{kind}:" in tail
-    if lines == 1 and not tail:
-        return "", True, reached, handed
-    return chunk, True, reached, handed
+    return chunk, reached, lines, tail
 
 
 def _section_answer(head: str, body: list, terms: list, room: int,
@@ -1376,8 +1411,8 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         lines = _context_lines(map_path, block, named, limit)
         if offset >= len(lines):
             return _stale(f"the {block} block for {named!r} is {len(lines)} "
-                          f"lines long, and this handle asks for line "
-                          f"{offset + 1} of it")
+                          f"line{'' if len(lines) == 1 else 's'} long, and "
+                          f"this handle asks for line {offset + 1} of it")
         chunk, reached = _context_chunk(CONTEXT_HEADS[block], lines[offset:],
                                         limit, block, fields[1], offset)
         if reached == offset:
@@ -1833,16 +1868,27 @@ CONTEXT_DEPTH = 1
 
 # The five blocks `context` composes, in the order it prints them: the tool
 # each block is the answer of, the head it prints, and the percentage of the
-# budget it may spend.
+# budget it is guaranteed.
 #
-# Fixed shares, not a pool. A block that does not spend its share does not
-# hand it to the next one, so the same name at the same budget composes the
-# same answer whatever else the map happens to hold, and a reader can say
-# before the call how much of the answer each block can cost. Rolling the
-# leftover forward would make the size of the callees block depend on how
-# many homes the name has, which is the kind of coupling that turns a budget
-# into a surprise. The shares are stated in the first line of every answer
-# and in the README beside the flag.
+# A floor, not a cap. `_context_rooms` spends the budget in two passes: pass
+# one asks every block what printing all of itself would cost, and pass two
+# gives every block the smaller of that need and its floor and then hands
+# what nobody claimed on, in this order, to the blocks still short. So a
+# block never takes room from a block that wanted it, and a block is never
+# cut while room the answer was allowed goes unspent.
+#
+# Strict shares were tried first and are the wrong shape: on the suite
+# fixture at 12000 bytes, `CheckoutPage` printed 6,462 of a 12,000-byte
+# allowance and left 12 of its 41 declarations behind a handle, because its
+# declarations wanted 848 bytes more than 15 percent while callers, callees
+# and impact between them left 5,323 unspent. Eleven of the 224 names were
+# cut that way with room to spare. What a fixed share buys is being able to
+# say in advance what each block costs; the two passes keep the answer to a
+# name deterministic, which is the half of that anyone reads.
+#
+# The order is the printing order, so what is said first is served first.
+# The shares are stated in the first line of every answer and in the README
+# beside the flag.
 CONTEXT_BLOCKS = (
     ("spans", "## Declared in", 15),
     ("ask", "## What the map says", 35),
@@ -1938,53 +1984,122 @@ def _context_chunk(head: str, lines: list, room: int, block: str,
     counted from `base`, which is what the handle's offset is and what
     `more()` checks to see whether it made any progress.
 
-    The same rules every other cut here obeys: whole lines, `room` a ceiling
-    and not a target, the tail paid for before the lines so it can never push
-    a block past its share, and the handle bought back out of the lines when
-    it does not fit beside them. A block whose head alone would overrun
-    prints nothing, rather than a head with a count under it.
-
-    A block with no line printed still prints its head and its tail: at a
-    small budget the impact block is one caveat longer than its whole share,
-    and a head with `… 6 more lines (more:ctx:impact:charge:0)` under it is
-    the difference between a block a reader can fetch and a block they cannot
-    see exists.
+    `_fit_chunk` is the cut, shared with `_rows_chunk`; what belongs to this
+    block is the tail it writes. A block whose head alone would overrun
+    prints nothing, rather than a head with a count under it. A block with no
+    line printed still prints its head and its tail: at a small budget the
+    impact block is one caveat longer than the room it was given, and a head
+    with `… 6 more lines (more:ctx:impact:charge:0)` under it is the
+    difference between a block a reader can fetch and a block they cannot see
+    exists.
     """
-    budget = room - RESERVE_CONTEXT
-    if budget <= len(head):
-        return "", base
+    def tail_for(left: int, got: int, handle: bool) -> str:
+        if not left:
+            return ""
+        plural = "" if left == 1 else "s"
+        if handle:
+            return (f"… {left} more line{plural} "
+                    f"(more:ctx:{block}:{field}:{got})")
+        # No room for the handle beside the count. Say that, rather than
+        # print a count of lines with nothing that fetches them: a reader
+        # told there is more and not told how to get it has been handed a
+        # fact with nothing behind it.
+        #
+        # `context` never gets here: `_context_floor` is the room for a head
+        # and a tail with its handle, and a block that cannot be given that
+        # much is left out of the answer instead. `more()` can, since it cuts
+        # a block at whatever budget it was called with and a caller may ask
+        # for two hundred characters. Measured: 0 of 1,666 `context` answers
+        # over the three fixtures at seven budgets print this line.
+        return f"… {left} more line{plural}; no room for a handle"
 
-    def build(give: int, handle: bool) -> tuple:
-        idx = fit_indices(lines, budget - len(head) - give)
-        got = base + _first_gap(len(lines), idx)
-        kept = [head] + [lines[i] for i in idx]
-        tail, left = "", len(lines) - len(idx)
-        if left:
-            suffix = f" (more:ctx:{block}:{field}:{got})" if handle else ""
-            tail = f"… {left} more lines{suffix}"
-            kept.append(tail)
-        return "\n".join(kept), got, tail
-
-    give, most = 0, budget - len(head)
-    chunk, reached, tail = build(0, True)
-    for _ in range(4):
-        if len(chunk) <= room:
-            return chunk, reached
-        if give >= most:
-            break  # every line is already given up and it still does not fit
-        # The handle's own cost, not the overflow: the same trade
-        # `_rows_chunk` and `_defined_here` make, for the same reason. Paying
-        # the overflow back a few characters at a time frees no line and the
-        # four goes run out with the handle still unaffordable.
-        plain = build(give, False)[2]
-        give = min(most, max(give + len(chunk) - room,
-                             len(tail) - len(plain)))
-        chunk, reached, tail = build(give, True)
-    if len(chunk) > room:
-        # The handle still overruns. Print the count without it, which is
-        # what RESERVE_CONTEXT is the room for.
-        chunk, reached, tail = build(0, False)
+    chunk, reached, _lines, _tail = _fit_chunk(head, lines, room,
+                                               RESERVE_CONTEXT, tail_for,
+                                               None, base)
     return chunk, reached
+
+
+def _context_need(head: str, lines: list) -> int:
+    """The room one block needs to print all of itself.
+
+    Its head, its lines with the newline each one costs, and the tail's
+    reserve, which every block pays whether or not it ends up printing a
+    tail. Exactly the number `_fit_chunk` has to be given for `fit_indices`
+    to keep every line, so a block given this much is never cut and a block
+    given less always is.
+    """
+    return RESERVE_CONTEXT + len(head) + sum(len(line) + 1 for line in lines)
+
+
+def _context_floor(block: str, head: str, lines: list, field: str) -> int:
+    """The smallest room a block can be given and still be worth printing:
+    its head, and a tail carrying the handle that fetches the whole of it.
+
+    A head with a count under it and no handle beside the count names a list
+    nobody can ask for, and the room it costs is room the block above it
+    could have spent on its own handle. So this is a block's floor as much as
+    its percentage share is, and below it the block is left out of the answer
+    rather than printed as a stub.
+    """
+    tail = (f"… {len(lines)} more line{'' if len(lines) == 1 else 's'} "
+            f"(more:ctx:{block}:{field}:0)")
+    return max(len(head) + RESERVE_CONTEXT + 1, len(head) + 1 + len(tail))
+
+
+def _context_rooms(room: int, lines: dict, field: str) -> dict:
+    """How much of `room` each block gets, in two passes.
+
+    Pass one asks every block what printing all of itself would cost
+    (`_context_need`). Pass two walks the blocks in `CONTEXT_BLOCKS` order
+    and gives each one the smaller of that need and its floor, out of what is
+    left; then it walks them again and hands what nobody claimed to the
+    blocks still short of their need, each taking up to what it is missing.
+
+    So the percentages in `CONTEXT_BLOCKS` are floors rather than caps: a
+    block is guaranteed its share and may have more when the others do not
+    want theirs. The consequence worth stating is the one the whole tool is
+    for: when the five answers together fit the budget, every one of them is
+    printed whole, and `context` really is the five calls rather than five
+    cuts of them.
+
+    Two passes rather than a forward carry, because the block that is short
+    is usually the first one. `spans` is printed before `callers`, `callees`
+    and `impact`, and it is their unspent share that covers it; a carry could
+    only ever help the blocks after the one that saved. Measured on the suite
+    fixture at 12000 bytes: `CheckoutPage` was 848 bytes short in `spans`
+    with 5,538 bytes of the budget unspent behind it.
+
+    A block's floor is the larger of its percentage share and
+    `_context_floor`, and a block that cannot be given that much out of what
+    is left is given nothing at all. That only happens below about a thousand
+    characters, where five heads, five counts and five handles do not fit
+    between them: there the blocks are served in order and the first of them
+    are printed whole rather than all five printed as counts no handle can
+    follow. The same name at a wider budget has all five.
+
+    Deterministic: the needs come from the map, the floors from
+    `CONTEXT_BLOCKS` and the heads, and the order is the order the blocks are
+    printed in, so the same name at the same budget is always allocated the
+    same way.
+    """
+    need = {block: _context_need(CONTEXT_HEADS[block], lines[block])
+            for block in CONTEXT_NAMES}
+    given, spare = {}, room
+    for block, head, pct in CONTEXT_BLOCKS:
+        want = min(need[block], max((room * pct) // 100,
+                                    _context_floor(block, head,
+                                                   lines[block], field)))
+        given[block] = want if want <= spare else 0
+        spare -= given[block]
+    for block in CONTEXT_NAMES:
+        if spare <= 0:
+            break
+        if not given[block]:
+            continue  # a block there was no room to print stays unprinted
+        extra = min(spare, need[block] - given[block])
+        given[block] += extra
+        spare -= extra
+    return given
 
 
 def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
@@ -1996,11 +2111,13 @@ def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
     the tool call overhead five times and read the same map file five times
     to do it. This is those functions, over that map, once.
 
-    The blocks and their fixed shares of `limit` are `CONTEXT_BLOCKS`, and
-    the first line of every answer names both, so a reader who is handed a
-    cut block knows what cut it. Whole rows; a tail under every block that
-    could not print all of itself; a `more:ctx:` handle on that tail, which
-    the `more` tool resolves like any other.
+    The blocks are `CONTEXT_BLOCKS`, and the percentage beside each one is
+    the floor of what it gets: `_context_rooms` gives every block the smaller
+    of its share and what it needs, then hands the rest on in that order to
+    the blocks still short. The first line of every answer says so, so a
+    reader who is handed a cut block knows what cut it. Whole rows; a tail
+    under every block that could not print all of itself; a `more:ctx:`
+    handle on that tail, which the `more` tool resolves like any other.
 
     The map rows block is `ask()`'s answer whole, its own `## Defined here`
     and `## Called by` included, so a home or a caller can appear twice: once
@@ -2015,23 +2132,28 @@ def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
     field = _encode(name)
     shares = "/".join(str(pct) for _b, _h, pct in CONTEXT_BLOCKS)
     head = (f"Context for `{name}`: declared, map rows, callers, callees, "
-            f"impact to depth {CONTEXT_DEPTH}. Fixed shares of {limit} "
-            f"bytes: {shares} percent.")
+            f"impact to depth {CONTEXT_DEPTH}. {limit} bytes, floor shares "
+            f"{shares} percent, what a block does not need passed on in that "
+            "order.")
     if len(head) > limit:
         # `limit` is a ceiling, as it is for `ask()`, and this line is the
         # smallest thing this tool has to say. Under it there is no answer,
         # not a first line that overruns.
         return ""
-    # Every block pays for the blank line above it, so the sum of the shares
+    # Every block pays for the blank line above it, so what the blocks divide
     # is what is left after the first line and those separators, and the
-    # answer is inside `limit` however the shares divide.
+    # answer is inside `limit` however it divides.
     room = limit - len(head) - 2 * len(CONTEXT_BLOCKS)
     out = [head]
     if room > 0:
-        for block, bhead, pct in CONTEXT_BLOCKS:
-            chunk, _reached = _context_chunk(
-                bhead, _context_lines(map_path, block, name, limit),
-                (room * pct) // 100, block, field, 0)
+        lines = {block: _context_lines(map_path, block, name, limit)
+                 for block in CONTEXT_NAMES}
+        rooms = _context_rooms(room, lines, field)
+        for block, bhead, _pct in CONTEXT_BLOCKS:
+            if not rooms[block]:
+                continue
+            chunk, _reached = _context_chunk(bhead, lines[block],
+                                             rooms[block], block, field, 0)
             if chunk:
                 out.append(chunk)
     return "\n\n".join(out)
