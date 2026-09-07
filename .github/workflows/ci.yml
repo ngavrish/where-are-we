@@ -3445,7 +3445,7 @@ jobs:
           rm -rf /tmp/pol
           mkdir -p /tmp/pol/r
           printf 'x = 1\n' > /tmp/pol/r/a.py
-          # Nine broad handlers across the package, and each one is a server
+          # Ten broad handlers across the package, and each one is a server
           # loop, an optional dependency, or a third-party parser over a file
           # this package did not write. Every other one now names what it
           # catches, so a programming error in the lines it covers is a
@@ -3460,6 +3460,7 @@ jobs:
               "build.py": 1,           # git for-each-ref plus a strip and a slice
               "declare.py": 2,         # an optional tree-sitter grammar, and its parser
               "eval.py": 1,            # --graph's tree-sitter second opinion
+              "render.py": 1,          # --cost asking an optional extra for a tokenizer
           }
           bad = []
           for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
