@@ -644,18 +644,19 @@ def build_parser() -> argparse.ArgumentParser:
                     help="how many call hops --affected follows upward, 1 to "
                          f"{graph.MAX_DEPTH} (default {graph.DEFAULT_DEPTH})")
     ap.add_argument("--reaches", default="", metavar="NAME",
-                    help="print which scenarios and routes reach NAME: the "
-                         "other direction of --affected, walked from that "
-                         "one name up the map's `xrefs` calls rows to any "
-                         "depth, grouped by feature file with the hop chain "
-                         "for the first scenario of each. A class is "
-                         "answered by what is declared inside its span. "
-                         "Reads framework_map.json under --out")
+                    help="print which scenarios, pytest cases and routes "
+                         "reach NAME: the other direction of --affected, "
+                         "walked from that one name up the map's `xrefs` "
+                         "calls rows to any depth, grouped by feature file "
+                         "with the hop chain for the first scenario of each. "
+                         "A class is answered by what is declared inside its "
+                         "span. Reads framework_map.json under --out")
     ap.add_argument("--unreached", action="store_true",
-                    help="print the product definitions no step function "
-                         "reaches: every function and class in a file the "
-                         "map does not name as suite that the walk down from "
-                         "the steps never arrives at, grouped by file and "
+                    help="print the product definitions no test reaches: "
+                         "every function and class in a file the map does "
+                         "not name as suite that the walk down from the step "
+                         "functions, the pytest cases and the other runners' "
+                         "test files never arrives at, grouped by file and "
                          "ranked by the map's own rank. The first line says "
                          "how much of the call graph resolved, because that "
                          "is how much of this is untested rather than "

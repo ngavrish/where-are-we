@@ -302,12 +302,15 @@ TOOLS = [
             "Which tests reach one name: hand it a product function or "
             "class and get back the scenarios whose steps call into it, "
             "grouped by feature file with the chain of calls for the first "
-            "scenario of each, and the routes reached. The other direction "
-            "of `affected`, over the same `xrefs` call rows and with no "
-            "depth cap, because the question is whether anything reaches "
-            "this at all. A class is answered by what is declared inside "
-            "its span, so a page object is reached through its methods. Ask "
-            "it before changing a function, and before deleting one."),
+            "scenario of each, the pytest cases that reach it, and the "
+            "routes reached. The other direction of `affected`, over the "
+            "same `xrefs` call rows and with no depth cap, because the "
+            "question is whether anything reaches this at all. A class is "
+            "answered by what is declared inside its span, so a page object "
+            "is reached through its methods; where the parser did not find "
+            "where the class stops the first line says the counts are a "
+            "floor. Ask it before changing a function, and before deleting "
+            "one."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -320,16 +323,20 @@ TOOLS = [
     {
         "name": "unreached",
         "description": (
-            "What the suite never reaches: every product function and class "
-            "with no call path up to any step function, grouped by file and "
-            "ranked by the map's own `rank`, best first. Product is every "
-            "file that declares something and that the map does not name as "
-            "suite (features, steps, page objects, drivers, environment "
-            "files, the test files of each runner). The first line states "
-            "how much of the call graph resolved, which is how much of this "
-            "list is untested rather than unknown, so read it before "
-            "treating the list as coverage. `limit` is how many definitions "
-            "are ranked and printed (default 200)."),
+            "What no test reaches: every product function and class with no "
+            "call path up to a behave step function, a pytest case, or a "
+            "declaration in the files another runner holds its cases in, "
+            "grouped by file and ranked by the map's own `rank`, best "
+            "first. Product is every file that declares something and that "
+            "the map does not name as suite; the files set aside that way "
+            "are listed in the answer, because a file the map miscalls a "
+            "page object drops out of this count entirely. The first line "
+            "states how much of the call graph resolved, which is how much "
+            "of the list is untested rather than unknown, so read it before "
+            "treating the list as coverage; where the product is checked "
+            "out under a root of its own it also says that no call edge "
+            "crosses into it. `limit` is how many definitions are ranked "
+            "and printed (default 200)."),
         "inputSchema": {
             "type": "object",
             "properties": {
