@@ -44,7 +44,11 @@
   calls, and its blast radius one hop out. Nothing new is parsed and nothing
   new is stored; it is `defines`, `ask`, `callers`, `callees` and `impact`
   over the same map, so an agent that lands on a name pays one round trip
-  rather than five. The budget is allocated in two passes: every block is
+  rather than five. The budget is counted in characters, as `ask`'s is, and
+  the first line says so: it names the five blocks, the ceiling and the
+  shares, in 134 characters rather than the 181 an earlier draft spent,
+  because at the MCP server's 1500 floor that line is twelve percent of the
+  answer. The budget is allocated in two passes: every block is
   given the smaller of what printing all of itself would cost and its floor
   share - 15 percent for the declarations, 35 for the map's rows, 15 for the
   callers, 15 for the callees, 20 for the impact - and what nobody claimed is
@@ -57,8 +61,10 @@
   that is left out rather than printed as a count nobody can follow.
 - `wawe-eval --tool context` measures the new tool with the harness that
   measures `ask`: over 100 names of the suite fixture, recall with handles is
-  1.0 at 1500 and at 12000 bytes, which the CI step `context returns in one
-  call what five calls return` asserts.
+  1.0 at 1500 and at 12000 characters, which the CI step `context returns in
+  one call what five calls return` asserts, at that root and at one whose
+  absolute path is 80 characters longer, since path length moves how many rows
+  fit and not what a handle returns.
 - What the repository is built around, ranked. The map gains a key `rank`:
   the top 200 definitions as `{name, file, line, score}`, best first, from
   PageRank over the graph the map already describes. Files are the nodes; an

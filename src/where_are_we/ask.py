@@ -505,42 +505,23 @@ def _defined_here(exact: list, room: int, words: str = "",
     first.
     """
     head = "## Defined here\n"
-    budget = room - RESERVE_DEFINED
-    if budget <= len(head):
-        return "", base  # not even the head fits: nothing, not a head with a count
     slug = _encode(words) if words else ""
 
-    def build(give: int, handle: bool) -> tuple:
-        idx = fit_indices(exact, budget - len(head) - give)
-        kept = [head] + [exact[i] for i in idx]
-        got = base + _first_gap(len(exact), idx)
-        line = ""
-        if len(exact) - len(idx):
-            tail = f":{sfield}" if sfield else ""
-            suffix = f" (more:defs:{slug}:{got}{tail})" if handle and slug else ""
-            line = f"… {len(exact) - len(idx)} more definitions{suffix}"
-            kept.append(line)
-        return ("\n".join(kept) if len(kept) > 1 else ""), got, line
+    def tail_for(dropped: int, got: int, handles: bool) -> str:
+        if not dropped:
+            return ""
+        scoped = f":{sfield}" if sfield else ""
+        suffix = f" (more:defs:{slug}:{got}{scoped})" if handles and slug else ""
+        return f"… {dropped} more definitions{suffix}"
 
-    give, fits, most = 0, False, budget - len(head)
-    block, reached, tail = build(0, True)
-    for _ in range(4):
-        if len(block) <= room:
-            fits = True
-            break
-        if give >= most:
-            break  # every row is already given up and it still does not fit
-        # The handle's own cost, not the overflow: see `_rows_chunk`, where
-        # paying the overflow back a few characters at a time freed no row and
-        # lost the handle anyway.
-        plain = build(give, False)[2]
-        give = min(most, max(give + len(block) - room,
-                             len(tail) - len(plain)))
-        block, reached, tail = build(give, True)
-    if not fits and len(block) > room:
-        # Print the count without a handle, which is what this block did
-        # before handles existed and is bounded by RESERVE_DEFINED.
-        block, reached, tail = build(0, False)
+    block, reached, body_lines, tail = _fit_chunk(
+        head, exact, room, RESERVE_DEFINED, tail_for, base=base)
+    # A head with nothing under it is not a block. The two callers of
+    # `_fit_chunk` that print sections keep theirs, because a section head is
+    # itself an answer; this block's head says only that definitions exist,
+    # and printing it alone would spend the room on saying nothing.
+    if body_lines <= 1 and not tail:
+        return "", reached
     return block, reached
 
 
@@ -2227,13 +2208,13 @@ CONTEXT_DEPTH = 1
 # cut while room the answer was allowed goes unspent.
 #
 # Strict shares were tried first and are the wrong shape: on the suite
-# fixture at 12000 bytes, `CheckoutPage` printed 6,462 of a 12,000-byte
-# allowance and left 12 of its 41 declarations behind a handle, because its
-# declarations wanted 848 bytes more than 15 percent while callers, callees
-# and impact between them left 5,323 unspent. Eleven of the 224 names were
-# cut that way with room to spare. What a fixed share buys is being able to
-# say in advance what each block costs; the two passes keep the answer to a
-# name deterministic, which is the half of that anyone reads.
+# fixture at a 12000 character budget, `CheckoutPage` printed 6,462 characters
+# of it and left 12 of its 41 declarations behind a handle, because its
+# declarations wanted more than 15 percent while callers, callees and impact
+# between them left thousands unspent. Eleven of the 224 names were cut that
+# way with room to spare. What a fixed share buys is being able to say in
+# advance what each block costs; the two passes keep the answer to a name
+# deterministic, which is the half of that anyone reads.
 #
 # The order is the printing order, so what is said first is served first.
 # The shares are stated in the first line of every answer and in the README
@@ -2415,16 +2396,21 @@ def _context_rooms(room: int, lines: dict, field: str) -> dict:
     is usually the first one. `spans` is printed before `callers`, `callees`
     and `impact`, and it is their unspent share that covers it; a carry could
     only ever help the blocks after the one that saved. Measured on the suite
-    fixture at 12000 bytes: `CheckoutPage` was 848 bytes short in `spans`
-    with 5,538 bytes of the budget unspent behind it.
+    fixture at 12000 characters, `CheckoutPage`: `spans` needs 3,411 against a
+    floor of 1,777, and the second pass covers the difference out of the 4,000
+    or so that `callers` (96 needed against 1,777), `callees` (the same) and
+    `impact` (647 against 2,370) never wanted.
 
     A block's floor is the larger of its percentage share and
     `_context_floor`, and a block that cannot be given that much out of what
-    is left is given nothing at all. That only happens below about a thousand
+    is left is given nothing at all. That happens below about six hundred
     characters, where five heads, five counts and five handles do not fit
-    between them: there the blocks are served in order and the first of them
-    are printed whole rather than all five printed as counts no handle can
-    follow. The same name at a wider budget has all five.
+    between them: there the blocks are served in order and the ones that fit
+    are printed as a head and a handle, so the answer says what it did not
+    print and how to fetch it. A block is printed whole only once its share
+    covers all of it, which is later still. Measured on the same fixture,
+    `click_7`: two blocks at 300 characters, three at 350, all five at 600,
+    and the first block printed whole at 800.
 
     Deterministic: the needs come from the map, the floors from
     `CONTEXT_BLOCKS` and the heads, and the order is the order the blocks are
@@ -2480,10 +2466,16 @@ def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
         return "context needs a name"
     field = _encode(name)
     shares = "/".join(str(pct) for _b, _h, pct in CONTEXT_BLOCKS)
+    # Every character of this line is a character no block gets. At 12000 it
+    # is one percent of the answer and at the MCP server's 1500 floor it is
+    # twelve, so it says what the reader has to act on and nothing else: the
+    # five blocks in order, the ceiling, and the shares. That the shares are
+    # floors rather than caps is what `floor` says; the README and the skill
+    # file explain the pass-on rule, and a reader who wants it there does not
+    # need it in every answer.
     head = (f"Context for `{name}`: declared, map rows, callers, callees, "
-            f"impact to depth {CONTEXT_DEPTH}. {limit} bytes, floor shares "
-            f"{shares} percent, what a block does not need passed on in that "
-            "order.")
+            f"impact to depth {CONTEXT_DEPTH}. {limit} characters, floor "
+            f"shares {shares} percent.")
     if len(head) > limit:
         # `limit` is a ceiling, as it is for `ask()`, and this line is the
         # smallest thing this tool has to say. Under it there is no answer,

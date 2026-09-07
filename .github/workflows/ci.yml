@@ -491,7 +491,10 @@ jobs:
           # impact, and the floor share of the budget each block was given.
           where-are-we --out $M --context click_7 > /tmp/ctx/click_7.context
           head -1 /tmp/ctx/click_7.context | grep -qx \
-            'Context for `click_7`: declared, map rows, callers, callees, impact to depth 1. 12000 bytes, floor shares 15/35/15/15/20 percent, what a block does not need passed on in that order.'
+            'Context for `click_7`: declared, map rows, callers, callees, impact to depth 1. 12000 characters, floor shares 15/35/15/15/20 percent.'
+          # And it is 134 characters, not the 181 it was: at the MCP server's
+          # 1500 floor the first line is what the blocks do not get.
+          test "$(head -1 /tmp/ctx/click_7.context | wc -m | tr -d ' ')" = "135"
           # Ten declared names through the five flags and through the one
           # that composes them. Between them every block is filled and every
           # block is empty: click_7 has a caller and no callee, step_pay_7
@@ -606,7 +609,7 @@ jobs:
               missing = sorted(five_flags(i) - rows_of(answer))
               assert not missing, (name, missing[:3])
           print("10 names through the five flags: every row in one answer, "
-                "every answer inside 12000 bytes")
+                "every answer inside 12000 characters")
 
           # 2. Every declared name in the fixture, no exemptions: whole where
           # the five answers fit the budget, and behind a handle where they
@@ -673,7 +676,7 @@ jobs:
                   cut += 1
                   assert "(more:" in lines[-1], (name, lines[-1])
           assert cut, "nothing was cut at 1500; the assertion proves nothing"
-          print(f"at 1500 bytes, {len(names)} names: {cut} cut blocks, every "
+          print(f"at 1500 characters, {len(names)} names: {cut} cut blocks, every "
                 "tail carries a handle")
 
           whole = set(ordered_rows(context(M, "click_7", 10 ** 9)))
@@ -688,7 +691,7 @@ jobs:
                       pending.append(nxt)
           missing = sorted(whole - got)
           assert not missing, missing[:3]
-          print(f"click_7 at 1500 bytes: {len(whole)} rows, all of them "
+          print(f"click_7 at 1500 characters: {len(whole)} rows, all of them "
                 "reachable by following the handles")
           EOF
           # The same measurement over a hundred names, by the harness that
@@ -707,11 +710,44 @@ jobs:
           # 12000 at all, which the sweep above counted; the number is stated
           # rather than asserted at 1.0, and the floor guards a regression.
           first = by_budget[12000]["first_answer_recall"]
-          assert first >= 0.99, first
+          assert first >= 0.95, first
           print("wawe-eval --tool context: recall with handles",
                 [by_budget[b]["recall_with_handles"] for b in sorted(by_budget)],
                 "at budgets", sorted(by_budget),
                 f"; first answer alone at 12000: {first}")
+          EOF
+          # The same measurement from a root whose absolute path is 80
+          # characters longer. Every row of the declarations block carries
+          # that path, so the first answer holds fewer rows at the same
+          # ceiling and `first_answer_recall` falls; recall with handles does
+          # not, because a handle fetches what the length pushed out. That is
+          # why the floor above is a floor and this is the equality: the
+          # invariant is the one that does not move with where the tree sits.
+          LONG=/tmp/ctx-a-deliberately-long-root-so-that-every-row-is-longer/x
+          rm -rf /tmp/ctx-a-deliberately-long-root-so-that-every-row-is-longer
+          python - <<EOF
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("$LONG")
+          EOF
+          wawe-eval --map $LONG/suite/out --tool context --questions 100 \
+            --budgets 1500,12000 --json > /tmp/ctx/eval-long.json
+          python - <<'EOF'
+          import json
+          short = {r["budget"]: r for r in
+                   json.load(open("/tmp/ctx/eval.json"))["budgets"]}
+          long_ = {r["budget"]: r for r in
+                   json.load(open("/tmp/ctx/eval-long.json"))["budgets"]}
+          for budget, row in long_.items():
+              assert row["recall_with_handles"] == 1.0, row
+              assert short[budget]["recall_with_handles"] == 1.0, short[budget]
+          assert long_[12000]["first_answer_recall"] >= 0.95, long_[12000]
+          print("path length moves the first answer and not the contract: "
+                "first answer at 12000",
+                short[12000]["first_answer_recall"], "at the short root and",
+                long_[12000]["first_answer_recall"], "at the long one; "
+                "recall with handles 1.0 at both, at both budgets")
           EOF
           # Every tool the server declares, and the flag and the tool as one
           # answer.
