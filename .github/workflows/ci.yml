@@ -4260,6 +4260,54 @@ jobs:
           print("shape alone:", pages("/tmp/po/shapem"),
                 "- the words alone:", pages("/tmp/po/wordsm"))
           EOF
+      - name: one version, and the skills the plugin ships are the skills it names
+        run: |
+          set -o pipefail
+          # Three files carry the version and a fourth carries it in a lock.
+          # They went out of step at 1.4.1, when the plugin kept the old
+          # number for a release, and nothing failed.
+          python - <<'EOF'
+          import json, pathlib, re, sys
+          import where_are_we
+
+          toml = pathlib.Path("pyproject.toml").read_text()
+          said = {
+              "pyproject.toml": re.search(r'^version = "([^"]+)"', toml, re.M).group(1),
+              "src/where_are_we/__init__.py": where_are_we.__version__,
+              "plugin/.claude-plugin/plugin.json": json.loads(
+                  pathlib.Path("plugin/.claude-plugin/plugin.json").read_text())["version"],
+          }
+          lock = pathlib.Path("uv.lock").read_text()
+          block = re.search(r'\[\[package\]\]\nname = "where-are-we"\nversion = "([^"]+)"',
+                            lock)
+          said["uv.lock"] = block.group(1) if block else "<no where-are-we package>"
+          print("version:", said)
+          assert len(set(said.values())) == 1, said
+          # The installed copy, not only the tree: an editable install and a
+          # wheel disagree here when the bump is half done.
+          assert where_are_we.__version__ == said["pyproject.toml"], where_are_we.__file__
+
+          # Every skill directory is named in both READMEs, and neither names
+          # one that does not exist.
+          on_disk = sorted(p.parent.name for p in
+                           pathlib.Path("plugin/skills").glob("*/SKILL.md"))
+          for path in ("README.md", "plugin/README.md"):
+              doc = pathlib.Path(path).read_text()
+              missing = [s for s in on_disk if f"`{s}`" not in doc]
+              assert not missing, (path, missing)
+          # And each SKILL.md declares the name of the directory it is in,
+          # which is what the plugin loader keys on.
+          for skill in on_disk:
+              head = pathlib.Path(f"plugin/skills/{skill}/SKILL.md").read_text()
+              assert re.search(rf"^name: {re.escape(skill)}$", head, re.M), skill
+          count = {"six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+                   "eleven": 11, "twelve": 12}
+          readme = pathlib.Path("README.md").read_text()
+          for word, n in count.items():
+              for hit in re.finditer(rf"\b{word} skills\b", readme):
+                  assert n == len(on_disk), (word, n, len(on_disk))
+          print(f"{len(on_disk)} skills on disk, named in both READMEs: {on_disk}")
+          EOF
       - name: every prose count of the tool list is the number the server serves
         run: |
           set -o pipefail

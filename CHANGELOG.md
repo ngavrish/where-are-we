@@ -168,12 +168,6 @@ the map and nothing read them end to end; this release starts doing that.
   head that does not say so reads as a coverage report. A map with no step
   function at all says there are no steps to reach from and prints no list,
   rather than naming every definition it holds.
-- The three graph answers are cut by one function rather than three. The
-  handle kinds `more:rch:<block>:<name>:<offset>` and
-  `more:unr:<block>:<rows>:<offset>` join `more:aff:`, resolved the same way:
-  what to walk is in the handle, the walk is run again over the map on disk,
-  and nothing is stored between the two calls.
-- The MCP server serves eighteen tools.
 - How one function reaches another: `path` (MCP), `--path A,B`,
   `--path-depth N`. Breadth first over the same `calls` rows, forward this
   time, caller to callee. One hop per line with the rule that placed the edge
@@ -310,18 +304,67 @@ the map and nothing read them end to end; this release starts doing that.
   same head and the same shape `unreached` prints, and the budget may cut it
   without taking a count or a caveat with it. Measured: 168, 178, 102 to 164
   and 50 to 153 characters against 988, 506, 194 to 236 and 50 to 253 before.
-- All four are cut by the rules every other answer here is cut by, through
-  the same code: whole rows, a floor share of the budget per block with what
-  nobody claims handed on in printing order, a `more:` handle under a block
-  that was cut, and one "raise the budget" line with a handle for a block
-  there was no room for at all. `affected`'s renderer became that shared one
-  and is byte for byte what it was. The new handle kinds are `more:pth:`,
-  `more:rng:`, `more:dead:` and `more:hot:`, each carrying its own question
-  and nothing stored between the call that printed it and the call that uses
-  it.
-- `tools/list` moves from 12 to 16 and every pin in the workflow moves with
-  it; the session banner the plugin prints names all sixteen, and a CI step
-  fails when a tool the server declares is missing from that line.
+- All seven are cut by the rules every other answer here is cut by, through
+  one function rather than seven: whole rows, a floor share of the budget per
+  block with what nobody claims handed on in printing order, a `more:` handle
+  under a block that was cut, and one "raise the budget" line with a handle
+  for a block there was no room for at all. `affected`'s renderer became that
+  shared one and is byte for byte what it was. The handle kinds are
+  `more:aff:`, `more:rch:`, `more:unr:`, `more:pth:`, `more:rng:`,
+  `more:dead:` and `more:hot:`, each carrying its own question and nothing
+  stored between the call that printed it and the call that uses it: what to
+  walk is in the handle, the walk runs again over the map on disk, and a
+  rebuilt map answers "no such handle in this map" rather than a slice of
+  some other list.
+- A `find` chain advances past a hit longer than the budget. `find_text`
+  refused when not even the first hit fitted whole, and the refusal was
+  itself over the budget: on this repository's own map `more:find:invoice:0`
+  at 150 characters returned 111 characters of "no such handle" and stranded
+  all 166 hits behind one row of 152. It now prints that hit cut and marked,
+  with the handle on the hit after it, through the same `_cut_row` the other
+  chains were repaired with. The two CI assertions that read a refusal as an
+  answer that fitted are the reason it stood for a round; both now assert the
+  budget and the absence of a refusal separately.
+- A map with no call graph edge says so, in `affected`, `reaches` and
+  `unreached` alike. The resolution rate does not catch this on its own: a
+  name the caller's own file declares is resolved without becoming an edge,
+  so a JavaScript suite whose call sits in the arrow passed to `it(...)`
+  reads 100 percent resolved with an empty graph, and `unreached` then lists
+  the whole product under a head whose only caveat reassures the reader.
+- A page object owns a selector, and the word alone is not one. The shape
+  half of the rule counted the bare words XPATH, SELECTOR, LOCATOR, CSS,
+  data-testid and By. anywhere in a file, which put this project's own
+  `_mapper/build.py` in `page_objects`, because the words are in that file
+  for the reason it finds them elsewhere. It now wants the punctuation that
+  makes each word a selector: a locator constant being assigned, a
+  `data-testid=` followed by the quote that opens its value, an attribute
+  read off Selenium's `By`. A class with three locator constants under
+  neither a `pages/` directory nor a `*_page.py` name is still found.
+- `dead` says why a class only ever constructed is in its list. The resolver
+  places a callee by the function declarations it indexed and keeps class
+  names in a table of its own, so a construction writes no `calls` row from
+  anywhere, module level or not, and `CheckoutPage` is the one row `dead`
+  returns on this project's flagship fixture. That is a row of
+  `## How this was counted` now rather than a fact a reader has to discover.
+- `ENTRY_POINTS` and `_entry_name` are two exclusion rules on purpose, and
+  the README says why. `unreached` counts a definition to say what share of
+  the product the tests cover, so every name a rule drops leaves the
+  denominator with it; `dead` asks what nothing calls, where a name the
+  runtime or the runner calls is not an answer. Each answer's
+  `## How this was counted` block prints its own list.
+- A README section, "What to re-run after a change": the `--changed <base>
+  --affected-format behave --affected-out sel.txt` pipeline with the guard
+  that makes it right, the five things the guard is there for, and the clause
+  that says what the selection cannot see. A CI step runs that pipeline
+  verbatim on a git fixture in all three of its branches, and behave itself
+  agrees the selection is the scenarios named and not the rest.
+- `tools/list` moves from 12 to 18 and every pin in the workflow moves with
+  it; the session banner the plugin prints names all eighteen, and two CI
+  steps fail on a stale number: one when a tool the server declares is
+  missing from the banner, and one that reads every prose count of the tool
+  list in every document and checks it against `mcp.TOOLS`. That second step
+  is what found ten stale counts across four documents while these five
+  changes were being merged.
 
 ## 1.5.0
 

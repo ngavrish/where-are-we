@@ -66,7 +66,10 @@ grepped.
   so a reviewer can see which of the two put a row where it is; that section
   is the forty busiest files, so anything outside it counts 1, and an older
   map that can only count five commit lines a file prints `5+`.
-- **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
+- **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`,
+  `readmes`, and three for the graph answers: `what-to-rerun`
+  (`affected`, `reaches`, `unreached`), `lines-to-edit` (`range`,
+  `path`) and `what-to-look-at` (`hot`, `dead`).
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are
   refused with the map's tools named instead - what a headless agent wants,
