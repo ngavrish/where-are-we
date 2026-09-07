@@ -6,9 +6,12 @@ grepped.
 - **SessionStart hook** builds `.wawe/framework_map.md` (or rebuilds it after a
   commit) and puts the map's ~600-byte pointer into the session's context. The
   map itself stays on disk.
-- **MCP server** `where-are-we` exposes the map as six tools: `ask`, `find`,
-  `defines`, `sections`, `callers`, and `more`, which takes the handle an
-  answer printed where it was cut and returns the part that was left out.
+- **MCP server** `where-are-we` exposes the map as eight tools: `ask`, `find`,
+  `defines`, `sections`, `callers`, `callees`, `impact`, and `more`, which
+  takes the handle an answer printed where it was cut and returns the part
+  that was left out. `callees` is the other direction of `callers`, and
+  `impact` walks that graph back several hops at once: every `file:func` that
+  reaches a name, grouped by how far away it is.
 - **Skills**: `orient`, `ask`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

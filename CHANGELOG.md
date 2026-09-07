@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.0
+
+- `callees` (MCP), `--callees NAME`: what a function calls, the other
+  direction of `callers`, from the two call graphs the map already holds.
+- `impact` (MCP), `--impact NAME [--impact-depth N]`: every `file:func` that
+  reaches a name within N hops, grouped by hop, cycles walked once, capped at
+  200 entries.
+
 ## 1.2.0
 
 Two ideas taken from Headroom (headroomlabs-ai/headroom), rebuilt for a map

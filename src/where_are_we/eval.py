@@ -652,6 +652,17 @@ def _run_map_tool(name: str, args: dict, out_dir: str) -> str:
             lines.append(f"{w}: " + ", ".join(hits) if hits
                          else f"nothing in the map calls {w}")
         return "\n".join(lines)
+    if name == "callees" and hasattr(_ask, "callees_line"):
+        wanted = args.get("name")
+        wanted = wanted if isinstance(wanted, list) else [str(wanted or "")]
+        return "\n".join(_ask.callees_line(json_path, str(w)) for w in wanted)
+    if name == "impact" and hasattr(_ask, "impact"):
+        wanted = args.get("name")
+        wanted = wanted if isinstance(wanted, list) else [str(wanted or "")]
+        asked_depth = args.get("depth")
+        depth = int(asked_depth) if isinstance(asked_depth, int) else 3
+        return _joined([(str(w), _ask.impact(json_path, str(w), depth))
+                        for w in wanted])
     if name == "find":
         # `limit` is in the tool's schema, so an agent that sets it gets what
         # it asked for; the batch splits it the way the server does.

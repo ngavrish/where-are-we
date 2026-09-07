@@ -200,6 +200,100 @@ jobs:
             '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"callers","arguments":{"name":"f"}}}' \
             | where-are-we --out /tmp/wcmap --mcp \
             | grep -q "f: y.py:g"
+      - name: callees and impact walk the graph the map holds
+        run: |
+          set -o pipefail
+          rm -rf /tmp/imp /tmp/impmap /tmp/impcap
+          mkdir -p /tmp/imp
+          # a -> b -> c -> d, and d -> b closes a cycle. The walk back from
+          # `d` must reach c, b, a one hop at a time and stop, not loop.
+          printf 'from b import b\n\ndef a():\n    return b()\n' > /tmp/imp/a.py
+          printf 'from c import c\n\ndef b():\n    return c()\n' > /tmp/imp/b.py
+          printf 'from d import d\n\ndef c():\n    return d()\n' > /tmp/imp/c.py
+          printf 'from b import b\n\ndef d():\n    return b()\n' > /tmp/imp/d.py
+          where-are-we --repo /tmp/imp --out /tmp/impmap --quiet
+          where-are-we --out /tmp/impmap --callees b | grep -qx "b: c (c.py)"
+          where-are-we --out /tmp/impmap --impact d --impact-depth 1 \
+            | grep -qx "depth 1: c.py:c"
+          where-are-we --out /tmp/impmap --impact d --impact-depth 3 > /tmp/imp/d3.txt
+          grep -qx "depth 1: c.py:c" /tmp/imp/d3.txt
+          grep -qx "depth 2: b.py:b" /tmp/imp/d3.txt
+          grep -qx "depth 3: a.py:a" /tmp/imp/d3.txt
+          grep -q "cross-file callers only" /tmp/imp/d3.txt
+          # Depth 6 on the same cycle returns the same three hops: the visited
+          # set is what stops it, not the depth running out.
+          where-are-we --out /tmp/impmap --impact d --impact-depth 6 \
+            | sed 's/to depth 6/to depth 3/' > /tmp/imp/d6.txt
+          diff /tmp/imp/d3.txt /tmp/imp/d6.txt
+          # A name nobody calls, and a depth outside 1..6.
+          where-are-we --out /tmp/impmap --impact nosuchname \
+            | grep -qx "nothing in the map calls nosuchname"
+          where-are-we --out /tmp/impmap --impact d --impact-depth 9 \
+            | grep -qx "depth must be a whole number from 1 to 6, not 9"
+          # The cross-file graph the polyglot step built: callees is the other
+          # direction of callers, across TypeScript and Go.
+          where-are-we --out /tmp/cgmap --callees pay | grep -qx "pay: charge (a.ts)"
+          where-are-we --out /tmp/cgmap --callees Run | grep -qx "Run: Serve (s.go)"
+          where-are-we --out /tmp/cgmap --callees charge \
+            | grep -qx "charge calls nothing in the map"
+          # A behave step function is in both graphs, and the same callee
+          # must not come back twice, once bare and once with its file.
+          rm -rf /tmp/impsuite
+          cp -r tests/golden/maps/suite /tmp/impsuite
+          where-are-we --out /tmp/impsuite --callees step_pay_1 \
+            | grep -qx "step_pay_1: click_1 (checkout.py)"
+          # Two files defining one name: the walk follows both and says so.
+          rm -rf /tmp/dup /tmp/dupmap
+          mkdir -p /tmp/dup
+          printf 'def leaf():\n    return 1\n' > /tmp/dup/helper.py
+          printf 'from helper import leaf\n\ndef shared():\n    return leaf()\n' > /tmp/dup/p.py
+          printf 'from helper import leaf\n\ndef shared():\n    return leaf()\n' > /tmp/dup/q.py
+          printf 'from p import shared\n\ndef top():\n    return shared()\n' > /tmp/dup/top.py
+          where-are-we --repo /tmp/dup --out /tmp/dupmap --quiet
+          where-are-we --out /tmp/dupmap --impact leaf --impact-depth 2 > /tmp/dup/out.txt
+          grep -qx "depth 1: p.py:shared, q.py:shared" /tmp/dup/out.txt
+          grep -qx "depth 2: top.py:top" /tmp/dup/out.txt
+          grep -qF 'note: 2 files define `shared` (p.py:shared, q.py:shared)' /tmp/dup/out.txt
+          # The 200-entry cap, on a map written by hand: a real build caps its
+          # own call graph at 60 entries, so 250 callers only exist here.
+          mkdir -p /tmp/impcap
+          printf '# Map\n' > /tmp/impcap/framework_map.md
+          python - <<'EOF'
+          import json
+          graph = {"c%03d.py:f%03d" % (i, i): ["hot (hotmod.py)"] for i in range(250)}
+          json.dump({"schema": "where-are-we/1", "call_graph_files": graph,
+                     "call_graph": {}},
+                    open("/tmp/impcap/framework_map.json", "w"))
+          EOF
+          where-are-we --out /tmp/impcap --impact hot > /tmp/impcap/out.txt
+          grep -qx "… 50 more at depth 1. Ask again with a smaller depth." /tmp/impcap/out.txt
+          python - <<'EOF'
+          line = [l for l in open("/tmp/impcap/out.txt") if l.startswith("depth 1: ")][0]
+          shown = line.split(": ", 1)[1].strip().split(", ")
+          assert len(shown) == 200, len(shown)
+          assert shown[0] == "c000.py:f000" and shown[-1] == "c199.py:f199", shown[:1] + shown[-1:]
+          print("impact cap: 200 shown of 250, sorted inside the hop")
+          EOF
+          # The CLI and the MCP tool answer the same bytes, both tools.
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"callees","arguments":{"name":"b"}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"impact","arguments":{"name":"d","depth":3}}}' \
+            | where-are-we --out /tmp/impmap --mcp > /tmp/imp/mcp.jsonl
+          where-are-we --out /tmp/impmap --callees b > /tmp/imp/cli-callees.txt
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/imp/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          assert names == ["ask", "callees", "callers", "defines", "find",
+                           "impact", "more", "sections"], names
+          print("tools/list:", len(names), names)
+          for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
+              mcp = rows[i]["result"]["content"][0]["text"]
+              cli = pathlib.Path(path).read_text()
+              assert mcp == cli.rstrip("\n"), (path, mcp, cli)
+          print("MCP callees/impact and --callees/--impact agree, byte for byte")
+          EOF
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
@@ -2437,7 +2531,8 @@ jobs:
                     f"handle field) at {limit}: {len(whole)} rows, {len(missing)} out of reach")
               assert not missing, sorted(missing)[:2]
           EOF
-          # 6. Six tools, and the MCP `more` and `--more` answer the same.
+          # 6. Every tool the server declares, and the MCP `more` and
+          # `--more` answer the same.
           printf '%s\n%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
             "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"more\",\"arguments\":{\"handle\":\"$(cat /tmp/more/handle.txt)\"}}}" \
@@ -2447,7 +2542,8 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/more/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
-          assert names == ["ask", "callers", "defines", "find", "more", "sections"], names
+          assert names == ["ask", "callees", "callers", "defines", "find",
+                           "impact", "more", "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"

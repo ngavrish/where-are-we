@@ -28,9 +28,10 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import log_answer, callers, map_heads
+    from .ask import log_answer, callees_line, callers, impact, map_heads
 except ImportError:  # run as a plain file, with no package around it
-    from ask import log_answer, callers, map_heads  # type: ignore[no-redef]
+    from ask import (log_answer, callees_line,  # type: ignore[no-redef]
+                     callers, impact, map_heads)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -134,6 +135,44 @@ TOOLS = [
             "type": "object",
             "properties": {"name": {"type": ["string", "array"],
                                     "items": {"type": "string"}}},
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "callees",
+        "description": (
+            "What a function calls, the other direction of `callers`: every "
+            "callee of the functions named this, each with the file it is "
+            "defined in. Same graphs, same languages, cross-file only: a "
+            "call to a function defined in the same file is not in them. "
+            "Matching is case-sensitive and exact. `name` takes a list."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": ["string", "array"],
+                                    "items": {"type": "string"}}},
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "impact",
+        "description": (
+            "The blast radius of a name: every `<file>:<func>` that reaches "
+            "it through the call graph, grouped by how many calls away it "
+            "is. Depth 1 is what `callers` returns, depth 2 is who calls "
+            "those, and so on to `depth` (1 to 6, 3 by default). Cycles are "
+            "walked once. Ask this before changing a function, instead of "
+            "chasing call sites outward by hand. Capped at 200 entries: "
+            "there is no handle for the rest, because narrowing the depth "
+            "is the better answer than paging."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": ["string", "array"],
+                         "items": {"type": "string"}},
+                "depth": {"type": "integer", "minimum": 1, "maximum": 6,
+                          "description": "how many hops back to follow "
+                                         "(default 3)"},
+            },
             "required": ["name"],
         },
     },
@@ -326,6 +365,33 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         log_answer(out_dir, "callers", ", ".join(wanted), answer,
                    len(answer))
         _reply(_text(answer), ident)
+    elif name == "callees":
+        name_field = args.get("name")
+        if name_field is not None and not _is_str_or_str_list(name_field):
+            raise _BadParams("name must be a string or a list of strings")
+        json_path = os.path.join(out_dir, "framework_map.json")
+        wanted = _each(name_field)
+        answer = "\n".join(callees_line(json_path, w) for w in wanted)
+        log_answer(out_dir, "callees", ", ".join(wanted), answer,
+                   len(answer))
+        _reply(_text(answer), ident)
+    elif name == "impact":
+        name_field = args.get("name")
+        if name_field is not None and not _is_str_or_str_list(name_field):
+            raise _BadParams("name must be a string or a list of strings")
+        depth_field = args.get("depth")
+        if depth_field is not None and (not isinstance(depth_field, int)
+                                        or isinstance(depth_field, bool)):
+            raise _BadParams("depth must be an integer")
+        json_path = os.path.join(out_dir, "framework_map.json")
+        depth = 3 if depth_field is None else int(depth_field)
+        wanted = _each(name_field)
+        pairs = []
+        for w in wanted:
+            a = impact(json_path, w, depth)
+            log_answer(out_dir, "impact", w, a, len(a))
+            pairs.append((w, a))
+        _reply(_text(_joined(pairs) if pairs else ""), ident)
     elif name == "find":
         phrase_field = args.get("phrase")
         if phrase_field is not None and not _is_str_or_str_list(phrase_field):

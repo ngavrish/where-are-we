@@ -723,12 +723,37 @@ def callers(map_json_path: str, name: str) -> list:
     trailing `(` on `name` is stripped first, so `callers(m, "charge(")`
     reads the same as `callers(m, "charge")`.
     """
+    m = _call_graphs(map_json_path)
+    return sorted(_calling_keys(m, _bare(name)))
+
+
+def _bare(name: str) -> str:
+    """A name as the call graphs spell it: `charge(` and `charge` are one."""
+    name = (name or "").strip()
+    return name[:-1] if name.endswith("(") else name
+
+
+def _call_graphs(map_json_path: str) -> dict:
+    """The map's JSON, or an empty dict when there is none to read.
+
+    Three functions here walk the same two graphs, and each of them used to
+    open and parse the file for itself.
+    """
     try:
         with open(map_json_path, encoding="utf-8") as fh:
-            m = json.load(fh) or {}
+            return json.load(fh) or {}
     except (OSError, ValueError):
-        return []
-    target = name[:-1] if name.endswith("(") else name
+        return {}
+
+
+def _calling_keys(m: dict, target: str) -> set:
+    """Every `<file>:<func>` key whose call graph entry names `target`.
+
+    Both graphs, matched the way each stores its callees: `call_graph_files`
+    holds `"<callee> (<file>)"` and `call_graph` (behave steps) holds bare
+    names. Case-sensitive and exact, because these are identifiers as
+    written, not prose.
+    """
     out = set()
     for key, calls in (m.get("call_graph_files") or {}).items():
         for c in calls:
@@ -738,7 +763,133 @@ def callers(map_json_path: str, name: str) -> list:
     for key, calls in (m.get("call_graph") or {}).items():
         if target in calls:
             out.add(key)
+    return out
+
+
+def _keys_named(m: dict, target: str) -> list:
+    """The graph keys that define `target`: `<file>:<func>` with that func.
+
+    A caller graph is walked by name, because a callee is recorded by name.
+    Several files may define one name, and then a hop through it reaches the
+    callers of all of them; these keys are what `impact` names when it says
+    so.
+    """
+    out = set()
+    for graph in ("call_graph_files", "call_graph"):
+        for key in (m.get(graph) or {}):
+            if key.rsplit(":", 1)[-1] == target:
+                out.add(key)
     return sorted(out)
+
+
+def callees(map_json_path: str, name: str) -> list:
+    """What the functions named `name` call: the other direction of `callers`.
+
+    Reads the same two graphs. `call_graph_files` already carries the file a
+    callee is defined in (`"charge (a.ts)"`) and that is returned whole;
+    `call_graph` (behave steps) records bare names and those come back bare,
+    because the map has no file to attach to them. Cross-file only, like the
+    graphs themselves: a call to a function defined in the same file is not
+    in them.
+    """
+    m = _call_graphs(map_json_path)
+    target = _bare(name)
+    out = set()
+    for graph in ("call_graph_files", "call_graph"):
+        for key, calls in (m.get(graph) or {}).items():
+            if key.rsplit(":", 1)[-1] == target:
+                out.update(calls)
+    # A behave step function is in both graphs, so one callee could come back
+    # twice: `click_1` from the step graph and `click_1 (checkout.py)` from
+    # the cross-file one. The bare spelling is the same fact with the file
+    # missing, so it goes when the qualified one is there.
+    qualified = {c.split(" (", 1)[0] for c in out if " (" in c}
+    return sorted(c for c in out if " (" in c or c not in qualified)
+
+
+def callees_line(map_json_path: str, name: str) -> str:
+    """`callees` as one line, so the CLI and the MCP tool answer the same."""
+    hits = callees(map_json_path, name)
+    if not hits:
+        return f"{name} calls nothing in the map"
+    return f"{name}: " + ", ".join(hits)
+
+
+IMPACT_CAP = 200  # entries one `impact` answer prints. Past it the answer
+# says how many are left and at which depth, and stops. There is no handle
+# to fetch the rest with, on purpose: this tool already takes a `depth`, and
+# a blast radius that overflows at depth 5 is not read by paging through it,
+# it is read by asking again at depth 2. Narrowing is the reader's move.
+IMPACT_MAX_DEPTH = 6
+
+
+def impact(map_json_path: str, name: str, depth: int = 3) -> str:
+    """The blast radius of `name`: who reaches it, grouped by hop distance.
+
+    Hop 1 is exactly what `callers` returns. Hop 2 is who calls those, and
+    so on to `depth`. A hop is walked by name, because that is what a callee
+    is recorded as: the key `b.py:b` is expanded through the name `b`, and
+    when more than one file defines `b` the walk follows all of them and the
+    answer says which.
+
+    A visited set carries across hops, so a cycle (`d` calls `b`, `b`
+    reaches `d`) is walked once and terminates rather than looping. The keys
+    that define `name` itself are visited before the walk starts: they are
+    the change, not its radius.
+    """
+    target = _bare(name)
+    caveat = (f"Impact of `{target}` to depth {depth}, cross-file callers "
+              "only: a call from within the file a name is defined in is "
+              "not in the map's call graph.")
+    if not isinstance(depth, int) or isinstance(depth, bool) \
+            or depth < 1 or depth > IMPACT_MAX_DEPTH:
+        return f"depth must be a whole number from 1 to {IMPACT_MAX_DEPTH}, not {depth!r}"
+    if not target:
+        return "impact needs a name to walk back from"
+    m = _call_graphs(map_json_path)
+
+    ambiguous, hops = [], []
+    seen_keys = set(_keys_named(m, target))
+    seen_names = {target}
+    frontier = [target]
+    for _hop in range(depth):
+        if not frontier:
+            break
+        found = set()
+        for n in frontier:
+            keys = _keys_named(m, n)
+            if len(keys) > 1 and n not in [a[0] for a in ambiguous]:
+                ambiguous.append((n, keys))
+            found |= _calling_keys(m, n)
+        fresh = sorted(found - seen_keys)
+        if not fresh:
+            break
+        seen_keys.update(fresh)
+        hops.append(fresh)
+        frontier = []
+        for key in fresh:
+            n = key.rsplit(":", 1)[-1]
+            if n not in seen_names:
+                seen_names.add(n)
+                frontier.append(n)
+
+    if not hops:
+        return caveat + f"\nnothing in the map calls {target}"
+
+    lines, left, room = [caveat], [], IMPACT_CAP
+    for i, hop in enumerate(hops, 1):
+        shown = hop[:room] if room > 0 else []
+        room -= len(shown)
+        if shown:
+            lines.append(f"depth {i}: " + ", ".join(shown))
+        if len(shown) < len(hop):
+            left.append(f"{len(hop) - len(shown)} more at depth {i}")
+    if left:
+        lines.append("… " + ", ".join(left) + ". Ask again with a smaller depth.")
+    for n, keys in ambiguous:
+        lines.append(f"note: {len(keys)} files define `{n}` ({', '.join(keys)}); "
+                     "callers of any of them are counted.")
+    return "\n".join(lines)
 
 
 def _callers_block(map_path: str, words: str, room: int) -> str:
