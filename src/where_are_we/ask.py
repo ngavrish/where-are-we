@@ -22,15 +22,24 @@ try:
     from ._mapper import rank as _rank_graph
     from .graph import (BLOCKS as AFFECTED_BLOCKS, DEFAULT_DEPTH,
                         FORMATS as AFFECTED_FORMATS, HEADS as AFFECTED_HEADS,
-                        NAMES as AFFECTED_NAMES, affected, block_lines,
-                        format_head, load as load_map, selectors, summary)
+                        NAMES as AFFECTED_NAMES,
+                        REACHES_BLOCKS, REACHES_HEADS, REACHES_NAMES,
+                        UNREACHED_BLOCKS, UNREACHED_HEADS, UNREACHED_LIMIT,
+                        UNREACHED_NAMES, affected, block_lines, format_head,
+                        load as load_map, reaches, reaches_lines,
+                        reaches_summary, selectors, summary, unreached,
+                        unreached_lines, unreached_summary)
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import rank as _rank_graph  # type: ignore[no-redef]
     from graph import (BLOCKS as AFFECTED_BLOCKS,  # type: ignore[no-redef]
                        DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
                        HEADS as AFFECTED_HEADS, NAMES as AFFECTED_NAMES,
-                       affected, block_lines, format_head, load as load_map,
-                       selectors, summary)
+                       REACHES_BLOCKS, REACHES_HEADS, REACHES_NAMES,
+                       UNREACHED_BLOCKS, UNREACHED_HEADS, UNREACHED_LIMIT,
+                       UNREACHED_NAMES, affected, block_lines, format_head,
+                       load as load_map, reaches, reaches_lines,
+                       reaches_summary, selectors, summary, unreached,
+                       unreached_lines, unreached_summary)
 
 # The default `--rank` and the MCP `rank` tool print, and the length of the
 # map's own `rank` key. The same number in both, so `--rank` with no files is
@@ -1613,7 +1622,7 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     kind = parts[0] if parts else ""
     fields = parts[1:]
     widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2,
-              "at": 2, "ctx": 3, "aff": 4}
+              "at": 2, "ctx": 3, "aff": 4, "rch": 3, "unr": 3}
     # The four kinds an answer's scope can reach. `find` searches the lines
     # and `at` a definition; neither is ordered by `--files`, so neither
     # carries the field and a handle that puts one there is malformed. `ctx`
@@ -1625,7 +1634,7 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     scoped = ("rows", "unmatched", "defs", "sections")
     if kind not in widths:
         return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
-                      "sections, find, at, ctx, aff")
+                      "sections, find, at, ctx, aff, rch, unr")
     sfield = ""
     if kind in scoped and len(fields) == widths[kind] + 1:
         sfield, fields = fields[-1], fields[:-1]
@@ -1712,6 +1721,60 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         chunk, reached = _block_chunk(
             head, lines[offset:], limit,
             lambda got: f"more:aff:{block}:{fields[1]}:{walked}:{got}", offset)
+        if reached == offset:
+            return _stale(f"line {offset + 1} of the {block} block does not "
+                          f"fit in {limit} characters")
+        return chunk
+
+    if kind == "rch":
+        # The same walk `reaches` did, from the same map, continuing from the
+        # line this offset counts to. The block and the name are in the
+        # handle and nothing is stored between the two calls.
+        block = fields[0]
+        if block not in REACHES_NAMES:
+            return _stale(f"{block!r} is not a reaches block; they are "
+                          + ", ".join(REACHES_NAMES))
+        try:
+            named = _decode(fields[1])
+        except ValueError as exc:
+            return _stale(f"{fields[1]!r} is not a name this wrote: {exc}")
+        lines = reaches_lines(
+            reaches(load_map(os.path.dirname(map_path) or "."), named), block)
+        if offset >= len(lines):
+            return _stale(f"the {block} block for {named!r} is {len(lines)} "
+                          f"line{'' if len(lines) == 1 else 's'} long, and "
+                          f"this handle asks for line {offset + 1} of it")
+        chunk, reached = _block_chunk(
+            REACHES_HEADS[block], lines[offset:], limit,
+            lambda got: f"more:rch:{block}:{fields[1]}:{got}", offset)
+        if reached == offset:
+            return _stale(f"line {offset + 1} of the {block} block does not "
+                          f"fit in {limit} characters")
+        return chunk
+
+    if kind == "unr":
+        # The same walk `unreached` did. The middle field is how many
+        # definitions were ranked, not a character budget: the offset counts
+        # rows of that list, so continuing it needs the list it counted.
+        block = fields[0]
+        if block not in UNREACHED_NAMES:
+            return _stale(f"{block!r} is not an unreached block; they are "
+                          + ", ".join(UNREACHED_NAMES))
+        try:
+            rows = int(fields[1])
+        except ValueError:
+            return _stale(f"{fields[1]!r} is not a row count")
+        if rows < 1:
+            return _stale("a row count cannot be below one")
+        lines = unreached_lines(
+            unreached(load_map(os.path.dirname(map_path) or "."), rows), block)
+        if offset >= len(lines):
+            return _stale(f"the {block} block is {len(lines)} "
+                          f"line{'' if len(lines) == 1 else 's'} long, and "
+                          f"this handle asks for line {offset + 1} of it")
+        chunk, reached = _block_chunk(
+            UNREACHED_HEADS[block], lines[offset:], limit,
+            lambda got: f"more:unr:{block}:{rows}:{got}", offset)
         if reached == offset:
             return _stale(f"line {offset + 1} of the {block} block does not "
                           f"fit in {limit} characters")
@@ -2700,7 +2763,25 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
         return lambda got: f"more:aff:{block}:{field}:{walked}:{got}"
 
     lines = {block: block_lines(result, block) for block in AFFECTED_NAMES}
-    blocks = tuple(entry for entry in AFFECTED_BLOCKS if lines[entry[0]])
+    return _cut_blocks(head, AFFECTED_BLOCKS, lines, handle_for, limit)
+
+
+def _cut_blocks(head: str, blocks: tuple, lines: dict, handle_for,
+                limit: int) -> str:
+    """One graph answer: a first line, then its blocks cut to what is left.
+
+    The three answers `graph.py` holds are cut identically, so they are cut
+    here rather than three times: each block gets the smaller of what it
+    needs and its floor share, what nobody claims is handed on in printing
+    order, a block that was cut ends in a tail carrying its handle, and a
+    block there was no room for at all still gets a line saying how many rows
+    it holds and the handle that fetches them.
+
+    A block with nothing in it is dropped before any of that: the first line
+    has already said the count, and heads over empty lists are budget spent
+    saying nothing twice.
+    """
+    blocks = tuple(entry for entry in blocks if lines[entry[0]])
     out = [head]
     # Every block pays for the blank line above it, so what the blocks divide
     # is what is left after the first line and those separators, and the
@@ -2784,3 +2865,63 @@ def _affected_rooms(room: int, blocks: tuple, lines: dict, handle_for) -> dict:
         if again == short:
             break
     return given
+
+
+# What one `reaches` or `unreached` answer may take, in characters. The same
+# ceiling `ask()`, `context` and `affected` print at, so an answer read off
+# the command line and the same answer read off the MCP tool are one answer
+# at one size.
+REACHES_BUDGET = 12000
+UNREACHED_BUDGET = 12000
+
+
+def reaches_answer(map_path: str, name: str,
+                   limit: int = REACHES_BUDGET) -> str:
+    """Which scenarios and routes reach one name, from the graph in the map.
+
+    `graph.reaches` does the walk and this cuts it, with the same first line,
+    floor shares, tails and handles every other graph answer here has. The
+    handle kind is `more:rch:<block>:<name>:<offset>`: the block and the name
+    are in it, the walk is run again over the map on disk, and nothing is
+    stored between the two calls.
+    """
+    named = (name or "").strip()
+    if not named:
+        return "reaches needs a name"
+    result = reaches(load_map(os.path.dirname(map_path) or "."), named)
+    head = reaches_summary(result, limit)
+    if len(head) > limit:
+        # `limit` is a ceiling here as it is everywhere else in this module,
+        # and this line is the smallest thing the answer has to say.
+        return ""
+    field = _encode(named)
+
+    def handle_for(block: str):
+        return lambda got: f"more:rch:{block}:{field}:{got}"
+
+    lines = {block: reaches_lines(result, block) for block in REACHES_NAMES}
+    return _cut_blocks(head, REACHES_BLOCKS, lines, handle_for, limit)
+
+
+def unreached_answer(map_path: str, rows: int = UNREACHED_LIMIT,
+                     limit: int = UNREACHED_BUDGET) -> str:
+    """The product this map's steps never reach, ranked, from the same walk.
+
+    `rows` is how many definitions are ranked and printed and `limit` how
+    many characters the answer may take. Two ceilings because they answer
+    two different questions: a reader who wants the whole tail raises `rows`,
+    and a caller with a small budget lowers `limit` and follows the
+    `more:unr:<block>:<rows>:<offset>` handle the tail carries.
+    """
+    m = load_map(os.path.dirname(map_path) or ".")
+    result = unreached(m, rows)
+    head = unreached_summary(result, limit)
+    if len(head) > limit:
+        return ""
+    walked = result["limit"]
+
+    def handle_for(block: str):
+        return lambda got: f"more:unr:{block}:{walked}:{got}"
+
+    lines = {block: unreached_lines(result, block) for block in UNREACHED_NAMES}
+    return _cut_blocks(head, UNREACHED_BLOCKS, lines, handle_for, limit)
