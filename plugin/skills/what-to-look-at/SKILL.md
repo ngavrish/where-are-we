@@ -37,9 +37,9 @@ before it says anything else.
 - **Most rows on a library are calls the map could not place**, not
   definitions nothing calls: only cross-file calls are in the graph, so a call
   inside the file that declares the callee leaves no row, and neither does a
-  call through an imported module. On this repository 359 of 517, of which a
-  spot check found one genuinely dead. On a test suite, where a page object is
-  called from step modules, it is sharp.
+  call through an imported module. On this repository at 1.6.0, 385 of 554.
+  On a test suite, where a page object is called from step modules, it is
+  sharp.
 - **A class only ever constructed is in the list.** The resolver places a
   callee by the function declarations it indexed and keeps class names in a
   table of its own, so `page = CheckoutPage()` writes no call row from
