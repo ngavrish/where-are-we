@@ -124,7 +124,7 @@ wawe-eval --map .wawe --graph
 
 ```
 language  sites  resolved  ambiguous  edges  marked  resolution_rate  ambiguous_share
-  python   2219       528        105    153      56           0.2379           0.0473
+  python   2221       528        105    145      36           0.2377           0.0473
    ts_js      2         2          0      0       0              1.0              0.0
       go      3         2          0      0       0           0.6667              0.0
 ```

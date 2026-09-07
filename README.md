@@ -154,8 +154,8 @@ as estimates.
 | `--ask` synonyms and stemming | "login" also searches "signin", "auth"; "invoices" also searches "invoice"; a synonym or a stem scores at half the weight of the literal word, so it never outranks an exact hit; the first line says `(also matched: signin, auth)` when an expansion found something the literal words did not; `.wawe.toml`'s `[synonyms]` table adds a project's own words to the built-in groups | Not measured | — |
 | Rows under one directory printed once | `- \`features/checkout/\`` then the files | Not measured | Bytes of an answer before/after on a 40-row directory |
 | `## Defined here` (`defines`, `_definitions_for`) | A name → file:line, every declared name in every walked file | Not measured as turns saved; the README's claim is one question instead of `grep -rn` | Count `Grep` calls per session before/after (the run's call events) |
-| Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. A call to a name the calling file declares itself is not an edge. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 32 of the edges under them carry the mark, and the three the caller's own import decides are written plain, among them `cli.py:main -> build (build.py)`, which the release before this one named `build (ask.py)?` | Count `Grep` calls spent chasing a callee across files before/after |
-| `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2219 sites, 528 first-party, rate 0.2379, 105 ambiguous names (share 0.0473), 153 edges and 56 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
+| Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. Two calls are no edge at all: one to a name the calling file declares itself, and one made through a module this tree does not declare, which is what `ast.walk(...)` is. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 20 of the edges under them carry the mark, and the ones the caller's own import decides are written plain, among them `cli.py:main -> build (build.py)`, which the release before this one named `build (ask.py)?` | Count `Grep` calls spent chasing a callee across files before/after |
+| `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2221 sites, 528 first-party, rate 0.2377, 105 ambiguous names (share 0.0473), 145 edges and 36 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
 | `callees` (MCP), `--callees` | What a name calls, the other direction of `callers`: every callee with the file it is defined in, from the same two graphs, cross-file only | Not measured as turns saved; the claim is one lookup instead of reading the function to find out what it reaches | Count `Read` calls spent opening a function to list its calls before/after |
 | `impact` (MCP), `--impact NAME [--impact-depth N]` | The blast radius of a name: every `file:func` that reaches it within N hops (1 to 6, 3 by default), grouped by hop and sorted inside each. A visited set walks a cycle once, and the keys defining the name itself are the change rather than its radius. The first line of every reply states the rules the answer was built under, unconditionally: hops are followed by name, so where several files define one name their callers are unioned; only cross-file calls are in the graph; and the map keeps at most 60 cross-file and 120 step graph keys, so on a large repository the radius is a floor. Where the key data shows the clash a `note:` names up to five of the keys and how many more. Capped at 200 `file:func` entries in the whole reply, note keys included, with a line naming how many are left and at which depth; no handle to fetch them, because the tool already takes a depth and narrowing is the reader's move. A depth outside 1 to 6 is refused: exit 2 on the command line, JSON-RPC -32602 on the tool | Not measured as turns saved; the claim is one lookup instead of running `callers` outward by hand, hop after hop | Count `callers` calls per session before/after |
@@ -366,7 +366,7 @@ and this repository mapped with `--product none --no-semantic`:
 | code fixture | python | 7 | 0 | 0 | 0 | 0 | 0.0 | 0.0 |
 | poly fixture | ts_js | 3 | 3 | 0 | 1 | 0 | 1.0 | 0.0 |
 | poly fixture | go | 5 | 5 | 0 | 0 | 0 | 1.0 | 0.0 |
-| where-are-we | python | 2219 | 528 | 105 | 153 | 56 | 0.2379 | 0.0473 |
+| where-are-we | python | 2221 | 528 | 105 | 145 | 36 | 0.2377 | 0.0473 |
 | where-are-we | ts_js | 2 | 2 | 0 | 0 | 0 | 1.0 | 0.0 |
 | where-are-we | go | 3 | 2 | 0 | 0 | 0 | 0.6667 | 0.0 |
 
@@ -377,20 +377,23 @@ together, though. The poly fixture scores 1.0 in both languages and holds one
 edge, because a rate of 1.0 says every name it calls is declared nearby, not
 that a graph was drawn; `edges` is the half that says a graph was drawn.
 
-This repository's 0.2379 is what a Python tree looks like when most of what
+This repository's 0.2377 is what a Python tree looks like when most of what
 a function calls is a builtin, a method on an object or a standard library
-name. Of its 2219 sites, 575 are Python builtins and 641 are `str`, `list`,
+name. Of its 2221 sites, 575 are Python builtins and 643 are `str`, `list`,
 `dict` and `set` method names, so more than half the denominator is
 unreachable by any name graph, and 278 of the 528 first-party names have the
 calling file as their only home, which is a call the cross-file graph does
-not hold either. The graph under it is 153 edges, 56 of them marked.
+not hold either. The graph under it is 145 edges, 36 of them marked.
 
-Of the 60 keys the map keeps, 32 edges carry the mark. Mapping the previous
-release's own checkout with both releases, the same tree and the same 60
-keys, the count goes from 40 marks to 29, and three of the edges that lost
-the mark gained a different file with it: `cli.py:main -> build (ask.py)?`
-is now `build (build.py)`, read off `from ._mapper.build import build` at
-the top of the calling file.
+Of the 60 keys the map keeps, 20 edges carry the mark, and every one of them
+is a call through a receiver the map cannot name: `out.add(key)` where a
+nested `add` exists in two files, or `mapper.build(...)` where the module
+that re-exports `build` is not the file that declares it. Mapping the
+previous release's own checkout with both releases, the same tree and the
+same 60 keys, the count goes from 40 marks to 17. Some of those edges did
+not vanish, they were corrected: `cli.py:main -> build (ask.py)?` is now
+`build (build.py)`, read off `from ._mapper.build import build` at the top
+of the calling file.
 
 With `pip install "where-are-we[precise]"` the same numbers are computed
 again for the TypeScript, JavaScript and Go from a tree-sitter parse and

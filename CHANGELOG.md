@@ -6,18 +6,22 @@
   one indexed file declares the callee, and `charge (a.ts|c.ts)?` when
   several do: the edge names every file that declares the name, sorted, and
   the question mark says the map is choosing between them rather than letting
-  the reader take one file for a fact. Two calls that used to produce an edge
+  the reader take one file for a fact. Three calls that used to produce an edge
   no longer do or no longer guess: a plain call to a name the calling file
-  declares itself is a local call and is left out of a cross-file graph, and
-  a call the caller's own `from MOD import name` (or `import { name } from
-  "./mod"`) settles is written plain. `callers`, `callees` and `impact` match
+  declares itself is a local call and is left out of a cross-file graph; a
+  call through a module this tree does not declare, which is what
+  `ast.walk(...)` and `os.walk(...)` are, is not in the tree at all and is
+  left out too; and a call the caller's own `from MOD import name` (or
+  `import { name } from "./mod"`) settles is written plain. `callers`, `callees` and `impact` match
   on the name alone, so a marked edge is found exactly as an unmarked one is,
   and print the mark as they find it. Every `impact` reply now ends its rules
   line with "an edge ending in ? names every file that declares the callee,
   because more than one does". Mapping the previous release's checkout with
-  both releases, the marks under the same 60 keys go from 40 to 29, and
+  both releases, the marks under the same 60 keys go from 40 to 17, and
   `cli.py:main -> build (ask.py)?`, which pointed at the wrong `build`, is
-  now `build (build.py)`.
+  now `build (build.py)`. `--callers walk` on this repository's own map
+  used to answer with eleven callers of `ast.walk` and `os.walk` and not one
+  caller of a `walk` this tree declares.
 - Numbers for the call graph, and for the tree it was read from. The build
   records `call_graph_stats` in `framework_map.json`: per language group
   (`python`, `ts_js`, `go`) how many callee names the walk looked at
@@ -28,7 +32,7 @@
   first-party a tree's calls are: builtins, methods and standard library
   names are in its denominator and a same-file call is in its numerator, so
   it is a fact about the code rather than a score for the graph. On this
-  repository it is 0.2379 over 2219 Python sites, with 153 edges and 56 of
+  repository it is 0.2377 over 2221 Python sites, with 145 edges and 36 of
   them marked. `wawe-eval --map OUT --graph` prints all of it, and `--json`
   carries it. With the `precise` extra installed it parses the TypeScript,
   JavaScript and Go again with tree-sitter and prints the delta, which is

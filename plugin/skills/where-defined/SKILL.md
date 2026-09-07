@@ -58,9 +58,8 @@ one name their callers are unioned into the answer; only cross-file calls are
 in the graph; the map keeps a bounded number of graph keys, so on a large
 repository the radius is a floor rather than the whole of it; and an edge
 ending in `?` names every file that declares the callee, because more than one
-does. A cycle is
-walked once, not looped. The depth is 1 to 6 and 3 by default, and a depth
-outside that is refused rather than answered. At most 200 `file:func` entries
-come back, the keys in any `note:` line counted: when the answer says what it
-left out, ask again at a smaller depth rather than paging, which is why there
-is no handle for the rest.
+does. A cycle is walked once, not looped. The depth is 1 to 6 and 3 by
+default, and a depth outside that is refused rather than answered. At most 200
+`file:func` entries come back, the keys in any `note:` line counted: when the
+answer says what it left out, ask again at a smaller depth rather than paging,
+which is why there is no handle for the rest.
