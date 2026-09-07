@@ -1025,6 +1025,26 @@ jobs:
             echo "unexpected match: grep -q 'stopped after' /tmp/big/m2/framework_map.md"; exit 1
           fi
           grep -q C599_19 /tmp/big/m2/framework_map.json
+          # `wawe-eval --graph` walks the tree a second time to compare the
+          # map's pattern pass with a real parse. That walk counts entries and
+          # stops at the same cap, so the command a reader runs after a build
+          # is bounded the way the build is.
+          mkdir -p /tmp/big/r2/aaa /tmp/big/r2/zzz
+          python - <<'EOF'
+          for i in range(3000):
+              open(f"/tmp/big/r2/aaa/m{i:04d}.py", "w").write("K = 1\n")
+          open("/tmp/big/r2/zzz/late.ts", "w").write("export function pay() {}\n")
+          EOF
+          WAWE_MAX_FILES=2000 python -c "
+          from where_are_we.eval import _walk_source
+          found = _walk_source('/tmp/big/r2')
+          print('capped at 2000 entries, sources found:', len(found))
+          assert found == [], found"
+          python -c "
+          from where_are_we.eval import _walk_source
+          found = _walk_source('/tmp/big/r2')
+          print('uncapped, sources found:', len(found))
+          assert len(found) == 1, found"
 
       - name: --force reads nothing from the parse cache and rewrites it
         run: |
@@ -2645,38 +2665,88 @@ jobs:
           print("MCP more and --more agree, byte for byte")
           EOF
 
-      - name: an edge whose callee two files define is marked, and matched without the mark
+      - name: an ambiguous edge names every file that declares the callee, and is matched without the mark
         run: |
           set -o pipefail
           rm -rf /tmp/mark /tmp/markmap
           mkdir -p /tmp/mark
-          # `charge` is declared twice and called from a third file. Which of
-          # the two the edge names is whichever the walk reached first, so the
-          # map writes it with a question mark.
+          # `charge` is declared in two files. `b.ts` calls it and says
+          # nothing about which one it means, so the edge names both of them,
+          # sorted; `d.ts` imports it from `./a`, so its edge names `a.ts`
+          # and carries no mark.
           printf 'export function charge(amount: number): string {\n  return `a ${amount}`;\n}\n' > /tmp/mark/a.ts
           printf 'export function charge(amount: number): string {\n  return `c ${amount}`;\n}\n' > /tmp/mark/c.ts
-          printf 'import { charge } from "./a";\n\nexport function payInvoice(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/mark/b.ts
+          printf 'export function payInvoice(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/mark/b.ts
+          printf 'import { charge } from "./a";\n\nexport function settle(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/mark/d.ts
           where-are-we --repo /tmp/mark --out /tmp/markmap --product none \
             --force --quiet --no-semantic
           python - <<'EOF'
           import json
           m = json.load(open("/tmp/markmap/framework_map.json"))
-          edges = m["call_graph_files"]["b.ts:payInvoice"]
-          assert len(edges) == 1, edges
-          assert edges[0] in ("charge (a.ts)?", "charge (c.ts)?"), edges
+          graph = m["call_graph_files"]
+          # Every candidate, sorted, so the byte is the same whatever order
+          # the filesystem handed the two declarations over in.
+          assert graph["b.ts:payInvoice"] == ["charge (a.ts|c.ts)?"], graph
+          # An import that names one file decides it, and a decided edge
+          # carries no mark.
+          assert graph["d.ts:settle"] == ["charge (a.ts)"], graph
+          # `a.ts` declares `charge` itself, and the pattern pass reads a
+          # function's own signature line as a call: not an edge out of it.
+          assert "a.ts:charge" not in graph, graph
           stats = m["call_graph_stats"]["ts_js"]
           assert stats["ambiguous"] > 0, stats
-          print("marked edge:", edges[0], stats)
+          assert stats["edges"] == 1 and stats["marked"] == 1, stats
+          print("marked edge:", graph["b.ts:payInvoice"][0], stats)
           EOF
-          # The mark is printed, and matched through: `callers` finds the
-          # caller by the bare name, `callees` hands the mark back.
+          # The mark is printed, and matched through: `callers` finds both
+          # callers by the bare name, `callees` hands the mark back.
           where-are-we --out /tmp/markmap --callers charge > /tmp/mark/callers.txt
           grep -qx "b.ts:payInvoice" /tmp/mark/callers.txt
-          where-are-we --out /tmp/markmap --callees payInvoice | grep -qE '^payInvoice: charge \((a|c)\.ts\)\?$'
+          grep -qx "d.ts:settle" /tmp/mark/callers.txt
+          where-are-we --out /tmp/markmap --callees payInvoice | grep -qxF 'payInvoice: charge (a.ts|c.ts)?'
           # And every `impact` reply says what the mark means.
           where-are-we --out /tmp/markmap --impact charge --impact-depth 2 > /tmp/mark/impact.txt
-          head -1 /tmp/mark/impact.txt | grep -qF "an edge ending in ? is a guess: the name is defined in more than one file."
-          grep -qx "depth 1: b.ts:payInvoice" /tmp/mark/impact.txt
+          head -1 /tmp/mark/impact.txt | grep -qF "an edge ending in ? names every file that declares the callee, because more than one does."
+          grep -qx "depth 1: b.ts:payInvoice, d.ts:settle" /tmp/mark/impact.txt
+          # The same three rules in Python, and the same tree written twice in
+          # opposite order: a call to a name this file declares is no edge, an
+          # import decides between two homes, and an undecided edge names
+          # both. The two maps agree byte for byte, so no byte of the graph
+          # comes from the order the walk read the files in.
+          rm -rf /tmp/markpy1 /tmp/markpy2
+          mkdir -p /tmp/markpy1 /tmp/markpy2
+          write_charge() {
+            printf 'def charge(x):\n    return x\n' > "$1/$2.py"
+          }
+          write_rest() {
+            printf 'def charge(x):\n    return x\n\n\ndef pay_local(x):\n    return charge(x)\n' > "$1/local.py"
+            printf 'from aa import charge\n\n\ndef pay_imported(x):\n    return charge(x)\n' > "$1/imp.py"
+            printf 'def pay_invoice(x):\n    return charge(x)\n' > "$1/z.py"
+          }
+          write_charge /tmp/markpy1 aa
+          write_charge /tmp/markpy1 bb
+          write_rest /tmp/markpy1
+          write_charge /tmp/markpy2 bb
+          write_charge /tmp/markpy2 aa
+          write_rest /tmp/markpy2
+          for d in 1 2; do
+            where-are-we --repo "/tmp/markpy$d" --out "/tmp/markpy$d/out" \
+              --product none --force --quiet --no-semantic
+          done
+          python - <<'EOF'
+          import json
+          maps = [json.load(open(f"/tmp/markpy{n}/out/framework_map.json"))
+                  for n in (1, 2)]
+          graphs = [m["call_graph_files"] for m in maps]
+          assert graphs[0] == graphs[1], graphs
+          graph = graphs[0]
+          assert graph["z.py:pay_invoice"] == ["charge (aa.py|bb.py|local.py)?"], graph
+          assert graph["imp.py:pay_imported"] == ["charge (aa.py)"], graph
+          assert "local.py:pay_local" not in graph, graph
+          stats = maps[0]["call_graph_stats"]["python"]
+          assert stats["edges"] == 1 and stats["marked"] == 1, stats
+          print("python:", graph, stats)
+          EOF
           # A name exactly one file defines keeps a bare edge: the poly
           # fixture's `charge` is declared once, and its edge carries no mark.
           rm -rf /tmp/markpoly
@@ -2693,25 +2763,34 @@ jobs:
               m["call_graph_files"]
           assert all(row["ambiguous"] == 0 for row in m["call_graph_stats"].values()), \
               m["call_graph_stats"]
+          assert all(row["marked"] == 0 for row in m["call_graph_stats"].values()), \
+              m["call_graph_stats"]
           print("poly: unique edges carry no mark")
           EOF
 
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"
         run: |
           set -o pipefail
-          # The poly fixture from the step above, mapped the way the golden
-          # suite maps it, so these numbers are about the walk and not about
-          # whatever landed in this repository this week.
-          wawe-eval --map /tmp/markpoly/poly/out --graph > /tmp/markpoly/graph.txt
-          cat /tmp/markpoly/graph.txt
-          grep -q "resolution_rate" /tmp/markpoly/graph.txt
+          # This step builds the fixtures it reads, so what it asserts does
+          # not depend on which steps ran before it.
+          rm -rf /tmp/graphfix
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/graphfix')
+          "
+          wawe-eval --map /tmp/graphfix/poly/out --graph > /tmp/graphfix/graph.txt
+          cat /tmp/graphfix/graph.txt
+          grep -q "resolution_rate" /tmp/graphfix/graph.txt
+          grep -q "edges" /tmp/graphfix/graph.txt
           # Without the precise extra the tree-sitter half says so rather than
           # printing a zero.
-          grep -q "regex vs tree-sitter: not compared" /tmp/markpoly/graph.txt
-          wawe-eval --map /tmp/markpoly/poly/out --graph --json > /tmp/markpoly/graph.json
+          grep -q "regex vs tree-sitter: not compared" /tmp/graphfix/graph.txt
+          wawe-eval --map /tmp/graphfix/poly/out --graph --json > /tmp/graphfix/graph.json
           python - <<'EOF'
           import json
-          report = json.load(open("/tmp/markpoly/graph.json"))
+          report = json.load(open("/tmp/graphfix/graph.json"))
           assert report["has_call_graph_stats"], report
           langs = {row["language"]: row for row in report["languages"]}
           assert set(langs) == {"ts_js", "go"}, sorted(langs)
@@ -2720,22 +2799,36 @@ jobs:
                   v = row[key]
                   assert isinstance(v, float) and 0.0 <= v <= 1.0, (name, key, row)
               # Every callee name the walk looked at in the poly fixture is
-              # declared in it: two known edges, nothing guessed, nothing lost.
+              # declared in it, and none of them is declared twice.
               assert row["resolved"] == row["sites"] > 0, row
-              assert row["ambiguous"] == 0, row
+              assert row["ambiguous"] == 0 and row["marked"] == 0, row
               assert row["resolution_rate"] == 1.0, row
-          print("poly: resolved == sites in", sorted(langs))
+          # A rate is a property of the tree that was read; `edges` is the
+          # graph that was written, and the fixture's one cross-file call is
+          # in it. A map with no edges at all cannot pass this line.
+          assert langs["ts_js"]["edges"] == 1, langs["ts_js"]
+          assert sum(row["edges"] for row in langs.values()) > 0, langs
+          print("poly: resolved == sites in", sorted(langs),
+                "edges", {k: v["edges"] for k, v in sorted(langs.items())})
           EOF
           # The key is in every map the build writes, including one with no
           # call graph at all, so SCHEMA.md documents something always emitted.
           python - <<'EOF'
           import json
           for fixture in ("suite", "code", "poly"):
-              m = json.load(open(f"/tmp/markpoly/{fixture}/out/framework_map.json"))
+              m = json.load(open(f"/tmp/graphfix/{fixture}/out/framework_map.json"))
               stats = m["call_graph_stats"]
               assert isinstance(stats, dict), (fixture, stats)
+              edges = sum(len(v) for v in m["call_graph_files"].values())
+              written = 0
               for lang, row in sorted(stats.items()):
                   assert row["sites"] >= row["resolved"] >= 0, (fixture, lang, row)
                   assert row["sites"] >= row["ambiguous"] >= 0, (fixture, lang, row)
+                  assert row["marked"] >= 0 and row["edges"] >= 0, (fixture, lang, row)
+                  written += row["edges"] + row["marked"]
+              # The counters are taken before the 60-key cap, so they count
+              # every edge the graph holds and may count more.
+              assert written >= edges, (fixture, written, edges)
               print(fixture, stats)
           EOF
+
