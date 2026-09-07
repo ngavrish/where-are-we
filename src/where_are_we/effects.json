@@ -14,6 +14,7 @@
     "--docs": "writes-repo",
     "--dry-run": "read",
     "--effects": "read",
+    "--files": "read",
     "--for": "read",
     "--force": "writes-map-dir",
     "--help": "read",
@@ -23,6 +24,7 @@
     "--init": "writes-repo",
     "--install-hook": "writes-config",
     "--json": "read",
+    "--limit": "read",
     "--lsp": "read",
     "--max-lines": "read",
     "--mcp": "read",
@@ -33,6 +35,7 @@
     "--pointer": "read",
     "--product": "read",
     "--quiet": "read",
+    "--rank": "read",
     "--repo": "read",
     "--rules": "read",
     "--runs-api": "network",
@@ -54,7 +57,7 @@
     "network"
   ],
   "notes": {
-    "read": "answers from what is already there. The flags that answer from a map (--ask, --more, --callers, --callees, --impact, --defines, --at, --context, --sections) append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; nothing else is written, and nothing outside <out> is.",
+    "read": "answers from what is already there. The flags that answer from a map (--ask, --more, --callers, --callees, --impact, --defines, --at, --context, --rank, --sections) append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
     "writes-repo": "writes into the repository being mapped: a manifest, an agent file, the READMEs a directory has none of.",
     "writes-config": "writes where a tool other than this one reads: .git/hooks, ~/.claude/settings.json, ~/.codex/config.toml, a Cursor rule, a Gemini setting.",

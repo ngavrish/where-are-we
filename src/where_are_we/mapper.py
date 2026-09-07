@@ -59,7 +59,7 @@ import types
 try:
     from ._mapper import state
     from .ask import (_definitions_for, ask, at, context, definitions_for,
-                      more, spans_for)
+                      file_list, more, rank_lines, spans_for)
     from ._mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                                _SECRET_SHAPES, _cached, _config, _fingerprint,
                                _ignored, _ignores, _lines_matching,
@@ -81,7 +81,8 @@ try:
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
     from ask import (_definitions_for, ask, at,  # type: ignore[no-redef]
-                     context, definitions_for, more, spans_for)
+                     context, definitions_for, file_list, more, rank_lines,
+                     spans_for)
     from _mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                               _SECRET_SHAPES, _cached, _config, _fingerprint,
                               _ignored, _ignores, _lines_matching,
@@ -165,10 +166,10 @@ __all__ = [
     "CACHE_SCHEMA", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
     "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief",
     "build", "changed_since", "context", "declarations_in",
-    "definitions_for", "digest",
-    "find_text", "fingerprint", "for_audience", "index_declarations",
-    "index_lines", "meaning_tail", "more", "pointer", "record_span", "redact",
-    "spans_for", "spans_index",
+    "definitions_for", "digest", "file_list", "find_text", "fingerprint",
+    "for_audience", "index_declarations", "index_lines", "meaning_tail",
+    "more", "pointer", "rank_lines", "record_span", "redact", "spans_for",
+    "spans_index",
 ]
 
 

@@ -28,8 +28,9 @@ import sys
 # `src/where_are_we` is itself the import root.
 try:
     from . import ask as _ask, effects, hooks, lsp, mcp, specs
-    from .ask import (IMPACT_MAX_DEPTH, ask, at, callees_line, callers,
-                       context, impact, log_answer, map_heads, spans_for)
+    from .ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask, at, callees_line,
+                       callers, context, file_list, impact, log_answer,
+                       map_heads, rank_lines, spans_for)
     from ._mapper.build import build
     from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
                                  digest, for_audience, meaning_tail, pointer)
@@ -45,9 +46,9 @@ except ImportError:  # run as a plain file, with no package around it
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import (IMPACT_MAX_DEPTH, ask, at,  # type: ignore[no-redef]
-                     callees_line, callers, context, impact, log_answer,
-                     map_heads, spans_for)
+    from ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask,  # type: ignore[no-redef]
+                     at, callees_line, callers, context, file_list, impact,
+                     log_answer, map_heads, rank_lines, spans_for)
     from _mapper.build import build  # type: ignore[no-redef]
     from _mapper.render import (_as_dict, _cap_sections, brief,  # type: ignore[no-redef]
                                 changed_since, digest, for_audience,
@@ -490,6 +491,23 @@ def build_parser() -> argparse.ArgumentParser:
                          "one, each block on a fixed share of 12000 "
                          "characters with a handle for what it cut. Reads "
                          "the map under --out")
+    ap.add_argument("--rank", nargs="?", const="", default=None,
+                    dest="rank_files", metavar="FILE[,FILE...]",
+                    help="print the definitions this repository is built "
+                         "around, best first, by PageRank over its own file "
+                         "graph. Given files, the walk is personalised on "
+                         "them: what to read when you are editing those. "
+                         "`--ask WORDS` alongside it weighs the names in the "
+                         "question ten times. Reads framework_map.json "
+                         "under --out")
+    ap.add_argument("--files", default="", metavar="FILE[,FILE...]",
+                    help="the files you are working in: on --ask, the rows "
+                         "naming one of them are printed first inside every "
+                         "section and the rest follow as usual. `-` reads a "
+                         "newline separated list on stdin, which is what "
+                         "`git diff --name-only` hands over")
+    ap.add_argument("--limit", type=int, default=0, metavar="N",
+                    help="how many rows --rank prints (default 200)")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -640,7 +658,8 @@ def _dry_run_answer(args) -> int:
         ("--more", args.more_handle), ("--callers", args.callers),
         ("--callees", args.callees), ("--impact", args.impact),
         ("--defines", args.defines), ("--at", args.at_place),
-        ("--context", args.context_name)) if given]
+        ("--context", args.context_name),
+        ("--rank", args.rank_files is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
     return 0
 
@@ -727,7 +746,8 @@ def main() -> int:
                          or args.ask or args.pointer or args.callers
                          or args.callees or args.impact or args.more_handle
                          or args.defines or args.at_place
-                         or args.context_name):
+                         or args.context_name
+                         or args.rank_files is not None):
         return _dry_run_answer(args)
 
     # Answering from a map that already exists needs none of what follows: no
@@ -784,7 +804,8 @@ def main() -> int:
 
     if (args.sections or args.ask or args.pointer or args.callers
             or args.callees or args.impact or args.more_handle
-            or args.defines or args.at_place or args.context_name):
+            or args.defines or args.at_place or args.context_name
+            or args.rank_files is not None):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -815,7 +836,8 @@ def main() -> int:
         if not have_map and (args.pointer or args.sections or args.callers
                              or args.callees or args.impact
                              or args.more_handle or args.defines
-                             or args.at_place or args.context_name):
+                             or args.at_place or args.context_name
+                             or args.rank_files is not None):
             # These three read the code map and only the code map, so for
             # them the spec map beside it is not an answer. Say which file is
             # missing and which one is there.
@@ -867,6 +889,17 @@ def main() -> int:
                        _ask.CONTEXT_BUDGET)
             print(answer)
             return 0
+        if args.rank_files is not None:
+            # The same call the MCP `rank` tool makes, through the same
+            # function. `--ask` alongside it is the tool's `words`: the names
+            # in the question count ten times, which is aider's first
+            # multiplier and the only one a question can move.
+            chosen = file_list(args.rank_files)
+            answer = rank_lines(map_path, chosen, args.ask,
+                                args.limit or RANK_LIMIT)
+            log_answer(out_dir, "rank", ",".join(chosen), answer, len(answer))
+            print(answer)
+            return 0
         if args.callers:
             json_path = os.path.join(out_dir, "framework_map.json")
             hits = callers(json_path, args.callers)
@@ -895,11 +928,12 @@ def main() -> int:
         # project's `[synonyms]` still has to reach `ask()` from here.
         syn = _config(os.path.abspath(args.repo)).get("synonyms")
         _ask.set_synonyms(syn if isinstance(syn, dict) else {})
+        scope = file_list(args.files, sys.stdin.read)
         parts = []
         if have_map:
-            parts.append(ask(map_path, args.ask))
+            parts.append(ask(map_path, args.ask, files=scope))
         if have_spec:
-            parts.append(ask(spec_path, args.ask))
+            parts.append(ask(spec_path, args.ask, files=scope))
         answer = "\n\n".join(parts)
         answer += meaning_tail(out_dir, args.ask, answer)
         log_answer(out_dir, "ask", args.ask, answer, 12000)  # ask()'s own default limit

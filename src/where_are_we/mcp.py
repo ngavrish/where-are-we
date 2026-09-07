@@ -28,13 +28,14 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import (AT_BUDGET, CONTEXT_BUDGET, IMPACT_MAX_DEPTH, at,
-                       context, log_answer, callees_line, callers, impact,
-                       map_heads)
+    from .ask import (AT_BUDGET, CONTEXT_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
+                       at, context, file_list, log_answer, callees_line,
+                       callers, impact, map_heads, rank_lines)
 except ImportError:  # run as a plain file, with no package around it
     from ask import (AT_BUDGET, CONTEXT_BUDGET,  # type: ignore[no-redef]
-                     IMPACT_MAX_DEPTH, at, context, log_answer, callees_line,
-                     callers, impact, map_heads)
+                     IMPACT_MAX_DEPTH, RANK_LIMIT, at, context, file_list,
+                     log_answer, callees_line, callers, impact, map_heads,
+                     rank_lines)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -67,6 +68,15 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": ("a name, a phrase, or several words — or a "
                                     "list of them, answered in one call"),
+                },
+                "files": {
+                    "type": ["string", "array"],
+                    "items": {"type": "string"},
+                    "description": ("the files you are working in: rows "
+                                    "naming one of them are printed first "
+                                    "inside every section, the rest follow. "
+                                    "A path or a directory prefix, relative "
+                                    "to the repository root"),
                 },
             },
             "required": ["words"],
@@ -242,6 +252,38 @@ TOOLS = [
             "required": ["name"],
         },
     },
+    {
+        "name": "rank",
+        "description": (
+            "What this repository is built around, best first: the "
+            "definitions with the most of the codebase behind them, by "
+            "PageRank over the graph of which file references which file's "
+            "names. Ask it before reading anything in an unfamiliar tree, "
+            "and give `files` to ask the better question: what should I "
+            "read given that I am editing these. A definition ten files "
+            "reach outranks one nothing calls, which is not something "
+            "counting word matches can tell you. `words` weighs the names "
+            "in your question ten times. Not a search: `ask` answers what "
+            "mentions a word, this answers what matters."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "files": {"type": ["string", "array"],
+                          "items": {"type": "string"},
+                          "description": ("the files you are working in, or "
+                                          "a directory prefix; the ranking "
+                                          "is personalised on them. Omit for "
+                                          "the repository's own order")},
+                "words": {"type": ["string", "array"],
+                          "items": {"type": "string"},
+                          "description": ("names you are asking about, worth "
+                                          "ten times an identifier you did "
+                                          "not mention")},
+                "limit": {"type": "integer",
+                          "description": "how many definitions (default 200)"},
+            },
+        },
+    },
 ]
 
 
@@ -352,6 +394,14 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         words_field = args.get("words")
         if words_field is not None and not _is_str_or_str_list(words_field):
             raise _BadParams("words must be a string or a list of strings")
+        files_field = args.get("files")
+        if files_field is not None and not _is_str_or_str_list(files_field):
+            raise _BadParams("files must be a string or a list of strings")
+        # `-` is the command line's "read the list on stdin", and stdin here
+        # is the JSON-RPC pipe: an argument that named it would take the
+        # session's next request for a file list. A client that wants a list
+        # sends a list.
+        scope = [f for f in file_list(files_field) if f != "-"]
         spec = os.path.join(out_dir, "spec_map.md")
         has_spec = os.path.exists(spec)
 
@@ -360,9 +410,9 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             # spent twice: the framework map and the spec map each used
             # to return a full allowance, doubling every answer.
             each = room // 2 if has_spec else room
-            answer = mapper.ask(map_path, words, each)
+            answer = mapper.ask(map_path, words, each, scope)
             if has_spec:
-                answer += "\n\n" + mapper.ask(spec, words, each)
+                answer += "\n\n" + mapper.ask(spec, words, each, scope)
             # The MCP is how sessions actually ask; leaving the
             # semantic tail on the CLI alone gave meaning to the one
             # caller nobody uses.
@@ -433,6 +483,23 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             log_answer(out_dir, "context", w, answer, room)
             pairs.append((w, answer))
         _reply(_text(_joined(pairs) if pairs else "give me a name"), ident)
+    elif name == "rank":
+        files_field = args.get("files")
+        if files_field is not None and not _is_str_or_str_list(files_field):
+            raise _BadParams("files must be a string or a list of strings")
+        words_field = args.get("words")
+        if words_field is not None and not _is_str_or_str_list(words_field):
+            raise _BadParams("words must be a string or a list of strings")
+        limit_field = args.get("limit")
+        if limit_field is not None and (not isinstance(limit_field, int)
+                                        or isinstance(limit_field, bool)
+                                        or limit_field < 1):
+            raise _BadParams("limit must be a positive integer")
+        chosen = [f for f in file_list(files_field) if f != "-"]
+        answer = rank_lines(map_path, chosen, _each(words_field),
+                            int(limit_field or RANK_LIMIT))
+        log_answer(out_dir, "rank", ",".join(chosen), answer, len(answer))
+        _reply(_text(answer), ident)
     elif name == "callers":
         name_field = args.get("name")
         if name_field is not None and not _is_str_or_str_list(name_field):

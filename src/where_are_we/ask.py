@@ -14,6 +14,16 @@ import re
 from itertools import accumulate
 from datetime import datetime, timezone
 
+try:
+    from ._mapper import rank as _rank_graph
+except ImportError:  # run as a plain file, with no package around it
+    from _mapper import rank as _rank_graph  # type: ignore[no-redef]
+
+# The default `--rank` and the MCP `rank` tool print, and the length of the
+# map's own `rank` key. The same number in both, so `--rank` with no files is
+# the stored ranking rather than a prefix of it.
+RANK_LIMIT = _rank_graph.TOP
+
 RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
 # rows; 210 rows in this section do not mention these words"), paid for up
 # front so the tail never pushes an answer past its limit. Longer than any
@@ -357,6 +367,99 @@ def _group_dirs(rows: list) -> list:
     return out
 
 
+# A rendered row's path tokens. Rows are written several ways: a backticked
+# relative path with a note after it, a definition row whose name comes first
+# and whose absolute path and line come last, a call graph key of
+# `file.py:func`, a prose line naming a file. All of them agree on what a path
+# may hold, so the row is split on everything a path may not and the pieces
+# that look like a path are tried.
+_ROW_SPLIT = re.compile(r"[^A-Za-z0-9_@.+/:~-]+")
+_LINE_SUFFIX = re.compile(r":\d+(?:-(?:\d+|\?))?$")
+
+
+def _row_paths(row: str) -> list:
+    """Every path-shaped token in one rendered row, without what follows it.
+
+    A row names a file three ways: on its own, as a backticked relative path;
+    with the line it is on, which is the shape a definition row ends in; and
+    with the function inside it, `a.py:charge`, which is how both call graphs
+    write a key. The part before the colon is the file in all three, so it is
+    what comes back.
+    """
+    out = []
+    for token in _ROW_SPLIT.split(row):
+        token = _LINE_SUFFIX.sub("", token).rstrip(".,;:")
+        for form in (token, token.split(":", 1)[0]):
+            if form and form not in out and ("/" in form or "." in form):
+                out.append(form)
+    return out
+
+
+def _scope(map_path: str, files) -> dict | None:
+    """What `--files` needs to decide whether a row is about one of them.
+
+    The repository root, because a definition row carries the absolute path a
+    name was declared at and every other row carries a relative one; and every
+    indexed file by basename, because the call graph's rows name a file the
+    way a stack trace does. `refund.py:refund` is `billing/refund.py:refund`
+    to a reader who asked for `billing/`, and the map already knows which file
+    of that name it walked.
+
+    `None` when no files were named, which is the case that reads no second
+    file and takes exactly the path this took before `--files` existed.
+    """
+    if not files:
+        return None
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    root, homes = "", {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh) or {}
+        root = data.get("repo") or ""
+        for full in (data.get("lines") or ()):
+            rel = _rank_graph.relative(full, root)
+            homes.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
+    except (OSError, ValueError):
+        pass
+    return {"root": root, "homes": homes, "files": list(files)}
+
+
+def _in_scope(row: str, scope: dict) -> bool:
+    """Whether one rendered row is about a file the reader named."""
+    root, homes, wanted = scope["root"], scope["homes"], scope["files"]
+    for token in _row_paths(row):
+        if _rank_graph.matches(token, root, wanted):
+            return True
+        if "/" in token:
+            continue
+        # A bare basename, which is what the call graph and several other
+        # sections print. Every file of that name the walk indexed counts:
+        # naming one of them would make the answer depend on walk order, and
+        # a repository with two `refund.py` has two answers to this question.
+        for candidate in homes.get(token, ()):
+            if _rank_graph.matches(candidate, root, wanted):
+                return True
+    return False
+
+
+def _files_first(rows: list, scope: dict | None) -> list:
+    """`rows` with the ones naming a file the reader asked for in front.
+
+    A stable partition, not a sort: inside each half the order is the order
+    the section already had, so `--files` moves rows and changes nothing else
+    about them. The tail under the section still counts what did not fit and
+    still hands back the same handle, because the handle names the section and
+    the words rather than this ordering, and `more()` continues the list the
+    section itself holds.
+    """
+    if not scope:
+        return rows
+    first, rest = [], []
+    for row in rows:
+        (first if _in_scope(row, scope) else rest).append(row)
+    return first + rest
+
+
 def _defined_here(exact: list, room: int, words: str = "",
                   base: int = 0) -> tuple:
     """The definitions block, whole lines up to `room`, with a count of what
@@ -571,7 +674,8 @@ def _rows_by_match(body: list, terms: list) -> tuple:
 
 
 def _definitions_block(map_path: str, terms: list, room: int,
-                       extra: list | None = None, words: str = "") -> str:
+                       extra: list | None = None, words: str = "",
+                       scope: dict | None = None) -> str:
     """`## Defined here`, bounded to `room`; empty when nothing was defined
     under these terms.
 
@@ -584,7 +688,7 @@ def _definitions_block(map_path: str, terms: list, room: int,
     exact = definitions_for(map_path, terms, extra)
     if not exact:
         return ""
-    return _defined_here(exact, room, words)[0]
+    return _defined_here(_files_first(exact, scope), room, words)[0]
 
 
 def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
@@ -730,7 +834,7 @@ def _fit_chunk(head: str, rows: list, room: int, reserve: int, tail_for,
 
 
 def _section_answer(head: str, body: list, terms: list, room: int,
-                    words: str = "") -> tuple:
+                    words: str = "", scope: dict | None = None) -> tuple:
     """One section's answer: matching rows, grouped by directory, with a tail
     saying what didn't fit or didn't match.
 
@@ -744,8 +848,14 @@ def _section_answer(head: str, body: list, terms: list, room: int,
     `words` is the question as it was asked, unexpanded: the handle carries
     it so `more()` can expand it the same way and rank the same sections.
     Without it the tail is the plain one this printed before handles.
+
+    `files`, when given, are the paths the reader said they are working in,
+    and the rows naming one of them are printed first. Which rows the section
+    shows at a budget can change with it; which rows the section has does not,
+    and neither does the tail's arithmetic.
     """
     matching, unmatched = _split_rows(body, terms)
+    matching = _files_first(matching, scope)
     chunk, attempted, _reached, handed = _rows_chunk(
         head, matching, unmatched, room,
         _head_slug(head) if words else "", _encode(words) if words else "")
@@ -1149,7 +1259,8 @@ def _handle_kinds(blocks: list) -> set:
 
 
 def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
-              words: str, scored: list, room: int, hold: int) -> tuple:
+              words: str, scored: list, room: int, hold: int,
+              scope: dict | None = None) -> tuple:
     """The answer's blocks, in order, with `hold` characters kept back from
     everything above the "more sections match" note so the note can still be
     printed.
@@ -1165,14 +1276,16 @@ def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
     out, section_chunks = [], []
     start = room
     room -= hold
-    def_block = _definitions_block(map_path, terms, room, candidates, words)
+    def_block = _definitions_block(map_path, terms, room, candidates, words,
+                                   scope)
     if def_block:
         out.append(def_block)
         room -= len(def_block) + 2
     seen = 0
     first_unshown = len(scored)
     for i, (_hits, h, b) in enumerate(scored):
-        chunk, attempted, handed = _section_answer(h, b, expanded, room, words)
+        chunk, attempted, handed = _section_answer(h, b, expanded, room, words,
+                                                   scope)
         if attempted:
             seen += 1
         # Where a `more:sections:` handle resumes: the first section this
@@ -1207,7 +1320,7 @@ def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
             seen < len(scored))
 
 
-def ask(map_path: str, words: str, limit: int = 12000) -> str:
+def ask(map_path: str, words: str, limit: int = 12000, files=()) -> str:
     """The part of the map that mentions these words, and nothing else.
 
     A map is generated so nobody has to search the repository. Then it is 253 KB,
@@ -1218,6 +1331,14 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
 
     So: sections, ranked by how much they mention what was asked, cut to a size
     that answers rather than a size that has to be paid for on every later turn.
+
+    `files` are the paths the reader is working in, from `--files a.py,b.py`
+    or the MCP `files` argument. Inside each section the rows naming one of
+    them come first and the rest follow with the section's usual tail, so an
+    agent editing `billing/` gets the same answer with its own half of the
+    repository at the top. Without it nothing about the answer changes, which
+    is checked by the golden suite: every expected file was recorded without
+    `files` and none of them moved when this was added.
     """
     try:
         text = map_text(map_path)
@@ -1235,6 +1356,10 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     # `limit` is a ceiling for everyone who calls `ask()`, this note included.
     candidates = list(dict.fromkeys(t for t in expanded if t not in terms))
     note_room = len(f"(also matched: {', '.join(candidates)})") + 2 if candidates else 0
+    # What the named files are, resolved once against the map beside this
+    # one. A question asked without `--files` opens no second file and takes
+    # exactly the path it took before.
+    scope = _scope(map_path, files)
 
     # `ask()` synthesises its own "## Defined here" below, from
     # `_definitions_block`, so the brief's own section of that name (kept
@@ -1245,7 +1370,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     scored = _rank(blocks, expanded, half)
     if not scored:
         block = _definitions_block(map_path, terms, limit - note_room,
-                                   candidates, words)
+                                   candidates, words, scope)
         if block:
             return _also_matched(block, [], terms, candidates) + block
         cblock = _callers_block(map_path, words, limit)
@@ -1276,7 +1401,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     scored.sort(key=lambda x: -round(x[0], 2))  # same rounding as _rank's own sort, so this no-op re-sort cannot undo it
     room = limit - note_room
     args = (map_path, terms, expanded, candidates, words, scored)
-    built = _assemble(*args, room, 0)
+    built = _assemble(*args, room, 0, scope)
     if built[3] and "more:sections:" not in built[4]:
         # A section went unshown and the note that says so did not fit, or fit
         # only in the form that cannot say where to look. Buy it back with
@@ -1295,7 +1420,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
             if built[4] and ("more:sections:" in built[4]
                              or "more:sections:" not in form):
                 break
-            retry = _assemble(*args, room, len(form) + 2)
+            retry = _assemble(*args, room, len(form) + 2, scope)
             if not retry[4] or ("more:sections:" in form
                                 and "more:sections:" not in retry[4]):
                 continue
@@ -1629,6 +1754,66 @@ def _site(site: dict) -> str:
     end = site.get("end")
     return (f"{site.get('file')}:{site.get('start')}-"
             f"{end if end is not None else '?'} ({site.get('kind') or 'name'})")
+
+
+def file_list(text: str, read_stdin=None) -> list:
+    """The files a `--files` value or an MCP `files` argument names.
+
+    A comma or newline separated list, or `-` for a newline list on stdin,
+    which is how a caller hands over the output of `git diff --name-only`
+    without building a command line out of it. Blank entries are dropped and
+    the order is kept: it is a set, and printing it back in the order it was
+    given is what makes an error message recognisable.
+    """
+    if text is None:
+        return []
+    if isinstance(text, (list, tuple)):
+        given = [str(x) for x in text]
+    elif text.strip() == "-":
+        given = (read_stdin() if read_stdin else "").splitlines()
+    else:
+        given = [text]
+    out = []
+    for chunk in given:
+        for part in re.split(r"[,\n]", chunk):
+            part = part.strip()
+            if part and part not in out:
+                out.append(part)
+    return out
+
+
+def rank_lines(map_path: str, files=(), words=(), limit: int = RANK_LIMIT) -> str:
+    """The top definitions by PageRank over the file graph, one per line.
+
+        0.044812401 build /repo/src/where_are_we/_mapper/build.py:243
+
+    Score first, so the list reads as a ranking and sorts as one; nine digits,
+    which is what the map rounded to before it sorted, so a row printed here
+    and a row stored under `rank` are the same characters.
+
+    `files` personalises the walk on the paths the reader named and `words`
+    are the identifiers they asked about. Given neither, this recomputes what
+    the build stored, from the same two keys of the same file: the CI step
+    compares the two lists rather than trusting that they agree.
+
+    `words` is split the way `ask()` splits a question, whether it arrives as
+    one string from `--ask` or as a list from the MCP tool, so the flag and
+    the tool weigh the same identifiers and print the same bytes.
+    """
+    if isinstance(words, str):
+        words = [words]
+    words = [w for part in (words or ()) for w in re.split(r"[\s,]+", str(part)) if w]
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh) or {}
+    except (OSError, ValueError) as exc:
+        return f"no map at {path}: {exc}"
+    rows = _rank_graph.rows(data, files=files, words=words, limit=limit)
+    if not rows:
+        return "nothing to rank: the map declares no name any file references"
+    return "\n".join(f"{row['score']:.9f} {row['name']} "
+                     f"{row['file']}:{row['line']}" for row in rows)
 
 
 def spans_for(map_path: str, terms: list[str], extra: list[str] | None = None,
