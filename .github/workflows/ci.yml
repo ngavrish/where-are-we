@@ -3149,6 +3149,36 @@ jobs:
           # 16. Both flags only read.
           where-are-we --out /tmp/rch/m --reaches charge --dry-run | grep -qx 'nothing to write: --reaches only read'
           where-are-we --out /tmp/rch/m --unreached --dry-run | grep -qx 'nothing to write: --unreached only read'
+          # The two exclusion rules are two rules, and each answer prints its
+          # own. `unreached` counts a definition to say what share of the
+          # product the tests cover, so every name a rule drops leaves the
+          # denominator with it; `dead` asks what nothing calls, where a name
+          # the runtime or the runner calls is not an answer. The README is
+          # where the difference is explained, so it has to still say so.
+          python - <<'EOF'
+          import json, pathlib, sys
+          from where_are_we.graph import (ENTRY_POINTS, _entry_name, dead,
+                                          dead_lines, load, unreached,
+                                          unreached_lines)
+          m = load("/tmp/rch/m")
+          mine = [r for r in dead_lines(dead(m, 40), "counted")
+                  if r.startswith("- left out:")]
+          theirs = [r for r in unreached_lines(unreached(m), "counted")
+                    if r.startswith("- not counted:")]
+          assert mine and theirs, (mine, theirs)
+          assert not set(mine) & set(theirs), (mine, theirs)
+          # Where the rules actually part, from the rules and not from prose.
+          wider = sorted(n for n in ("main", "__init__", "__repr__", "test_pay",
+                                     "Case.test_pay", "charge")
+                         if _entry_name(n) and n not in ENTRY_POINTS)
+          assert wider == ["Case.test_pay", "__repr__", "test_pay"], wider
+          print("dead leaves out", len(mine), "kinds, unreached", len(theirs),
+                "- names only dead drops:", wider)
+          readme = pathlib.Path("README.md").read_text()
+          assert "narrower list than `dead`'s, and the two are two rules on purpose" in readme
+          assert "the same exclusion `dead` uses" not in readme
+          print("the README says why the two rules differ")
+          EOF
           # 17. A map whose graph is empty says so, in all three answers.
           #     The resolution rate alone does not catch this: a JavaScript
           #     suite calls its product from the arrow passed to `it(...)`,

@@ -1684,12 +1684,21 @@ def hot_lines(result: dict, block: str) -> list:
             for product, rel, line, name, score, commits in result["rows"]]
 
 
-# Definitions no answer about coverage counts, whatever the graph says. A
-# module's entry point is called by the runtime rather than by anything the
-# map can see, and `__init__` is called by every construction of its class
-# without a `calls` row naming it. One tuple, here, because `dead` asks the
-# same question of the same graph and two answers disagreeing about the same
-# definition is worse than either rule.
+# Definitions `unreached` does not count, whatever the graph says. A module's
+# entry point is called by the runtime rather than by anything the map can
+# see, and `__init__` is called by every construction of its class without a
+# `calls` row naming it.
+#
+# `dead` has a rule of its own, `_entry_name` above, and the two are
+# deliberately not one. `_entry_name` is wider: every dunder, not three
+# names, and every name starting `test`. That is right for `dead`, which
+# asks which definitions nothing calls and where a name the runtime or the
+# runner calls is not an answer. It is wrong for `unreached`, which asks how
+# much of the product the tests cover: every name the wider rule drops leaves
+# the denominator as well as the list, so widening it here would report
+# better coverage of a smaller product. Each answer's
+# `## How this was counted` block prints its own list, and the README says
+# why they differ.
 ENTRY_POINTS = ("main", "__main__", "__init__")
 
 # What a path looks like when the file on it is test scaffolding rather than
