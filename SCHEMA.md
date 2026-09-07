@@ -44,7 +44,8 @@ saying what the tree holds rather than when it was last written to.
 | `unused_steps` | {file: [names]} | steps no feature binds to |
 | `unused_api` | {file: [names]} | page object and helper methods no step calls |
 | `debts` | {file: [lines]} | TODO, FIXME, skip |
-| `git_history` | {file: [commits]} | most-changed files |
+| `git_history` | {file: [commits]} | most-changed files: the forty busiest in the last ninety days, best first, each with at most five of its commit lines, latest first. The list is a sample for a reader and not a count; `git_commits` is the count |
+| `git_commits` | {file: count} | how many commits named each of those forty files in the same window, counted before the lists above were cut to five. It is what `git log --since=90.days --name-only` names, so a merge commit, which that form lists no files for, is not counted. The count `--hot` multiplies a rank score by, and what the most-changed section prints. Same forty keys as `git_history`, so the two describe one set; a file outside the forty has no row here and no row there |
 | `ticket_links` | {ticket: {subject, files}} | what a ticket touched |
 | `dependencies` | {file: [[name, version]]} | what the suite runs on, from its manifests and lock files |
 | `ci` | {file: {jobs, runs}} | the CI workflows, their jobs and the commands those jobs run |

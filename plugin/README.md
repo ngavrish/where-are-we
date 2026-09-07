@@ -61,11 +61,16 @@ grepped.
   `file:start-end kind`, the text of the shortest, and the first line, the
   last, and the one after the last, each with the text of that line, so an
   insertion lands outside the definition rather than inside it. `dead` names
-  the definitions no call row lands on, grouped by file, with the exclusion
-  list and the cross-file caveat in its first line: a list to read, not a
-  list to delete from. `hot` multiplies the map's `rank` score by the commits
-  its most-changed-files section records and prints both numbers, so a
-  reviewer can see which of the two put a row where it is.
+  the definitions no call row lands on, grouped by file, and it is a list of
+  questions rather than a list of dead code: a call through an imported
+  module and a call inside the declaring file leave no row, so on a library
+  most rows are calls the map could not place, while on a suite, where a page
+  object is called from step modules, it is sharp. Its first line leads with
+  that and names the exclusions. `hot` multiplies the map's `rank` score by
+  the commits its most-changed-files section counted and prints both numbers,
+  so a reviewer can see which of the two put a row where it is; that section
+  is the forty busiest files, so anything outside it counts 1, and an older
+  map that can only count five commit lines a file prints `5+`.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

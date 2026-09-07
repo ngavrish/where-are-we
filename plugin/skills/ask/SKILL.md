@@ -77,9 +77,16 @@ line), and `find`'s hits past its limit (`more:find:`).
   line says so.
 - **Reviewing, not editing.** `hot()` is the map's `rank` score times how
   often each file changes, both numbers shown, which is where to read first.
-  `dead()` is the definitions no call row lands on, grouped by file: read it
-  as a list of questions, not as a list to delete, because only cross-file
-  calls are in the graph and its first line says what else it leaves out.
+  Its first line carries two bounds: the churn comes from the forty busiest
+  files, so anything outside that set counts 1, and an older map can only
+  count five commit lines a file and then every count reads `5+`.
+- **`dead()` is not a list of dead code.** It is the definitions no call row
+  lands on, and on a library most of those are calls the map could not place:
+  a call through an imported module leaves no row, and neither does a call
+  inside the file that declares the callee. It is sharp on a test suite,
+  where a page object is called from step modules, and blunt on a library.
+  Read it as questions and check the callers before deleting anything; the
+  answer's first line says the same thing before it says anything else.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

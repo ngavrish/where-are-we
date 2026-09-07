@@ -851,8 +851,6 @@ def path(m: dict, a: str, b: str, depth: int = DEFAULT_DEPTH) -> dict:
 
     # The start counted itself, so the reach is what the walk added to it.
     out["reached"] = len(seen) - len(starts)
-    landed = sorted(n for n in seen if n in goal and seen[n][2] is not None)
-    hit = landed[0] if landed else None
     if hit is None:
         # Where the walk stopped: the last frontier it reached, which is the
         # honest answer to "how close did you get". Not the nodes nearest `b`
@@ -887,8 +885,6 @@ def path_head(result: dict, block: str) -> str:
     """The head of one `path` block."""
     if block == "path":
         return "## The chain, one hop per line, with how each edge was resolved"
-    if block == "counted":
-        return HOW_COUNTED
     hop = result["nearest"][0][2] if result["nearest"] else 0
     if not hop:
         # Hop 0 is the start itself, which the walk did not reach: it began
@@ -919,14 +915,20 @@ def path_summary(result: dict, limit: int) -> str:
     if result["hops"]:
         return (f"`{result['a']}` reaches `{result['b']}` in "
                 f"{_plural(len(result['hops']), 'hop')}, the shortest chain "
-                f"the graph holds. Depth {result['depth']}, {room}")
+                f"the graph holds. Depth {result['depth']}, {room} {rule}")
+        if amb:
+            head += (f" {_plural(amb, 'hop')} of this chain "
+                     f"{'goes' if amb == 1 else 'go'} through an ambiguous "
+                     "edge, which names every file declaring the callee; the "
+                     "chain takes the first of them.")
+        return head
     if not result["reached"]:
         # It never left the start. Saying "0 names reached, the ones it
         # stopped at are below" over a block naming the start itself reads as
         # a walk that got somewhere, which it did not.
         return (f"No path from `{result['a']}` to `{result['b']}`: nothing "
                 f"`{result['a_name']}` calls is in this graph, so the walk "
-                f"had nowhere to go from it. {room}")
+                f"had nowhere to go from it. {room} {rule}")
     return (f"No path from `{result['a']}` to `{result['b']}` within "
             f"{_plural(result['depth'], 'hop')}. "
             f"{_plural(result['reached'], 'name')} reached; where the walk "
@@ -2286,7 +2288,7 @@ def symbol_range(m: dict, name: str) -> dict:
             wanted, sites = bare, spans[bare]
     out = {"name": wanted, "asked": name, "root": root, "sites": [],
            "shortest": None, "text": [], "anchor": [], "unknown": 0,
-           "problem": ""}
+           "redacted": 0, "problem": ""}
     if not wanted:
         out["problem"] = "give me a name"
         return out
@@ -2320,6 +2322,16 @@ def symbol_range(m: dict, name: str) -> dict:
                       else None),
                      ("end", end, body[end - 1] if end <= len(body) else None),
                      ("after", end + 1, after)]
+    # Whether any line this answer prints was redacted on the way into the
+    # map. `_mapper/walk.py` replaces a value that looks like a secret, so
+    # such a line is not the line on disk and an `Edit` anchored on it either
+    # fails to match or writes the marker into the source. The rows say so
+    # and the first line says so; reading the file to recover the real text
+    # is the other way out and this does not take it, because nothing in this
+    # module opens a source file and a map is often read far from the tree it
+    # was built from, where the file would be a different file or no file.
+    out["redacted"] = sum(1 for line in out["text"] if REDACTED in line) + sum(
+        1 for _label, _n, line in out["anchor"] if line and REDACTED in line)
     return out
 
 
@@ -2355,6 +2367,12 @@ def range_summary(result: dict, limit: int) -> str:
     if not result["shortest"]:
         head += (" No site has a measured end, so there is no text to print "
                  "and no line to anchor on.")
+    if result["redacted"]:
+        head += (f" {_plural(result['redacted'], 'line')} below "
+                 f"{'holds' if result['redacted'] == 1 else 'hold'} "
+                 f"`{REDACTED}`, which this map wrote over a value that "
+                 "looked like a secret: that line is not the line on disk, so "
+                 "do not anchor an edit on it. Every other line is verbatim.")
     return head
 
 
@@ -2389,7 +2407,10 @@ def range_lines(result: dict, block: str) -> list:
             elif not text.strip():
                 rows.append(f"- {label} {number}: a blank line")
             else:
-                rows.append(f"- {label} {number}: `{text}`")
+                rows.append(f"- {label} {number}: `{text}`"
+                            + (f"  (this map redacted a value on this line, "
+                               f"so it is not the line on disk; do not anchor "
+                               f"on it)" if REDACTED in text else ""))
         return rows
     return []
 
@@ -2422,6 +2443,11 @@ DEAD_EXCLUDED = (
 DEAD_LIMIT = 40
 HOT_LIMIT = 40
 
+# How many commit lines `_mapper/build.py` keeps for one file in
+# `git_history`. Only used to mark a count read off that key as a floor,
+# which is what a map built before `git_commits` existed can offer.
+_CAPPED_LINES = 5
+
 
 def _called(m: dict) -> set:
     """`{(file, name)}` every `calls` row lands on.
@@ -2453,6 +2479,18 @@ def _call_suffixes(m: dict) -> set:
 
     Both ends of every row, so a language whose files only ever declare and
     never call is still covered.
+
+    What it costs: real code in a language this particular build's call graph
+    did not reach is dropped with the prose. On this repository's own map a
+    `--no-semantic` build places no `.ts` or `.tsx` edge, so `App.tsx:App`
+    and `api.ts:getUser` are not judged either way. That is the trade this
+    rule makes and the answer's first line names the suffixes it counted, so
+    a reader can see which languages were left out rather than read an
+    absence as a clean bill.
+
+    Empty when the graph holds no `calls` row at all, which is a repository
+    this cannot answer the question for; `dead` says that rather than
+    printing a clean nothing.
     """
     out = set()
     for row in m.get("xrefs") or []:
@@ -2464,15 +2502,25 @@ def _call_suffixes(m: dict) -> set:
     return out
 
 
-def _excluded_files(m: dict, root: str) -> set:
-    """The files whose definitions are left out: a file a route is served
-    from, and a file `entry_points` names as a launch script."""
+def _excluded_files(m: dict, root: str) -> tuple:
+    """`(files, ambiguous)`: the files whose definitions are left out.
+
+    A file a route is served from, and a file `entry_points` names as a
+    launch script. `routes_served` records the basename of the serving file
+    and no path (`GET /invoice  (api.py)`), so where two files of one
+    basename exist the map cannot say which of them serves the route and
+    both are excluded. `ambiguous` counts the basenames that matched more
+    than one file, and the answer's first line says how many definitions that
+    took out on a guess, because silently dropping a file's rows is the one
+    way this list can be wrong rather than long.
+    """
     bases = set()
     for route in m.get("routes_served") or ():
         hit = _ROUTE_FILE.search(str(route))
         if hit:
             bases.add(hit.group(1))
     scripts = {str(k) for k in (m.get("entry_points") or {})}
+    by_base: dict = {}
     out = set()
     for name, sites in (m.get("spans") or {}).items():
         for site in sites or ():
@@ -2480,9 +2528,12 @@ def _excluded_files(m: dict, root: str) -> set:
             if not file:
                 continue
             rel = _rank_graph.relative(file, root)
-            if os.path.basename(rel) in bases or rel in scripts:
+            base = os.path.basename(rel)
+            if base in bases:
+                by_base.setdefault(base, set()).add(file)
+            if base in bases or rel in scripts:
                 out.add(file)
-    return out
+    return out, sum(1 for files in by_base.values() if len(files) > 1)
 
 
 def _readable(name: str) -> tuple:
@@ -2530,7 +2581,7 @@ def dead(m: dict, limit: int = DEAD_LIMIT) -> dict:
     limit = max(1, int(limit))
     called = _called(m)
     step_at, _func_at = _declaration_sites(m)
-    skip_files = _excluded_files(m, root)
+    skip_files, guessed = _excluded_files(m, root)
     cases = {name for names in (m.get("pytest_tests") or {}).values()
              for name in names or ()}
 
@@ -2564,7 +2615,10 @@ def dead(m: dict, limit: int = DEAD_LIMIT) -> dict:
         by_file.setdefault(rel, []).append((name, start))
     files = sorted(by_file.items())
     return {"files": files[:limit], "held": len(files), "total": len(rows),
-            "considered": len(at_site), "limit": limit,
+            "considered": len(at_site), "limit": limit, "guessed": guessed,
+            "graph": bool(reachable), "declared": sum(
+                1 for sites in (m.get("spans") or {}).values()
+                for site in sites or () if site.get("kind") in DEAD_KINDS),
             "suffixes": ", ".join(sorted(reachable)) or "none"}
 
 
@@ -2578,19 +2632,48 @@ def dead_head(_result: dict, _block: str) -> str:
 
 
 def dead_summary(result: dict, limit: int) -> str:
-    """The first line of a `dead` answer: the counts, the caveat that decides
-    what the list means, and the exclusions."""
+    """The first line of a `dead` answer: the counts, the two caveats that
+    decide what the list means, and the exclusions.
+
+    The caveats come before the list rather than after it because they are
+    what the list is. Most of what is here on a library is a call this map
+    could not place, not a definition nothing calls, and a reader who takes
+    the rows for dead code and deletes them will break the build. The flag is
+    called `--dead`; this line is the only thing standing between that name
+    and a wrong edit.
+
+    A map whose graph holds no `calls` row at all cannot answer the question,
+    and says so instead of printing a clean nothing, which is the reading a
+    small repository would otherwise get.
+    """
+    if not result["graph"]:
+        return (f"No call graph in this map: not one `xrefs` calls row, so "
+                f"nothing here can be called dead. The map holds "
+                f"{result['declared']} function"
+                f"{'' if result['declared'] == 1 else 's'} and classes, and "
+                f"whether anything calls them is not something this map "
+                f"knows. A build over a language this tool resolves calls "
+                f"for, or `--force` on a map from before 1.5.0, is what "
+                f"would answer it. {limit} characters.")
     head = (f"{_plural(result['total'], 'definition')} in "
             f"{_plural(result['held'], 'file')} have no incoming `xrefs` "
-            f"calls row, out of {result['considered']} functions and "
-            f"classes this map holds in the file kinds its call graph reaches "
-            f"({result['suffixes']}); a declaration in any other kind of file "
-            f"can never have an incoming row, so it is not counted here. "
-            f"Only cross-file calls are in this graph, so a "
-            f"definition called only from the file that declares it is on "
-            f"this list, and so is one whose callers this map's resolver "
-            f"could not place. Left out: " + "; ".join(DEAD_EXCLUDED) + ". "
-            f"Top {result['limit']} files, {limit} characters.")
+            f"calls row. Most of a list like this is usually not dead code: "
+            f"only cross-file calls are in this graph, so a definition called "
+            f"from the file that declares it is here, and so is one whose "
+            f"callers this map's resolver could not place, which is what a "
+            f"call through an imported module looks like. Read it as "
+            f"questions, not as a list to delete from. Counted over the "
+            f"{result['considered']} functions and classes this map holds in "
+            f"the file kinds its call graph reaches ({result['suffixes']}); a "
+            f"declaration in any other language is not judged either way, "
+            f"because no row could ever land on it. Left out: "
+            + "; ".join(DEAD_EXCLUDED) + ".")
+    if result["guessed"]:
+        head += (f" {_plural(result['guessed'], 'route file basename')} "
+                 f"{'names' if result['guessed'] == 1 else 'name'} more than "
+                 "one file in this map and `routes_served` records no path, "
+                 "so every one of them was left out on a guess.")
+    head += f" Top {result['limit']} files, {limit} characters."
     return head
 
 
@@ -2623,14 +2706,28 @@ def hot(m: dict, limit: int = HOT_LIMIT) -> dict:
     A file with no row in the most-changed-files section counts 1 rather than
     0: that section is the last ninety days, so a file missing from it has
     not changed lately, not never, and a zero would erase every definition in
-    it from the ranking.
+    it from the ranking. That section is itself the forty busiest files, so a
+    file outside it may have changed a great deal and still count 1; the
+    first line says so, because a cap a reader cannot see is a number that
+    lies.
+
+    The count comes from `git_commits`, which is the real number of commits
+    in the window. `git_history` is not it: that key keeps at most five
+    commit lines a file, so counting its lines made every file in the section
+    weigh exactly five and the multiplier two-valued, which reordered
+    nothing. A map built before `git_commits` existed has only those lines,
+    and then the count is capped, every row says so, and so does the first
+    line.
 
     `rank` is the map's top 200, so this ranks within those.
     """
     root = m.get("repo") or ""
     limit = max(1, int(limit))
-    churn = {rel: len(entries or ())
-             for rel, entries in (m.get("git_history") or {}).items()}
+    history = m.get("git_history") or {}
+    counts = m.get("git_commits") or {}
+    capped = bool(history) and not counts
+    churn = ({rel: int(n or 0) for rel, n in counts.items()} if counts
+             else {rel: len(entries or ()) for rel, entries in history.items()})
     rows = []
     for entry in m.get("rank") or ():
         rel = _rank_graph.relative(str(entry.get("file") or ""), root)
@@ -2640,7 +2737,8 @@ def hot(m: dict, limit: int = HOT_LIMIT) -> dict:
                      str(entry.get("name") or ""), score, commits))
     rows.sort(key=lambda r: (-r[0], r[1], r[2], r[3]))
     return {"rows": rows[:limit], "held": len(rows), "limit": limit,
-            "churned": len(churn)}
+            "churned": len(churn), "capped": capped,
+            "section": len(history) or len(churn)}
 
 
 HOT_BLOCKS = (("hot", 100),)
@@ -2653,21 +2751,47 @@ def hot_head(_result: dict, _block: str) -> str:
 
 
 def hot_summary(result: dict, limit: int) -> str:
-    """The first line of a `hot` answer: what the two numbers are and where
-    each of them comes from."""
-    return (f"The top {len(result['rows'])} of {result['held']} ranked "
+    """The first line of a `hot` answer: what the two numbers are, where each
+    of them comes from, and the bound on each.
+
+    The bounds are the point of this line. The most-changed section is the
+    forty busiest files, so every file outside it counts 1 whatever its
+    history holds, and the ranking below it is `rank`'s own order for those.
+    A map built before `git_commits` existed can only count commit lines, of
+    which there are at most five a file, and then the multiplier is two
+    valued and says so on every row rather than in a footnote.
+    """
+    head = (f"The top {len(result['rows'])} of {result['held']} ranked "
             f"definitions by rank score times commits. The score is the "
             f"map's own `rank`, which holds the top {result['held']} "
-            f"definitions of this repository; the commits are the "
-            f"most-changed-files section, which covers "
-            f"{_plural(result['churned'], 'file')} over the last ninety days, "
-            f"and a file with no row there counts 1. {limit} characters.")
+            f"definitions of this repository; the commits are the ones the "
+            f"most-changed-files section counted over the last ninety days, "
+            f"which is the {_plural(result['churned'], 'busiest file')} and "
+            f"no more, so a file outside that set counts 1 however often it "
+            f"changed and this ranking is `rank`'s own order for those. A "
+            f"merge commit names no file in the log that section is built "
+            f"from and is not counted. {limit} characters.")
+    if result["capped"]:
+        head += (" This map has no `git_commits` key, so the count is the "
+                 "commit lines `git_history` keeps, which it caps at 5 a "
+                 "file: every count at 5 means 5 or more, and every row says "
+                 "so. Rebuild with --force for the real numbers.")
+    return head
 
 
 def hot_lines(result: dict, block: str) -> list:
     """The one `hot` block's rows, with both numbers behind each product."""
     if block != "hot":
         return []
-    return [f"- `{rel}:{line}` {name}, rank {score:.9f} x "
-            f"{_plural(commits, 'commit')} = {product:.9f}"
+    # A count the map capped is written `5+`, not `5`: that row is then a
+    # floor rather than a measurement, and a reader multiplying it out can
+    # see which it is without going back to the first line. Only the rows at
+    # the cap are marked; a file with two commit lines really has two.
+    def count(n: int) -> str:
+        if result["capped"] and n >= _CAPPED_LINES:
+            return f"{n}+ commits"
+        return f"{n} commit{'' if n == 1 else 's'}"
+
+    return [f"- `{rel}:{line}` {name}, rank {score:.9f} x {count(commits)} "
+            f"= {product:.9f}"
             for product, rel, line, name, score, commits in result["rows"]]

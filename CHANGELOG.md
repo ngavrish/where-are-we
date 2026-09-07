@@ -197,30 +197,69 @@ the map and nothing read them end to end; this release starts doing that.
   inside it, which is the move this exists for. A site whose end nothing
   measured cannot be the shortest and is listed with `?` and the reason,
   which says whether a read cut short is ruled out. No write path.
-- What nothing calls: `dead` (MCP), `--dead [--limit N]`. The definitions no
-  `calls` row lands on, grouped by file, one file per row. One `def` is one
+- What nothing calls, with the emphasis on the question mark: `dead` (MCP),
+  `--dead [--limit N]`. It is a list of questions and not a list of dead
+  code, and the answer's first line says so before it says anything else,
+  because the flag's name does not. Only cross-file calls are in the graph,
+  so a call inside the file that declares the callee leaves no row, and
+  neither does a call through an imported module, which is how a package
+  usually calls itself: on this repository 359 of 516 definitions are listed
+  and a spot check of five found one that is genuinely dead. It is sharp on a
+  test suite, where a page object is called from step modules across files,
+  and blunt on a library. What it is: the definitions no `calls` row lands
+  on, grouped by file, one file per row. One `def` is one
   row whatever it is spelled as: `spans` holds a class as `LoginPage` and as
   `class LoginPage` and a method as `LoginPage.sign_in` and `sign_in`, and a
   call on any spelling keeps the site off the list. Counted only in the file
   kinds this map's call graph actually reaches, read off the table rather
   than hard coded, because a `def` quoted inside a Markdown fence is
-  documentation and not dead code. The first line states the whole exclusion
-  list, and the caveat that decides what the list means: only cross-file
-  calls are in this graph, so a function called from its own file alone is on
-  it, and so is one whose callers the resolver could not place. A list to
-  read, not a list to delete from. The map's own "Page-object methods nothing
-  calls" section is a different rule over a different table (`unused_api`
-  counts occurrences of `.name` in the suite's source) and is untouched:
-  measured on the `suite` golden fixture, that section calls 20 methods dead
-  that the graph holds an incoming `calls` row for, and every golden answer
-  is byte for byte what it was.
+  documentation and not dead code; the first line names the suffixes it
+  counted, and a declaration in any other language is not judged either way.
+  A map whose graph holds no `calls` row at all answers `No call graph in
+  this map` rather than printing a clean nothing, which is what a small
+  repository used to get. `routes_served` records a basename and no path, so
+  where two files share one the map cannot say which serves the route and
+  both are left out; the first line counts the basenames it guessed on
+  instead of dropping their rows in silence.
+
+  The map's own "Page-object methods nothing calls" section is **not** yet a
+  rendering of `dead`, which is what 1.6.0 planned. The two disagree: that
+  section is `unused_api`, a count of occurrences of `.name` in the suite's
+  own source, and on the `suite` golden fixture it calls 20 methods dead that
+  the graph holds an incoming `calls` row for. Rebuilding `unused_api` from
+  `xrefs` empties the section and moves four golden files, so it is left to a
+  release that names the moved lines. A CI step measures the disagreement and
+  runs `dead` against that fixture, where it returns one row, `CheckoutPage`,
+  and that row is a known false positive: `build_fixtures.py` has the steps
+  module do `page = CheckoutPage()` at module level, and a `calls` row's
+  subject is `<file>:<func>`, so a call outside any function has no shape to
+  be recorded in. Recording it needs a synthetic subject and a change to what
+  an `xrefs` row means, which is a mapper change and not this release's; the
+  step fails if such a row ever appears, so the caveat cannot outlive it.
 - Where to look first: `hot` (MCP), `--hot [--limit N]`. The map's own `rank`
-  score times the commits its most-changed-files section records, top N with
+  score times the commits its most-changed-files section counted, top N with
   both numbers printed, so a reader can see which of the two put a row where
-  it is. A file with no row in that section counts 1 rather than 0, because
-  the section is the last ninety days and a file missing from it has not
-  changed lately rather than never. `rank` is the map's top 200, so this
-  ranks within those, and the first line says so.
+  it is. `rank` is the map's top 200, so this ranks within those, and the
+  first line says so.
+- A new map key, `git_commits`: how many commits named each of the forty
+  busiest files in the last ninety days. `git_history` was not that number
+  and reading it as one was a false statement in an answer. That key keeps at
+  most five commit lines a file, so it is a sample for a reader rather than a
+  count, and multiplying a rank score by the length of it made every file in
+  the section weigh exactly five: `--hot`'s top twenty came back as `--rank`'s
+  order verbatim, with `ask.py` printed as five commits where the history
+  holds thirty-seven. `git_commits` is counted before the lists are cut, over
+  the same forty keys, and the most-changed section in the brief now prints
+  it too. This is the one key 1.6.0 adds, and the golden maps move by exactly
+  that one line; every expected answer is byte for byte what it was.
+- `hot` states both of its bounds in the first line, the way the `impact`
+  answer states its own. The most-changed section is the forty busiest files,
+  so a file outside it counts 1 however often it changed and the ranking is
+  `rank`'s own order for those; a merge commit names no file in the log that
+  section is built from and is not counted. A map built before `git_commits`
+  existed can only count commit lines, and there the first line says so and
+  every count at the cap prints `5+ commits`, a floor rather than a
+  measurement.
 - All four are cut by the rules every other answer here is cut by, through
   the same code: whole rows, a floor share of the budget per block with what
   nobody claims handed on in printing order, a `more:` handle under a block

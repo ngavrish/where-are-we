@@ -3124,8 +3124,28 @@ jobs:
           where-are-we --out /tmp/pthmap --path d,a > /tmp/pth/da.txt
           cat /tmp/pth/da.txt
           grep -q 'No path from `d` to `a` within 6 hops' /tmp/pth/da.txt
-          grep -q '3 names reached' /tmp/pth/da.txt
-          grep -q '## Where the walk stopped' /tmp/pth/da.txt
+          # Two: `b` and `c`. The start is not one of them, because the walk
+          # did not reach it, it began there.
+          grep -q '2 names reached' /tmp/pth/da.txt
+          grep -q '## Where the walk stopped: the names it reached at hop 2' /tmp/pth/da.txt
+          # A start with no outgoing calls row is its own case, and reads as
+          # one. Counting the start as a reach and printing it under "the
+          # names it reached at hop 0" said the walk got somewhere it did not.
+          printf 'def leaf():\n    return 1\n' > /tmp/pth/leaf.py
+          where-are-we --repo /tmp/pth --out /tmp/pthmap --force --quiet
+          where-are-we --out /tmp/pthmap --path leaf,a > /tmp/pth/leaf.txt
+          cat /tmp/pth/leaf.txt
+          grep -q 'nothing `leaf` calls is in this graph' /tmp/pth/leaf.txt
+          grep -q '## Where the walk stopped: the start, which calls nothing here' /tmp/pth/leaf.txt
+          grep -q 'the start itself' /tmp/pth/leaf.txt
+          if grep -q 'hop 0' /tmp/pth/leaf.txt; then
+            echo "the start was reported as a hop"; exit 1
+          fi
+          if grep -q '0 names reached' /tmp/pth/leaf.txt; then
+            echo "a count of zero was printed over a block naming the start"; exit 1
+          fi
+          rm /tmp/pth/leaf.py
+          where-are-we --repo /tmp/pth --out /tmp/pthmap --force --quiet
           # 3. The depth is a ceiling, and the same chain at a lower one is no chain.
           where-are-we --out /tmp/pthmap --path a,d --path-depth 2 > /tmp/pth/ad2.txt
           grep -q 'No path from `a` to `d` within 2 hops' /tmp/pth/ad2.txt
@@ -3172,6 +3192,10 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/pth/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/pth/ad.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP path and --path disagree"
@@ -3310,6 +3334,10 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/rng/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/rng/charge.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP range and --range disagree"
@@ -3414,9 +3442,52 @@ jobs:
           if grep '^- ' /tmp/dh/dead.txt | grep -qw 'main'; then
             echo "main was called dead"; exit 1
           fi
-          # 6. The caveat that decides what the list means is in the first line.
-          grep -q 'Only cross-file calls are in this graph' /tmp/dh/dead.txt
+          # 6. The caveats that decide what the list means come before the list
+          #    rather than after it, because they are what the list is.
+          grep -q 'only cross-file calls are in this graph' /tmp/dh/dead.txt
+          grep -q "callers this map's resolver could not place" /tmp/dh/dead.txt
+          grep -q 'Read it as questions, not as a list to delete from' /tmp/dh/dead.txt
           grep -q 'file kinds its call graph reaches (.py)' /tmp/dh/dead.txt
+          grep -q 'any other language is not judged either way' /tmp/dh/dead.txt
+          # A map whose graph holds no calls row cannot answer the question, and
+          # says so rather than printing a clean nothing, which a reader of a
+          # small repository would take for good news.
+          rm -rf /tmp/dhnone /tmp/dhnonemap
+          mkdir -p /tmp/dhnone
+          printf 'def alone():\n    return 1\n\n\nclass Solo:\n    pass\n' \
+            > /tmp/dhnone/only.py
+          where-are-we --repo /tmp/dhnone --out /tmp/dhnonemap --product /tmp/dhnone --quiet
+          where-are-we --out /tmp/dhnonemap --dead > /tmp/dhnone/out.txt
+          cat /tmp/dhnone/out.txt
+          grep -q 'No call graph in this map' /tmp/dhnone/out.txt
+          grep -q 'The map holds 2 functions and classes' /tmp/dhnone/out.txt
+          if grep -q '0 definitions in 0 files' /tmp/dhnone/out.txt; then
+            echo "an empty call graph was reported as a clean bill"; exit 1
+          fi
+          # A route file matched by basename takes out every file of that name,
+          # because `routes_served` records no path. The count of basenames it
+          # guessed on is in the first line rather than nowhere.
+          rm -rf /tmp/dhbase /tmp/dhbasemap
+          mkdir -p /tmp/dhbase/web /tmp/dhbase/other
+          printf '@app.get("/invoice")\ndef serve(x):\n    return x\n' > /tmp/dhbase/web/api.py
+          printf 'def nobody_calls_this():\n    return 1\n' > /tmp/dhbase/other/api.py
+          printf 'def helper():\n    return 1\n\n\ndef unused_here():\n    return 2\n' \
+            > /tmp/dhbase/lib.py
+          printf 'from lib import helper\n\n\ndef go():\n    return helper()\n' \
+            > /tmp/dhbase/run.py
+          where-are-we --repo /tmp/dhbase --out /tmp/dhbasemap --product /tmp/dhbase --quiet
+          where-are-we --out /tmp/dhbasemap --dead > /tmp/dhbase/out.txt
+          cat /tmp/dhbase/out.txt
+          grep -q 'left out on a guess' /tmp/dhbase/out.txt
+          grep -q 'names more than one file in this map' /tmp/dhbase/out.txt
+          grep -q 'unused_here' /tmp/dhbase/out.txt
+          grep -q 'go (4)' /tmp/dhbase/out.txt
+          # The point of the sentence: `other/api.py` is not a route file and
+          # its definition is gone anyway, because the basename is all the map
+          # records. Silent before; counted in the first line now.
+          if grep -q 'nobody_calls_this' /tmp/dhbase/out.txt; then
+            echo "a same-named file was judged rather than excluded"; exit 1
+          fi
           # 7. `hot` puts a file with ten commits above an equal-rank file with one.
           rm -rf /tmp/hot /tmp/hotmap
           mkdir -p /tmp/hot
@@ -3430,7 +3501,10 @@ jobs:
           git -C /tmp/hot commit -qm base
           # Ten commits on one file, one on the other. Nothing else about the two
           # differs: they are the same shape in the graph, called once each from the
-          # same caller, so rank scores them the same and only the churn separates them.
+          # same caller, so rank scores them the same and only the churn separates
+          # them. Eleven against two once the base commit is counted, and the map
+          # records both numbers whole: `git_history` keeps five commit lines a
+          # file and `git_commits` the count, which is what `--hot` multiplies by.
           i=1
           while [ $i -le 10 ]; do
             printf '# touch %s\n' "$i" >> /tmp/hot/lib_a.py
@@ -3447,7 +3521,7 @@ jobs:
           cat /tmp/hot/rank.txt
           cat /tmp/hot/hot.txt
           python - <<'EOF'
-          import json, re, sys
+          import json, re, subprocess, sys
           hot = open("/tmp/hot/hot.txt").read()
           rows = re.findall(r"^- `(lib_[ab]\.py):\d+` (\w+), rank ([\d.]+) x "
                             r"(\d+) commits? = ([\d.]+)$", hot, re.M)
@@ -3459,21 +3533,54 @@ jobs:
           assert a[1] == b[1], (a, b)
           assert a[2] > b[2], (a, b)
           assert abs(a[3] - a[1] * a[2]) < 1e-9 and abs(b[3] - b[1] * b[2]) < 1e-9, (a, b)
-          # The count is the section's own, not a second reading of git. The map keeps
-          # at most a handful of commits per file, so eleven commits on one file and
-          # two on the other come back as whatever that section recorded; what the
-          # ranking turns on is that one is larger than the other.
+          # The real counts, eleven and two, not the five `git_history` caps its
+          # commit lines at. The number printed is `git_commits`, and that key is
+          # asserted against `git log` itself, so neither the map nor this step can
+          # drift into reporting the cap as the count.
           m = json.load(open("/tmp/hotmap/framework_map.json"))
-          assert a[2] == len(m["git_history"]["lib_a.py"]), (a, m["git_history"])
-          assert b[2] == len(m["git_history"]["lib_b.py"]), (b, m["git_history"])
+          assert (a[2], b[2]) == (11, 2), (a, b)
+          assert m["git_commits"]["lib_a.py"] == 11, m["git_commits"]
+          assert m["git_commits"]["lib_b.py"] == 2, m["git_commits"]
+          assert len(m["git_history"]["lib_a.py"]) == 5, m["git_history"]
+          real = {f: int(subprocess.run(
+              ["git", "-C", "/tmp/hot", "log", "--since=90.days", "--oneline",
+               "--", f], capture_output=True, text=True).stdout.strip().count("\n") + 1)
+              for f in ("lib_a.py", "lib_b.py")}
+          assert real == {"lib_a.py": 11, "lib_b.py": 2}, real
+          assert m["git_commits"] == {**real, "main.py": 1}, m["git_commits"]
           order = [name for _f, name, _s, _c, _p in rows]
           assert order.index("alpha") < order.index("betaa"), order
-          print(f"equal rank {a[1]}, {a[2]} commits against {b[2]}, and the one that "
-                f"changes more is printed first: {order}")
+          print(f"equal rank {a[1]}, {a[2]} real commits against {b[2]}, and the "
+                f"one that changes more is printed first: {order}")
           EOF
-          # 8. A file with no row in the most-changed-files section counts 1, so
-          #    every definition in the map is ranked rather than zeroed out.
-          grep -q 'a file with no row there counts 1' /tmp/hot/hot.txt
+          # 8. A file outside the section counts 1 whatever its history, so every
+          #    definition in the map is ranked rather than zeroed out, and the
+          #    first line says that bound rather than implying an uncapped count.
+          grep -q 'counts 1 however often it changed' /tmp/hot/hot.txt
+          grep -q 'busiest files and no more' /tmp/hot/hot.txt
+          if grep -q 'x 5 commits' /tmp/hot/hot.txt; then
+            echo "a count of 5 was printed where the history holds 11"; exit 1
+          fi
+          # A map from before `git_commits` existed can only count the commit
+          # lines, which stop at five. Then every row says the count is a floor
+          # and the first line says why, rather than printing 5 as a measurement.
+          rm -rf /tmp/hotold
+          cp -r /tmp/hotmap /tmp/hotold
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/hotold/framework_map.json"))
+          del m["git_commits"]
+          m["git_history"] = {k: v[:5] for k, v in m["git_history"].items()}
+          json.dump(m, open("/tmp/hotold/framework_map.json", "w"))
+          EOF
+          where-are-we --out /tmp/hotold --hot > /tmp/hot/old.txt
+          cat /tmp/hot/old.txt
+          grep -q 'no `git_commits` key' /tmp/hot/old.txt
+          grep -q 'every count at 5 means 5 or more' /tmp/hot/old.txt
+          grep -qF 'x 5+ commits' /tmp/hot/old.txt
+          if grep -qE 'x 5 commits' /tmp/hot/old.txt; then
+            echo "a capped count was printed as a measurement"; exit 1
+          fi
           # 9. --limit is the same ceiling on both, refused below 1 on both.
           where-are-we --out /tmp/dhmap --dead --limit 1 | grep -q 'Top 1 files'
           where-are-we --out /tmp/hotmap --hot --limit 2 | grep -q 'The top 2 of'
@@ -3492,6 +3599,10 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/dh/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/dh/dead.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP dead and --dead disagree"
@@ -3515,7 +3626,12 @@ jobs:
               HANDLE = re.compile(rf"(more:{kind}:[^)\s]+?)(?=[)\s]|$)")
               result = call(ask.load_map(out), 40)
               whole = [row for block in names for row in lines_of(result, block)]
-              for limit in (12000, 1500, 900):
+              # Budgets above each answer's own first line. `dead`'s carries
+              # the whole exclusion list and both caveats, so it runs to about
+              # eleven hundred characters, and a budget under that is not a
+              # shorter answer but no answer, which is the rule `ask` and
+              # `context` already print under.
+              for limit in (12000, 2500, 1500):
                   text = answer_of(M, 40, limit)
                   assert len(text) <= limit, (kind, limit, len(text))
                   seen, queue, guard = [], [text], 0
@@ -3527,15 +3643,19 @@ jobs:
                   missing = [row for row in whole if row not in seen]
                   assert not missing, (kind, limit, missing[:2])
               print(f"{kind}: {len(whole)} rows, every one reachable from the answer's "
-                    "own handles at 12000, 1500 and 900 characters")
+                    "own handles at 12000, 2500 and 1500 characters")
           EOF
           # 12. The map's own "Page-object methods nothing calls" section is a
-          #     different rule (a text count over the suite's source) over a different
-          #     table (`unused_api`), and this release does not touch it: the golden
-          #     maps and every expected answer are byte for byte what they were.
+          #     different rule (a text count over the suite's source) over a
+          #     different table (`unused_api`), and this release does not make
+          #     it a rendering of `dead`: the two disagree, and the rendering
+          #     the plan asked for is left to a release that names the golden
+          #     lines it moves. Every expected answer is byte for byte what it
+          #     was; the pinned maps moved by exactly one key, `git_commits`,
+          #     which the commit that added it names.
           cd "$root"
           python tests/golden/check.py
-          git diff --exit-code -- tests/golden/expected tests/golden/maps
+          git diff --exit-code -- tests/golden/expected
           python - <<'EOF'
           import json, pathlib, sys
           m = json.load(open("tests/golden/maps/suite/framework_map.json"))
@@ -3543,20 +3663,121 @@ jobs:
           head = "## Page-object methods nothing calls"
           section = brief.split(head, 1)[1].split("\n##", 1)[0]
           rows = [l for l in section.splitlines() if l.startswith("- ")]
-          print(f"{head}: {len(rows)} row(s), from `unused_api`, "
-                f"{len(m['unused_api'])} file(s)")
-          # The two answers really are different, and this is where they differ: the
-          # section calls twenty methods dead that the graph has a `calls` row for.
-          from where_are_we import graph
-          called = graph._called(m)
+          # The section is `unused_api`, rendered: the pinned brief and the
+          # pinned map say the same thing, so a change to either is caught
+          # here rather than only by the byte comparison above.
           listed = [(rel, name) for rel, names in m["unused_api"].items()
                     for name in names]
+          for rel, names in m["unused_api"].items():
+              line = [l for l in rows if l.startswith(f"- `{rel.split('/')[-1]}`")]
+              assert line, (rel, rows)
+              for name in names[:8]:
+                  assert name in line[0], (name, line[0])
+          print(f"{head}: {len(rows)} row(s), rendered from `unused_api`, "
+                f"{len(m['unused_api'])} file(s), {len(listed)} method(s)")
+
+          # Where the two rules disagree, measured rather than asserted about.
+          from where_are_we import graph
+          called = graph._called(m)
           both = [(rel, n) for rel, n in listed
                   if any(f.endswith("/" + rel) and c == n.split(".")[-1].rstrip("()")
                          for f, c in called)]
-          print(f"{len(listed)} methods in that section, {len(both)} of which the "
-                f"graph holds an incoming calls row for")
+          print(f"{len(listed)} methods in that section, {len(both)} of which "
+                f"the graph holds an incoming calls row for")
+          assert len(both) == len(listed), (len(both), len(listed))
+
+          # And what `dead` says about the same fixture, so the flagship
+          # suite is not the one map no step ever runs this against. One row,
+          # and that row is a known false positive: `build_fixtures.py` has
+          # the steps module do `page = CheckoutPage()` at module level, and
+          # a `calls` row's subject is `<file>:<func>`, so a call outside any
+          # function has no shape to be recorded in. Recording it would mean
+          # a synthetic subject and a new `xrefs` meaning, which is a mapper
+          # change and not this release's.
+          rows = graph.dead(m, 40)
+          names = [n for _rel, pairs in rows["files"] for n, _line in pairs]
+          print(f"dead on the suite fixture: {rows['total']} row(s), {names}")
+          assert names == ["CheckoutPage"], names
+          assert not [x for x in m["xrefs"]
+                      if x.get("edge") == "calls" and x.get("object") == "CheckoutPage"], \
+              "a module-level construction is in the graph now; drop this caveat"
           sys.exit(0 if rows else 1)
+          EOF
+      - name: every prose count of the tool list is the number the server serves
+        run: |
+          set -o pipefail
+          # Every prose count of the tool list, in every document, against the server
+          # itself. Three of these went stale on one branch and CI stayed green,
+          # because nothing outside the workflow's own sorted-list pins reads them.
+          python - <<'EOF'
+          import pathlib, re, sys
+          from where_are_we.mcp import TOOLS
+
+          WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+                   "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+                   "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+                   "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19,
+                   "twenty": 20}
+          served = len(TOOLS)
+          names = sorted(t["name"] for t in TOOLS)
+          # A count of the tools, spelled or in digits, next to the word "tools".
+          COUNT = re.compile(r"\b(" + "|".join(WORDS) + r"|\d{1,3})\s+(?:of\s+the\s+map's\s+)?tools\b",
+                             re.I)
+          ALL = re.compile(r"\ball\s+(" + "|".join(WORDS) + r"|\d{1,3})\s+of\s+the\s+map's\s+tools\b",
+                           re.I)
+          docs = [pathlib.Path(p) for p in ("README.md", "CHANGELOG.md",
+                                            "plugin/README.md", "SCHEMA.md",
+                                            "CONTRIBUTING.md")]
+          docs += sorted(pathlib.Path("plugin/skills").rglob("SKILL.md"))
+          # The shipped documents, not `docs/superpowers/plans/`: a plan is a record of
+          # what was true when it was written, and a release that renumbered the tools
+          # does not make an old plan wrong.
+          docs += sorted(p for p in pathlib.Path("docs").rglob("*.md")
+                         if "superpowers" not in p.parts)
+          wrong, checked = [], 0
+          for doc in docs:
+              for n, line in enumerate(doc.read_text().splitlines(), 1):
+                  for hit in list(COUNT.finditer(line)) + list(ALL.finditer(line)):
+                      word = hit.group(1).lower()
+                      said = WORDS.get(word, int(word) if word.isdigit() else None)
+                      if said is None or said < 5:
+                          continue  # "two tools", "three tools" is prose about a pair
+                      checked += 1
+                      if said != served:
+                          wrong.append(f"{doc}:{n}: says {said}, the server serves {served}")
+          print(f"{served} tools on the server; {checked} prose counts checked in "
+                f"{len(docs)} documents, wrong: {wrong}")
+          sys.exit(1 if wrong else 0)
+          EOF
+          # And the lists beside those counts: a document that names the tools has to
+          # name all of them. A count that is right beside a list that is short is the
+          # same staleness one step further on.
+          python - <<'EOF'
+          import pathlib, re, sys
+          from where_are_we.mcp import TOOLS
+          names = {t["name"] for t in TOOLS}
+          # Every run of three or more backticked names on one logical line, which is
+          # how every one of these lists is written.
+          RUN = re.compile(r"(?:`[a-z_]+`(?:,| and|,? or)?\s*){3,}")
+          missing = []
+          for path in ("README.md", "plugin/README.md"):
+              doc = pathlib.Path(path).read_text()
+              for block in re.finditer(r"[^\n]*(?:\n[^\n]*){0,4}", doc):
+                  text = block.group(0)
+                  if "tools" not in text.lower():
+                      continue
+                  for run in RUN.finditer(text):
+                      found = set(re.findall(r"`([a-z_]+)`", run.group(0)))
+                      named = found & names
+                      # A list is a tool list once it names most of them; below that it
+                      # is prose about a few, and this must not fail on `defines` and
+                      # `at` being discussed together.
+                      if len(named) >= len(names) - 3 and named != names:
+                          missing.append(f"{path}: a tool list is missing "
+                                         f"{sorted(names - named)}")
+          print(f"tool lists in README.md and plugin/README.md name all {len(names)}: "
+                f"{not missing}, gaps: {sorted(set(missing))}")
+          sys.exit(1 if missing else 0)
           EOF
       - name: manifest and hooks
         run: |

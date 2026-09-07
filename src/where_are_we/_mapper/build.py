@@ -1008,8 +1008,17 @@ def build(repo: str, out_dir: str | None = None,
                 f"{cur['when']} {cur['who']}: {cur['subject'][:60]}")
             if cur.get("ticket"):
                 ticket_links[cur["ticket"]]["files"].append(line.strip())
+    # How often each file was touched, before the lists are cut. `git_history`
+    # keeps five commit lines a file because it is there to show a reader the
+    # latest few; the count is a different question and the cut destroyed the
+    # answer to it. `--hot` multiplies a rank score by this, and multiplying
+    # by a five that means "five or more" ranked every busy file the same.
+    git_commits = {k: len(v) for k, v in git_history.items()}
     git_history = {k: v[:5] for k, v in
                    sorted(git_history.items(), key=lambda kv: -len(kv[1]))[:40]}
+    # The same forty files the lists are cut to, so the two keys describe one
+    # set and a reader never finds a count for a file the section omits.
+    git_commits = {k: git_commits[k] for k in git_history}
     ticket_links = {k: {"subject": v["subject"], "files": sorted(set(v["files"]))[:8]}
                     for k, v in list(ticket_links.items())[:40]}
 
@@ -3386,6 +3395,7 @@ def build(repo: str, out_dir: str | None = None,
         "unused_api": unused_api,
         "debts": debts,
         "git_history": git_history,
+        "git_commits": git_commits,
         "ticket_links": ticket_links,
         "dependencies": deps,
         "ci": ci,

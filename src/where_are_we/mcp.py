@@ -399,13 +399,18 @@ TOOLS = [
     {
         "name": "dead",
         "description": (
-            "What nothing calls: the definitions no `xrefs` call row lands "
-            "on, grouped by file, with a route handler, a step function, an "
-            "entry point, a dunder and a test case left out and the whole "
-            "exclusion list stated in the first line. Only cross-file calls "
-            "are in the graph, so a function called from its own file alone "
-            "is on the list too, and the first line says so: this is a list "
-            "to read, not a list to delete from. `limit` is how many files "
+            "The definitions no `xrefs` call row lands on, grouped by file. "
+            "Read it as questions, not as dead code: only cross-file calls "
+            "are in the graph, so a function called from the file that "
+            "declares it is on the list, and so is one whose callers the "
+            "resolver could not place, which is what a call through an "
+            "imported module looks like. On a library most rows are "
+            "unplaceable calls rather than dead definitions; on a test suite, "
+            "where a page object is called from step modules, it is sharp. A "
+            "route handler, a step function, an entry point, a dunder and a "
+            "test case are left out and the first line names the whole "
+            "exclusion list and both caveats. Never delete from this list "
+            "without checking the callers yourself. `limit` is how many files "
             "come back (40 by default)."),
         "inputSchema": {
             "type": "object",
@@ -420,11 +425,14 @@ TOOLS = [
             "Where to look first in a review: the definitions with the most "
             "of the codebase behind them that also change the most, ranked "
             "by the map's own `rank` score times the commits its "
-            "most-changed-files section records, with both numbers shown so "
-            "you can see which of the two put a row where it is. A file with "
-            "no row in that section counts 1, because the section is the "
-            "last ninety days. `limit` is how many definitions come back (40 "
-            "by default)."),
+            "most-changed-files section counted, with both numbers shown so "
+            "you can see which of the two put a row where it is. Two bounds, "
+            "both in the first line: that section is the forty busiest files "
+            "of the last ninety days, so a file outside it counts 1 however "
+            "often it changed, and a map built before the `git_commits` key "
+            "can only count the five commit lines kept per file, where every "
+            "count reads `5+` and means five or more. `limit` is how many "
+            "definitions come back (40 by default)."),
         "inputSchema": {
             "type": "object",
             "properties": {"limit": {"type": "integer", "minimum": 1,
