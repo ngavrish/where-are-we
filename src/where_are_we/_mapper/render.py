@@ -627,7 +627,7 @@ def brief(m: dict) -> str:
             # five commit lines a file, so counting the lines under-reports
             # every file busier than that. An older map has no such key and
             # the length is the best this can say.
-            lines.append(f"- `{rel}` — {counts.get(rel) or len(entries)} "
+            lines.append(f"- `{rel}`: {counts.get(rel) or len(entries)} "
                          f"commits, latest: {entries[0][:80]}")
     tl = _as_dict(m.get("ticket_links"))
     if tl:
