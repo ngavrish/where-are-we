@@ -6,13 +6,15 @@ grepped.
 - **SessionStart hook** builds `.wawe/framework_map.md` (or rebuilds it after a
   commit) and puts the map's ~600-byte pointer into the session's context. The
   map itself stays on disk.
-- **MCP server** `where-are-we` exposes the map as fourteen tools: `ask`,
+- **MCP server** `where-are-we` exposes the map as sixteen tools: `ask`,
   `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
   `callees`, `impact`, `affected`, `reaches`, `unreached`,
   and `more`, which takes the handle an answer printed
 - **MCP server** `where-are-we` exposes the map as thirteen tools: `ask`,
   `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
   `callees`, `impact`, `affected`, `path`, `range`, and `more`, which takes the handle an answer printed
+  `callees`, `impact`, `affected`, `path`, `range`, `dead`, `hot`,
+  and `more`, which takes the handle an answer printed
   where it was cut and returns the part that was left out. `defines` names
   every file that declares a name, with the line each declaration ends on,
   `at` takes the `file:line` a stack trace gives you and returns the whole
@@ -58,7 +60,12 @@ grepped.
   an editor what it needs before an `Edit`: every home of a name as
   `file:start-end kind`, the text of the shortest, and the first line, the
   last, and the one after the last, each with the text of that line, so an
-  insertion lands outside the definition rather than inside it.
+  insertion lands outside the definition rather than inside it. `dead` names
+  the definitions no call row lands on, grouped by file, with the exclusion
+  list and the cross-file caveat in its first line: a list to read, not a
+  list to delete from. `hot` multiplies the map's `rank` score by the commits
+  its most-changed-files section records and prints both numbers, so a
+  reviewer can see which of the two put a row where it is.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

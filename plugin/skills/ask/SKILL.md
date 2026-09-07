@@ -75,6 +75,11 @@ line), and `find`'s hits past its limit (`more:find:`).
   answers by hand. Only cross-file calls are in that graph, so a chain that
   runs through a call inside one file is not one it can walk, and the first
   line says so.
+- **Reviewing, not editing.** `hot()` is the map's `rank` score times how
+  often each file changes, both numbers shown, which is where to read first.
+  `dead()` is the definitions no call row lands on, grouped by file: read it
+  as a list of questions, not as a list to delete, because only cross-file
+  calls are in the graph and its first line says what else it leaves out.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

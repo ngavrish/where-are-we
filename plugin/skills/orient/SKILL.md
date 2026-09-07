@@ -46,6 +46,10 @@ message after you open it.
      another, one hop per line with how each edge was resolved.
    - `range(name=...)` - every home of a name with its range, the shortest
      one's text, and the lines an editor anchors on.
+   - `dead()` - the definitions no call row lands on, by file, with the
+     exclusion list and the cross-file caveat in the first line.
+   - `hot()` - rank score times commits, both numbers shown: where a review
+     starts.
    - `sections()` - the section headings.
    - `rank(files=[...])` - what the repository is built around, and what is
      worth reading given the files you are editing. Ask this first in a tree

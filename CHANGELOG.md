@@ -197,17 +197,41 @@ the map and nothing read them end to end; this release starts doing that.
   inside it, which is the move this exists for. A site whose end nothing
   measured cannot be the shortest and is listed with `?` and the reason,
   which says whether a read cut short is ruled out. No write path.
-- Both are cut by the rules every other answer here is cut by, through
+- What nothing calls: `dead` (MCP), `--dead [--limit N]`. The definitions no
+  `calls` row lands on, grouped by file, one file per row. One `def` is one
+  row whatever it is spelled as: `spans` holds a class as `LoginPage` and as
+  `class LoginPage` and a method as `LoginPage.sign_in` and `sign_in`, and a
+  call on any spelling keeps the site off the list. Counted only in the file
+  kinds this map's call graph actually reaches, read off the table rather
+  than hard coded, because a `def` quoted inside a Markdown fence is
+  documentation and not dead code. The first line states the whole exclusion
+  list, and the caveat that decides what the list means: only cross-file
+  calls are in this graph, so a function called from its own file alone is on
+  it, and so is one whose callers the resolver could not place. A list to
+  read, not a list to delete from. The map's own "Page-object methods nothing
+  calls" section is a different rule over a different table (`unused_api`
+  counts occurrences of `.name` in the suite's source) and is untouched:
+  measured on the `suite` golden fixture, that section calls 20 methods dead
+  that the graph holds an incoming `calls` row for, and every golden answer
+  is byte for byte what it was.
+- Where to look first: `hot` (MCP), `--hot [--limit N]`. The map's own `rank`
+  score times the commits its most-changed-files section records, top N with
+  both numbers printed, so a reader can see which of the two put a row where
+  it is. A file with no row in that section counts 1 rather than 0, because
+  the section is the last ninety days and a file missing from it has not
+  changed lately rather than never. `rank` is the map's top 200, so this
+  ranks within those, and the first line says so.
+- All four are cut by the rules every other answer here is cut by, through
   the same code: whole rows, a floor share of the budget per block with what
   nobody claims handed on in printing order, a `more:` handle under a block
   that was cut, and one "raise the budget" line with a handle for a block
   there was no room for at all. `affected`'s renderer became that shared one
-  and is byte for byte what it was. The new handle kinds are `more:pth:` and
-  `more:rng:`, each carrying its own question
+  and is byte for byte what it was. The new handle kinds are `more:pth:`,
+  `more:rng:`, `more:dead:` and `more:hot:`, each carrying its own question
   and nothing stored between the call that printed it and the call that uses
   it.
-- `tools/list` moves from 12 to 14 and every pin in the workflow moves with
-  it; the session banner the plugin prints names all fourteen, and a CI step
+- `tools/list` moves from 12 to 16 and every pin in the workflow moves with
+  it; the session banner the plugin prints names all sixteen, and a CI step
   fails when a tool the server declares is missing from that line.
 
 ## 1.5.0

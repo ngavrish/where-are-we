@@ -20,31 +20,36 @@ from datetime import datetime, timezone
 # `tests/golden/import_graph.py` is what says so.
 try:
     from ._mapper import rank as _rank_graph
-    from .graph import (BLOCKS as AFFECTED_BLOCKS, DEFAULT_DEPTH,
-                        FORMATS as AFFECTED_FORMATS, HEADS as AFFECTED_HEADS,
-                        NAMES as AFFECTED_NAMES, PATH_BLOCKS, PATH_NAMES,
-                        RANGE_BLOCKS, RANGE_NAMES, REACHES_BLOCKS,
+    from .graph import (BLOCKS as AFFECTED_BLOCKS, DEAD_BLOCKS, DEAD_LIMIT,
+                        DEAD_NAMES, DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
+                        HEADS as AFFECTED_HEADS, HOT_BLOCKS, HOT_LIMIT,
+                        HOT_NAMES, NAMES as AFFECTED_NAMES, PATH_BLOCKS,
+                        PATH_NAMES, RANGE_BLOCKS, RANGE_NAMES, REACHES_BLOCKS,
                         REACHES_HEADS, REACHES_NAMES, UNREACHED_BLOCKS,
                         UNREACHED_HEADS, UNREACHED_LIMIT, UNREACHED_NAMES,
-                        affected, block_lines, format_head, load as load_map,
-                        path, path_head, path_lines, path_summary, range_head,
-                        range_lines, range_summary, reaches, reaches_lines,
-                        reaches_summary, selectors, summary, symbol_range,
-                        unreached, unreached_lines, unreached_summary)
+                        affected, block_lines, dead, dead_head, dead_lines,
+                        dead_summary, format_head, hot, hot_head, hot_lines,
+                        hot_summary, load as load_map, path, path_head,
+                        path_lines, path_summary, range_head, range_lines,
+                        range_summary, reaches, reaches_lines, reaches_summary,
+                        selectors, summary, symbol_range, unreached,
+                        unreached_lines, unreached_summary)
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import rank as _rank_graph  # type: ignore[no-redef]
-    from graph import (BLOCKS as AFFECTED_BLOCKS,  # type: ignore[no-redef]
-                       DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
-                       HEADS as AFFECTED_HEADS, NAMES as AFFECTED_NAMES,
-                       PATH_BLOCKS, PATH_NAMES, RANGE_BLOCKS, RANGE_NAMES,
-                       REACHES_BLOCKS, REACHES_HEADS, REACHES_NAMES,
-                       UNREACHED_BLOCKS, UNREACHED_HEADS, UNREACHED_LIMIT,
-                       UNREACHED_NAMES, affected, block_lines, format_head,
-                       load as load_map, path, path_head, path_lines,
-                       path_summary, range_head, range_lines, range_summary,
-                       reaches, reaches_lines, reaches_summary, selectors,
-                       summary, symbol_range, unreached, unreached_lines,
-                       unreached_summary)
+    from graph import (BLOCKS as AFFECTED_BLOCKS, DEAD_BLOCKS, DEAD_LIMIT,
+                       DEAD_NAMES, DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
+                       HEADS as AFFECTED_HEADS, HOT_BLOCKS, HOT_LIMIT,
+                       HOT_NAMES, NAMES as AFFECTED_NAMES, PATH_BLOCKS,
+                       PATH_NAMES, RANGE_BLOCKS, RANGE_NAMES, REACHES_BLOCKS,
+                       REACHES_HEADS, REACHES_NAMES, UNREACHED_BLOCKS,
+                       UNREACHED_HEADS, UNREACHED_LIMIT, UNREACHED_NAMES,
+                       affected, block_lines, dead, dead_head, dead_lines,
+                       dead_summary, format_head, hot, hot_head, hot_lines,
+                       hot_summary, load as load_map, path, path_head,
+                       path_lines, path_summary, range_head, range_lines,
+                       range_summary, reaches, reaches_lines, reaches_summary,
+                       selectors, summary, symbol_range, unreached,
+                       unreached_lines, unreached_summary)
 
 # The default `--rank` and the MCP `rank` tool print, and the length of the
 # map's own `rank` key. The same number in both, so `--rank` with no files is
@@ -2728,8 +2733,8 @@ def _blocked_answer(head: str, blocks: tuple, lines: dict, handle_for,
                     limit: int, first: str = "") -> str:
     """A first line and a set of blocks, cut to `limit` and never past it.
 
-    The shape every graph answer in this project has: `affected`, `path`
-    and `range` all print a line of counts and then blocks of
+    The shape every graph answer in this project has: `affected`, `path`,
+    `range`, `dead` and `hot` all print a line of counts and then blocks of
     whole rows, each block guaranteed a floor share and handed what the
     others did not want, each block that was cut ending in a tail with the
     handle that fetches the rest, and each block there was no room for at all
@@ -2892,6 +2897,7 @@ def unreached_answer(map_path: str, rows: int = UNREACHED_LIMIT,
 
 # What one `path` answer may take, in characters.
 # What one `path` or `range` answer may take, in characters.
+# What one `path`, `range`, `dead` or `hot` answer may take, in characters.
 # The same ceiling `ask()`, `context` and `affected` print at: an answer read
 # off the command line and the same answer read off the MCP tool land in the
 # same conversation and are paid for again on every turn after.
@@ -2969,6 +2975,38 @@ def range_answer(map_path: str, name: str,
                          lines, handle_for, limit)
 
 
+def dead_answer(map_path: str, limit_rows: int = DEAD_LIMIT,
+                limit: int = GRAPH_BUDGET) -> str:
+    """The definitions no `calls` row lands on, grouped by file.
+
+    `limit_rows` is how many files the answer holds and `limit` how many
+    characters it may take: the first is the question's own narrowing, the
+    second the ceiling every answer here is printed at. A file cut by the
+    budget rather than by the limit is behind a `more:dead:` handle.
+    """
+    result = dead(load_map(os.path.dirname(map_path) or "."), limit_rows)
+    head = dead_summary(result, limit)
+
+    def handle_for(block: str):
+        return lambda got: f"more:dead:{block}:{result['limit']}:{got}"
+
+    lines = {block: dead_lines(result, block) for block in DEAD_NAMES}
+    return _graph_answer(head, _with_heads(result, DEAD_BLOCKS, dead_head),
+                         lines, handle_for, limit)
+
+
+def hot_answer(map_path: str, limit_rows: int = HOT_LIMIT,
+               limit: int = GRAPH_BUDGET) -> str:
+    """The ranked definitions weighted by how often their file changes."""
+    result = hot(load_map(os.path.dirname(map_path) or "."), limit_rows)
+    head = hot_summary(result, limit)
+
+    def handle_for(block: str):
+        return lambda got: f"more:hot:{block}:{result['limit']}:{got}"
+
+    lines = {block: hot_lines(result, block) for block in HOT_NAMES}
+    return _graph_answer(head, _with_heads(result, HOT_BLOCKS, hot_head),
+                         lines, handle_for, limit)
 
 
 # How to ask one graph answer again, from a handle's own fields: the walk or
@@ -3004,6 +3042,26 @@ def _rng_again(m: dict, fields: list):
     return symbol_range(m, name), fields[1], name
 
 
+def _rows_again(m: dict, fields: list, call):
+    """One `dead` or `hot` question again: how many rows were asked for."""
+    try:
+        rows = int(fields[1])
+    except ValueError:
+        return _stale(f"{fields[1]!r} is not a limit")
+    if rows < 1:
+        return _stale("a limit starts at 1")
+    result = call(m, rows)
+    return result, str(result["limit"]), f"the top {result['limit']}"
+
+
+def _dead_again(m: dict, fields: list):
+    """One `dead` question again."""
+    return _rows_again(m, fields, dead)
+
+
+def _hot_again(m: dict, fields: list):
+    """One `hot` question again."""
+    return _rows_again(m, fields, hot)
 
 
 def _rch_again(m: dict, fields: list):
@@ -3039,6 +3097,8 @@ _GRAPH_MORE = {
     "unr": (3, UNREACHED_NAMES, lambda _r, block: UNREACHED_HEADS[block],
             unreached_lines, _unr_again),
     "rng": (3, RANGE_NAMES, range_head, range_lines, _rng_again),
+    "dead": (3, DEAD_NAMES, dead_head, dead_lines, _dead_again),
+    "hot": (3, HOT_NAMES, hot_head, hot_lines, _hot_again),
 }
 
 # What a block of one of those is called when a handle names one that is not

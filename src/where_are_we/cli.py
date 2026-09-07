@@ -53,10 +53,10 @@ except ImportError:  # run as a plain file, with no package around it
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import (AFFECTED_BUDGET, GRAPH_BUDGET,  # type: ignore[no-redef]
-                     IMPACT_MAX_DEPTH, RANK_LIMIT, UNREACHED_LIMIT,
-                     affected_answer, ask, at, callees_line, callers, context,
-                     file_list, impact, log_answer, map_heads, path_answer,
+    from ask import (AFFECTED_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
+                     RANK_LIMIT, UNREACHED_LIMIT, affected_answer, ask, at,
+                     callees_line, callers, context, dead_answer, file_list,
+                     hot_answer, impact, log_answer, map_heads, path_answer,
                      range_answer, rank_lines, reaches_answer, selection_lines,
                      spans_for, unreached_answer)
     from _mapper.build import (build,  # type: ignore[no-redef]
@@ -586,9 +586,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "newline separated list on stdin, which is what "
                          "`git diff --name-only` hands over")
     ap.add_argument("--limit", type=_row_limit, default=0, metavar="N",
-                    help="how many rows --rank prints, and how many "
-                         "definitions --unreached ranks (default 200 for "
-                         "both)")
+                    help="how many rows --rank, --dead and --hot print, and "
+                         "how many definitions --unreached ranks "
+                         f"(default {RANK_LIMIT} for --rank and --unreached, "
+                         f"{graph.DEAD_LIMIT} files for --dead, "
+                         f"{graph.HOT_LIMIT} for --hot)")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -680,6 +682,18 @@ def build_parser() -> argparse.ArgumentParser:
                          "editor anchors on: the first, the last, and the one "
                          "after the last. An end of ? is a declaration this "
                          "map could not measure, and the row says why. Reads "
+                         "framework_map.json under --out")
+    ap.add_argument("--dead", action="store_true",
+                    help="print the definitions no `xrefs` calls row lands "
+                         "on, grouped by file: a route handler, a step "
+                         "function, an entry point and a test case are left "
+                         "out, and the first line names the whole exclusion "
+                         "list. Reads framework_map.json under --out")
+    ap.add_argument("--hot", action="store_true",
+                    help="print the definitions with the most behind them "
+                         "that also change the most: the map's own `rank` "
+                         "score times the commits its most-changed-files "
+                         "section records, both numbers shown. Reads "
                          "framework_map.json under --out")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
@@ -885,6 +899,7 @@ def _dry_run_answer(args) -> int:
         ("--reaches", args.reaches), ("--unreached", args.unreached),
         ("--path", args.call_path),
         ("--path", args.call_path), ("--range", args.range_name),
+        ("--dead", args.dead), ("--hot", args.hot),
         ("--rank", args.rank_files is not None),
         ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
@@ -993,6 +1008,7 @@ def main() -> int:
                          or args.unreached or args.call_path
                          or args.changed is not None
                          or args.call_path or args.range_name
+                         or args.dead or args.hot
                          or args.export is not None
                          or args.rank_files is not None
                          or args.cost is not None):
@@ -1056,6 +1072,7 @@ def main() -> int:
             or args.affected or args.changed is not None
             or args.reaches or args.unreached or args.call_path
             or args.call_path or args.range_name
+            or args.call_path or args.range_name or args.dead or args.hot
             or args.export is not None or args.rank_files is not None
             or args.cost is not None):
         out_dir = os.path.abspath(args.out)
@@ -1093,6 +1110,7 @@ def main() -> int:
                              or args.reaches or args.unreached
                              or args.call_path
                              or args.call_path or args.range_name
+                             or args.dead or args.hot
                              or args.export is not None
                              or args.rank_files is not None
                              or args.cost is not None):
@@ -1261,6 +1279,18 @@ def main() -> int:
         if args.range_name:
             answer = range_answer(map_path, args.range_name)
             log_answer(out_dir, "range", args.range_name, answer, GRAPH_BUDGET)
+            print(answer)
+            return 0
+        if args.dead:
+            answer = dead_answer(map_path, args.limit or graph.DEAD_LIMIT)
+            log_answer(out_dir, "dead", str(args.limit or graph.DEAD_LIMIT),
+                       answer, GRAPH_BUDGET)
+            print(answer)
+            return 0
+        if args.hot:
+            answer = hot_answer(map_path, args.limit or graph.HOT_LIMIT)
+            log_answer(out_dir, "hot", str(args.limit or graph.HOT_LIMIT),
+                       answer, GRAPH_BUDGET)
             print(answer)
             return 0
         if args.rank_files is not None:

@@ -29,22 +29,22 @@ except ImportError:  # run as a plain file, with no package around it
 
 try:
     from . import graph
-    from .ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET,
-                       GRAPH_BUDGET, IMPACT_MAX_DEPTH, MCP_SELECTORS,
-                       RANK_LIMIT, REACHES_BUDGET, UNREACHED_BUDGET,
-                       UNREACHED_LIMIT, affected_tool_answer, at, context,
-                       file_list, log_answer, callees_line, callers, impact,
-                       map_heads, path_answer, range_answer, rank_lines,
-                       reaches_answer, unreached_answer)
+    from .ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET, GRAPH_BUDGET,
+                       IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
+                       REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
+                       affected_tool_answer, at, callees_line, callers,
+                       context, file_list, impact, log_answer, map_heads,
+                       path_answer, range_answer, rank_lines, reaches_answer,
+                       unreached_answer)
 except ImportError:  # run as a plain file, with no package around it
     import graph  # type: ignore[no-redef]
-    from ask import (AFFECTED_BUDGET, AT_BUDGET,  # type: ignore[no-redef]
-                     CONTEXT_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
-                     MCP_SELECTORS, RANK_LIMIT, REACHES_BUDGET,
-                     UNREACHED_BUDGET, UNREACHED_LIMIT, affected_tool_answer,
-                     at, context, file_list, log_answer, callees_line, callers,
-                     impact, map_heads, path_answer, range_answer, rank_lines,
-                     reaches_answer, unreached_answer)
+    from ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET, GRAPH_BUDGET,
+                     IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
+                     REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
+                     affected_tool_answer, at, callees_line, callers, context,
+                     file_list, impact, log_answer, map_heads, path_answer,
+                     range_answer, rank_lines, reaches_answer,
+                     unreached_answer)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -397,6 +397,42 @@ TOOLS = [
         },
     },
     {
+        "name": "dead",
+        "description": (
+            "What nothing calls: the definitions no `xrefs` call row lands "
+            "on, grouped by file, with a route handler, a step function, an "
+            "entry point, a dunder and a test case left out and the whole "
+            "exclusion list stated in the first line. Only cross-file calls "
+            "are in the graph, so a function called from its own file alone "
+            "is on the list too, and the first line says so: this is a list "
+            "to read, not a list to delete from. `limit` is how many files "
+            "come back (40 by default)."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1,
+                                     "description": ("how many files "
+                                                     "(default 40)")}},
+        },
+    },
+    {
+        "name": "hot",
+        "description": (
+            "Where to look first in a review: the definitions with the most "
+            "of the codebase behind them that also change the most, ranked "
+            "by the map's own `rank` score times the commits its "
+            "most-changed-files section records, with both numbers shown so "
+            "you can see which of the two put a row where it is. A file with "
+            "no row in that section counts 1, because the section is the "
+            "last ninety days. `limit` is how many definitions come back (40 "
+            "by default)."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1,
+                                     "description": ("how many definitions "
+                                                     "(default 40)")}},
+        },
+    },
+    {
         "name": "rank",
         "description": (
             "What this repository is built around, best first: the "
@@ -700,6 +736,18 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             raise _BadParams("name must be a declared name")
         answer = range_answer(map_path, name_field.strip(), GRAPH_BUDGET)
         log_answer(out_dir, "range", name_field.strip(), answer, GRAPH_BUDGET)
+        _reply(_text(answer), ident)
+    elif name in ("dead", "hot"):
+        limit_field = args.get("limit")
+        if limit_field is not None and (not isinstance(limit_field, int)
+                                        or isinstance(limit_field, bool)
+                                        or limit_field < 1):
+            raise _BadParams("limit must be a positive integer")
+        default = graph.DEAD_LIMIT if name == "dead" else graph.HOT_LIMIT
+        rows = int(limit_field or default)
+        answer = (dead_answer if name == "dead" else hot_answer)(
+            map_path, rows, GRAPH_BUDGET)
+        log_answer(out_dir, name, str(rows), answer, GRAPH_BUDGET)
         _reply(_text(answer), ident)
     elif name == "rank":
         files_field = args.get("files")

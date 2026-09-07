@@ -82,6 +82,8 @@ EFFECTS = {
     # as `--impact-depth` and `--affected-depth` are.
     "--path-depth": "read",
     "--range": "read",
+    "--dead": "read",
+    "--hot": "read",
     "--sections": "read",
     "--cost": "read",
     "--pointer": "read",
@@ -132,9 +134,8 @@ NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
             "--at, --context, --affected, --changed, --reaches, "
-            "--unreached, --path, --rank, --sections, --cost) "
-            "--at, --context, --affected, --changed, --path, --range, "
-            "--rank, --sections, --cost) "
+            "--unreached, --path, --range, --dead, --hot, --rank, "
+            "--sections, --cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
@@ -159,9 +160,7 @@ NO_MAP_BUILD = frozenset({
     "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
     "--cost", "--export", "--context", "--affected", "--changed",
-    "--reaches", "--unreached", "--path",
-    "--cost", "--export", "--context", "--affected", "--changed", "--path",
-    "--range",
+    "--reaches", "--unreached", "--path", "--range", "--dead", "--hot",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

@@ -2392,3 +2392,282 @@ def range_lines(result: dict, block: str) -> list:
                 rows.append(f"- {label} {number}: `{text}`")
         return rows
     return []
+
+
+# --------------------------------------------------------------- dead, hot
+
+# The kinds a definition has to be to be in `dead`. A constant or a module
+# nothing calls is not dead code: `xrefs` records calls and imports, not
+# every read of every name, so every constant in the map would be listed and
+# the list would say nothing.
+DEAD_KINDS = ("class", "function")
+
+# The names left out whatever the graph says, because something other than a
+# call reaches them. Printed in the answer's first line, so a reader knows
+# what the list is not.
+DEAD_EXCLUDED = (
+    "a dunder the language itself calls (`__init__` and every other "
+    "`__name__`)",
+    "`main`",
+    "a name starting with `test`, and every case `pytest_tests` records",
+    "a step function, which behave calls off a phrase in a feature file",
+    "a definition in a file a `routes_served` row is served from",
+    "a definition in a file `entry_points` names as a launch script",
+)
+
+# How many files `dead` and how many definitions `hot` print when nobody
+# says. The same order of magnitude as `--rank`'s own default cut down to
+# what a reader scans: a hundred dead files is a project to work through
+# rather than an answer to read.
+DEAD_LIMIT = 40
+HOT_LIMIT = 40
+
+
+def _called(m: dict) -> set:
+    """`{(file, name)}` every `calls` row lands on.
+
+    An ambiguous row lands on each of its candidates, so a name several files
+    declare is called in all of them. That over-counts, and it over-counts in
+    the direction that keeps a definition out of `dead`: calling something
+    dead that is called is worse than leaving something dead off the list.
+    """
+    out = set()
+    for row in m.get("xrefs") or []:
+        if row.get("edge") != "calls":
+            continue
+        for file in _edge_files(row):
+            out.add((file, str(row.get("object") or "")))
+    return out
+
+
+def _call_suffixes(m: dict) -> set:
+    """The file extensions this map's `calls` rows actually reach.
+
+    Read off the table rather than hard coded, because which languages the
+    call graph covers is a property of the build: Python by `ast`, several
+    more by pattern, and more again under the `[precise]` extra. A
+    declaration in a file of any other kind can never have an incoming row,
+    so calling it dead would report a bound of this graph as a fact about the
+    code: a `def` quoted inside a Markdown fence is not dead code, it is
+    documentation.
+
+    Both ends of every row, so a language whose files only ever declare and
+    never call is still covered.
+    """
+    out = set()
+    for row in m.get("xrefs") or []:
+        if row.get("edge") != "calls":
+            continue
+        for file in [_subject_file(row)] + _edge_files(row):
+            out.add(os.path.splitext(str(file))[1].lower())
+    out.discard("")
+    return out
+
+
+def _excluded_files(m: dict, root: str) -> set:
+    """The files whose definitions are left out: a file a route is served
+    from, and a file `entry_points` names as a launch script."""
+    bases = set()
+    for route in m.get("routes_served") or ():
+        hit = _ROUTE_FILE.search(str(route))
+        if hit:
+            bases.add(hit.group(1))
+    scripts = {str(k) for k in (m.get("entry_points") or {})}
+    out = set()
+    for name, sites in (m.get("spans") or {}).items():
+        for site in sites or ():
+            file = site.get("file")
+            if not file:
+                continue
+            rel = _rank_graph.relative(file, root)
+            if os.path.basename(rel) in bases or rel in scripts:
+                out.add(file)
+    return out
+
+
+def _readable(name: str) -> tuple:
+    """How to choose between the spellings one declaration is held under.
+
+    A site is in `spans` more than once: a class is there as `LoginPage` and
+    as `class LoginPage`, and a method as `LoginPage.sign_in` and `sign_in`.
+    The name a reader greps for is the one that reads as an identifier, so a
+    spelling with a space in it loses to one without, and among those the
+    qualified one wins, because `LoginPage.sign_in` says which class and
+    `sign_in` does not.
+    """
+    return (" " in name, -len(name), name)
+
+
+def _entry_name(name: str) -> bool:
+    """Whether a name is an entry point rather than something called.
+
+    The last segment, so `Case.test_pay` and `test_pay` are both test entry
+    points and `Thing.__init__` is a dunder.
+    """
+    bare = name.rpartition(".")[2]
+    return (bare == "main" or bare.startswith("test")
+            or (bare.startswith("__") and bare.endswith("__")))
+
+
+def dead(m: dict, limit: int = DEAD_LIMIT) -> dict:
+    """The definitions no `calls` row lands on, grouped by file.
+
+    A site rather than a name: `spans` holds a method under both
+    `CheckoutPage.click_1` and `click_1`, one declaration on one line, and a
+    list that named both would report twice the dead code a file has. The
+    qualified spelling is the one printed, because it is the one a reader
+    greps for; a site is called when any of its spellings is called.
+
+    `DEAD_EXCLUDED` says what is left out and the answer's first line prints
+    it, because a list of things nothing calls is only readable when the
+    reader knows which callers it does not count.
+
+    The caveat that matters most is not an exclusion: `xrefs` holds cross
+    file calls and nothing else, so a function called only from the file that
+    declares it has no incoming row and is here. The first line says so.
+    """
+    root = m.get("repo") or ""
+    limit = max(1, int(limit))
+    called = _called(m)
+    step_at, _func_at = _declaration_sites(m)
+    skip_files = _excluded_files(m, root)
+    cases = {name for names in (m.get("pytest_tests") or {}).values()
+             for name in names or ()}
+
+    # By site, with every name that site is declared under, so one `def` is
+    # one row and a call on any of its spellings keeps it off the list.
+    reachable = _call_suffixes(m)
+    at_site: dict = {}
+    for name, sites in (m.get("spans") or {}).items():
+        for site in sites or ():
+            if site.get("kind") not in DEAD_KINDS or not site.get("file"):
+                continue
+            if os.path.splitext(str(site["file"]))[1].lower() not in reachable:
+                continue
+            at_site.setdefault((site["file"], site.get("start") or 0),
+                               []).append(name)
+
+    rows = []
+    for (file, start), names in at_site.items():
+        if file in skip_files or step_at.get((file, start)) is not None:
+            continue
+        if any(_entry_name(n) or n in cases for n in names):
+            continue
+        if any((file, n) in called or (file, n.rpartition(".")[2]) in called
+               for n in names):
+            continue
+        rows.append((_rank_graph.relative(file, root),
+                     min(names, key=_readable), start))
+
+    by_file: dict = {}
+    for rel, name, start in sorted(rows, key=lambda r: (r[0], r[2], r[1])):
+        by_file.setdefault(rel, []).append((name, start))
+    files = sorted(by_file.items())
+    return {"files": files[:limit], "held": len(files), "total": len(rows),
+            "considered": len(at_site), "limit": limit,
+            "suffixes": ", ".join(sorted(reachable)) or "none"}
+
+
+DEAD_BLOCKS = (("dead", 100),)
+DEAD_NAMES = tuple(name for name, _pct in DEAD_BLOCKS)
+
+
+def dead_head(_result: dict, _block: str) -> str:
+    """The head of the one `dead` block."""
+    return "## Definitions with no incoming call row, by file, in path order"
+
+
+def dead_summary(result: dict, limit: int) -> str:
+    """The first line of a `dead` answer: the counts, the caveat that decides
+    what the list means, and the exclusions."""
+    head = (f"{_plural(result['total'], 'definition')} in "
+            f"{_plural(result['held'], 'file')} have no incoming `xrefs` "
+            f"calls row, out of {result['considered']} functions and "
+            f"classes this map holds in the file kinds its call graph reaches "
+            f"({result['suffixes']}); a declaration in any other kind of file "
+            f"can never have an incoming row, so it is not counted here. "
+            f"Only cross-file calls are in this graph, so a "
+            f"definition called only from the file that declares it is on "
+            f"this list, and so is one whose callers this map's resolver "
+            f"could not place. Left out: " + "; ".join(DEAD_EXCLUDED) + ". "
+            f"Top {result['limit']} files, {limit} characters.")
+    return head
+
+
+def dead_lines(result: dict, block: str) -> list:
+    """The one `dead` block's rows: one file per row, its dead definitions
+    with the line each starts on.
+
+    One row per file rather than per definition, so a block cut to a budget
+    loses whole files and never a file's header with its names below it. It
+    is also the shape the map's own "Page-object methods nothing calls"
+    section prints, which is the same question asked of a different table.
+    """
+    if block != "dead":
+        return []
+    return [f"- `{rel}`: "
+            + ", ".join(f"{name} ({start})" for name, start in names)
+            for rel, names in result["files"]]
+
+
+def hot(m: dict, limit: int = HOT_LIMIT) -> dict:
+    """The ranked definitions weighted by how often their file changes.
+
+    `rank` says what the repository is built around and `git_history` says
+    what it keeps editing; either alone is half an answer. A file nothing
+    reaches that changes every day is churn, and a file everything reaches
+    that has not moved in a year is settled. What a reviewer wants is the
+    product, and both numbers are printed so a reader can see which of the
+    two put a row where it is.
+
+    A file with no row in the most-changed-files section counts 1 rather than
+    0: that section is the last ninety days, so a file missing from it has
+    not changed lately, not never, and a zero would erase every definition in
+    it from the ranking.
+
+    `rank` is the map's top 200, so this ranks within those.
+    """
+    root = m.get("repo") or ""
+    limit = max(1, int(limit))
+    churn = {rel: len(entries or ())
+             for rel, entries in (m.get("git_history") or {}).items()}
+    rows = []
+    for entry in m.get("rank") or ():
+        rel = _rank_graph.relative(str(entry.get("file") or ""), root)
+        commits = churn.get(rel) or 1
+        score = float(entry.get("score") or 0.0)
+        rows.append((score * commits, rel, entry.get("line") or 0,
+                     str(entry.get("name") or ""), score, commits))
+    rows.sort(key=lambda r: (-r[0], r[1], r[2], r[3]))
+    return {"rows": rows[:limit], "held": len(rows), "limit": limit,
+            "churned": len(churn)}
+
+
+HOT_BLOCKS = (("hot", 100),)
+HOT_NAMES = tuple(name for name, _pct in HOT_BLOCKS)
+
+
+def hot_head(_result: dict, _block: str) -> str:
+    """The head of the one `hot` block."""
+    return "## Rank score times commits, highest first"
+
+
+def hot_summary(result: dict, limit: int) -> str:
+    """The first line of a `hot` answer: what the two numbers are and where
+    each of them comes from."""
+    return (f"The top {len(result['rows'])} of {result['held']} ranked "
+            f"definitions by rank score times commits. The score is the "
+            f"map's own `rank`, which holds the top {result['held']} "
+            f"definitions of this repository; the commits are the "
+            f"most-changed-files section, which covers "
+            f"{_plural(result['churned'], 'file')} over the last ninety days, "
+            f"and a file with no row there counts 1. {limit} characters.")
+
+
+def hot_lines(result: dict, block: str) -> list:
+    """The one `hot` block's rows, with both numbers behind each product."""
+    if block != "hot":
+        return []
+    return [f"- `{rel}:{line}` {name}, rank {score:.9f} x "
+            f"{_plural(commits, 'commit')} = {product:.9f}"
+            for product, rel, line, name, score, commits in result["rows"]]

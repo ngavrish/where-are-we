@@ -777,6 +777,9 @@ jobs:
                            "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/ctx/click_7.context").read_text()
@@ -1028,6 +1031,9 @@ jobs:
                            "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/rankout/personal.txt").read_text()
           assert mcp == cli.rstrip("\n"), (mcp, cli)
@@ -1637,6 +1643,9 @@ jobs:
                            "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -1952,6 +1961,9 @@ jobs:
                            "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/aff/checkout.txt").read_text()
@@ -3334,6 +3346,217 @@ jobs:
               print(f"{name}: {len(whole)} rows over {len(ask.RANGE_NAMES)} blocks, "
                     "every one reachable from the answer's own handles at 12000, 1500, "
                     "600 and 400 characters")
+          EOF
+      - name: dead and hot read the graph and the history
+        run: |
+          set -o pipefail
+          root=$(pwd)
+          rm -rf /tmp/dh /tmp/dhmap
+          mkdir -p /tmp/dh/features/steps /tmp/dh/app
+          # A function nothing calls, one only a route file holds, one a step
+          # decorator binds, an entry point, and one that is called across files.
+          cat > /tmp/dh/app/lib.py <<'EOF'
+          def called_across_files():
+              return 1
+
+
+          def nothing_calls_me():
+              return 2
+
+
+          def main():
+              return 3
+
+
+          class Orphan:
+              pass
+          EOF
+          cat > /tmp/dh/app/api.py <<'EOF'
+          from app.lib import called_across_files
+
+
+          @app.get("/invoice")
+          def serve_invoice():
+              return called_across_files()
+          EOF
+          cat > /tmp/dh/features/steps/pay_steps.py <<'EOF'
+          from behave import given
+
+
+          @given("a customer pays")
+          def step_pays(context):
+              return 1
+          EOF
+          printf 'Feature: Pay\n\n  Scenario: Pay\n    Given a customer pays\n' \
+            > /tmp/dh/features/pay.feature
+          where-are-we --repo /tmp/dh --out /tmp/dhmap --product /tmp/dh --quiet
+          where-are-we --out /tmp/dhmap --dead > /tmp/dh/dead.txt
+          cat /tmp/dh/dead.txt
+          # 1. A function nothing calls is dead, and a class nothing builds is dead.
+          grep -q 'nothing_calls_me' /tmp/dh/dead.txt
+          grep -q 'Orphan' /tmp/dh/dead.txt
+          # 2. A function called across files is not.
+          if grep -q 'called_across_files' /tmp/dh/dead.txt; then
+            echo "a function another file calls was called dead"; exit 1
+          fi
+          # 3. One referenced only from a route is not: `api.py` serves GET /invoice,
+          #    so nothing declared in it is on the list, and the first line says that
+          #    is the rule rather than leaving the reader to guess.
+          if grep -q 'serve_invoice' /tmp/dh/dead.txt; then
+            echo "a definition in a file a route is served from was called dead"; exit 1
+          fi
+          grep -q 'a definition in a file a `routes_served` row is served from' /tmp/dh/dead.txt
+          # 4. A step function is not: behave calls it off a phrase in a feature file.
+          if grep -q 'step_pays' /tmp/dh/dead.txt; then
+            echo "a step function was called dead"; exit 1
+          fi
+          # 5. An entry point is not.
+          if grep '^- ' /tmp/dh/dead.txt | grep -qw 'main'; then
+            echo "main was called dead"; exit 1
+          fi
+          # 6. The caveat that decides what the list means is in the first line.
+          grep -q 'Only cross-file calls are in this graph' /tmp/dh/dead.txt
+          grep -q 'file kinds its call graph reaches (.py)' /tmp/dh/dead.txt
+          # 7. `hot` puts a file with ten commits above an equal-rank file with one.
+          rm -rf /tmp/hot /tmp/hotmap
+          mkdir -p /tmp/hot
+          git -C /tmp/hot init -q
+          git -C /tmp/hot config user.email t@t
+          git -C /tmp/hot config user.name t
+          printf 'def alpha():\n    return 1\n' > /tmp/hot/lib_a.py
+          printf 'def betaa():\n    return 1\n' > /tmp/hot/lib_b.py
+          printf 'from lib_a import alpha\nfrom lib_b import betaa\n\n\ndef run():\n    return alpha() + betaa()\n' > /tmp/hot/main.py
+          git -C /tmp/hot add .
+          git -C /tmp/hot commit -qm base
+          # Ten commits on one file, one on the other. Nothing else about the two
+          # differs: they are the same shape in the graph, called once each from the
+          # same caller, so rank scores them the same and only the churn separates them.
+          i=1
+          while [ $i -le 10 ]; do
+            printf '# touch %s\n' "$i" >> /tmp/hot/lib_a.py
+            git -C /tmp/hot add lib_a.py
+            git -C /tmp/hot commit -qm "a $i"
+            i=$((i + 1))
+          done
+          printf '# touch 1\n' >> /tmp/hot/lib_b.py
+          git -C /tmp/hot add lib_b.py
+          git -C /tmp/hot commit -qm "b 1"
+          where-are-we --repo /tmp/hot --out /tmp/hotmap --product /tmp/hot --quiet
+          where-are-we --out /tmp/hotmap --rank > /tmp/hot/rank.txt
+          where-are-we --out /tmp/hotmap --hot > /tmp/hot/hot.txt
+          cat /tmp/hot/rank.txt
+          cat /tmp/hot/hot.txt
+          python - <<'EOF'
+          import json, re, sys
+          hot = open("/tmp/hot/hot.txt").read()
+          rows = re.findall(r"^- `(lib_[ab]\.py):\d+` (\w+), rank ([\d.]+) x "
+                            r"(\d+) commits? = ([\d.]+)$", hot, re.M)
+          by_name = {name: (file, float(score), int(commits), float(product))
+                     for file, name, score, commits, product in rows}
+          assert "alpha" in by_name and "betaa" in by_name, hot
+          a, b = by_name["alpha"], by_name["betaa"]
+          # Equal rank, unequal churn, and the product is the score times the count.
+          assert a[1] == b[1], (a, b)
+          assert a[2] > b[2], (a, b)
+          assert abs(a[3] - a[1] * a[2]) < 1e-9 and abs(b[3] - b[1] * b[2]) < 1e-9, (a, b)
+          # The count is the section's own, not a second reading of git. The map keeps
+          # at most a handful of commits per file, so eleven commits on one file and
+          # two on the other come back as whatever that section recorded; what the
+          # ranking turns on is that one is larger than the other.
+          m = json.load(open("/tmp/hotmap/framework_map.json"))
+          assert a[2] == len(m["git_history"]["lib_a.py"]), (a, m["git_history"])
+          assert b[2] == len(m["git_history"]["lib_b.py"]), (b, m["git_history"])
+          order = [name for _f, name, _s, _c, _p in rows]
+          assert order.index("alpha") < order.index("betaa"), order
+          print(f"equal rank {a[1]}, {a[2]} commits against {b[2]}, and the one that "
+                f"changes more is printed first: {order}")
+          EOF
+          # 8. A file with no row in the most-changed-files section counts 1, so
+          #    every definition in the map is ranked rather than zeroed out.
+          grep -q 'a file with no row there counts 1' /tmp/hot/hot.txt
+          # 9. --limit is the same ceiling on both, refused below 1 on both.
+          where-are-we --out /tmp/dhmap --dead --limit 1 | grep -q 'Top 1 files'
+          where-are-we --out /tmp/hotmap --hot --limit 2 | grep -q 'The top 2 of'
+          if where-are-we --out /tmp/hotmap --hot --limit 0 > /dev/null 2>&1; then
+            echo "--limit 0 was accepted"; exit 1
+          fi
+          # 10. The tool and the flag are the same answer, and the server declares both.
+          printf '%s\n%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dead","arguments":{}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"hot","arguments":{"limit":0}}}' \
+            '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"hot","arguments":{"limit":2}}}' \
+            | where-are-we --out /tmp/dhmap --mcp > /tmp/dh/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/dh/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          print("tools/list:", len(names), names)
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/dh/dead.txt").read_text()
+          assert mcp == cli.rstrip("\n"), "MCP dead and --dead disagree"
+          assert rows[2]["error"]["code"] == -32602, rows[2]
+          assert rows[2]["error"]["message"] == "limit must be a positive integer", rows[2]
+          print("MCP dead and --dead agree, byte for byte")
+          EOF
+          grep -q '"tool": "dead"' /tmp/dhmap/.wawe-ask.log
+          where-are-we --out /tmp/hotmap --hot > /tmp/hot/again.txt
+          diff -u /tmp/hot/hot.txt /tmp/hot/again.txt
+          # 11. Every row of both answers is reachable from their own handles.
+          python - <<'EOF'
+          import re
+          from where_are_we import ask
+          for kind, out, answer_of, lines_of, names, call in (
+                  ("dead", "/tmp/dhmap", ask.dead_answer, ask.dead_lines,
+                   ask.DEAD_NAMES, ask.dead),
+                  ("hot", "/tmp/hotmap", ask.hot_answer, ask.hot_lines,
+                   ask.HOT_NAMES, ask.hot)):
+              M = f"{out}/framework_map.md"
+              HANDLE = re.compile(rf"(more:{kind}:[^)\s]+?)(?=[)\s]|$)")
+              result = call(ask.load_map(out), 40)
+              whole = [row for block in names for row in lines_of(result, block)]
+              for limit in (12000, 1500, 900):
+                  text = answer_of(M, 40, limit)
+                  assert len(text) <= limit, (kind, limit, len(text))
+                  seen, queue, guard = [], [text], 0
+                  while queue and guard < 200:
+                      chunk = queue.pop(0)
+                      guard += 1
+                      seen += [l for l in chunk.splitlines() if l in whole]
+                      queue += [ask.more(M, h, limit) for h in HANDLE.findall(chunk)]
+                  missing = [row for row in whole if row not in seen]
+                  assert not missing, (kind, limit, missing[:2])
+              print(f"{kind}: {len(whole)} rows, every one reachable from the answer's "
+                    "own handles at 12000, 1500 and 900 characters")
+          EOF
+          # 12. The map's own "Page-object methods nothing calls" section is a
+          #     different rule (a text count over the suite's source) over a different
+          #     table (`unused_api`), and this release does not touch it: the golden
+          #     maps and every expected answer are byte for byte what they were.
+          cd "$root"
+          python tests/golden/check.py
+          git diff --exit-code -- tests/golden/expected tests/golden/maps
+          python - <<'EOF'
+          import json, pathlib, sys
+          m = json.load(open("tests/golden/maps/suite/framework_map.json"))
+          brief = pathlib.Path("tests/golden/maps/suite/framework_map_brief.md").read_text()
+          head = "## Page-object methods nothing calls"
+          section = brief.split(head, 1)[1].split("\n##", 1)[0]
+          rows = [l for l in section.splitlines() if l.startswith("- ")]
+          print(f"{head}: {len(rows)} row(s), from `unused_api`, "
+                f"{len(m['unused_api'])} file(s)")
+          # The two answers really are different, and this is where they differ: the
+          # section calls twenty methods dead that the graph has a `calls` row for.
+          from where_are_we import graph
+          called = graph._called(m)
+          listed = [(rel, name) for rel, names in m["unused_api"].items()
+                    for name in names]
+          both = [(rel, n) for rel, n in listed
+                  if any(f.endswith("/" + rel) and c == n.split(".")[-1].rstrip("()")
+                         for f, c in called)]
+          print(f"{len(listed)} methods in that section, {len(both)} of which the "
+                f"graph holds an incoming calls row for")
+          sys.exit(0 if rows else 1)
           EOF
       - name: manifest and hooks
         run: |
@@ -5809,6 +6032,9 @@ jobs:
                            "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
