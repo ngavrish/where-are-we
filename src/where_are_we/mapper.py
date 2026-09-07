@@ -76,8 +76,9 @@ try:
                                   find_text, index_declarations, index_lines,
                                   record_span, spans_index)
     from ._mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
-                                 _cap_sections, brief, changed_since, ctags,
-                                 digest, for_audience, meaning_tail, pointer)
+                                 _cap_sections, brief, changed_since, cost,
+                                 ctags, digest, export, for_audience,
+                                 meaning_tail, pointer, section_costs)
     from ._mapper.build import _layer_line, build
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
@@ -101,8 +102,9 @@ except ImportError:  # run as a plain file, with no package around it
                                  index_declarations, index_lines, record_span,
                                  spans_index)
     from _mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
-                                _cap_sections, brief, changed_since, ctags,
-                                digest, for_audience, meaning_tail, pointer)
+                                _cap_sections, brief, changed_since, cost,
+                                ctags, digest, export, for_audience,
+                                meaning_tail, pointer, section_costs)
     from _mapper.build import _layer_line, build
 
 __version__ = state.__version__
@@ -169,10 +171,11 @@ __all__ = [
     "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE", "_IGNORE_CACHE",
     "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief", "build",
     "changed_since", "content_hash", "content_pairs", "content_root",
-    "context", "ctags", "declarations_in", "definitions_for", "digest",
-    "file_list", "find_text", "fingerprint", "for_audience",
-    "index_declarations", "index_lines", "meaning_tail", "more", "pointer",
-    "rank_lines", "record_span", "redact", "spans_for", "spans_index",
+    "context", "cost", "ctags", "declarations_in", "definitions_for",
+    "digest", "export", "file_list", "find_text", "fingerprint",
+    "for_audience", "index_declarations", "index_lines", "meaning_tail",
+    "more", "pointer", "rank_lines", "record_span", "redact",
+    "section_costs", "spans_for", "spans_index",
 ]
 
 

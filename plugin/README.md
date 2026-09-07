@@ -61,10 +61,14 @@ disk (read, writes-map-dir, writes-repo, writes-config, network) for a guard
 that checks a command before it runs, and `--dry-run` names every path a write
 would touch without touching it.
 
-One more the plugin does not turn on for you: `--ctags` writes `.wawe/tags`
+Three more the plugin does not turn on for you. `--ctags` writes `.wawe/tags`
 beside the map, in the format vim, emacs, helix, kakoune and `readtags` have
 always read, so an editor open on the same checkout jumps to a definition with
-no language server running.
+no language server running. `--cost` says what each section of the map costs to
+carry, heaviest first, for deciding what `--only`, `--skip` and `--max-lines`
+should say. `--export FILE` packs the notice, the counts, the priced section
+list and the brief into one file, for a PR comment or a paste, where there is
+no `.wawe/` to read from.
 
 ## Try it without installing
 

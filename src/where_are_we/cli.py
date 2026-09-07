@@ -33,8 +33,8 @@ try:
                        map_heads, rank_lines, spans_for)
     from ._mapper.build import build
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
-                                 changed_since, ctags, digest, for_audience,
-                                 meaning_tail, pointer)
+                                 changed_since, cost, ctags, digest, export,
+                                 for_audience, meaning_tail, pointer)
     from ._mapper.declare import spans_index
     from ._mapper import state
     from ._mapper.state import DEFINITIONS, INDEXED
@@ -55,8 +55,8 @@ except ImportError:  # run as a plain file, with no package around it
     from _mapper.build import build  # type: ignore[no-redef]
     from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
                                 _as_dict, _cap_sections, brief, changed_since,
-                                ctags, digest, for_audience, meaning_tail,
-                                pointer)
+                                cost, ctags, digest, export, for_audience,
+                                meaning_tail, pointer)
     from _mapper.declare import spans_index  # type: ignore[no-redef]
     from _mapper import state  # type: ignore[no-redef]
     from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
@@ -617,6 +617,20 @@ def build_parser() -> argparse.ArgumentParser:
                          "sections it has, and how to ask it — never the map itself")
     ap.add_argument("--sections", action="store_true",
                     help="list the section headings of an existing map and exit")
+    ap.add_argument("--cost", nargs="?", type=int, const=0, default=None,
+                    metavar="THRESHOLD",
+                    help="print what each section of an existing map costs to "
+                         "carry: rows, bytes and tokens, heaviest first, with "
+                         "a total. THRESHOLD hides every section under that "
+                         "many bytes. With --json, the same table as JSON. "
+                         "Reads framework_map.md under --out")
+    ap.add_argument("--export", default="", metavar="FILE",
+                    help="write the map as one self-contained file: what it "
+                         "admits it is missing, what it indexed, its sections "
+                         "and what each costs, then the brief. For a channel "
+                         "with no filesystem - a PR comment, a paste. FILE is "
+                         "wherever the caller says, which is why the effects "
+                         "table calls this flag writes-repo")
     ap.add_argument("--corpus", action="append", default=[], metavar="NAME=PATH",
                     help="an extra corpus for the semantic index: a markdown "
                          "file or a directory of md/mdc/txt (a rules corpus, a "
@@ -634,7 +648,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "With `-- <command line>`, the class of that command "
                          "line and the flags that gave it")
     ap.add_argument("--json", action="store_true",
-                    help="with --effects: print the table as JSON")
+                    help="with --effects or --cost: print the table as JSON")
     ap.add_argument("--dry-run", action="store_true",
                     help="print every path this command line would write, one "
                          "per line, and exit without writing any of them")
@@ -705,6 +719,11 @@ def _dry_run_answer(args) -> int:
         for name in ("spec_map.json", "spec_map.md"):
             print(_would(os.path.join(out_dir, name)))
         return 0
+    if args.export:
+        # The one read that writes: the path is the caller's, so it is named
+        # rather than described.
+        print(_would(os.path.abspath(args.export)))
+        return 0
     named = [flag for flag, given in (
         ("--mcp", args.mcp), ("--lsp", args.lsp), ("--sections", args.sections),
         ("--pointer", args.pointer), ("--ask", args.ask),
@@ -712,7 +731,8 @@ def _dry_run_answer(args) -> int:
         ("--callees", args.callees), ("--impact", args.impact),
         ("--defines", args.defines), ("--at", args.at_place),
         ("--context", args.context_name),
-        ("--rank", args.rank_files is not None)) if given]
+        ("--rank", args.rank_files is not None),
+        ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
     return 0
 
@@ -801,8 +821,9 @@ def main() -> int:
                          or args.ask or args.pointer or args.callers
                          or args.callees or args.impact or args.more_handle
                          or args.defines or args.at_place
-                         or args.context_name
-                         or args.rank_files is not None):
+                         or args.context_name or args.export
+                         or args.rank_files is not None
+                         or args.cost is not None):
         return _dry_run_answer(args)
 
     # Answering from a map that already exists needs none of what follows: no
@@ -860,7 +881,8 @@ def main() -> int:
     if (args.sections or args.ask or args.pointer or args.callers
             or args.callees or args.impact or args.more_handle
             or args.defines or args.at_place or args.context_name
-            or args.rank_files is not None):
+            or args.export or args.rank_files is not None
+            or args.cost is not None):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -892,7 +914,9 @@ def main() -> int:
                              or args.callees or args.impact
                              or args.more_handle or args.defines
                              or args.at_place or args.context_name
-                             or args.rank_files is not None):
+                             or args.export
+                             or args.rank_files is not None
+                             or args.cost is not None):
             # These three read the code map and only the code map, so for
             # them the spec map beside it is not an answer. Say which file is
             # missing and which one is there.
@@ -911,6 +935,23 @@ def main() -> int:
                 return 1
             log_answer(out_dir, "sections", "", answer, len(answer))
             print(answer)
+            return 0
+        if args.cost is not None:
+            # `--cost` with no number is `--cost 0`: every section, nothing
+            # hidden. A threshold of 0 is a real answer, so the flag is read
+            # as "was it given at all" rather than as a truth value.
+            answer = cost(map_path, args.cost, as_json=args.json)
+            log_answer(out_dir, "cost", str(args.cost), answer, len(answer))
+            print(answer, end="")
+            return 0
+        if args.export:
+            target = os.path.abspath(args.export)
+            try:
+                os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                _write_atomic(target, export(map_path))
+            except OSError as exc:
+                return _write_error(exc, target)
+            print(f"wrote {target}")
             return 0
         if args.more_handle:
             # `--more` is the same call the MCP `more` tool makes, at the same

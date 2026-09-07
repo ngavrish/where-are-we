@@ -147,8 +147,29 @@
   is left out rather than rewritten, since a name spelled differently from the
   source is worse than a name the editor cannot jump to. Written atomically
   like every other artefact, and named by `--dry-run` before it exists.
-- The effects table gains `--ctags` as `writes-map-dir`, beside `--html`,
-  which is the other flag that adds a file to the map directory.
+- `--cost [THRESHOLD]` says what each section of the map costs to carry: rows,
+  bytes and tokens, heaviest first, with a total, and with every section under
+  THRESHOLD bytes hidden. `--cost --json` prints the same table as
+  `where-are-we-cost/1`. Measured over the text `ask` reads, which is
+  `framework_map.md` plus the sections of the brief it does not already have,
+  so the number is what a reader carries rather than what one file weighs. The
+  token column is `bytes / 4` and says `estimate`: no extra this project has
+  carries a tokenizer that can be reached without downloading a model, and a
+  precise count from the wrong tokenizer would be worse than an honest
+  division. `semantic.token_counter()` is the one place that has to learn
+  about a tokenizer if one ever arrives.
+- `--export FILE` writes the map as one self-contained file: the incompleteness
+  notice, the `indexed:` counts, every section with its byte and row count,
+  then the brief. For the case where a map has to travel through something
+  with no filesystem, a PR comment or a paste, and the pointer, which is a
+  path and an invitation to ask, is no use. Not the whole map: the big file is
+  the one the pointer exists to keep out of a prompt. The internal renderer
+  named `digest` keeps its name; the flag is `--export` because the two would
+  otherwise be one word for two different things.
+- The effects table gains all three. `--ctags` is `writes-map-dir`, `--cost` is
+  `read` and appends to the answer log like every other read, and `--export` is
+  `writes-repo`, because the file it writes is at whatever path the caller
+  named and a flag's class is the highest one it can reach.
 - The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a

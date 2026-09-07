@@ -65,6 +65,7 @@ EFFECTS = {
     "--impact": "read",
     "--impact-depth": "read",
     "--sections": "read",
+    "--cost": "read",
     "--pointer": "read",
     "--mcp": "read",
     "--lsp": "read",
@@ -82,6 +83,11 @@ EFFECTS = {
     "--force": "writes-map-dir",
     "--watch": "writes-map-dir",
     "--agent-file": "writes-repo",
+    # `--export` answers out of a map already on disk, which would make it a
+    # read; the file it writes is at whatever path the caller named, which
+    # can be anywhere in the repository or outside it. A flag has one class
+    # and it is the highest one the flag can reach, so this one is a write.
+    "--export": "writes-repo",
     "--init": "writes-repo",
     # `--docs` alone only says what it would write; `--docs write` creates the
     # files. One flag, one class, and the class is the one that writes.
@@ -105,12 +111,14 @@ EFFECTS = {
 NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
-            "--at, --context, --rank, --sections) "
+            "--at, --context, --rank, --sections, --cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
     "writes-repo": "writes into the repository being mapped: a manifest, an "
-                   "agent file, the READMEs a directory has none of.",
+                   "agent file, the READMEs a directory has none of, and the "
+                   "file --export was told to write, which is at whatever "
+                   "path the caller named.",
     "writes-config": "writes where a tool other than this one reads: "
                      ".git/hooks, ~/.claude/settings.json, "
                      "~/.codex/config.toml, a Cursor rule, a Gemini setting.",
@@ -127,6 +135,7 @@ NO_MAP_BUILD = frozenset({
     "-h", "--help", "--effects", "--dry-run", "--ask", "--more", "--callers",
     "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
+    "--cost", "--export",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

@@ -20,9 +20,10 @@ from .walk import _write_atomic
 VOCAB_CAP = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
 
 try:
-    from ..ask import fit_lines, map_heads
+    from ..ask import BRIEF_NAME, _blocks, fit_lines, map_heads, map_text
 except ImportError:  # run as a plain file, with no package around it
-    from ask import fit_lines, map_heads  # type: ignore[no-redef]
+    from ask import (BRIEF_NAME, _blocks,  # type: ignore[no-redef]
+                     fit_lines, map_heads, map_text)
 
 
 def digest(m: dict) -> str:
@@ -1155,3 +1156,201 @@ def ctags(m: dict) -> str:
     lines = list(CTAGS_HEADER) + sorted(rows, key=lambda r: r.encode("utf-8"))
     return "\n".join(lines) + "\n"
 
+
+# What `--cost` and `--export` are made of.
+#
+# A section is a `## ` heading and every line under it until the next one;
+# everything before the first heading is the header. Every line of the text
+# is in the header or in exactly one section, so the total a report prints is
+# the size of what it measured rather than an approximation of it.
+COST_SCHEMA = "where-are-we-cost/1"
+EXPORT_SCHEMA = "where-are-we-export/1"
+
+# Bytes per token when nothing better is available: the ratio repomix and
+# code2prompt use, and the one every vendor quotes for English prose. It is
+# an estimate, and every column that carries it says so.
+BYTES_PER_TOKEN = 4
+
+
+def _is_row(line: str) -> bool:
+    """Whether a line under a heading counts as a row.
+
+    The same rule `ask` counts by when it says "N rows do not mention these
+    words": a blank line is spacing and a bold line is a subhead, so neither
+    is something a reader asked for.
+    """
+    return bool(line.strip()) and not line.startswith("**")
+
+
+def section_costs(text: str) -> tuple[int, list[dict]]:
+    """`(header_bytes, sections)` for one map text.
+
+    One dict per `## ` heading, in the order the text has them, carrying the
+    heading, the row count, the size in UTF-8 bytes and the section's own
+    text. `header_bytes + sum(bytes)` is the size of the whole text.
+    """
+    header, sections, current = 0, [], None
+    for line in text.splitlines(keepends=True):
+        size = len(line.encode("utf-8"))
+        if line.startswith("## "):
+            current = {"section": line.strip(), "rows": 0, "bytes": size,
+                       "text": line}
+            sections.append(current)
+        elif current is None:
+            header += size
+        else:
+            current["bytes"] += size
+            current["rows"] += 1 if _is_row(line) else 0
+            current["text"] += line
+    return header, sections
+
+
+def _token_counter():
+    """`(name, count)` from an installed extra, or None to estimate.
+
+    One place asks, so one place has to learn about a tokenizer that appears
+    later; see `semantic.token_counter` for why none of the extras carries
+    one that can be reached without paying for a model download.
+    """
+    try:
+        from .. import semantic as _sem
+    except ImportError:  # run as a plain file, with no package around it
+        import semantic as _sem  # type: ignore[no-redef]
+    try:
+        return _sem.token_counter()
+    except Exception:  # noqa: BLE001 - an optional extra is never fatal here
+        return None
+
+
+def cost(map_path: str, threshold: int = 0, as_json: bool = False) -> str:
+    """What each section of the map costs to carry, heaviest first.
+
+    `wawe-measure --ask-log` reports what answers cost; nothing reported what
+    the map costs. A reader deciding whether to raise `--max-lines`, or a
+    maintainer deciding which of a hundred and forty sections earns its
+    bytes, had no number. This is that number, per section: rows, bytes and
+    tokens, sorted by bytes, with `threshold` hiding every section under that
+    many bytes.
+
+    Measured over the same text `ask` reads: `framework_map.md` plus every
+    section of the brief beside it whose heading the map does not have. A
+    report over the map file alone would say a plain code repository's map
+    costs three empty headings, which is true of that file and false of what
+    anybody carries.
+    """
+    text = map_text(map_path)
+    total_bytes = len(text.encode("utf-8"))
+    header_bytes, sections = section_costs(text)
+
+    counter = _token_counter()
+    label = "estimate" if counter is None else counter[0]
+    for row in sections:
+        body = row.pop("text")
+        row["tokens"] = (row["bytes"] // BYTES_PER_TOKEN if counter is None
+                         else counter[1](body))
+    total_tokens = (total_bytes // BYTES_PER_TOKEN if counter is None
+                    else counter[1](text))
+
+    # Heaviest first, ties by heading, so the same map always prints the same
+    # table.
+    shown = sorted((r for r in sections if r["bytes"] >= threshold),
+                   key=lambda r: (-r["bytes"], r["section"]))
+    hidden = len(sections) - len(shown)
+    total = {"sections": len(sections), "rows": sum(r["rows"] for r in sections),
+             "bytes": total_bytes, "tokens": total_tokens}
+    if as_json:
+        return json.dumps({
+            "schema": COST_SCHEMA,
+            "map": map_path,
+            "tokens": {"label": label,
+                       "bytes_per_token": BYTES_PER_TOKEN if counter is None else None},
+            "threshold": threshold,
+            "header_bytes": header_bytes,
+            "hidden": hidden,
+            "sections": shown,
+            "total": total,
+        }, indent=2) + "\n"
+
+    how = (f"tokens are an estimate: bytes / {BYTES_PER_TOKEN}, since no "
+           "installed extra carries a tokenizer."
+           if counter is None else f"tokens are exact, counted by {label}.")
+    heads = ("bytes", "tokens", "rows")
+    widths = [max([len(h)] + [len(str(r[h])) for r in shown]) for h in heads]
+    lines = [
+        f"{len(sections)} sections in {map_path} and the brief beside it, "
+        "heaviest first.",
+        how,
+        "",
+        f"{'bytes':>{widths[0]}}  {'tokens':>{widths[1]}}  "
+        f"{'rows':>{widths[2]}}  section",
+    ]
+    for r in shown:
+        lines.append(f"{r['bytes']:>{widths[0]}}  {r['tokens']:>{widths[1]}}  "
+                     f"{r['rows']:>{widths[2]}}  {r['section']}")
+    lines += ["", f"total: {total['sections']} sections, {total['bytes']} bytes, "
+                  f"{total['tokens']} tokens ({label}), {total['rows']} rows, "
+                  f"and {header_bytes} bytes of header before the first section"]
+    if hidden:
+        lines.append(f"{hidden} section{'' if hidden == 1 else 's'} under "
+                     f"{threshold} bytes not shown")
+    return "\n".join(lines) + "\n"
+
+
+def export(map_path: str) -> str:
+    """The map as one file, for a channel that has no filesystem.
+
+    A PR comment, a paste, a pack carried to another machine: somewhere the
+    map cannot be read off disk, and the pointer, which is a path and an
+    invitation to ask, is useless. So: what the map admits it is missing,
+    what it indexed, what its sections are and what each of them costs, and
+    then the brief itself, in one file that stands on its own.
+
+    Not the whole map. `framework_map.md` is the file the pointer exists to
+    keep out of a prompt, and copying it into a paste would be the same
+    mistake under a different name.
+    """
+    out_dir = os.path.dirname(map_path) or "."
+    text = map_text(map_path)
+    _header_bytes, sections = section_costs(text)
+
+    incomplete = []
+    for head, body in _blocks(text):
+        if head.strip().lower() == "## this map is incomplete":
+            incomplete = [line for line in body if line.strip()]
+            break
+
+    try:
+        with open(os.path.join(out_dir, "framework_map.json"), encoding="utf-8") as fh:
+            indexed = _as_dict((json.load(fh) or {}).get("indexed"))
+    except (OSError, ValueError):
+        indexed = {}
+    try:
+        with open(os.path.join(out_dir, BRIEF_NAME), encoding="utf-8") as fh:
+            brief_text = fh.read()
+    except OSError:
+        brief_text = ""
+
+    lines = [
+        "# where-are-we export",
+        "",
+        f"`{EXPORT_SCHEMA}`. One file standing on its own: what this map "
+        "admits it is missing, what it indexed, what its sections are and "
+        "what each of them costs, then the brief. Built from "
+        f"`{map_path}`; where that file is readable, ask it instead, since it "
+        "holds every row this leaves out.",
+        "",
+        "## Export",
+        "",
+        "**Incomplete**",
+        "",
+    ]
+    lines += incomplete or ["- nothing was cut: no bound this build has was reached"]
+    lines += ["", "**Indexed**", ""]
+    lines += ([f"- {role}: {count} files" for role, count in sorted(indexed.items())]
+              or ["- the map on disk records no counts"])
+    lines += ["", "**Sections**", ""]
+    lines += [f"- `{r['section']}` - {r['bytes']} bytes, {r['rows']} "
+              f"row{'' if r['rows'] == 1 else 's'}" for r in sections]
+    lines += ["", f"- total: {len(sections)} sections, "
+                  f"{len(text.encode('utf-8'))} bytes", ""]
+    return "\n".join(lines) + "\n" + brief_text

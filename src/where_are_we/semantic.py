@@ -56,6 +56,27 @@ def available() -> bool:
         return False
 
 
+def token_counter():
+    """`(name, count)` for an exact token count, or None to estimate one.
+
+    `--cost` reports what each section of the map costs, and a token figure
+    is worth more than a byte figure to anyone deciding what to carry. This
+    is the one place that says whether an exact one is available.
+
+    Today it never is. The tokenizer this project could reach lives inside a
+    fastembed model, and constructing one downloads roughly 130 MB the first
+    time; a report on what a file costs is not allowed to fetch a model
+    behind the caller's back, and a tokenizer for a different model than the
+    reader's would be a precise wrong answer, which is worse than an honest
+    division. So `--cost` divides by four and labels the column `estimate`.
+
+    When an extra does ship a tokenizer that is already on the machine, this
+    function returns its name and a callable that counts a string, and the
+    label follows from that name with nothing else to change.
+    """
+    return None
+
+
 def _embedder():
     global _bi
     if _bi is None:

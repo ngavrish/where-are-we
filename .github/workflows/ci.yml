@@ -1030,6 +1030,124 @@ jobs:
           else
             echo "universal-ctags is not installable on this runner: readtags was not run"
           fi
+      - name: the map says what each of its sections costs
+        run: |
+          set -o pipefail
+          rm -rf /tmp/cost
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/cost")
+          EOF
+          M=/tmp/cost/suite/out
+          where-are-we --out $M --cost --json > /tmp/cost/all.json
+          where-are-we --out $M --cost > /tmp/cost/all.txt
+          where-are-we --out $M --cost 500 > /tmp/cost/big.txt
+          head -12 /tmp/cost/all.txt
+          python - <<'EOF'
+          import json, os, sys
+          M = "/tmp/cost/suite/out"
+          d = json.load(open("/tmp/cost/all.json"))
+          bad = []
+          if d["schema"] != "where-are-we-cost/1":
+              bad.append("schema: " + d["schema"])
+          # Every line of the measured text is in the header or in exactly
+          # one section, so this is an identity and the slack is zero.
+          summed = d["header_bytes"] + sum(r["bytes"] for r in d["sections"])
+          if summed != d["total"]["bytes"]:
+              bad.append(f'{summed} summed against {d["total"]["bytes"]} total')
+          # And what was measured is the file plus the sections of the brief
+          # the file does not already have, so it is at least the map itself
+          # (less up to 8 bytes of trailing newline the join trims) and at
+          # most the map and the whole brief (plus the 4 bytes that join).
+          on_disk = os.path.getsize(os.path.join(M, "framework_map.md"))
+          brief = os.path.getsize(os.path.join(M, "framework_map_brief.md"))
+          if not on_disk - 8 <= d["total"]["bytes"] <= on_disk + brief + 4:
+              bad.append(f'{d["total"]["bytes"]} outside [{on_disk - 8}, '
+                         f'{on_disk + brief + 4}]')
+          sizes = [r["bytes"] for r in d["sections"]]
+          if sizes != sorted(sizes, reverse=True):
+              bad.append("not sorted heaviest first")
+          if d["tokens"]["label"] != "estimate":
+              bad.append("token label: " + d["tokens"]["label"])
+          if any(r["tokens"] != r["bytes"] // 4 for r in d["sections"]):
+              bad.append("a token count is not the estimate it claims to be")
+          if d["hidden"] or d["threshold"]:
+              bad.append(f'--cost with no threshold hid {d["hidden"]}')
+          print(f'{len(d["sections"])} sections, {d["total"]["bytes"]} bytes '
+                f'({on_disk} map + {brief} brief on disk), '
+                f'{d["total"]["tokens"]} tokens {d["tokens"]["label"]}, '
+                f'{d["total"]["rows"]} rows')
+          print("\n".join(bad) or "the table adds up, is sorted, and says it estimates")
+          sys.exit(1 if bad else 0)
+          EOF
+          # The text table says the same thing, and says which it is.
+          grep -q "tokens are an estimate: bytes / 4" /tmp/cost/all.txt
+          grep -q "^total: .* tokens (estimate), " /tmp/cost/all.txt
+          # A threshold hides the small sections and says how many.
+          ALL=$(grep -c '  ## ' /tmp/cost/all.txt)
+          BIG=$(grep -c '  ## ' /tmp/cost/big.txt)
+          echo "$ALL rows at --cost 0, $BIG rows at --cost 500"
+          test "$BIG" -lt "$ALL"
+          grep -q "under 500 bytes not shown" /tmp/cost/big.txt
+          # The export stands on its own: the notice, the counts, the section
+          # list with what each costs, then the brief.
+          where-are-we --out $M --export /tmp/cost/export.md
+          head -20 /tmp/cost/export.md
+          grep -qx "# where-are-we export" /tmp/cost/export.md
+          grep -q '`where-are-we-export/1`' /tmp/cost/export.md
+          grep -qxF "**Incomplete**" /tmp/cost/export.md
+          grep -qxF "**Indexed**" /tmp/cost/export.md
+          grep -qxF "**Sections**" /tmp/cost/export.md
+          grep -qE "^- suite: [0-9]+ files$" /tmp/cost/export.md
+          grep -qxF "# Framework map (brief)" /tmp/cost/export.md
+          # It parses back into the same section list the map answers with.
+          where-are-we --out $M --sections > /tmp/cost/sections.txt
+          awk '/^\*\*Sections\*\*$/ {f = 1; next}
+               f && /^- total:/ {exit}
+               f && /^- `## / {sub(/^- `/, ""); sub(/` - .*$/, ""); print}' \
+            /tmp/cost/export.md > /tmp/cost/parsed.txt
+          diff -u /tmp/cost/sections.txt /tmp/cost/parsed.txt
+          wc -l < /tmp/cost/parsed.txt
+          # And the byte counts in it are the ones --cost reports.
+          python - <<'EOF'
+          import json, re, sys
+          d = json.load(open("/tmp/cost/all.json"))
+          want = {r["section"]: (r["bytes"], r["rows"]) for r in d["sections"]}
+          got = {}
+          for line in open("/tmp/cost/export.md"):
+              m = re.match(r"^- `(## .*)` - (\d+) bytes, (\d+) rows?$", line.rstrip("\n"))
+              if m:
+                  got[m.group(1)] = (int(m.group(2)), int(m.group(3)))
+          print(f"{len(got)} sections priced in the export, {len(want)} in --cost")
+          sys.exit(0 if got == want else 1)
+          EOF
+          # Twice over the same map is the same answer, and the same file.
+          where-are-we --out $M --cost > /tmp/cost/all.again.txt
+          where-are-we --out $M --cost --json > /tmp/cost/all.again.json
+          where-are-we --out $M --export /tmp/cost/export.again.md
+          diff -u /tmp/cost/all.txt /tmp/cost/all.again.txt
+          diff -u /tmp/cost/all.json /tmp/cost/all.again.json
+          diff -u /tmp/cost/export.md /tmp/cost/export.again.md
+          # --cost only reads; --export writes the one file it was given, and
+          # the preview names it.
+          where-are-we --out $M --cost --dry-run > /tmp/cost/dry.txt
+          grep -qx "nothing to write: --cost only read" /tmp/cost/dry.txt
+          where-are-we --out $M --export /tmp/cost/preview.md --dry-run \
+            > /tmp/cost/dry-export.txt
+          grep -qx "would write /tmp/cost/preview.md" /tmp/cost/dry-export.txt
+          if test -e /tmp/cost/preview.md; then
+            echo "a preview of --export wrote the file"; exit 1
+          fi
+          where-are-we --effects -- where-are-we --cost > /tmp/cost/eff-cost.txt
+          where-are-we --effects -- where-are-we --export /tmp/x.md \
+            > /tmp/cost/eff-export.txt
+          cat /tmp/cost/eff-cost.txt /tmp/cost/eff-export.txt
+          grep -qx read /tmp/cost/eff-cost.txt
+          grep -qx "\-\-cost read" /tmp/cost/eff-cost.txt
+          grep -qx writes-repo /tmp/cost/eff-export.txt
+          grep -qx "\-\-export writes-repo" /tmp/cost/eff-export.txt
       - name: who calls X
         run: |
           mkdir -p /tmp/wc

@@ -142,6 +142,8 @@ as estimates.
 | `--watch SECONDS` | Rebuild whenever the tree moves, by the fingerprint and the content root together, the same two questions a one-shot build asks: a full rebuild each time, writing every artefact a one-shot build writes, and an iteration that raises is printed and the loop carries on | Not measured | CI step `--watch rebuilds whole, writes every file, and survives a failure`: twenty files added while watching all reach the map, a deleted name leaves it, `framework_map.md` and `--html` are written, and replacing the output directory with a plain file prints `rebuild failed, still watching` without ending the watcher |
 | `--html` | The brief as a page | Not measured | — |
 | `--ctags` → `<out>/tags` | Every declaration the map holds, in universal-ctags format: name, file, the line as the EX command, `kind:`, `line:` and `end:` where a parser knew it. Sorted as bytes, so the binary search the header promises works. vim, emacs, helix, kakoune and `readtags` open it with no server running, on a checkout mounted read only, in a language whose server is not installed | Measured 2026-09-07 on this repository: 646 rows over 584 names, 51 KB, written in the same build that writes the map | CI step `--ctags writes a sorted, correct tags file`: the pseudo tags are present, `LC_ALL=C sort -c` passes, every row is a declaration site the map holds and every site has a row, `charge` names `app/billing.py:4` and that line declares it, two builds are byte identical, and `readtags` reads it where the runner can install universal-ctags |
+| `--cost [THRESHOLD]`, `--cost --json` | What each section of the map costs to carry: rows, bytes and tokens, heaviest first, with a total and a threshold that hides the small ones. Tokens are `bytes / 4` and the output says `estimate`, because no extra this project has carries a tokenizer that can be reached without downloading a model | Measured 2026-09-07 on this repository: 75 sections, 38,654 bytes, 9,663 tokens; the heaviest section is `## Defined here` at 7,520 bytes, and 54 sections are under 500 bytes | CI step `the map says what each of its sections costs` |
+| `--export FILE` | The map as one self-contained file for a channel with no filesystem (a PR comment, a paste): the incompleteness notice, the `indexed:` counts, every section with what it costs, then the brief | Measured 2026-09-07 on this repository: 41 KB against 2.1 MB of `framework_map.json` | CI step `the map says what each of its sections costs`: the file parses back into the section list `--sections` prints, with the byte counts `--cost` reports |
 | `--init` → `.framework-map.json` manifest | A starter manifest the map reads `stated` facts from | Not measured | — |
 
 ### What an agent carries vs what it asks
@@ -726,6 +728,8 @@ sixty-four thousand, every turn.
 | `--ask "words" --files a.py,b.py` | the same answer with the rows about those files first in every section; `--files -` reads the list on stdin |
 | `--mcp` | serve the map over MCP on stdin/stdout instead of answering once |
 | `--sections` | the section headings |
+| `--cost [N]` | what each section costs: rows, bytes and estimated tokens, heaviest first, hiding what is under N bytes |
+| `--export FILE` | the whole map as one file to paste: the notice, the counts, the priced section list, then the brief |
 
 `WAWE_EMBED_CACHE=<file>` caches the semantic index's embeddings in one sqlite
 file keyed by model and text, so a rebuild does not recompute vectors it already
@@ -798,9 +802,9 @@ of its flags carries.
 
 | class | what it touches | flags |
 |---|---|---|
-| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
+| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
 | `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--ctags`, `--force`, `--watch`, `--diff` |
-| `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of | `--init`, `--agent-file`, `--docs` |
+| `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of, and the file `--export` was told to write, which is at whatever path the caller named | `--init`, `--agent-file`, `--docs`, `--export` |
 | `writes-config` | where a tool other than this one reads: `.git/hooks`, `~/.claude/settings.json`, `~/.codex/config.toml`, a Cursor rule, a Gemini setting | `--install-hook` |
 | `network` | off this machine: a tracker fetch, a runs API | `--specs`, `--spec-cmd`, `--spec-source`, `--spec-depth`, `--spec-limit`, `--runs-api` |
 
@@ -825,10 +829,10 @@ writes-map-dir
 A flag is resolved the way argparse resolves it, so `--eff` is `--effects`
 and the class of an abbreviated line is the class of the line that runs.
 
-A command line naming none of `--ask`, `--sections`, `--pointer`, `--callers`,
-`--callees`, `--impact`, `--more`, `--mcp`, `--lsp`, `--init`,
-`--install-hook`, `--specs`, `--dry-run`, `--effects` or `--help` builds the
-map into `--out`, so `where-are-we --repo .` is `writes-map-dir` on the
+A command line naming none of `--ask`, `--sections`, `--cost`, `--export`,
+`--pointer`, `--callers`, `--callees`, `--impact`, `--more`, `--mcp`,
+`--lsp`, `--init`, `--install-hook`, `--specs`, `--dry-run`, `--effects` or
+`--help` builds the map into `--out`, so `where-are-we --repo .` is `writes-map-dir` on the
 strength of the build alone and says so as a `build writes-map-dir` line.
 
 `--dry-run` prints every path the command can write, one per line, and exits
@@ -856,7 +860,8 @@ It covers every command line, not only the ones that write:
 | `--agent-file`, or a plain build | the map files under `--out`, the parse cache, `framework_map.html` with `--html`, `tags` with `--ctags`, and the agent file |
 | `--docs write` | the documents it would create, or `nothing to write: every directory already explains itself` |
 | `--specs` | `spec_map.json` and `spec_map.md`. The tracker command is not run |
-| `--ask`, `--mcp` and the other reads | `nothing to write: --ask only read`, and no answer, since an answer is not a preview |
+| `--export FILE` | `FILE`, at whatever path was given. The file is not written |
+| `--ask`, `--cost`, `--mcp` and the other reads | `nothing to write: --ask only read`, and no answer, since an answer is not a preview |
 
 The optional semantic index adds `semantic_index.json` and
 `semantic_index.npy` to the same directory as the map.
@@ -1036,6 +1041,9 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --files FILE[,FILE]          on --ask: those files' rows first in every
                              section; `-` reads the list on stdin
 --limit N                    how many rows --rank prints (default 200)
+--cost [THRESHOLD]           what each section of the map costs: rows, bytes
+                             and tokens, heaviest first
+--export FILE                the map as one self-contained file to paste
 --effects [--json]           what every flag does to the disk; with
                              `-- <command line>`, the class of that line
 ```
