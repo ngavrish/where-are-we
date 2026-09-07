@@ -276,6 +276,117 @@ jobs:
           print('MCP defines/at and --defines/--at agree, byte for byte')
           "
           grep -q '\"tool\": \"at\"' /tmp/spans/m/.wawe-ask.log
+          # A file bigger than AST_LIMIT is handed to the parser as a prefix,
+          # so the last declaration in it ends where the cut is and not where
+          # the file does. No end at all, then, and `--at` says so rather than
+          # printing a span the map cannot stand behind.
+          mkdir -p /tmp/spans/cutr
+          python - <<'EOF'
+          import pathlib
+          body = "".join(f"    x{i} = {i}  # {'y' * 70}\n" for i in range(20000))
+          pathlib.Path("/tmp/spans/cutr/huge.py").write_text(
+              "def huge():\n" + body + "    return 0\n")
+          EOF
+          where-are-we --repo /tmp/spans/cutr --out /tmp/spans/cut --product none \
+            --quiet --no-semantic
+          python -c "
+          import json
+          m = json.load(open('/tmp/spans/cut/framework_map.json'))
+          sites = m['spans']['huge']
+          assert [(s['start'], s['end']) for s in sites] == [(1, None)], sites
+          assert 'huge.py' in m['definitions']['huge'], m['definitions']['huge']
+          print('a file cut at the read limit reports no end')
+          "
+          where-are-we --out /tmp/spans/cut --at huge.py:10000 | tee /tmp/spans/cut.txt
+          grep -q 'no definition encloses huge.py:10000' /tmp/spans/cut.txt
+          grep -q 'huge /tmp/spans/cutr/huge.py:1-? (function)' /tmp/spans/cut.txt
+          grep -q 'an end of ? is a declaration this map could not measure' /tmp/spans/cut.txt
+          # And it is a lookup, not a scan: the same budget fit over an
+          # eleven-thousand-line definition used to take a second and a half.
+          python - <<'EOF'
+          import pathlib
+          rows = "".join(f"    x{i} = {i}\n" for i in range(11500))
+          pathlib.Path("/tmp/spans/w/w.py").parent.mkdir(parents=True, exist_ok=True)
+          pathlib.Path("/tmp/spans/w/w.py").write_text(
+              "def wide():\n" + rows + "    return 0\n")
+          EOF
+          where-are-we --repo /tmp/spans/w --out /tmp/spans/wm --product none \
+            --quiet --no-semantic
+          python -c "
+          import sys, time
+          from where_are_we import ask
+          start = time.monotonic()
+          out = ask.at('/tmp/spans/wm/framework_map.md', 'w.py:5000')
+          spent = time.monotonic() - start
+          assert out.startswith('/tmp/spans/w/w.py:1-11502 wide (function)'), out[:80]
+          assert len(out) <= 12000, len(out)
+          assert 'more:at:' in out.splitlines()[-1], out.splitlines()[-1]
+          assert spent < 0.2, spent
+          print(f'--at over 11,502 lines: {len(out)} bytes in {spent:.3f}s')
+          "
+          # A bare basename can match two files, and both can hold a definition
+          # around the line. The answer names them rather than choosing one
+          # quietly; a path the map holds is still answered about that path.
+          mkdir -p /tmp/spans/amb/x /tmp/spans/amb/y
+          printf 'def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n' > /tmp/spans/amb/x/m.py
+          printf '# one\n# two\n# three\n# four\n# five\ndef alpha():\n    return 3\n\n\ndef delta():\n    return 4\n' > /tmp/spans/amb/y/m.py
+          where-are-we --repo /tmp/spans/amb --out /tmp/spans/ambm --product none \
+            --quiet --no-semantic
+          where-are-we --out /tmp/spans/ambm --at m.py:6 | tee /tmp/spans/amb.txt
+          head -1 /tmp/spans/amb.txt | grep -qx '/tmp/spans/amb/x/m.py:5-6 beta (function) (m.py also matches /tmp/spans/amb/y/m.py; this is the first in path order)'
+          where-are-we --out /tmp/spans/ambm --at /tmp/spans/amb/y/m.py:6 \
+            | head -1 | grep -qx '/tmp/spans/amb/y/m.py:6-7 alpha (function)'
+          # The tree-sitter half, in a virtualenv of its own so the job's own
+          # install stays the pattern-table install every other step is
+          # written against. Where the grammars will not build for this
+          # Python, the step says so instead of passing quietly.
+          rm -rf /tmp/tsvenv
+          if python -m venv /tmp/tsvenv \
+             && /tmp/tsvenv/bin/pip install -q '.[precise]' > /tmp/ts-install.log 2>&1 \
+             && /tmp/tsvenv/bin/python -c "from tree_sitter_languages import get_parser; get_parser('rust'); get_parser('typescript')" > /dev/null 2>&1; then
+            mkdir -p /tmp/spans/ts
+            printf 'pub struct A;\n\nimpl A {\n    pub fn settle(&self) -> i32 {\n        1\n    }\n}\n\nimpl B {\n    pub fn settle(&self) -> i32 {\n        2\n    }\n}\n' > /tmp/spans/ts/t.rs
+            printf 'export function settle(a) {\n  return a;\n}\n' > /tmp/spans/ts/p.ts
+            /tmp/tsvenv/bin/where-are-we --repo /tmp/spans/ts --out /tmp/spans/tsm \
+              --product none --quiet --no-semantic
+            # The same tree read by the pattern table alone, for the one
+            # comparison that matters: which names, and on which line.
+            where-are-we --repo /tmp/spans/ts --out /tmp/spans/tsm2 \
+              --product none --quiet --no-semantic
+            python -c "
+          import json
+          ts = json.load(open('/tmp/spans/tsm/framework_map.json'))
+          plain = json.load(open('/tmp/spans/tsm2/framework_map.json'))
+          # A name declared twice in one file keeps both homes, which is what
+          # a table of line-start patterns cannot do and this key exists for.
+          rs = [(s['start'], s['end'], s['kind']) for s in ts['spans']['settle']
+                if s['file'].endswith('t.rs')]
+          assert rs == [(4, 6, 'function'), (10, 12, 'function')], rs
+          # .ts is read by the pattern table either way: the grammar is asked
+          # for the end and for nothing else, so which names are declared and
+          # on which line must not move between the two installs.
+          def ts_defs(m):
+              return {k: v for k, v in m['definitions'].items() if 'p.ts' in v}
+          assert ts_defs(ts) == ts_defs(plain) != {}, (ts_defs(ts), ts_defs(plain))
+          p = [(s['start'], s['end'], s['kind']) for s in ts['spans']['settle']
+               if s['file'].endswith('p.ts')]
+          assert p == [(1, 3, 'function')], p
+          # Same three homes either way, and the grammar is what turns the end
+          # from a question mark into a line.
+          where = lambda m: [(s['file'], s['start']) for s in m['spans']['settle']]
+          assert where(ts) == where(plain), (where(ts), where(plain))
+          assert [s['end'] for s in plain['spans']['settle']] == [None, None, None], \
+              plain['spans']['settle']
+          assert [s['end'] for s in ts['spans']['settle']] == [3, 6, 12], \
+              ts['spans']['settle']
+          print('tree-sitter spans: two homes in one .rs file, and a .ts end')
+          "
+            /tmp/tsvenv/bin/where-are-we --out /tmp/spans/tsm --at t.rs:11 \
+              | head -1 | grep -qx '/tmp/spans/ts/t.rs:10-12 settle (function)'
+          else
+            echo "tree-sitter spans: [precise] does not build for this Python; skipped"
+            tail -3 /tmp/ts-install.log || true
+          fi
           # Two builds of the same tree, byte for byte.
           where-are-we --repo /tmp/spans/r --out /tmp/spans/m2 --product none \
             --quiet --no-semantic

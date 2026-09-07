@@ -21,9 +21,20 @@
   answer budget with a `more:at:` handle for the rest. A line no definition
   encloses is answered with `no definition encloses FILE:LINE` and the nearest
   declarations, rather than with the wrong function.
-- The parse cache schema is 2. A 1.4 cache is not read: what a steps module
-  stores gained the spans of its step functions, and an old entry would come
-  back as a module that declares none.
+- Under the `precise` extra, `.ts`, `.tsx`, `.js`, `.jsx` and `.go` get real
+  end lines too. The grammar is asked how far a declaration runs and nothing
+  else: which names those files declare, and on which line, is the pattern
+  table's answer either way, so `definitions` is the same map with the extra
+  installed and without it.
+- The parse cache schema is 2. A 1.4 cache is not read: `ts:<lang>` stored a
+  list of names and now stores a list of `[name, start, end, kind]` rows, and
+  an old entry read under the new code would index a character out of a
+  string.
+- Upgrading does not add `spans` to a map that is already on disk. A build
+  skips a tree that has not moved, so run `where-are-we --repo . --out ...
+  --force` once after upgrading, or wait for the next commit. Until then
+  `--defines` answers in the old `- \`name\` - file:line` shape from the old
+  map, and `--at` says the map has no spans index and names the fix.
 
 ## 1.4.1
 

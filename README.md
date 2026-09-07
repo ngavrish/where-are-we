@@ -202,7 +202,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | GitHub Action (`ngavrish/where-are-we@v1`): inputs `repo`, `product`, `out`, `agent-file`, `comment`; outputs `brief`, `summary` | Map on CI, optional PR comment | Not measured | — |
 | pre-commit hook | Rebuild on commit so a map is never stale | Not measured | — |
 | `--install-hook git|claude|cursor|codex|gemini` | `git`: post-checkout/merge/commit hooks that rebuild; `claude` (`agent` is the same thing): a SessionStart hook for an agent harness (distinct from `--agent-file`, which writes the brief into a file); `cursor`: a Cursor rule at `.cursor/rules/where-are-we.mdc` plus `.cursor/mcp.json`; `codex`: an `AGENTS.md` block plus `~/.codex/config.toml`; `gemini`: a `GEMINI.md` block plus `.gemini/settings.json`. `cursor`, `codex` and `gemini` build the map into `.wawe` first if it is not already there; `git` and `claude` do not, since they already build into whatever `--out` was passed on their own first trigger, and a pre-build for them would be a second map in a different place. Each kind installs all of its files or none: every target is checked before the first write, and a refusal names the cause | Not measured | — |
-| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the eight tools over MCP (`ask`, `find`, `defines`, `sections`, `callers`, `callees`, `impact`, `more`); skills `orient`, `ask`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,sections,callers,callees,impact,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
+| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the nine tools over MCP (`ask`, `find`, `defines`, `at`, `sections`, `callers`, `callees`, `impact`, `more`); skills `orient`, `ask`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,sections,callers,callees,impact,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
 | Packages: PyPI wheel + sdist, deb (apt repo with key), rpm, Homebrew tap, GitHub release with SBOM (SPDX) and sigstore signatures | Install anywhere | — | — |
 
 ### Honesty features (not savings, guarantees)
@@ -463,9 +463,17 @@ $ where-are-we --defines charge
 charge: billing/core.py:10-24 (function), legacy/pay.py:88-91 (function)
 ```
 
-An end of `?` is a language the pattern table read: it has seen the line the
-declaration starts on and nothing that says where it stops, and a guessed end
-would be worse than none for anyone editing by anchor. The other direction of
+An end of `?` is a declaration this map could not measure: a language the
+pattern table read, which has seen the line a declaration starts on and
+nothing that says where it stops, or a file over a megabyte, of which the
+parser was handed the first megabyte and so never saw the end. A guessed end
+would be worse than none for anyone editing by anchor. Installing the
+`precise` extra turns `?` into a line for TypeScript, JavaScript, Go, Rust,
+Kotlin, C# and Ruby, and changes nothing about which names are declared where.
+
+Upgrading to 1.5.0 does not add `spans` to the map you already have: a build
+skips a tree that has not moved. Run it once with `--force` after upgrading,
+or wait for the next commit. The other direction of
 the same index is `--at`, which takes the `file:line` a stack trace hands you
 and prints the definition around it, so the next step is not a `Read` at a
 guessed offset:
