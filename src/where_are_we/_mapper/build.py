@@ -1808,33 +1808,70 @@ def build(repo: str, out_dir: str | None = None,
         files = "|".join(sorted({os.path.basename(w) for w in where}))
         return f"{name} ({files}){mark}"
 
+    def _module_target(module: str, level: int, rel: str):
+        """A module, as `rel` writes it, as a path under the repository.
+
+        A dotted module is a path: `_mapper.build`, imported at level 1 from
+        `src/where_are_we/cli.py`, is `src/where_are_we/_mapper/build`. A
+        relative import with no module part (`from . import x`) is the
+        directory the importing file is in, which at the root of a checkout
+        that is itself a package is the empty string, and that is a real
+        answer rather than a missing one: `None` is what "no module was
+        named" looks like.
+        """
+        parts = [p for p in (module or "").split(".") if p]
+        if not level:
+            return "/".join(parts) or None
+        here = rel.replace(os.sep, "/").split("/")[:-1]
+        up = level - 1
+        if up > len(here):
+            return None
+        return "/".join(here[:len(here) - up] + parts)
+
     def _module_homes(module: str, level: int, rel: str, where) -> set:
         """Which of `where` a module imported by `rel` names.
 
-        A dotted module is a path: `_mapper.build`, imported at level 1 from
-        `src/where_are_we/cli.py`, is `src/where_are_we/_mapper/build`, and a
-        home is that module when its path is that path, either as the file
-        itself or as the package's `__init__.py`.
+        A home is that module when its path is the module's path, either as
+        the file itself or as the package's `__init__.py`. Where the module
+        is a package written `from . import x`, its files are the ones
+        directly inside that directory.
         """
-        parts = [p for p in (module or "").split(".") if p]
-        if level:
-            here = rel.replace(os.sep, "/").split("/")[:-1]
-            up = level - 1
-            if up > len(here):
-                return set()
-            parts = here[:len(here) - up] + parts
-        target = "/".join(parts)
-        if not target:
+        target = _module_target(module, level, rel)
+        if target is None:
             return set()
         hits = set()
         for home in where:
             stem = home.replace(os.sep, "/")
             if stem.endswith(".py"):
                 stem = stem[:-3]
-            if stem in (target, f"{target}/__init__") \
+            if not target:
+                if "/" not in stem:
+                    hits.add(home)
+            elif stem in (target, f"{target}/__init__") \
                     or stem.endswith((f"/{target}", f"/{target}/__init__")):
                 hits.add(home)
         return hits
+
+    def _module_is_here(module: str, level: int, rel: str, files) -> bool:
+        """Whether the module `rel` imported is a module of this tree.
+
+        A file that is the module, a package `__init__.py`, or a directory
+        with indexed files under it, because a package this walk read is
+        first-party whether or not it carries an `__init__.py`. `os`,
+        `requests` and `datetime` are none of those.
+        """
+        target = _module_target(module, level, rel)
+        if target is None:
+            return False
+        if not target:
+            # The importing file's own directory, which holds the importing
+            # file.
+            return True
+        if _module_homes(module, level, rel, files):
+            return True
+        inside = f"{target}/"
+        return any(f.replace(os.sep, "/").startswith(inside)
+                   or f"/{inside}" in f.replace(os.sep, "/") for f in files)
 
     raw_calls_by_rel: dict[str, dict] = {}
     for rel in code_files:
@@ -1849,26 +1886,31 @@ def build(repo: str, out_dir: str | None = None,
                 return {"defs": [], "calls": {}, "names": {}, "imports": {},
                         "mods": {}}
             # What this file says it means by a name. `imports` is every
-            # `from MOD import name`; `aliases` is what `import MOD` binds,
-            # read back off the receiver of a `MOD.name()` call below into
-            # `mods`, which holds, per function, every module that function
-            # calls a name on. Per function because `cli.py` calls `os.walk`
-            # in one and `specs.walk` in another, and crediting the first with
-            # the second's module is how a false edge gets written; and a list
-            # because one function calling `ast.walk` and `os.walk` has named
-            # neither module in particular.
+            # `from MOD import name`; `aliases` is what an import binds that a
+            # `NAME.attr()` call can be read through, recorded as
+            # `[module, level, package]`. Both spellings bind one: `import os`
+            # binds `os`, and `from os import path` binds `path` to the module
+            # `os.path`. `package` is the part before the imported name, and
+            # it is what says whether the binding is a module of this tree at
+            # all: `os` is not, `.config` is, and `from .config import
+            # settings` is then left alone, because what it binds may be an
+            # object rather than a module and an object's method is not
+            # something this pass can place.
             imports, aliases = {}, {}
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
+                    package = node.module or ""
                     for alias in node.names:
-                        imports[alias.asname or alias.name] = [node.module or "",
-                                                               node.level]
+                        imports[alias.asname or alias.name] = [package, node.level]
+                        aliases[alias.asname or alias.name] = [
+                            f"{package}.{alias.name}" if package else alias.name,
+                            node.level, package]
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
                         if alias.asname:
-                            aliases[alias.asname] = alias.name
+                            aliases[alias.asname] = [alias.name, 0, alias.name]
                         elif "." not in alias.name:
-                            aliases[alias.name] = alias.name
+                            aliases[alias.name] = [alias.name, 0, alias.name]
             defs, calls, names, mods = [], {}, {}, {}
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -1883,11 +1925,11 @@ def build(repo: str, out_dir: str | None = None,
                         bare.add(c.func.id)
                     elif isinstance(c.func, ast.Attribute):
                         targets.add(c.func.attr)
-                        module = aliases.get(getattr(c.func.value, "id", ""))
-                        if module:
+                        through = aliases.get(getattr(c.func.value, "id", ""))
+                        if through:
                             on = said.setdefault(c.func.attr, [])
-                            if [module, 0] not in on:
-                                on.append([module, 0])
+                            if through not in on:
+                                on.append(through)
                 calls[node.name] = sorted(t for t in targets if t)
                 names[node.name] = sorted(b for b in bare if b)
                 if said:
@@ -1896,7 +1938,7 @@ def build(repo: str, out_dir: str | None = None,
                     "imports": imports, "mods": mods}
 
         _stats("python")
-        func_info = _cached(full, "func_graph", _func_calls_of)
+        func_info = _cached(full, "func_edges", _func_calls_of)
         raw_calls_by_rel[rel] = func_info
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
@@ -1927,25 +1969,33 @@ def build(repo: str, out_dir: str | None = None,
                     # unless the receiver settles it below: what a receiver
                     # holds is not known here.
                     continue
-                said = ([imports[name]] if name in bare and name in imports
-                        else [] if name in bare else mods.get(name) or [])
-                if said and not any(_module_homes(mod, lvl, rel, py_files)
-                                    for mod, lvl in said):
-                    # `ast.walk(...)`, `os.walk(...)`, `requests.get(...)`:
-                    # the caller bound every receiver it calls this name on to
-                    # a module with an `import` line, and no file of this tree
-                    # is any of those modules. Whatever `walk` this tree
-                    # declares, this call is not to it. The test is against
-                    # every indexed file rather than against the name's homes,
-                    # because a module that re-exports a name
-                    # (`mapper.build`, defined in `_mapper/build.py`) is a
-                    # file here and its edge is real.
+                # Where the call names a module, what it names: the module
+                # the name was imported from for a plain call, and every
+                # module this function calls the name on for an attribute
+                # call. `[module, level, package]`, the package being what
+                # says whether the module belongs to this tree.
+                if name in bare:
+                    from_mod = imports.get(name)
+                    said = [[from_mod[0], from_mod[1], from_mod[0]]] if from_mod else []
+                else:
+                    said = mods.get(name) or []
+                if said and not any(_module_is_here(pkg, lvl, rel, py_files)
+                                    for _mod, lvl, pkg in said):
+                    # `ast.walk(...)`, `os.walk(...)`, `requests.get(...)`,
+                    # `from os import path` and then `path.join(...)`: the
+                    # caller bound every receiver it calls this name on to a
+                    # module of a package no file of this tree is in. Whatever
+                    # `walk` this tree declares, this call is not to it. The
+                    # test is against every indexed file rather than against
+                    # the name's homes, because a module that re-exports a
+                    # name (`mapper.build`, defined in `_mapper/build.py`) is
+                    # a file here and its edge is real.
                     continue
                 if mark:
                     # The caller named the module it meant. One home under the
                     # modules it named is an answer, not a guess.
                     hits: set = set()
-                    for mod, lvl in said:
+                    for mod, lvl, _pkg in said:
                         hits |= _module_homes(mod, lvl, rel, where)
                     if len(hits) == 1:
                         where, mark = hits, ""

@@ -2775,6 +2775,27 @@ jobs:
           cat /tmp/markmod/callers.txt
           grep -qx "c.py:g" /tmp/markmod/callers.txt
           test "$(wc -l < /tmp/markmod/callers.txt)" -eq 1
+          # The other way a receiver is bound. `from os import path` names a
+          # module of the standard library, so `path.f(...)` is no edge; the
+          # test is on the package, so `from .config import settings` keeps
+          # its honest mark, because what that line binds may be an object and
+          # an object is not something this pass can place.
+          rm -rf /tmp/markfrom
+          mkdir -p /tmp/markfrom/repo
+          printf 'def f(x):\n    return x\n' > /tmp/markfrom/repo/p.py
+          printf 'def f(x):\n    return x\n' > /tmp/markfrom/repo/q.py
+          printf 'from os import path as m\n\n\ndef g(u):\n    return m.f(u)\n' > /tmp/markfrom/repo/aliased.py
+          printf 'from os import path\n\n\ndef h(u):\n    return path.f(u)\n' > /tmp/markfrom/repo/plain.py
+          printf 'settings = object()\n' > /tmp/markfrom/repo/config.py
+          printf 'from .config import settings\n\n\ndef k(u):\n    return settings.f(u)\n' > /tmp/markfrom/repo/keeps.py
+          where-are-we --repo /tmp/markfrom/repo --out /tmp/markfrom/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          graph = json.load(open("/tmp/markfrom/out/framework_map.json"))["call_graph_files"]
+          assert graph == {"keeps.py:k": ["f (p.py|q.py)?"]}, graph
+          print("from-import receiver:", graph)
+          EOF
           # A name exactly one file defines keeps a bare edge: the poly
           # fixture's `charge` is declared once, and its edge carries no mark.
           rm -rf /tmp/markpoly
