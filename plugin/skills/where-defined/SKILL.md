@@ -39,9 +39,11 @@ it instead of grepping for a call site: the graph was already built from the
 same files `defines` reads.
 
 `callees(name="pay")` is the other direction: what that function calls, each
-callee with the file it is defined in.
+callee with the file it is declared in. Where several files declare one name
+the callee lists all of them and ends in `?`, because the map cannot tell
+which one this call reaches.
 
-    pay: charge (a.ts)
+    pay: charge (a.ts), settle (a.py|b.py)?
 
 And when the question is what a change to a name would reach, not who calls it
 once, `impact(name="charge", depth=3)` walks the same graph back several hops
@@ -53,8 +55,10 @@ and groups the answer by distance:
 
 Read that first line. Hops are followed by name, so where several files define
 one name their callers are unioned into the answer; only cross-file calls are
-in the graph; and the map keeps a bounded number of graph keys, so on a large
-repository the radius is a floor rather than the whole of it. A cycle is
+in the graph; the map keeps a bounded number of graph keys, so on a large
+repository the radius is a floor rather than the whole of it; and an edge
+ending in `?` names every file that declares the callee, because more than one
+does. A cycle is
 walked once, not looped. The depth is 1 to 6 and 3 by default, and a depth
 outside that is refused rather than answered. At most 200 `file:func` entries
 come back, the keys in any `note:` line counted: when the answer says what it
