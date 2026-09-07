@@ -31,16 +31,18 @@ try:
     from . import graph
     from .ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET,
                        IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
+                       REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
                        affected_tool_answer, at, context, file_list,
                        log_answer, callees_line, callers, impact, map_heads,
-                       rank_lines)
+                       rank_lines, reaches_answer, unreached_answer)
 except ImportError:  # run as a plain file, with no package around it
     import graph  # type: ignore[no-redef]
     from ask import (AFFECTED_BUDGET, AT_BUDGET,  # type: ignore[no-redef]
                      CONTEXT_BUDGET, IMPACT_MAX_DEPTH, MCP_SELECTORS,
-                     RANK_LIMIT, affected_tool_answer, at, context, file_list,
-                     log_answer, callees_line, callers, impact, map_heads,
-                     rank_lines)
+                     RANK_LIMIT, REACHES_BUDGET, UNREACHED_BUDGET,
+                     UNREACHED_LIMIT, affected_tool_answer, at, context,
+                     file_list, log_answer, callees_line, callers, impact,
+                     map_heads, rank_lines, reaches_answer, unreached_answer)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -292,6 +294,49 @@ TOOLS = [
                                            "of the blocks")},
             },
             "required": ["files"],
+        },
+    },
+    {
+        "name": "reaches",
+        "description": (
+            "Which tests reach one name: hand it a product function or "
+            "class and get back the scenarios whose steps call into it, "
+            "grouped by feature file with the chain of calls for the first "
+            "scenario of each, and the routes reached. The other direction "
+            "of `affected`, over the same `xrefs` call rows and with no "
+            "depth cap, because the question is whether anything reaches "
+            "this at all. A class is answered by what is declared inside "
+            "its span, so a page object is reached through its methods. Ask "
+            "it before changing a function, and before deleting one."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "description": ("a declared function or class name")},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "unreached",
+        "description": (
+            "What the suite never reaches: every product function and class "
+            "with no call path up to any step function, grouped by file and "
+            "ranked by the map's own `rank`, best first. Product is every "
+            "file that declares something and that the map does not name as "
+            "suite (features, steps, page objects, drivers, environment "
+            "files, the test files of each runner). The first line states "
+            "how much of the call graph resolved, which is how much of this "
+            "list is untested rather than unknown, so read it before "
+            "treating the list as coverage. `limit` is how many definitions "
+            "are ranked and printed (default 200)."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1,
+                          "description": ("how many definitions to rank and "
+                                          "print (default 200)")},
+            },
         },
     },
     {
@@ -552,6 +597,26 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
                                       fmt_field or "", AFFECTED_BUDGET)
         log_answer(out_dir, "affected", ",".join(chosen), answer,
                    AFFECTED_BUDGET)
+        _reply(_text(answer), ident)
+    elif name == "reaches":
+        name_field = args.get("name")
+        if name_field is not None and not isinstance(name_field, str):
+            raise _BadParams("name must be a string")
+        # One question, so the whole budget, and the flag prints at the same
+        # ceiling, which is what makes the two byte for byte identical.
+        answer = reaches_answer(map_path, name_field or "", REACHES_BUDGET)
+        log_answer(out_dir, "reaches", name_field or "", answer,
+                   REACHES_BUDGET)
+        _reply(_text(answer), ident)
+    elif name == "unreached":
+        limit_field = args.get("limit")
+        if limit_field is not None and (not isinstance(limit_field, int)
+                                        or isinstance(limit_field, bool)
+                                        or limit_field < 1):
+            raise _BadParams("limit must be a positive integer")
+        rows = int(limit_field or UNREACHED_LIMIT)
+        answer = unreached_answer(map_path, rows, UNREACHED_BUDGET)
+        log_answer(out_dir, "unreached", str(rows), answer, UNREACHED_BUDGET)
         _reply(_text(answer), ident)
     elif name == "rank":
         files_field = args.get("files")

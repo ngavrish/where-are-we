@@ -74,6 +74,8 @@ EFFECTS = {
     # named, which is the same arbitrary-path property `--export` has and
     # gets the same class.
     "--affected-out": "writes-repo",
+    "--reaches": "read",
+    "--unreached": "read",
     "--sections": "read",
     "--cost": "read",
     "--pointer": "read",
@@ -123,8 +125,8 @@ EFFECTS = {
 NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
-            "--at, --context, --affected, --changed, --rank, --sections, "
-            "--cost) "
+            "--at, --context, --affected, --changed, --reaches, "
+            "--unreached, --rank, --sections, --cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
@@ -149,6 +151,7 @@ NO_MAP_BUILD = frozenset({
     "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
     "--cost", "--export", "--context", "--affected", "--changed",
+    "--reaches", "--unreached",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

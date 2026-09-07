@@ -29,9 +29,10 @@ import sys
 try:
     from . import ask as _ask, effects, graph, hooks, lsp, mcp, specs
     from .ask import (AFFECTED_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
-                       affected_answer, ask, at, callees_line, callers,
-                       context, file_list, impact, log_answer, map_heads,
-                       rank_lines, selection_lines, spans_for)
+                       UNREACHED_LIMIT, affected_answer, ask, at,
+                       callees_line, callers, context, file_list, impact,
+                       log_answer, map_heads, rank_lines, reaches_answer,
+                       selection_lines, spans_for, unreached_answer)
     from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
                                  changed_since, cost, ctags, digest, export,
@@ -52,10 +53,11 @@ except ImportError:  # run as a plain file, with no package around it
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
     from ask import (AFFECTED_BUDGET,  # type: ignore[no-redef]
-                     IMPACT_MAX_DEPTH, RANK_LIMIT, affected_answer, ask, at,
-                     callees_line, callers, context, file_list, impact,
-                     log_answer, map_heads, rank_lines, selection_lines,
-                     spans_for)
+                     IMPACT_MAX_DEPTH, RANK_LIMIT, UNREACHED_LIMIT,
+                     affected_answer, ask, at, callees_line, callers, context,
+                     file_list, impact, log_answer, map_heads, rank_lines,
+                     reaches_answer, selection_lines, spans_for,
+                     unreached_answer)
     from _mapper.build import (build,  # type: ignore[no-redef]
                                declares_rows, sort_xrefs)
     from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
@@ -583,7 +585,9 @@ def build_parser() -> argparse.ArgumentParser:
                          "newline separated list on stdin, which is what "
                          "`git diff --name-only` hands over")
     ap.add_argument("--limit", type=_row_limit, default=0, metavar="N",
-                    help="how many rows --rank prints (default 200)")
+                    help="how many rows --rank prints, and how many "
+                         "definitions --unreached ranks (default 200 for "
+                         "both)")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -639,6 +643,24 @@ def build_parser() -> argparse.ArgumentParser:
                     default=graph.DEFAULT_DEPTH, metavar="N",
                     help="how many call hops --affected follows upward, 1 to "
                          f"{graph.MAX_DEPTH} (default {graph.DEFAULT_DEPTH})")
+    ap.add_argument("--reaches", default="", metavar="NAME",
+                    help="print which scenarios and routes reach NAME: the "
+                         "other direction of --affected, walked from that "
+                         "one name up the map's `xrefs` calls rows to any "
+                         "depth, grouped by feature file with the hop chain "
+                         "for the first scenario of each. A class is "
+                         "answered by what is declared inside its span. "
+                         "Reads framework_map.json under --out")
+    ap.add_argument("--unreached", action="store_true",
+                    help="print the product definitions no step function "
+                         "reaches: every function and class in a file the "
+                         "map does not name as suite that the walk down from "
+                         "the steps never arrives at, grouped by file and "
+                         "ranked by the map's own rank. The first line says "
+                         "how much of the call graph resolved, because that "
+                         "is how much of this is untested rather than "
+                         "unknown. --limit sets how many are ranked. Reads "
+                         "framework_map.json under --out")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
@@ -840,6 +862,7 @@ def _dry_run_answer(args) -> int:
         ("--context", args.context_name), ("--affected", args.affected),
         ("--affected-out", args.affected_out),
         ("--changed", args.changed is not None),
+        ("--reaches", args.reaches), ("--unreached", args.unreached),
         ("--rank", args.rank_files is not None),
         ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
@@ -944,7 +967,8 @@ def main() -> int:
                          or args.callees or args.impact or args.more_handle
                          or args.defines or args.at_place
                          or args.context_name or args.affected
-                         or args.changed is not None
+                         or args.changed is not None or args.reaches
+                         or args.unreached
                          or args.export is not None
                          or args.rank_files is not None
                          or args.cost is not None):
@@ -1006,6 +1030,7 @@ def main() -> int:
             or args.callees or args.impact or args.more_handle
             or args.defines or args.at_place or args.context_name
             or args.affected or args.changed is not None
+            or args.reaches or args.unreached
             or args.export is not None or args.rank_files is not None
             or args.cost is not None):
         out_dir = os.path.abspath(args.out)
@@ -1040,6 +1065,7 @@ def main() -> int:
                              or args.more_handle or args.defines
                              or args.at_place or args.context_name
                              or args.affected or args.changed is not None
+                             or args.reaches or args.unreached
                              or args.export is not None
                              or args.rank_files is not None
                              or args.cost is not None):
@@ -1174,6 +1200,22 @@ def main() -> int:
                                      if not args.affected_out else "")
             log_answer(out_dir, "affected", ",".join(chosen), answer,
                        AFFECTED_BUDGET)
+            print(answer)
+            return 0
+        if args.reaches:
+            # The same call the MCP `reaches` tool makes, at the same budget,
+            # so a name asked here and asked there comes back byte for byte
+            # the same.
+            answer = reaches_answer(map_path, args.reaches)
+            log_answer(out_dir, "reaches", args.reaches, answer,
+                       _ask.REACHES_BUDGET)
+            print(answer)
+            return 0
+        if args.unreached:
+            answer = unreached_answer(map_path, args.limit or UNREACHED_LIMIT)
+            log_answer(out_dir, "unreached", str(args.limit or
+                                                 UNREACHED_LIMIT), answer,
+                       _ask.UNREACHED_BUDGET)
             print(answer)
             return 0
         if args.rank_files is not None:
