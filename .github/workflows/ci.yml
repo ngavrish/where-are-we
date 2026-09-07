@@ -4466,6 +4466,27 @@ jobs:
                 f"with a class the order does not know: {unclassed}")
           sys.exit(1 if (missing or extra or unclassed) else 0)
           EOF
+          # The README's copy of the set that decides whether a line builds
+          # a map is that set. It has drifted twice: `--defines` and `--at`
+          # went into the frozenset with Task 1 and never into the sentence,
+          # and `--context` went into neither, so `--context Foo` was
+          # classified as a build although it returns from the answer branch.
+          python - <<'EOF'
+          import pathlib, re, sys
+          from where_are_we import effects
+          doc = pathlib.Path("README.md").read_text()
+          m = re.search(r"A command line naming none of (.*?) builds the map into",
+                        doc, re.S)
+          assert m, "the README sentence about NO_MAP_BUILD is gone or reworded"
+          named = set(re.findall(r"`(--[a-z-]+)`", m.group(1)))
+          # `-h` is the only member the sentence does not spell: it says
+          # --help, which is the same action under its long name.
+          want = set(effects.NO_MAP_BUILD) - {"-h"}
+          print(f"{len(named)} flags in the README sentence, {len(want)} in "
+                f"NO_MAP_BUILD, only in the README: {sorted(named - want)}, "
+                f"only in the set: {sorted(want - named)}")
+          sys.exit(0 if named == want else 1)
+          EOF
           # The file in the wheel is the table, byte for byte. Regenerate
           # it with the same command when the table moves:
           #   where-are-we --effects --json > src/where_are_we/effects.json

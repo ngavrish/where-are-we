@@ -137,7 +137,7 @@ NO_MAP_BUILD = frozenset({
     "-h", "--help", "--effects", "--dry-run", "--ask", "--more", "--callers",
     "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
-    "--cost", "--export",
+    "--cost", "--export", "--context",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

@@ -802,7 +802,7 @@ of its flags carries.
 
 | class | what it touches | flags |
 |---|---|---|
-| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
+| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--defines`, `--at`, `--context`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
 | `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--ctags`, `--force`, `--watch`, `--diff` |
 | `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of, and the file `--export` was told to write, which is at whatever path the caller named | `--init`, `--agent-file`, `--docs`, `--export` |
 | `writes-config` | where a tool other than this one reads: `.git/hooks`, `~/.claude/settings.json`, `~/.codex/config.toml`, a Cursor rule, a Gemini setting | `--install-hook` |
@@ -829,12 +829,12 @@ writes-map-dir
 A flag is resolved the way argparse resolves it, so `--eff` is `--effects`
 and the class of an abbreviated line is the class of the line that runs.
 
-A command line naming none of `--ask`, `--sections`, `--cost`, `--export`,
-`--pointer`, `--callers`, `--callees`, `--impact`, `--more`, `--mcp`,
-`--lsp`, `--init`, `--install-hook`, `--specs`, `--dry-run`, `--effects` or
-`--help` builds the map into `--out`, so `where-are-we --repo .` is
-`writes-map-dir` on the strength of the build alone and says so as a
-`build writes-map-dir` line.
+A command line naming none of `--ask`, `--more`, `--defines`, `--at`,
+`--context`, `--callers`, `--callees`, `--impact`, `--sections`, `--cost`,
+`--export`, `--pointer`, `--mcp`, `--lsp`, `--init`, `--install-hook`,
+`--specs`, `--dry-run`, `--effects` or `--help` builds the map into `--out`,
+so `where-are-we --repo .` is `writes-map-dir` on the strength of the build
+alone and says so as a `build writes-map-dir` line.
 
 `--dry-run` prints every path the command can write, one per line, and exits
 without writing any of them:
