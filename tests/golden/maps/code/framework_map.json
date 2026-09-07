@@ -86,6 +86,56 @@
       }
     ]
   },
+  "rank": [
+    {
+      "name": "get_invoice",
+      "file": "<root>/code/repo/app/api.py",
+      "line": 15,
+      "score": 0.0
+    },
+    {
+      "name": "health",
+      "file": "<root>/code/repo/app/api.py",
+      "line": 21,
+      "score": 0.0
+    },
+    {
+      "name": "list_invoices",
+      "file": "<root>/code/repo/app/api.py",
+      "line": 9,
+      "score": 0.0
+    },
+    {
+      "name": "charge",
+      "file": "<root>/code/repo/app/billing.py",
+      "line": 4,
+      "score": 0.0
+    },
+    {
+      "name": "refund",
+      "file": "<root>/code/repo/app/billing.py",
+      "line": 9,
+      "score": 0.0
+    },
+    {
+      "name": "main",
+      "file": "<root>/code/repo/app/cli.py",
+      "line": 6,
+      "score": 0.0
+    },
+    {
+      "name": "Customer",
+      "file": "<root>/code/repo/app/models.py",
+      "line": 19,
+      "score": 0.0
+    },
+    {
+      "name": "Invoice",
+      "file": "<root>/code/repo/app/models.py",
+      "line": 9,
+      "score": 0.0
+    }
+  ],
   "indexed": {
     "suite": 5
   },

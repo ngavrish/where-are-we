@@ -19,14 +19,14 @@ import subprocess
 import sys
 import urllib.request
 
-from . import extract, state
+from . import extract, rank, state
 from .declare import (_kind_of, _step_texts, index_declarations,
                       record_span, spans_index)
 from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
 from .walk import (AST_LIMIT, SKIP_DIRS, _cached, _lines_matching,
                    _load_parse_cache, _manifest, _product_roots,
                    _save_parse_cache, _slurp, _slurp_source, _tree, _walk,
-                   sweep_out_dir)
+                   redact, sweep_out_dir)
 
 
 # How much of each call graph the map keeps. `ask.impact` tells its reader
@@ -3061,6 +3061,27 @@ def build(repo: str, out_dir: str | None = None,
 
     stated = _manifest(repo)
 
+    # Which definitions matter structurally, from the graph the two tables
+    # above already describe: files as nodes, an edge from a file that
+    # mentions a name to the file that declares it. Unpersonalised here,
+    # because a stored ranking cannot know which files a reader has open;
+    # `--rank FILE` recomputes the same walk with the vector concentrated on
+    # those files, from these same two keys read back off disk.
+    #
+    # Read from the lines as the map will hold them, which is redacted: every
+    # writer runs `redact` over the map before it lands, so a ranking computed
+    # from the lines in memory is a ranking of text no reader of the file can
+    # see, and `--rank` recomputing from the file would disagree with the key
+    # beside it. Measured on this repository, 1,788 of 32,649 lines change and
+    # the two orders differ in their first row, because the top two definitions
+    # are within half a percent of each other. What is redacted here is the
+    # copy this reads; `lines` itself is left as the walk found it, and the
+    # writers redact it on the way out exactly as before.
+    spans = spans_index()
+    ranked = rank.rows({"spans": spans, "repo": repo,
+                        "lines": {path: redact(rows, contiguous=True)
+                                  for path, rows in LINES.items()}})
+
     result = {
         "schema": "where-are-we/1",
         "repo": repo,
@@ -3080,7 +3101,12 @@ def build(repo: str, out_dir: str | None = None,
         # Every home of every name, not only the first one walked, each with
         # the line it ends on where a parser knew it. `definitions` keeps its
         # shape; this is where a name declared in two files says so.
-        "spans": spans_index(),
+        "spans": spans,
+        # The top definitions of this repository by PageRank over its own
+        # file graph, best first. Not a word match: this is what the graph
+        # says is load-bearing, which is the other half of the question
+        # `ask` answers.
+        "rank": ranked,
         # What was looked at, so "not found" can say where it looked.
         "indexed": dict(sorted(INDEXED.items())),
         # And the lines themselves, so a phrase search is a lookup. Kept out of

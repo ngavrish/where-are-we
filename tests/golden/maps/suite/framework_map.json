@@ -2073,6 +2073,524 @@
       }
     ]
   },
+  "rank": [
+    {
+      "name": "CheckoutPage",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 4,
+      "score": 0.014895002
+    },
+    {
+      "name": "click_10",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 34,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_11",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 37,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_12",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 40,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_13",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 43,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_14",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 46,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_15",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 49,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_16",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 52,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_17",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 55,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_18",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 58,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_19",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 61,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_20",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 64,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_21",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 67,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_22",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 70,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_23",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 73,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_24",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 76,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_25",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 79,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_26",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 82,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_27",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 85,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_28",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 88,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_29",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 91,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_30",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 94,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_31",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 97,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_32",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 100,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_33",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 103,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_34",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 106,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_35",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 109,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_36",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 112,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_37",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 115,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_38",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 118,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_39",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 121,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_40",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 124,
+      "score": 0.010532357
+    },
+    {
+      "name": "click_1",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 7,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_2",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 10,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_3",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 13,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_4",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 16,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_5",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 19,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_6",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 22,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_7",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 25,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_8",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 28,
+      "score": 0.001053236
+    },
+    {
+      "name": "click_9",
+      "file": "<root>/suite/repo/pages/checkout.py",
+      "line": 31,
+      "score": 0.001053236
+    },
+    {
+      "name": "step_login_error",
+      "file": "<root>/suite/repo/steps/login_steps.py",
+      "line": 27,
+      "score": 0.0
+    },
+    {
+      "name": "step_login_invalid",
+      "file": "<root>/suite/repo/steps/login_steps.py",
+      "line": 17,
+      "score": 0.0
+    },
+    {
+      "name": "step_login_valid",
+      "file": "<root>/suite/repo/steps/login_steps.py",
+      "line": 12,
+      "score": 0.0
+    },
+    {
+      "name": "step_on_dashboard",
+      "file": "<root>/suite/repo/steps/login_steps.py",
+      "line": 22,
+      "score": 0.0
+    },
+    {
+      "name": "step_registered_user",
+      "file": "<root>/suite/repo/steps/login_steps.py",
+      "line": 7,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_1",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 11,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_10",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 47,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_11",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 51,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_12",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 55,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_13",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 59,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_14",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 63,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_15",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 67,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_16",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 71,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_17",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 75,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_18",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 79,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_19",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 83,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_2",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 15,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_20",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 87,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_21",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 91,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_22",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 95,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_23",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 99,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_24",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 103,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_25",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 107,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_26",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 111,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_27",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 115,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_28",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 119,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_29",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 123,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_3",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 19,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_30",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 127,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_31",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 131,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_32",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 135,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_33",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 139,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_34",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 143,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_35",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 147,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_36",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 151,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_37",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 155,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_38",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 159,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_39",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 163,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_4",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 23,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_40",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 167,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_5",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 27,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_6",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 31,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_7",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 35,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_8",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 39,
+      "score": 0.0
+    },
+    {
+      "name": "step_pay_9",
+      "file": "<root>/suite/repo/steps/pay_steps.py",
+      "line": 43,
+      "score": 0.0
+    }
+  ],
   "indexed": {
     "suite": 5
   },

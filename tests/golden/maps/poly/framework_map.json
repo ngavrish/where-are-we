@@ -74,6 +74,44 @@
       }
     ]
   },
+  "rank": [
+    {
+      "name": "charge",
+      "file": "<root>/poly/repo/a.ts",
+      "line": 1,
+      "score": 0.350877193
+    },
+    {
+      "name": "payInvoice",
+      "file": "<root>/poly/repo/b.ts",
+      "line": 3,
+      "score": 0.0
+    },
+    {
+      "name": "Serve",
+      "file": "<root>/poly/repo/main.go",
+      "line": 3,
+      "score": 0.0
+    },
+    {
+      "name": "TestServe",
+      "file": "<root>/poly/repo/main.go",
+      "line": 7,
+      "score": 0.0
+    },
+    {
+      "name": "main",
+      "file": "<root>/poly/repo/main.go",
+      "line": 1,
+      "score": 0.0
+    },
+    {
+      "name": "customers",
+      "file": "<root>/poly/repo/migrations/V1__init.sql",
+      "line": 1,
+      "score": 0.0
+    }
+  ],
   "indexed": {
     "suite": 4
   },
