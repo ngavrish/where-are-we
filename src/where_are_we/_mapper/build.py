@@ -240,12 +240,8 @@ def _bound_shapes(node) -> list:
     return out
 
 
-def declares_rows(spans: dict, roots) -> list:
+def declares_rows(spans: dict) -> list:
     """The `declares` rows of `xrefs`: one per site in `spans`.
-
-    `roots` is every root the map was built from, in the order they were
-    given: one for a plain build, and the first root and its `--also` roots
-    for a merged one.
 
     Written here rather than inside `build` because `--also` rebuilds them:
     the first root's copy of `spans` is taken before the extra roots are
@@ -253,15 +249,11 @@ def declares_rows(spans: dict, roots) -> list:
     rows named fewer files than the `spans` key beside them would break the
     one thing this table promises, that a row is a site.
 
-    Paths are absolute, which is the spelling every row in `xrefs` uses. The
-    page object and step tables record a site relative to the root that was
-    being walked at the time and `spans` does not keep which one that was, so
-    a relative site is resolved against `roots` in order and the first root it
-    exists under is the one it names: under `--also` a page object of the
-    second root is that root's file, not a path under the first that nothing
-    can open. A site no root makes exist is left exactly as `spans` wrote it,
-    because a relative path a reader can still resolve for themselves is
-    better than an absolute one that is wrong.
+    The site's path is copied through, not joined onto anything: every
+    `record_span` caller writes an absolute path, so the site already names
+    the root it was walked under. That is what makes a merged map right
+    without this function being told which roots it was merged from, and it
+    is why there is one spelling here rather than a rule per consumer.
 
     `candidates` is empty on these rows: a declaration is not a choice between
     files, and the file is the subject's. `file` is kept, so every row of
@@ -271,12 +263,6 @@ def declares_rows(spans: dict, roots) -> list:
     for name in sorted(spans):
         for site in spans[name] or ():
             path = site["file"]
-            if not os.path.isabs(path):
-                for root in roots:
-                    joined = os.path.join(root, path)
-                    if os.path.exists(joined):
-                        path = joined
-                        break
             out.append({"subject": path, "edge": "declares", "object": name,
                         "file": path, "candidates": [],
                         "line": site["start"], "resolution": "declaration"})
@@ -467,8 +453,14 @@ def build(repo: str, out_dir: str | None = None,
         # `ast` has the end line of every one of these, so the qualified
         # method names this block invents get a real span rather than a start
         # and a question mark.
+        #
+        # The absolute path, which is what every other `record_span` caller
+        # writes: `spans` does not record which root a site was walked under,
+        # so a relative one is a path with no root attached, and the two keys
+        # derived from it (`xrefs`, and the `tags` file) each had to guess a
+        # root back onto it, in opposite directions.
         for name, start, end, kind in api_result.get("spans") or ():
-            record_span(name, rel, start, end, kind)
+            record_span(name, full, start, end, kind)
         return api_result["api"]
 
     api = {rel: _public_api(rel) for rel in page_objects + drivers}
@@ -1988,18 +1980,16 @@ def build(repo: str, out_dir: str | None = None,
     # build, where `spans` is finished.
     xrefs: list = []
 
-    def _row_path(path: str) -> str:
-        """One spelling for every path in `xrefs`: the absolute one.
+    def _full(rel_path: str) -> str:
+        """One repository-relative path of the call graph as `xrefs` spells it.
 
-        The call graph works in paths relative to the repository and `spans`
-        records mostly absolute ones (the page object and step tables record
-        a relative one), so a table that copied each source's spelling could
-        not be joined to itself: a `calls` row's `file` would not match the
-        `declares` row for the file it names. Absolute, because that is what
-        `definitions` and most of `spans` hold, and a reader who has one of
-        those has the path this table uses.
+        The call graph works in paths relative to the repository and `xrefs`
+        is absolute throughout, so a `calls` row's `file` matches the
+        `declares` row for the file it names and the table joins to itself.
+        A plain join, not a test on the path first: everything handed to this
+        comes out of the call graph, and the call graph has one spelling.
         """
-        return path if os.path.isabs(path) else os.path.join(repo, path)
+        return os.path.join(repo, rel_path)
     defined_at: dict[str, str] = {}
     # Every indexed file that declares a name, per language group. A name one
     # file declares has one home and the `(file)` half of an edge is a fact; a
@@ -2062,11 +2052,11 @@ def build(repo: str, out_dir: str | None = None,
         """
         marked = resolution == "ambiguous"
         _stats(lang)["marked" if marked else "edges"] += 1
-        xrefs.append({"subject": f"{_row_path(rel)}:{func}", "edge": "calls",
+        xrefs.append({"subject": f"{_full(rel)}:{func}", "edge": "calls",
                       "object": name,
                       "file": (None if marked or len(where) != 1
-                               else _row_path(sorted(where)[0])),
-                      "candidates": sorted(_row_path(w) for w in where),
+                               else _full(sorted(where)[0])),
+                      "candidates": sorted(_full(w) for w in where),
                       "line": line, "resolution": resolution})
 
     def _edge_text(row: dict) -> str:
@@ -3320,15 +3310,15 @@ def build(repo: str, out_dir: str | None = None,
     # import line of one file, kept for the package pairs `import_graph`
     # summarises: the pair without the line is that key written out again in
     # seven fields, and the line is the half of it this table adds.
-    xrefs += declares_rows(spans, [repo])
+    xrefs += declares_rows(spans)
     for (package, other, path), line in sorted(import_sites.items()):
         if other not in (import_graph.get(package) or ()):
             # A pair the cap above dropped. `import_graph` is the summary and
             # this table does not disagree with it.
             continue
-        xrefs.append({"subject": _row_path(path), "edge": "imports",
-                      "object": other, "file": _row_path(other),
-                      "candidates": [_row_path(other)], "line": line,
+        xrefs.append({"subject": _full(path), "edge": "imports",
+                      "object": other, "file": _full(other),
+                      "candidates": [_full(other)], "line": line,
                       "resolution": "import_statement"})
     xrefs = sort_xrefs(xrefs)
 

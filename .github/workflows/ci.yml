@@ -4454,8 +4454,11 @@ jobs:
           done
           where-are-we --repo /tmp/xref/also/a --out /tmp/xref/also-out \
             --also /tmp/xref/also/b --product none --force --quiet --no-semantic
+          # `--ctags` too, because the tags file is the other artefact this
+          # map's `spans` key is written out as and the two are compared below.
           where-are-we --repo /tmp/xref/alsop/a --out /tmp/xref/alsop-out \
-            --also /tmp/xref/alsop/b --product none --force --quiet --no-semantic
+            --also /tmp/xref/alsop/b --product none --force --quiet \
+            --no-semantic --ctags
           # The golden fixtures, built here for the same reason, and this
           # repository, which is the only tree in the step with a `spans`
           # table worth counting.
@@ -4501,10 +4504,6 @@ jobs:
                       out.setdefault(r["subject"], set()).add(text(r))
               return {s: sorted(v)[:8] for s, v in out.items()}
 
-          def home(path, m):
-              """A `spans` file as `xrefs` spells it: absolute."""
-              return path if os.path.isabs(path) else os.path.join(m["repo"], path)
-
           def check(name, path):
               """What holds of every map: the closed set, the sort, the
               rendering, the join, and the two counters agreeing with the
@@ -4534,9 +4533,9 @@ jobs:
                       # candidate list is empty rather than the subject
                       # written a third time.
                       assert r["candidates"] == [], r
-                      # And the path is a file on disk: a relative `spans`
-                      # site resolved against the wrong root of an `--also`
-                      # map used to name one that is not there.
+                      # And the path is a file on disk. Checked without
+                      # going through the code's own rule: the row is a
+                      # site, and a site names a file that can be opened.
                       assert os.path.exists(r["subject"]), (name, r)
                   if r["edge"] == "imports":
                       assert r["resolution"] == "import_statement", r
@@ -4603,26 +4602,20 @@ jobs:
               for lang, stats in m["call_graph_stats"].items():
                   assert stats["marked"] == marked.get(lang, 0), (name, lang, stats)
                   assert stats["edges"] == placed.get(lang, 0), (name, lang, stats)
-              # And the declarations are `spans`, site for site. Matched on
-              # the file's name rather than its path, because a site `spans`
-              # recorded relative to whichever root was being walked is
-              # resolved against the root it exists under and `spans` does not
-              # say which that was; the `os.path.exists` above is what says
-              # the resolved path is real. A map of one root is held to the
-              # whole path, since there is only one root a site can be under.
-              spans = sorted((os.path.basename(site["file"]), name_, site["start"])
+              # And the declarations are `spans`, site for site, on the whole
+              # path: every site `spans` holds is absolute, so a `declares`
+              # row copies the path through and nothing here has to guess a
+              # root back onto it. The same assertion for a merged map as for
+              # a map of one root, which is what the one spelling buys.
+              for name_, sites in m["spans"].items():
+                  for site in sites:
+                      assert os.path.isabs(site["file"]), (name, name_, site)
+              spans = sorted((site["file"], name_, site["start"])
                              for name_, sites in m["spans"].items()
                              for site in sites)
-              assert sorted((os.path.basename(r["subject"]), r["object"], r["line"])
+              assert sorted((r["subject"], r["object"], r["line"])
                             for r in rows if r["edge"] == "declares") == spans, \
                   f"{name}: declares rows are not the spans sites"
-              if not m.get("also"):
-                  whole = sorted((home(site["file"], m), name_, site["start"])
-                                 for name_, sites in m["spans"].items()
-                                 for site in sites)
-                  assert sorted((r["subject"], r["object"], r["line"])
-                                for r in rows if r["edge"] == "declares") == whole, \
-                      f"{name}: declares rows are not the spans sites"
               # The `imports` rows are the pairs `import_graph` names, with
               # the file and the line that key cannot hold.
               pairs = sorted((pkg, other)
@@ -4714,6 +4707,24 @@ jobs:
           assert all(r["subject"].startswith("/tmp/xref/alsop/b/") for r in pages), \
               pages
           assert "click_pay" in alsop["spans"], sorted(alsop["spans"])
+          # And the other artefact derived from `spans` says the same thing
+          # about those files. A `tags` row is repo-relative, an `xrefs` row
+          # is absolute, and joining the first onto the map's root gives the
+          # second: one spelling in the key, one rule per consumer, and no
+          # file named two ways by two artefacts of one build.
+          sites = {(r["subject"], r["object"], r["line"])
+                   for r in alsop["xrefs"] if r["edge"] == "declares"}
+          tags = set()
+          for row in open("/tmp/xref/alsop-out/tags"):
+              if row.startswith("!_TAG_"):
+                  continue
+              f = row.rstrip("\n").split("\t")
+              tags.add((os.path.normpath(os.path.join(alsop["repo"], f[1])),
+                        f[0], int(f[2].rstrip(';"'))))
+          untagged = sorted(s for s in sites if s not in tags)
+          assert not untagged, untagged[:5]
+          print("tags rows and xrefs declares rows name the same files:",
+                len(tags), "rows,", len(sites), "sites")
           # And the import line, named by file and line.
           pkg = read("/tmp/xref/pkg-out")
           rows = [r for r in pkg["xrefs"] if r["edge"] == "imports"]

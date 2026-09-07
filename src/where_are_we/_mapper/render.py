@@ -1139,10 +1139,12 @@ def ctags(m: dict) -> str:
             if not path or not isinstance(start, int):
                 continue
             # Relative to the repository root, which is what an editor
-            # opening the tags file from that root can resolve. A path
-            # outside the root keeps whatever it had: `--also` folds other
-            # checkouts into one map and their files are not under it.
-            if repo and os.path.isabs(path):
+            # opening the tags file from that root can resolve. Every site in
+            # `spans` is absolute, so this is the one rule that turns a site
+            # into a row rather than a rule with an exception in it: a file
+            # an `--also` root owns comes out as the `../` path that reaches
+            # it from this root, which the same editor can also resolve.
+            if repo:
                 try:
                     path = os.path.relpath(path, repo)
                 except ValueError:  # a different drive on Windows

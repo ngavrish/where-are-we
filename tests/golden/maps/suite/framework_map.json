@@ -291,7 +291,7 @@
     ],
     "CheckoutPage.click_1": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 7,
         "end": 8,
         "kind": "function"
@@ -299,7 +299,7 @@
     ],
     "CheckoutPage.click_10": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 34,
         "end": 35,
         "kind": "function"
@@ -307,7 +307,7 @@
     ],
     "CheckoutPage.click_11": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 37,
         "end": 38,
         "kind": "function"
@@ -315,7 +315,7 @@
     ],
     "CheckoutPage.click_12": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 40,
         "end": 41,
         "kind": "function"
@@ -323,7 +323,7 @@
     ],
     "CheckoutPage.click_13": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 43,
         "end": 44,
         "kind": "function"
@@ -331,7 +331,7 @@
     ],
     "CheckoutPage.click_14": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 46,
         "end": 47,
         "kind": "function"
@@ -339,7 +339,7 @@
     ],
     "CheckoutPage.click_15": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 49,
         "end": 50,
         "kind": "function"
@@ -347,7 +347,7 @@
     ],
     "CheckoutPage.click_16": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 52,
         "end": 53,
         "kind": "function"
@@ -355,7 +355,7 @@
     ],
     "CheckoutPage.click_17": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 55,
         "end": 56,
         "kind": "function"
@@ -363,7 +363,7 @@
     ],
     "CheckoutPage.click_18": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 58,
         "end": 59,
         "kind": "function"
@@ -371,7 +371,7 @@
     ],
     "CheckoutPage.click_19": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 61,
         "end": 62,
         "kind": "function"
@@ -379,7 +379,7 @@
     ],
     "CheckoutPage.click_2": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 10,
         "end": 11,
         "kind": "function"
@@ -387,7 +387,7 @@
     ],
     "CheckoutPage.click_20": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 64,
         "end": 65,
         "kind": "function"
@@ -395,7 +395,7 @@
     ],
     "CheckoutPage.click_21": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 67,
         "end": 68,
         "kind": "function"
@@ -403,7 +403,7 @@
     ],
     "CheckoutPage.click_22": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 70,
         "end": 71,
         "kind": "function"
@@ -411,7 +411,7 @@
     ],
     "CheckoutPage.click_23": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 73,
         "end": 74,
         "kind": "function"
@@ -419,7 +419,7 @@
     ],
     "CheckoutPage.click_24": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 76,
         "end": 77,
         "kind": "function"
@@ -427,7 +427,7 @@
     ],
     "CheckoutPage.click_25": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 79,
         "end": 80,
         "kind": "function"
@@ -435,7 +435,7 @@
     ],
     "CheckoutPage.click_26": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 82,
         "end": 83,
         "kind": "function"
@@ -443,7 +443,7 @@
     ],
     "CheckoutPage.click_27": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 85,
         "end": 86,
         "kind": "function"
@@ -451,7 +451,7 @@
     ],
     "CheckoutPage.click_28": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 88,
         "end": 89,
         "kind": "function"
@@ -459,7 +459,7 @@
     ],
     "CheckoutPage.click_29": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 91,
         "end": 92,
         "kind": "function"
@@ -467,7 +467,7 @@
     ],
     "CheckoutPage.click_3": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 13,
         "end": 14,
         "kind": "function"
@@ -475,7 +475,7 @@
     ],
     "CheckoutPage.click_30": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 94,
         "end": 95,
         "kind": "function"
@@ -483,7 +483,7 @@
     ],
     "CheckoutPage.click_31": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 97,
         "end": 98,
         "kind": "function"
@@ -491,7 +491,7 @@
     ],
     "CheckoutPage.click_32": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 100,
         "end": 101,
         "kind": "function"
@@ -499,7 +499,7 @@
     ],
     "CheckoutPage.click_33": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 103,
         "end": 104,
         "kind": "function"
@@ -507,7 +507,7 @@
     ],
     "CheckoutPage.click_34": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 106,
         "end": 107,
         "kind": "function"
@@ -515,7 +515,7 @@
     ],
     "CheckoutPage.click_35": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 109,
         "end": 110,
         "kind": "function"
@@ -523,7 +523,7 @@
     ],
     "CheckoutPage.click_36": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 112,
         "end": 113,
         "kind": "function"
@@ -531,7 +531,7 @@
     ],
     "CheckoutPage.click_37": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 115,
         "end": 116,
         "kind": "function"
@@ -539,7 +539,7 @@
     ],
     "CheckoutPage.click_38": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 118,
         "end": 119,
         "kind": "function"
@@ -547,7 +547,7 @@
     ],
     "CheckoutPage.click_39": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 121,
         "end": 122,
         "kind": "function"
@@ -555,7 +555,7 @@
     ],
     "CheckoutPage.click_4": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 16,
         "end": 17,
         "kind": "function"
@@ -563,7 +563,7 @@
     ],
     "CheckoutPage.click_40": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 124,
         "end": 125,
         "kind": "function"
@@ -571,7 +571,7 @@
     ],
     "CheckoutPage.click_5": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 19,
         "end": 20,
         "kind": "function"
@@ -579,7 +579,7 @@
     ],
     "CheckoutPage.click_6": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 22,
         "end": 23,
         "kind": "function"
@@ -587,7 +587,7 @@
     ],
     "CheckoutPage.click_7": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 25,
         "end": 26,
         "kind": "function"
@@ -595,7 +595,7 @@
     ],
     "CheckoutPage.click_8": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 28,
         "end": 29,
         "kind": "function"
@@ -603,7 +603,7 @@
     ],
     "CheckoutPage.click_9": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 31,
         "end": 32,
         "kind": "function"
@@ -675,7 +675,7 @@
     ],
     "class CheckoutPage": [
       {
-        "file": "pages/checkout.py",
+        "file": "<root>/suite/repo/pages/checkout.py",
         "start": 4,
         "end": 125,
         "kind": "class"
