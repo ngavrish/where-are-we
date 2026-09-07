@@ -545,7 +545,13 @@ def _lines_matching(body, words, limit=4):
     return out
 
 
-def _slurp(path: str, limit: int = 400000) -> str:
+# What one extractor reads of one file by default. Named because two other
+# modules have to know it: a declaration whose end line sits at this bound was
+# not seen to end, it was cut off there.
+SLURP_LIMIT = 400000
+
+
+def _slurp(path: str, limit: int = SLURP_LIMIT) -> str:
     """Read a file once per run, up to `limit` bytes. The sections each used to
     walk and re-read the tree for themselves, and a hundred sections over a
     hundred-thousand-file repository is a hundred passes over the same disk for

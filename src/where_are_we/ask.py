@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import re
+from itertools import accumulate
 from datetime import datetime, timezone
 
 RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
@@ -1631,7 +1632,12 @@ def _at_files(paths, wanted: str) -> list:
     walk saw, and both are the same file. So: the exact path if the map holds
     it, else every path ending in it, else every path with that basename. One
     rung at a time, and never two rungs at once, so a question that names a
-    file exactly is never answered about a different file with the same name.
+    path the map holds is answered about that path and no other.
+
+    The last rung can match several files, because two directories may both
+    hold an `m.py` and a bare basename does not say which. This returns all of
+    them, sorted; `at` answers about the first in path order and names the
+    rest, rather than picking one silently.
     """
     paths = sorted(paths)
     exact = [p for p in paths if p == wanted]
@@ -1675,11 +1681,17 @@ def at(map_path: str, target: str, limit: int = AT_BUDGET,
             doc = json.load(fh) or {}
     except (OSError, ValueError) as exc:
         return f"no map at {path}: {exc}"
+    # `"spans" not in doc`, not `not spans`: a 1.5.0 map of a tree that
+    # declares nothing holds an empty index, and telling its reader the map is
+    # from an older release would send them to rebuild something that is
+    # already current.
+    if "spans" not in doc:
+        return ("this map has no spans index: it was built by a version "
+                "before 1.5.0, which recorded one line per name and no end. "
+                "Rebuild with --force: a build skips a tree that has not "
+                "moved, so an upgrade alone does not add the key")
     spans = doc.get("spans") or {}
     lines = doc.get("lines") or {}
-    if not spans:
-        return ("this map has no spans index: it was built by a version "
-                "before 1.5.0, which recorded one line per name and no end")
     files = _at_files(set(lines) | {s["file"] for rows in spans.values()
                                     for s in rows}, wanted)
     if not files:
@@ -1703,36 +1715,78 @@ def at(map_path: str, target: str, limit: int = AT_BUDGET,
     if not holding:
         near = sorted(here, key=lambda s: (abs(s[1] - line), s[1] > line,
                                             s[0], s[1], s[4]))[:3]
-        return (f"no definition encloses {wanted}:{line} (nearest: "
-                + ", ".join(f"{s[4]} " + _site({"file": s[0], "start": s[1],
-                                                "end": s[2], "kind": s[3]})
-                            for s in near) + ")")
-    file, start, end, kind, name = holding[0]
+        answer = (f"no definition encloses {wanted}:{line} (nearest: "
+                  + ", ".join(f"{s[4]} " + _site({"file": s[0], "start": s[1],
+                                                  "end": s[2], "kind": s[3]})
+                              for s in near) + ")")
+        # A declaration that starts above the line and ends nobody knows where
+        # may well be the one the line is in. Saying only "nothing encloses it"
+        # would report a bound of this index as a fact about the code.
+        if any(s[2] is None and s[1] <= line for s in here):
+            answer += ("; an end of ? is a declaration this map could not "
+                       "measure, so one of them may be the one you are in")
+        return answer
+    # One file answers. Where a bare name matched several and more than one of
+    # them holds a definition here, the header names them all: an answer that
+    # picked one silently would be the map choosing, which is the thing it
+    # says out loud everywhere else.
+    also = sorted({s[0] for s in holding})
+    file, start, end, kind, name = next(s for s in holding if s[0] == also[0])
     body = (lines.get(file) or [])[start - 1:end]
     if not body:
         return (f"{file}:{start}-{end} {name} ({kind}), and this map holds no "
                 "lines for that file")
     head = f"{file}:{start}-{end} {name} ({kind})"
+    if len(also) > 1:
+        head += (f" ({wanted} also matches "
+                 + ", ".join(f for f in also if f != file)
+                 + "; this is the first in path order)")
     if offset >= len(body):
         return _stale(f"{name} is {len(body)} lines long, and this handle asks "
                       f"for line {offset + 1} of it")
 
-    def block(count: int, handle: bool) -> str:
-        kept = body[offset:offset + count]
-        left = len(body) - offset - len(kept)
-        out = "\n".join([head] + kept)
-        if left:
-            field = f" (more:at:{_encode(target)}:{offset + len(kept)})" \
-                if handle else ""
-            out += f"\n… {left} more lines{field}"
-        return out
+    rest = body[offset:]
+    most = len(rest)
+    field = _encode(target)
 
-    most = len(body) - offset
+    def tail(count: int, handle: bool) -> str:
+        left = most - count
+        if not left:
+            return ""
+        with_handle = f" (more:at:{field}:{offset + count})" if handle else ""
+        return f"\n… {left} more lines{with_handle}"
+
+    def block(count: int, handle: bool) -> str:
+        return "\n".join([head] + rest[:count]) + tail(count, handle)
+
+    # How long the block would be, without building it. `at` is asked about a
+    # definition, and a definition can be eleven thousand lines: joining the
+    # whole list once per candidate count took 1.4 seconds on one, against
+    # 0.06 for every other lookup this tool answers. The lengths are a running
+    # sum, the count is found by bisection over it, and the text is joined
+    # once, at the end.
+    grown = list(accumulate((len(row) + 1 for row in rest), initial=0))
+
+    def size(count: int, handle: bool) -> int:
+        return len(head) + grown[count] + len(tail(count, handle))
+
     for handle in (True, False):
         # A handle only where at least one line came back: a tail pointing at
         # the offset it was given is a chain that never advances.
-        for count in range(most, 0 if handle else -1, -1):
-            out = block(count, handle)
-            if len(out) <= limit:
-                return out
+        low, high = (1 if handle else 0), most
+        if size(low, handle) > limit:
+            continue
+        while low < high:
+            mid = (low + high + 1) // 2
+            if size(mid, handle) <= limit:
+                low = mid
+            else:
+                high = mid - 1
+        # The bisection is over the lines, which only grow; the tail shrinks by
+        # a digit or two as the count rises, so the found count can be one or
+        # two long. Walked back, never far.
+        while low > (1 if handle else 0) and size(low, handle) > limit:
+            low -= 1
+        if size(low, handle) <= limit:
+            return block(low, handle)
     return head

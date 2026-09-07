@@ -68,8 +68,8 @@ try:
                                _walk, fingerprint, redact)
     from ._mapper.declare import (DECLARATIONS, STEP_DECORATORS,
                                   TS_LANG_BY_EXT, _DECLARES, _PER_FILE_CAP,
-                                  _TS_PARSERS, _declared_names, _line_for_name,
-                                  _read_for_declarations,
+                                  TS_END_BY_EXT, _TS_PARSERS, _declared_names,
+                                  _line_for_name, _read_for_declarations,
                                   _regex_declared_names, _step_texts,
                                   _tree_sitter, _ts_symbols, declarations_in,
                                   find_text, index_declarations, index_lines,
@@ -88,7 +88,8 @@ except ImportError:  # run as a plain file, with no package around it
                               _load_parse_cache, _looks_like_suite, _manifest,
                               _product_roots, _save_parse_cache, _slurp, _walk,
                               fingerprint, redact)
-    from _mapper.declare import (DECLARATIONS, STEP_DECORATORS, TS_LANG_BY_EXT,
+    from _mapper.declare import (DECLARATIONS, STEP_DECORATORS, TS_END_BY_EXT,
+                                 TS_LANG_BY_EXT,
                                  _DECLARES, _PER_FILE_CAP, _TS_PARSERS,
                                  _declared_names, _line_for_name,
                                  _read_for_declarations, _regex_declared_names,

@@ -12,7 +12,7 @@ import os
 import re
 
 from .state import DEFINITIONS, INDEXED, LINES, SPANS
-from .walk import _cached, _slurp
+from .walk import SLURP_LIMIT, _cached, _slurp
 
 try:
     from ..ask import _encode
@@ -240,6 +240,18 @@ def find_text(out_dir: str, phrase: str, limit: int = 40,
 # right (Python, TypeScript) is a separate change, not this one.
 TS_LANG_BY_EXT = {".rs": "rust", ".kt": "kotlin", ".cs": "c_sharp", ".rb": "ruby"}
 
+# Extensions a grammar can supply an end line for, without standing in for the
+# pattern table that finds the names. `eval.py` already loads these five for
+# `--graph`, so the parser is there and `spans` was reporting `?` for the
+# languages most of this tool's readers write in. Which names are declared,
+# and on which line, does not move: only the end does, and only where the
+# `precise` extra is installed. Widening `TS_LANG_BY_EXT` itself would change
+# `definitions` for these languages between one install and another, which is
+# a separate change and not this one.
+TS_END_BY_EXT = {".ts": "typescript", ".tsx": "tsx", ".js": "javascript",
+                 ".jsx": "javascript", ".mjs": "javascript",
+                 ".cjs": "javascript", ".go": "go"}
+
 
 def _regex_declared_names(body: str, ext: str) -> list:
     """(name, 1-based line) pairs `body` declares, by the patterns for `ext`.
@@ -275,73 +287,51 @@ def _regex_declared_names(body: str, ext: str) -> list:
     return out
 
 
-def _line_for_name(lines: list, name: str, regex_hits: list) -> int:
-    """The 1-based line to credit `name` to.
+def _line_for_name(lines: list, name: str, start: int, end: int = 0) -> int:
+    """The 1-based line to credit a declaration spanning `start` to `end` to.
 
-    First choice is the line the regex table itself would have picked for
-    this exact name, so a name tree-sitter and the regex both see keeps the
-    same line either way. Failing that (tree-sitter found something the
-    line-start regex missed, typically a multi-line signature), the first
-    line that mentions the name as a whole word; failing even that, the top
-    of the file rather than nothing.
+    A parse tree says where a declaration begins, which is not always where
+    its name is written: tree-sitter-c-sharp hangs an attribute list under the
+    declaration node, so `[Test]` on the line above is where `public void
+    Charge()` starts, and a multi-line signature puts the name a line or two
+    in. So the credited line is the first line of the declaration that holds
+    the name as a whole word, and the declaration's own first line when none
+    of them does, which is a start with no name in it rather than nothing.
+
+    Bounded by the declaration, not by the file. Searching the whole file was
+    what the first version did, and it credited a name to the first line that
+    happened to mention it, which for a name declared twice was the first
+    declaration both times.
     """
-    for hit_name, line in regex_hits:
-        if hit_name == name:
-            return line
-    whole_word = re.compile(r"\b" + re.escape(name) + r"\b")
-    for number, text in enumerate(lines, 1):
-        if whole_word.search(text):
+    whole_word = re.compile(r"(?<![A-Za-z0-9_])" + re.escape(name)
+                            + r"(?![A-Za-z0-9_])")
+    last = max(start, end or start)
+    for number in range(start, min(last, len(lines)) + 1):
+        if number >= 1 and whole_word.search(lines[number - 1]):
             return number
-    return 1
+    return start
 
 
 def _declared_names(body: str, ext: str, path: str = "") -> list:
     """(name, 1-based line) pairs `body` (the text of `path`) declares.
 
-    A tree-sitter parse tree where one is installed for `ext`'s language,
-    since it gets exported/visibility and multi-line signatures right where a
-    line-start regex cannot; the regex table otherwise, which is also what
-    supplies the line number in both cases (see `_line_for_name`). Absent the
-    optional parser this is exactly `_regex_declared_names`, byte for byte:
-    the CI path never installs `tree-sitter-languages`, so it never takes the
-    branch below.
-
-    The regex pass is routed through `_cached`, keyed on `path`, the same as
-    every other real parse in this file. `_ts_symbols` below caches itself on
-    the same key; this one cannot, since it only has a path when a caller
-    handed it one, so an empty `path` here just means "always recompute,
-    never persist" rather than a crash.
+    The first two fields of `_declared_spans`, which is the one pass over a
+    file this module makes: names, start lines, end lines and kinds are found
+    together, cached together, and read apart here. They used to be two
+    passes with two cache entries, and the second stored the first's answer
+    again under another key.
     """
-    regex_hits = _cached(path, f"regex_declared:{ext}",
-                         lambda: _regex_declared_names(body, ext))
-    ts_lang = TS_LANG_BY_EXT.get(ext)
-    if not ts_lang or not path:
-        return regex_hits
-    if _tree_sitter(ts_lang) is None:
-        return regex_hits
-    ts_rows = _ts_symbols(path, ts_lang)
-    if not ts_rows:
-        return regex_hits
-    # Names only, deduplicated and in name order, which is the list this
-    # returned before the rows carried a span as well.
-    ts_names = sorted({row[0] for row in ts_rows})
-    lines = body.splitlines()
-    seen = set()
-    out = []
-    for name in ts_names:
-        if name in seen:
-            continue
-        seen.add(name)
-        out.append((name, _line_for_name(lines, name, regex_hits)))
-    return out
+    return [(name, start) for name, start, _end, _kind
+            in _spans_of(body, ext, path)]
 
 
 # What word introduced a declaration, and what that makes it. The closed set of
 # kinds is the values on the right; SCHEMA.md lists them beside the `spans` row.
 #
-# `static` is deliberately absent: it introduces a declaration in Rust and is a
-# modifier in C#, so reading it as a kind called `public static void Charge()` a
-# constant. A word that means two things is worth less than the fallback below.
+# `static` is deliberately absent. It introduces a declaration in Rust and is
+# only a modifier in C#, so taking it as the kind made `public static void
+# Charge()` a constant. A word that means two things in two languages is worth
+# less here than the fallbacks below, which read the shape of the line.
 _KIND_BY_WORD = {
     "class": "class", "object": "class", "record": "class",
     "interface": "interface", "trait": "trait", "struct": "struct",
@@ -395,19 +385,31 @@ def _py_spans(path: str) -> dict:
     the table above: a constant assigned inside a function is not what that
     pattern finds, and a span for a name `definitions` does not hold would be
     a home for a name nothing else in the map mentions.
+
+    A file over `AST_LIMIT` is handed to the parser as a prefix, so the last
+    thing in that prefix is a declaration this parse cannot see the end of:
+    it ends where the cut is, not where the file says. Every declaration
+    reaching the deepest line the tree holds gets no end at all in that case.
+    A wrong end is worse than none, and this is the one place the parser can
+    produce one.
     """
     def _compute():
         # Imported here rather than at the top of the file: `build` imports
         # this module, so a module-level import back would be circular.
         try:
             from .build import _parse_source
+            from .walk import _slurp_source
         except ImportError:  # run as a plain file, with no package around it
             from build import _parse_source  # type: ignore[no-redef]
+            from walk import _slurp_source  # type: ignore[no-redef]
         out: dict = {}
         tree = _parse_source(path)
         if tree is None:
             return out
+        _text, was_cut = _slurp_source(path)
+        deepest = 0
         for node in ast.walk(tree):
+            deepest = max(deepest, getattr(node, "end_lineno", 0) or 0)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 out[f"{node.name}\x1e{node.lineno}"] = [node.end_lineno, "function"]
             elif isinstance(node, ast.ClassDef):
@@ -420,6 +422,10 @@ def _py_spans(path: str) -> dict:
                             and _CONSTANT_NAME.match(target.id)):
                         out[f"{target.id}\x1e{target.lineno}"] = [node.end_lineno,
                                                                   "constant"]
+        if was_cut:
+            for key, row in out.items():
+                if row[0] >= deepest:
+                    out[key] = [None, row[1]]
         return out
 
     return _cached(path, "py_spans", _compute)
@@ -428,26 +434,45 @@ def _py_spans(path: str) -> dict:
 def _declared_spans(body: str, ext: str, path: str = "") -> list:
     """`[name, start, end, kind]` for every declaration in `path`.
 
-    The names and their start lines are exactly what `_declared_names`
-    returns, in the same order, so `spans` and `definitions` can never
-    disagree about where a name is: this adds the end line and the kind on top
-    of that list rather than finding its own names.
+    One list, and the only pass over a file this module makes: `definitions`,
+    `spans` and `declarations_in` are all read out of it, so they can never
+    disagree about where a name is.
 
-    Where the end comes from, best first. `ast` gives it exactly for Python.
-    A tree-sitter node gives it wherever a grammar is installed, and is
-    matched by name, since `_line_for_name` may have credited the declaration
-    to a different line than the parse tree's own start; an end before that
-    start is dropped rather than printed as a span that runs backwards. The
-    regex table gives no end at all, and says so with None: it has seen the
-    first line of a declaration and nothing that says where it stops.
+    Where a declaration comes from, best first. A tree-sitter parse tree is
+    the whole answer for the languages `TS_LANG_BY_EXT` names: it knows the
+    name, both ends and the kind, and it knows them for each of two
+    declarations of one name in one file, which is the thing a table of
+    line-start patterns cannot do. Everywhere else the pattern table finds the
+    names and the start lines, and an end is added on top of them where
+    something knows one: `ast` for Python, and a grammar for the languages in
+    `TS_END_BY_EXT`, which are the ones this tool has a parser for but reads
+    with patterns. What is left honestly reports no end at all: a pattern has
+    seen the first line of a declaration and nothing that says where it stops.
     """
-    pairs = _declared_names(body, ext, path)
-    lines = body.splitlines()
-    exact = _py_spans(path) if path and ext in (".py", ".pyi") else {}
     ts_lang = TS_LANG_BY_EXT.get(ext)
-    from_tree: dict = {}
+    lines = body.splitlines()
     if ts_lang and path and _tree_sitter(ts_lang) is not None:
-        for row in _ts_symbols(path, ts_lang):
+        rows = _ts_symbols(path, ts_lang)
+        if rows:
+            out = []
+            for name, start, end, kind in rows:
+                line = _line_for_name(lines, name, start, end or start)
+                out.append([name, line,
+                            end if end and end >= line else None,
+                            kind or _kind_of(lines[line - 1]
+                                             if 0 < line <= len(lines) else "",
+                                             name)])
+            return out
+    pairs = _regex_declared_names(body, ext)
+    exact = _py_spans(path) if path and ext in (".py", ".pyi") else {}
+    from_tree: dict = {}
+    end_lang = TS_END_BY_EXT.get(ext)
+    if not exact and end_lang and path and _tree_sitter(end_lang) is not None:
+        for row in _ts_symbols(path, end_lang):
+            # By name and start line where the two passes agree, by name alone
+            # where they do not: the pattern credited the declaration to a
+            # line, and the grammar is only being asked how far it runs.
+            from_tree.setdefault(f"{row[0]}\x1e{row[1]}", row)
             from_tree.setdefault(row[0], row)
     out = []
     for name, start in pairs:
@@ -455,15 +480,27 @@ def _declared_spans(body: str, ext: str, path: str = "") -> list:
         known = exact.get(f"{name}\x1e{start}")
         if known:
             end, kind = known[0], known[1]
-        elif name in from_tree:
-            _n, _start, tree_end, tree_kind = from_tree[name]
-            end = tree_end if tree_end and tree_end >= start else None
-            kind = tree_kind
+        else:
+            row = from_tree.get(f"{name}\x1e{start}") or from_tree.get(name)
+            if row:
+                end = row[2] if row[2] and row[2] >= start else None
+                kind = row[3]
         if not kind:
             text = lines[start - 1] if 0 < start <= len(lines) else ""
             kind = _kind_of(text, name)
         out.append([name, start, end, kind])
     return out
+
+
+def _spans_of(body: str, ext: str, path: str = "") -> list:
+    """`_declared_spans`, computed once per file per build.
+
+    Routed through `_cached`, keyed on `path`, the same as every other real
+    parse in this file. A caller with no path (a body handed over on its own)
+    means "always recompute, never persist" rather than a crash.
+    """
+    return _cached(path, f"spans:{ext}",
+                   lambda: _declared_spans(body, ext, path))
 
 
 def record_span(name: str, path: str, start, end, kind: str) -> None:
@@ -612,8 +649,7 @@ def index_declarations(path: str, label: str = "") -> None:
     # One list for both tables. `_declared_spans` keeps `_declared_names`'
     # order and its start lines, so `definitions` is the same index it was
     # before spans existed: the first site of each name, in walk order.
-    for name, number, end, kind in _cached(
-            path, f"spans:{ext}", lambda: _declared_spans(body, ext, path)):
+    for name, number, end, kind in _spans_of(body, ext, path):
         DEFINITIONS.setdefault(name, f"{path}:{number}")
         record_span(name, path, number, end, kind)
 
@@ -736,8 +772,9 @@ def _ts_symbols(path: str, lang: str) -> list:
         return []
 
     def _parse():
+        text = _slurp(path)
         try:
-            tree = parser.parse(_slurp(path).encode())
+            tree = parser.parse(text.encode())
         except Exception:  # noqa: BLE001 - an optional third-party parser,
             # over a file this package did not write: a grammar built for
             # another version of tree-sitter raises whatever it raises, and a
@@ -781,6 +818,13 @@ def _ts_symbols(path: str, lang: str) -> list:
                 walk(child, exported)
 
         walk(tree.root_node)
+        # `_slurp` reads a prefix of a large file, so the last declaration in
+        # the parse tree is one whose end is the read limit rather than the
+        # file's own. The same rule `_py_spans` applies to a cut Python file:
+        # no end at all, rather than a confident wrong one.
+        if len(text) >= SLURP_LIMIT:
+            deepest = tree.root_node.end_point[0] + 1
+            out = [[n, s, (e if e < deepest else None), k] for n, s, e, k in out]
         # No cap: the regex path this stands in for has none either, and a file
         # with more than a handful of declarations silently losing the ones past
         # some count is exactly the "indexed here, not there" gap this project
@@ -790,6 +834,6 @@ def _ts_symbols(path: str, lang: str) -> list:
         #
         # Sorted by name, then by where it is, so the list is the same list on
         # every run and a name declared twice in one file keeps both rows.
-        return sorted(out, key=lambda r: (r[0], r[1], r[2]))
+        return sorted(out, key=lambda r: (r[0], r[1], r[2] is None, r[2] or 0))
 
     return _cached(path, f"ts:{lang}", _parse)

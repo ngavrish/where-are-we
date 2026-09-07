@@ -82,10 +82,12 @@ LINES: dict[str, list] = {}
 # answered the same question. Both are checked, not just the schema number,
 # because a release can change extraction logic without needing a new kind.
 #
-# 2: the declaration kinds carry a span. `spans:<ext>` is a new kind, which an
-# old cache would simply miss, but `step_texts` gained a `spans` list inside
-# the value it already stored, and a 1.4 cache holding the old shape would be
-# read back as a steps module that declares no spans at all.
+# 2: the declaration kinds carry a span. `ts:<lang>` is why the number had to
+# move: it stored a list of names and now stores a list of
+# `[name, start, end, kind]` rows, so a 1.4 entry read back under the new code
+# would take `row[0]` of a string and index a character. `spans:<ext>` is a
+# new kind an old cache simply misses, and `step_texts` gained a list the
+# reader treats as optional; neither of those alone would need a bump.
 CACHE_SCHEMA = 2
 _PARSE_CACHE: dict = {}
 
