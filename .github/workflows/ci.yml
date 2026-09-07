@@ -1652,6 +1652,11 @@ jobs:
       - name: a change names the scenarios that reach it
         run: |
           set -o pipefail
+          # Where the checkout is, so the parts of this step that run inside
+          # a fixture can come back to it. `cd "$GITHUB_WORKSPACE"` was the
+          # one use of that variable in this workflow, and unset it is a
+          # silent no-op that leaves the step in the fixture directory.
+          root=$(pwd)
           rm -rf /tmp/aff
           mkdir -p /tmp/aff/repo/features/steps /tmp/aff/repo/pages \
                    /tmp/aff/repo/app /tmp/aff/repo/tests
@@ -1849,8 +1854,11 @@ jobs:
           where-are-we --out /tmp/aff/m --affected pages/checkout.py \
             --affected-format behave > /tmp/aff/behave.txt
           cat /tmp/aff/behave.txt
-          grep -qF '## behave selection, one argument pair per line for `xargs behave`: --name per affected scenario, and -i for a feature file only where every scenario in it is affected' \
+          grep -qF '## behave selection, one argument pair per line for `xargs behave`: one --name per affected scenario; two scenarios of one name are one selector and behave runs both' \
             /tmp/aff/behave.txt
+          if grep -qE '^-i ' /tmp/aff/behave.txt; then
+            echo "an -i pattern was emitted"; exit 1
+          fi
           if grep -qE '^@|(^|[[:space:]])--tags' /tmp/aff/behave.txt; then
             echo "a tag selector was emitted"; exit 1
           fi
@@ -1876,7 +1884,7 @@ jobs:
           grep -q '0 scenarios passed, 0 failed, 2 skipped, 1 untested' /tmp/aff/dry3.txt
           grep -q 'Browse the catalogue' /tmp/aff/dry3.txt || \
             behave --dry-run --tags=@slow -f plain | grep -q 'Browse the catalogue'
-          cd "$GITHUB_WORKSPACE"
+          cd "$root"
           # 6. pytest node ids, and only the case the change reaches.
           where-are-we --out /tmp/aff/m --affected app/billing.py \
             --affected-format pytest > /tmp/aff/pytest.txt
@@ -1898,12 +1906,11 @@ jobs:
           if grep -q 'Unreachable from the graph' /tmp/aff/feature.txt; then
             echo "a feature file the map holds landed in unreachable"; exit 1
           fi
-          # Every scenario of the file, so the selection is the file itself
-          # in one argument rather than one --name each, and behave runs all
-          # three.
+          # Every scenario of the file gets its own --name, and behave runs
+          # all three.
           where-are-we --out /tmp/aff/m --affected features/shop.feature \
             --affected-format behave | grep -E '^(--name|-i) ' > /tmp/aff/sel-feature.txt
-          grep -qxF -- "-i '(^|/)features/shop\.feature\$'" /tmp/aff/sel-feature.txt
+          test "$(wc -l < /tmp/aff/sel-feature.txt | tr -d ' ')" = "3"
           (cd /tmp/aff/repo && PYTHONPATH=/tmp/aff/repo xargs behave --dry-run \
              < /tmp/aff/sel-feature.txt | grep -q '0 scenarios passed, 0 failed, 0 skipped, 3 untested')
           # 8. --changed reads git and answers exactly as --affected does.
@@ -2071,7 +2078,7 @@ jobs:
                         ["app/billing.py", "pages/catalogue.py"]):
               result = affected(load(M), files)
               whole = [l for block in NAMES for l in block_lines(result, block)]
-              for limit in (12000, 1500, 800, 600):
+              for limit in (12000, 1500, 800):
                   answer = ask.affected_answer(MP, files, limit=limit)
                   assert len(answer) <= limit, (files, limit, len(answer))
                   got = set(walk(answer, limit))
@@ -2082,17 +2089,22 @@ jobs:
                   assert len(answer) <= 1500
                   got = set(walk(answer, 1500))
                   assert not [l for l in block_lines(result, fmt) if l not in got], (files, fmt)
-          # Below the floor a block is not printed and is not silent either.
-          small = ask.affected_answer(MP, ["pages/", "app/", "nope.py"], limit=500)
-          assert "raise the budget" in small, small
-          assert len(HANDLE.findall(small)) >= 1, small
-          assert set(walk(small, 12000)) >= set(
-              block_lines(affected(load(M), ["pages/", "app/", "nope.py"]),
-                          "scenarios")), small
+          # Below the floor a block is not printed and is not silent either,
+          # and the block that says the answer is partial is the last of
+          # those lines to be given up rather than the first.
+          for limit in (600, 500):
+              small = ask.affected_answer(MP, ["pages/", "app/", "nope.py"],
+                                          limit=limit)
+              assert len(small) <= limit, (limit, len(small))
+              assert "raise the budget" in small, small
+              assert "in unreachable; raise the budget" in small, small
+              assert set(walk(small, 12000)) >= set(
+                  block_lines(affected(load(M), ["pages/", "app/", "nope.py"]),
+                              "unreachable")), small
           print(f"{rows} rows over 5 file sets, every one of them reachable "
-                "from the answer's own handles at 12000, 1500, 800 and 600 "
-                "characters; at 500 the blocks that do not fit say so and "
-                "hand back a handle")
+                "from the answer's own handles at 12000, 1500 and 800 "
+                "characters; at 600 and 500 the blocks that do not fit say "
+                "so and hand back a handle, unreachable last of all")
           EOF
           # 13. Twice over the same map is the same answer.
           where-are-we --out /tmp/aff/m --affected pages/checkout.py > /tmp/aff/again.txt
@@ -2177,6 +2189,161 @@ jobs:
              < /tmp/aff/sel-outline.txt > /tmp/aff/dry-outline.txt)
           cat /tmp/aff/dry-outline.txt
           grep -q '0 scenarios passed, 0 failed, 1 skipped, 2 untested' /tmp/aff/dry-outline.txt
+          # 16. A selection that spans feature files. behave's --name is
+          #     `action="append"`, so several of them are a union; -i is a
+          #     plain store that also filters which files are collected, so
+          #     it overwrites itself and intersects with --name. Two shapes
+          #     of that, each run through behave, each with the -i form
+          #     beside it as the control.
+          python - <<'EOF'
+          import pathlib
+
+
+          def suite(root, files, per):
+              r = pathlib.Path(root)
+              (r / "features" / "steps").mkdir(parents=True, exist_ok=True)
+              (r / "pages").mkdir(parents=True, exist_ok=True)
+              for f in range(1, files + 1):
+                  body = [f"Feature: Area {f}", ""]
+                  for s in range(1, per + 1):
+                      body += [f"  Scenario: Area {f} scenario {s}",
+                               "    Given a customer with a saved card",
+                               "    When they pay",
+                               ""]
+                  (r / "features" / f"area{f}.feature").write_text("\n".join(body))
+              (r / "features" / "steps" / "shop_steps.py").write_text(
+                  '"""Steps."""\n\nfrom behave import given, when\n\n'
+                  'from pages.checkout import CheckoutPage\n\n'
+                  'checkout = CheckoutPage()\n\n\n'
+                  '@given("a customer with a saved card")\n'
+                  'def step_saved_card(context):\n    checkout.select_saved_card()\n\n\n'
+                  '@when("they pay")\ndef step_pay(context):\n    checkout.pay()\n')
+              (r / "pages" / "checkout.py").write_text(
+                  '"""The checkout page."""\n\n\nclass CheckoutPage:\n'
+                  '    """Page object."""\n\n    def select_saved_card(self):\n'
+                  '        pass\n\n    def pay(self):\n        pass\n')
+
+
+          # 8 feature files of 3 scenarios, all of them affected, and the
+          # same shape at 30 scenarios a file, which is past the point where
+          # one argument per scenario is printed.
+          suite("/tmp/aff/big", 8, 3)
+          suite("/tmp/aff/many", 8, 30)
+          EOF
+          mkdir -p /tmp/aff/mix/features/steps /tmp/aff/mix/pages
+          cat > /tmp/aff/mix/features/whole.feature <<'EOF'
+          Feature: Whole
+
+            Scenario: W one
+              Given a customer with a saved card
+
+            Scenario: W two
+              Given a customer with a saved card
+          EOF
+          cat > /tmp/aff/mix/features/part.feature <<'EOF'
+          Feature: Part
+
+            Scenario: P one
+              Given a customer with a saved card
+
+            Scenario: P two
+              Given a shopper reading help
+          EOF
+          cat > /tmp/aff/mix/features/steps/shop_steps.py <<'EOF'
+          """Steps."""
+
+          from behave import given
+
+          from pages.checkout import CheckoutPage
+
+          checkout = CheckoutPage()
+
+
+          @given("a customer with a saved card")
+          def step_saved_card(context):
+              checkout.select_saved_card()
+
+
+          @given("a shopper reading help")
+          def step_help(context):
+              pass
+          EOF
+          cat > /tmp/aff/mix/pages/checkout.py <<'EOF'
+          """The checkout page."""
+
+
+          class CheckoutPage:
+              """Page object."""
+
+              def select_saved_card(self):
+                  pass
+          EOF
+          for name in big mix many; do
+            where-are-we --repo /tmp/aff/$name --out /tmp/aff/$name/.m \
+              --quiet --no-semantic
+            where-are-we --out /tmp/aff/$name/.m --affected pages/checkout.py \
+              > /tmp/aff/$name.txt
+            where-are-we --out /tmp/aff/$name/.m --affected pages/checkout.py \
+              --affected-format behave > /tmp/aff/$name.behave
+            grep -E '^(--name|-i) ' /tmp/aff/$name.behave > /tmp/aff/$name.sel
+            if grep -qE '^-i ' /tmp/aff/$name.sel; then
+              echo "$name emitted an -i pattern"; exit 1
+            fi
+          done
+          head -1 /tmp/aff/big.txt | grep -q '24 of 24 scenarios, 8 feature files'
+          head -1 /tmp/aff/mix.txt | grep -q '3 of 4 scenarios, 2 feature files'
+          head -1 /tmp/aff/many.txt | grep -q '240 of 240 scenarios, 8 feature files'
+          # 24 scenarios, one argument each, and behave runs all 24.
+          test "$(wc -l < /tmp/aff/big.sel | tr -d ' ')" = "24"
+          (cd /tmp/aff/big && PYTHONPATH=/tmp/aff/big xargs behave --dry-run \
+             < /tmp/aff/big.sel > /tmp/aff/big.dry)
+          grep -q '0 scenarios passed, 0 failed, 0 skipped, 24 untested' /tmp/aff/big.dry
+          # The control: the -i form of the same selection, which is what
+          # `-i` per wholly affected feature file printed. behave keeps the
+          # last one and runs 3 of the 24.
+          python - <<'EOF'
+          import pathlib, re
+          rows = sorted(p.name for p in
+                        pathlib.Path("/tmp/aff/big/features").glob("*.feature"))
+          pathlib.Path("/tmp/aff/big.control").write_text(
+              "".join("-i '(^|/)features/%s$'\n" % re.escape(r) for r in rows))
+          EOF
+          (cd /tmp/aff/big && PYTHONPATH=/tmp/aff/big xargs behave --dry-run \
+             < /tmp/aff/big.control > /tmp/aff/big.control.dry)
+          cat /tmp/aff/big.control.dry
+          if grep -q '24 untested' /tmp/aff/big.control.dry; then
+            echo "the -i control ran the whole selection; the case is gone"; exit 1
+          fi
+          # One feature file wholly affected beside one only partly: three
+          # arguments, three scenarios, the fourth skipped.
+          test "$(wc -l < /tmp/aff/mix.sel | tr -d ' ')" = "3"
+          (cd /tmp/aff/mix && PYTHONPATH=/tmp/aff/mix xargs behave --dry-run \
+             < /tmp/aff/mix.sel > /tmp/aff/mix.dry)
+          grep -q '0 scenarios passed, 0 failed, 1 skipped, 3 untested' /tmp/aff/mix.dry
+          # The control for the mixed shape: one --name beside one -i runs
+          # none of the three, because -i decides which files are collected
+          # and the --name names a scenario in the file it excluded.
+          printf "%s\n%s\n" "--name '^P\ one( -- @|\$)'" \
+            "-i '(^|/)features/whole\.feature\$'" > /tmp/aff/mix.control
+          (cd /tmp/aff/mix && PYTHONPATH=/tmp/aff/mix xargs behave --dry-run \
+             < /tmp/aff/mix.control > /tmp/aff/mix.control.dry)
+          cat /tmp/aff/mix.control.dry
+          if grep -q '3 untested' /tmp/aff/mix.control.dry; then
+            echo "the mixed -i control ran the whole selection; the case is gone"
+            exit 1
+          fi
+          # 240 scenarios is more arguments than a command line should carry,
+          # so each feature file's names alternate inside one --name. Still
+          # every scenario, and the block is whole at the budget it prints at.
+          test "$(wc -l < /tmp/aff/many.sel | tr -d ' ')" = "8"
+          if grep -q 'more:aff:behave' /tmp/aff/many.behave; then
+            echo "the selection was cut; a pipeline would under-select"; exit 1
+          fi
+          (cd /tmp/aff/many && PYTHONPATH=/tmp/aff/many xargs behave --dry-run \
+             < /tmp/aff/many.sel > /tmp/aff/many.dry)
+          grep -q '0 scenarios passed, 0 failed, 0 skipped, 240 untested' /tmp/aff/many.dry
+          echo "behave runs 24 of 24 over 8 files, 3 of 4 across a mixed pair, "\
+               "and 240 of 240 through 8 combined patterns"
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
