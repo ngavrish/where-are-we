@@ -2139,7 +2139,7 @@ jobs:
           rm -rf /tmp/pol
           mkdir -p /tmp/pol/r
           printf 'x = 1\n' > /tmp/pol/r/a.py
-          # Eight broad handlers across the package, and each one is a server
+          # Nine broad handlers across the package, and each one is a server
           # loop, an optional dependency, or a third-party parser over a file
           # this package did not write. Every other one now names what it
           # catches, so a programming error in the lines it covers is a
@@ -2153,6 +2153,7 @@ jobs:
               "mcp.py": 1,             # keep serving the pipe
               "build.py": 1,           # git for-each-ref plus a strip and a slice
               "declare.py": 2,         # an optional tree-sitter grammar, and its parser
+              "eval.py": 1,            # --graph's tree-sitter second opinion
           }
           bad = []
           for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
@@ -2642,4 +2643,99 @@ jobs:
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
           print("MCP more and --more agree, byte for byte")
+          EOF
+
+      - name: an edge whose callee two files define is marked, and matched without the mark
+        run: |
+          set -o pipefail
+          rm -rf /tmp/mark /tmp/markmap
+          mkdir -p /tmp/mark
+          # `charge` is declared twice and called from a third file. Which of
+          # the two the edge names is whichever the walk reached first, so the
+          # map writes it with a question mark.
+          printf 'export function charge(amount: number): string {\n  return `a ${amount}`;\n}\n' > /tmp/mark/a.ts
+          printf 'export function charge(amount: number): string {\n  return `c ${amount}`;\n}\n' > /tmp/mark/c.ts
+          printf 'import { charge } from "./a";\n\nexport function payInvoice(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/mark/b.ts
+          where-are-we --repo /tmp/mark --out /tmp/markmap --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/markmap/framework_map.json"))
+          edges = m["call_graph_files"]["b.ts:payInvoice"]
+          assert len(edges) == 1, edges
+          assert edges[0] in ("charge (a.ts)?", "charge (c.ts)?"), edges
+          stats = m["call_graph_stats"]["ts_js"]
+          assert stats["ambiguous"] > 0, stats
+          print("marked edge:", edges[0], stats)
+          EOF
+          # The mark is printed, and matched through: `callers` finds the
+          # caller by the bare name, `callees` hands the mark back.
+          where-are-we --out /tmp/markmap --callers charge > /tmp/mark/callers.txt
+          grep -qx "b.ts:payInvoice" /tmp/mark/callers.txt
+          where-are-we --out /tmp/markmap --callees payInvoice | grep -qE '^payInvoice: charge \((a|c)\.ts\)\?$'
+          # And every `impact` reply says what the mark means.
+          where-are-we --out /tmp/markmap --impact charge --impact-depth 2 > /tmp/mark/impact.txt
+          head -1 /tmp/mark/impact.txt | grep -qF "an edge ending in ? is a guess: the name is defined in more than one file."
+          grep -qx "depth 1: b.ts:payInvoice" /tmp/mark/impact.txt
+          # A name exactly one file defines keeps a bare edge: the poly
+          # fixture's `charge` is declared once, and its edge carries no mark.
+          rm -rf /tmp/markpoly
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/markpoly')
+          "
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/markpoly/poly/out/framework_map.json"))
+          assert m["call_graph_files"] == {"b.ts:payInvoice": ["charge (a.ts)"]}, \
+              m["call_graph_files"]
+          assert all(row["ambiguous"] == 0 for row in m["call_graph_stats"].values()), \
+              m["call_graph_stats"]
+          print("poly: unique edges carry no mark")
+          EOF
+
+      - name: "wawe-eval --graph: the map says how much of its call tree it resolved"
+        run: |
+          set -o pipefail
+          # The poly fixture from the step above, mapped the way the golden
+          # suite maps it, so these numbers are about the walk and not about
+          # whatever landed in this repository this week.
+          wawe-eval --map /tmp/markpoly/poly/out --graph > /tmp/markpoly/graph.txt
+          cat /tmp/markpoly/graph.txt
+          grep -q "resolution_rate" /tmp/markpoly/graph.txt
+          # Without the precise extra the tree-sitter half says so rather than
+          # printing a zero.
+          grep -q "regex vs tree-sitter: not compared" /tmp/markpoly/graph.txt
+          wawe-eval --map /tmp/markpoly/poly/out --graph --json > /tmp/markpoly/graph.json
+          python - <<'EOF'
+          import json
+          report = json.load(open("/tmp/markpoly/graph.json"))
+          assert report["has_call_graph_stats"], report
+          langs = {row["language"]: row for row in report["languages"]}
+          assert set(langs) == {"ts_js", "go"}, sorted(langs)
+          for name, row in sorted(langs.items()):
+              for key in ("resolution_rate", "ambiguous_share"):
+                  v = row[key]
+                  assert isinstance(v, float) and 0.0 <= v <= 1.0, (name, key, row)
+              # Every callee name the walk looked at in the poly fixture is
+              # declared in it: two known edges, nothing guessed, nothing lost.
+              assert row["resolved"] == row["sites"] > 0, row
+              assert row["ambiguous"] == 0, row
+              assert row["resolution_rate"] == 1.0, row
+          print("poly: resolved == sites in", sorted(langs))
+          EOF
+          # The key is in every map the build writes, including one with no
+          # call graph at all, so SCHEMA.md documents something always emitted.
+          python - <<'EOF'
+          import json
+          for fixture in ("suite", "code", "poly"):
+              m = json.load(open(f"/tmp/markpoly/{fixture}/out/framework_map.json"))
+              stats = m["call_graph_stats"]
+              assert isinstance(stats, dict), (fixture, stats)
+              for lang, row in sorted(stats.items()):
+                  assert row["sites"] >= row["resolved"] >= 0, (fixture, lang, row)
+                  assert row["sites"] >= row["ambiguous"] >= 0, (fixture, lang, row)
+              print(fixture, stats)
           EOF

@@ -1759,6 +1759,37 @@ def build(repo: str, out_dir: str | None = None,
     # in a second, parse-free pass below.
     func_calls: dict[str, list] = {}
     defined_at: dict[str, str] = {}
+    # How many indexed files declare each name, per language group. A name a
+    # single file declares has one home and the `(file)` half of an edge is a
+    # fact; a name two files declare has as many, and which one an edge points
+    # at is whichever the walk reached first. That second case is what the
+    # trailing `?` on an edge says out loud.
+    homes_py: dict[str, set] = {}
+    homes_tsjs: dict[str, set] = {}
+    homes_go: dict[str, set] = {}
+    # Per language: how many callee names the walk looked at, how many it
+    # could place in a file at all, and how many of those had more than one
+    # file to choose from. `call_graph_stats` below; the ratio of the second
+    # to the first is what the graph resolved, and it is a number rather than
+    # a claim.
+    call_stats: dict[str, dict] = {}
+
+    def _count(lang: str, name: str, homes: dict) -> str:
+        """Record one callee name against `lang`, and return its edge mark.
+
+        `""` where exactly one file declares the name, `"?"` where several do
+        and the file an edge names is therefore a guess.
+        """
+        row = call_stats.setdefault(lang, {"sites": 0, "resolved": 0, "ambiguous": 0})
+        row["sites"] += 1
+        where = homes.get(name) or set()
+        if where:
+            row["resolved"] += 1
+        if len(where) > 1:
+            row["ambiguous"] += 1
+            return "?"
+        return ""
+
     raw_calls_by_rel: dict[str, dict] = {}
     for rel in code_files:
         if not rel.endswith(".py"):
@@ -1781,17 +1812,20 @@ def build(repo: str, out_dir: str | None = None,
                 calls[node.name] = [t for t in targets if t]
             return {"defs": defs, "calls": calls}
 
+        call_stats.setdefault("python", {"sites": 0, "resolved": 0, "ambiguous": 0})
         func_info = _cached(full, "func_calls", _func_calls_of)
         raw_calls_by_rel[rel] = func_info["calls"]
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
+            homes_py.setdefault(name, set()).add(rel)
     for rel, calls in raw_calls_by_rel.items():
         for func_name, raw_targets in calls.items():
             targets = set()
             for name in raw_targets:
+                mark = _count("python", name, homes_py)
                 home = defined_at.get(name)
                 if home and home != rel:
-                    targets.add(f"{name} ({os.path.basename(home)})")
+                    targets.add(f"{name} ({os.path.basename(home)}){mark}")
             if targets:
                 func_calls[f"{os.path.basename(rel)}:{func_name}"] = sorted(targets)[:8]
 
@@ -1845,11 +1879,14 @@ def build(repo: str, out_dir: str | None = None,
     defs_by_file: dict[str, list] = {}
     for rel in code_files:
         if rel.endswith(ts_js_ext):
-            table, finder = defined_tsjs, _tsjs_def_names
+            table, finder, homes = defined_tsjs, _tsjs_def_names, homes_tsjs
+            lang = "ts_js"
         elif rel.endswith(".go"):
-            table, finder = defined_go, _go_def_names
+            table, finder, homes = defined_go, _go_def_names, homes_go
+            lang = "go"
         else:
             continue
+        call_stats.setdefault(lang, {"sites": 0, "resolved": 0, "ambiguous": 0})
         body = _read(rel)
         if not body:
             continue
@@ -1858,9 +1895,13 @@ def build(repo: str, out_dir: str | None = None,
             defs_by_file[rel] = defs
         for name, _ in defs:
             table.setdefault(name, rel)
+            homes.setdefault(name, set()).add(rel)
 
     for rel, defs in defs_by_file.items():
-        table = defined_tsjs if rel.endswith(ts_js_ext) else defined_go
+        is_tsjs = rel.endswith(ts_js_ext)
+        table = defined_tsjs if is_tsjs else defined_go
+        homes = homes_tsjs if is_tsjs else homes_go
+        lang = "ts_js" if is_tsjs else "go"
         body = _read(rel)
         if not body:
             continue
@@ -1868,15 +1909,18 @@ def build(repo: str, out_dir: str | None = None,
         for name, line_idx in defs:
             fn_body = _brace_body(lines, line_idx)
             targets = set()
-            for callee in set(re.findall(r"\b(\w+)\s*\(", fn_body)):
+            for callee in sorted(set(re.findall(r"\b(\w+)\s*\(", fn_body))):
+                mark = _count(lang, callee, homes)
                 home = table.get(callee)
                 if home and home != rel:
-                    targets.add(f"{callee} ({os.path.basename(home)})")
+                    targets.add(f"{callee} ({os.path.basename(home)}){mark}")
             if targets:
                 func_calls[f"{os.path.basename(rel)}:{name}"] = sorted(targets)[:8]
 
     # One cap across both languages, tie-broken by key so ties do not depend
-    # on os.walk order.
+    # on os.walk order. `call_stats` is not capped with it: it counts what the
+    # walk looked at, and a coverage number computed from the sixty keys that
+    # survived would be a measure of the cap rather than of the walk.
     func_calls = dict(sorted(func_calls.items(),
                             key=lambda kv: (-len(kv[1]), kv[0]))[:CALL_GRAPH_KEYS])
 
@@ -2410,6 +2454,7 @@ def build(repo: str, out_dir: str | None = None,
         "hotspots": hotspots,
         "dependency_licenses": dep_licenses,
         "call_graph_files": func_calls,
+        "call_graph_stats": dict(sorted(call_stats.items())),
         "data_flow": extracted["data_flow"],
         "blame_owners": blame_owners,
         "coverage_by_file": extracted["coverage_by_file"],

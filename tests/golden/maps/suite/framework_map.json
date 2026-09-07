@@ -1650,6 +1650,13 @@
       "click_9 (checkout.py)"
     ]
   },
+  "call_graph_stats": {
+    "python": {
+      "sites": 85,
+      "resolved": 40,
+      "ambiguous": 0
+    }
+  },
   "data_flow": {},
   "blame_owners": {},
   "coverage_by_file": {},

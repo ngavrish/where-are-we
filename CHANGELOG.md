@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.0
+
+- Honest edges. A cross-file call graph edge is written `charge (a.ts)` when
+  exactly one indexed file defines the callee, and `charge (a.ts)?` when
+  several do: the file named is then whichever the walk reached first, which
+  is a guess, and the question mark says so rather than letting the reader
+  take it for a fact. `callers`, `callees` and `impact` match on the name
+  alone, so a marked edge is found exactly as an unmarked one is, and print
+  the mark as they find it. Every `impact` reply now ends its rules line with
+  "an edge ending in ? is a guess: the name is defined in more than one file".
+  On this repository's own map 40 of the edges under 60 keys carry the mark,
+  among them `cli.py:main -> build (ask.py)?`, which points at the wrong
+  `build`.
+- A coverage number for the call graph. The build records
+  `call_graph_stats` in `framework_map.json`: per language group (`python`,
+  `ts_js`, `go`) how many callee names the walk looked at, how many it could
+  place in a file, and how many had more than one file to choose from.
+  `wawe-eval --map OUT --graph` prints those with the two fractions, and
+  `--json` carries them. With the `precise` extra installed it parses the
+  TypeScript, JavaScript and Go again with tree-sitter and prints the delta,
+  which is where the pattern pass admits what it over-counted: on the poly
+  fixture the regex sees 5 Go sites to tree-sitter's 2.
+
 ## 1.3.0
 
 - `callees` (MCP), `--callees NAME`: what a function calls, the other

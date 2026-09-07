@@ -112,6 +112,51 @@ comes back from a run that measured nothing. And when the build has `more`
 in it, a run that prints `handles: not available in this build` fails the
 step: the property the step is named for is the one it must not skip.
 
+## The call graph half
+
+`--graph` answers a different question about the same map: not what the
+budget lost, but how much of the call tree the walk could resolve in the
+first place.
+
+```bash
+wawe-eval --map .wawe --graph
+```
+
+```
+language  sites  resolved  ambiguous  resolution_rate  ambiguous_share
+  python   2185       517        102           0.2366           0.0467
+   ts_js      2         2          0              1.0              0.0
+      go      3         2          0           0.6667              0.0
+```
+
+`sites` is the callee names the walk looked at, one per function per
+distinct name. `resolved` is how many of them it could place in an indexed
+file. `ambiguous` is how many had more than one file to choose from: those
+are the edges `framework_map.json` writes with a trailing `?`, because the
+file such an edge names is whichever the walk reached first. The three
+counters live in the map under `call_graph_stats`, counted over the whole
+walk rather than the 60 keys `call_graph_files` keeps, so the rate is about
+the walk and not about the cap. `--json` prints the same report as JSON.
+
+With `pip install "where-are-we[precise]"` the TypeScript, JavaScript and Go
+are parsed again with tree-sitter and the two counts are printed side by
+side:
+
+```
+regex vs tree-sitter, go: sites 5 vs 2 (-3), resolved 5 vs 2 (-3), rate 1.0 vs 1.0 (+0.0)
+```
+
+The pattern pass scans a function body from its signature line, so the
+function's own name reads as a call and so does `if (`. The parse counts
+neither, and the gap is how much of the pattern pass's confidence was
+bookkeeping. Without the extra installed the line says the comparison was
+not run, and the rest of the report is printed as usual.
+
+The CI step `wawe-eval --graph: the map says how much of its call tree it
+resolved` asserts the key is there, that both rates are fractions, and that
+on the poly fixture, whose every callee is declared in it, `resolved` equals
+`sites`.
+
 ## The agent half
 
 The same map, asked by a model two ways: once with the map tools, once with

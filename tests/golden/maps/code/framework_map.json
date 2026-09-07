@@ -283,6 +283,13 @@
   ],
   "dependency_licenses": {},
   "call_graph_files": {},
+  "call_graph_stats": {
+    "python": {
+      "sites": 7,
+      "resolved": 0,
+      "ambiguous": 0
+    }
+  },
   "data_flow": {
     "app/api.py": {
       "paths": [

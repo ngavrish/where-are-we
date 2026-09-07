@@ -92,7 +92,8 @@ since the epoch) and is how staleness is decided.
 | `coverage_reports` | {file: percent} | the coverage reports found, and what they total |
 | `hotspots` | [string] | the largest files, by bytes |
 | `dependency_licenses` | {file: [licenses]} | the licences the declared dependencies carry |
-| `call_graph_files` | {file:func: [callees]} | cross-file calls, Python by AST, TypeScript, JavaScript and Go by pattern |
+| `call_graph_files` | {file:func: [callees]} | cross-file calls, Python by AST, TypeScript, JavaScript and Go by pattern. A callee is written `<name> (<file>)`, and `<name> (<file>)?` with a trailing question mark where more than one indexed file of that language defines the name: the file named is then whichever the walk reached first, so it is a guess. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it |
+| `call_graph_stats` | {lang: {sites, resolved, ambiguous}} | how much of the call tree the walk above resolved, per language group (`python`, `ts_js`, `go`). `sites` is the callee names it looked at, counted once per function per distinct name; `resolved` is how many of those it could place in an indexed file; `ambiguous` is how many had more than one file to choose from, the edges marked `?`. Counted over the whole walk, before `call_graph_files` is cut to its 60 keys, so the ratio measures the walk and not the cap. `wawe-eval --map OUT --graph` prints it |
 | `data_flow` | {file: {paths, tables}} | endpoints and tables co-located |
 | `blame_owners` | {file: [people]} | who has been touching what |
 | `coverage_by_file` | {file: percent} | from coverage reports |

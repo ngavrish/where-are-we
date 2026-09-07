@@ -717,9 +717,12 @@ def callers(map_json_path: str, name: str) -> list:
     """Every `<file>:<func>` whose call graph entry mentions `name`.
 
     Reads the two call graphs already written to the map: `call_graph_files`
-    (cross-file, values shaped `"<callee> (<basename>)"`) and `call_graph`
-    (behave step functions, values bare names). Matching is case-sensitive
-    and exact, because these are identifiers as written, not prose. A
+    (cross-file, values shaped `"<callee> (<basename>)"`, or
+    `"<callee> (<basename>)?"` where the map is guessing which file) and
+    `call_graph` (behave step functions, values bare names). Matching is
+    case-sensitive and exact, because these are identifiers as written, not
+    prose, and it is on the name alone: the file half of an edge, and the `?`
+    that says the file half is a guess, are not part of the identifier. A
     trailing `(` on `name` is stripped first, so `callers(m, "charge(")`
     reads the same as `callers(m, "charge")`.
     """
@@ -750,9 +753,12 @@ def _calling_keys(m: dict, target: str) -> set:
     """Every `<file>:<func>` key whose call graph entry names `target`.
 
     Both graphs, matched the way each stores its callees: `call_graph_files`
-    holds `"<callee> (<file>)"` and `call_graph` (behave steps) holds bare
-    names. Case-sensitive and exact, because these are identifiers as
-    written, not prose.
+    holds `"<callee> (<file>)"`, with a trailing `?` where two or more files
+    define the callee and the one named is whichever the walk reached first,
+    and `call_graph` (behave steps) holds bare names. The split at `" ("`
+    takes the name off the front of both spellings, so a marked edge matches
+    exactly as an unmarked one does. Case-sensitive and exact, because these
+    are identifiers as written, not prose.
     """
     out = set()
     for key, calls in (m.get("call_graph_files") or {}).items():
@@ -786,7 +792,10 @@ def callees(map_json_path: str, name: str) -> list:
     """What the functions named `name` call: the other direction of `callers`.
 
     Reads the same two graphs. `call_graph_files` already carries the file a
-    callee is defined in (`"charge (a.ts)"`) and that is returned whole;
+    callee is defined in (`"charge (a.ts)"`, or `"charge (a.ts)?"` where more
+    than one file defines it) and that is returned whole, mark included: the
+    caller asked what this function calls, and how sure the map is about the
+    answer is part of the answer;
     `call_graph` (behave steps) records bare names and those come back bare,
     because the map has no file to attach to them. Cross-file only, like the
     graphs themselves: a call to a function defined in the same file is not
@@ -846,14 +855,20 @@ def _impact_caveat(target: str, depth: int) -> str:
     in the graph at all, so its callers are unioned into the answer with
     nothing to notice it by; a rule stated every time is the only honest way
     to say that.
+
+    The last clause reads the `?` the map writes on an edge whose callee two
+    or more files define. `impact` prints keys rather than edges, so nothing
+    below carries the mark; the reader meets it in `callees` and in the map
+    itself, and this is where it is explained.
     """
     return (f"Impact of `{target}` to depth {depth}. How to read it: hops are "
             "followed by name, so where several files define one name their "
             "callers are unioned here; only cross-file calls are in the "
-            "graph, a call inside the file a name is defined in is not; and "
+            "graph, a call inside the file a name is defined in is not; "
             f"the map keeps at most {MAP_CALL_GRAPH_KEYS} cross-file call "
             f"graph keys and {MAP_STEP_GRAPH_KEYS} step ones, so on a large "
-            "repository this radius is a floor.")
+            "repository this radius is a floor; and an edge ending in ? is a "
+            "guess: the name is defined in more than one file.")
 
 
 def impact(map_json_path: str, name: str, depth: int = 3) -> str:

@@ -467,6 +467,264 @@ def print_table(report: dict) -> None:
         print("handles: not available in this build")
 
 
+# -------------------------------------------------------------- call graphs
+
+
+# The three language groups `build()` counts call sites for, in the order a
+# reader wants to read them, and the grammar `--graph` parses each extension
+# with when tree-sitter is installed. `python` has no second opinion here: the
+# map already resolves Python by AST, so a parse would be the same parse.
+GRAPH_LANGS = ("python", "ts_js", "go")
+_GRAMMAR_BY_EXT = {".ts": "typescript", ".tsx": "tsx", ".js": "javascript",
+                   ".jsx": "javascript", ".go": "go"}
+_GROUP_BY_EXT = {".ts": "ts_js", ".tsx": "ts_js", ".js": "ts_js",
+                 ".jsx": "ts_js", ".go": "go"}
+# A function, as each grammar spells one. `variable_declarator` is handled
+# separately: `const pay = () => {}` declares the name on the declarator and
+# the body on its value.
+_FUNC_NODES = {"function_declaration", "method_definition", "method_declaration",
+               "function_definition"}
+_LAMBDA_NODES = {"arrow_function", "function", "function_expression",
+                 "func_literal"}
+
+
+def _rate(part: int, whole: int) -> float:
+    """A share of `whole`, and 0.0 when there is no whole to take it of."""
+    return round(part / whole, 4) if whole else 0.0
+
+
+def _graph_row(lang: str, counts: dict) -> dict:
+    """One language's line: what the walk looked at and what it placed."""
+    sites = int(counts.get("sites") or 0)
+    resolved = int(counts.get("resolved") or 0)
+    ambiguous = int(counts.get("ambiguous") or 0)
+    return {"language": lang, "sites": sites, "resolved": resolved,
+            "ambiguous": ambiguous,
+            "resolution_rate": _rate(resolved, sites),
+            "ambiguous_share": _rate(ambiguous, sites)}
+
+
+def _walk_source(repo: str) -> list:
+    """Every TypeScript, JavaScript and Go file under `repo`, sorted.
+
+    The map's own walk, minus everything that would make this answer depend
+    on the map: no size cap, no file cap, no manifest. It is a second opinion
+    on the same tree, so it reads the tree.
+    """
+    out = []
+    for root, dirs, files in os.walk(repo):
+        dirs[:] = sorted(d for d in dirs if d not in _mapper.SKIP_DIRS
+                         and not d.startswith("."))
+        for name in sorted(files):
+            if os.path.splitext(name)[1] in _GROUP_BY_EXT:
+                out.append(os.path.join(root, name))
+    return sorted(out)
+
+
+def _ts_functions(node) -> list:
+    """(name, body node) for every named function in one parse tree."""
+    found = []
+
+    def named(n):
+        field = n.child_by_field_name("name")
+        return field.text.decode("utf-8", "replace") if field is not None else ""
+
+    def walk(n):
+        if n.type in _FUNC_NODES:
+            name = named(n)
+            if name:
+                found.append((name, n))
+        elif n.type == "variable_declarator":
+            value = n.child_by_field_name("value")
+            name = named(n)
+            if name and value is not None and value.type in _LAMBDA_NODES:
+                found.append((name, n))
+        for child in n.children:
+            walk(child)
+
+    walk(node)
+    return found
+
+
+def _ts_callees(node) -> set:
+    """The callee names called anywhere inside `node`, as the map spells them.
+
+    A plain call gives its identifier; a call through a receiver
+    (`page.click()`, `srv.Serve()`) gives the member or field name, which is
+    what the map's pattern pass records too, so the two counts compare.
+    """
+    names = set()
+
+    def walk(n):
+        if n.type == "call_expression":
+            fn = n.child_by_field_name("function")
+            if fn is not None:
+                if fn.type == "identifier":
+                    names.add(fn.text.decode("utf-8", "replace"))
+                else:
+                    part = (fn.child_by_field_name("property")
+                            or fn.child_by_field_name("field"))
+                    if part is not None:
+                        names.add(part.text.decode("utf-8", "replace"))
+        for child in n.children:
+            walk(child)
+
+    walk(node)
+    return names
+
+
+def tree_sitter_stats(repo: str) -> dict:
+    """`call_graph_stats` for TypeScript, JavaScript and Go, from a real parse.
+
+    The same three numbers the map records from its pattern pass, counted the
+    same way (one per function per distinct callee name) over a parse tree
+    instead. Returns `{"skipped": reason}` when the optional `precise` extra
+    is not installed or the repository is not there to read, because a
+    comparison nobody can run is a note, not a zero.
+    """
+    if not repo or not os.path.isdir(repo):
+        return {"skipped": f"the map's repository is not readable here: {repo!r}"}
+    grammars = {}
+    for ext, lang in sorted(_GRAMMAR_BY_EXT.items()):
+        parser = _mapper._tree_sitter(lang)
+        if parser is not None:
+            grammars[ext] = parser
+    if not grammars:
+        return {"skipped": "tree-sitter is not installed: "
+                           "pip install 'where-are-we[precise]'"}
+
+    homes: dict = {}
+    bodies: dict = {}
+    for path in _walk_source(repo):
+        ext = os.path.splitext(path)[1]
+        parser = grammars.get(ext)
+        if parser is None:
+            continue
+        try:
+            with open(path, "rb") as fh:
+                source = fh.read()
+            tree = parser.parse(source)
+        except Exception:  # noqa: BLE001 - an optional third-party parser over
+            # a file this package did not write; a file it cannot read counts
+            # as a file with no functions in it.
+            continue
+        group = _GROUP_BY_EXT[ext]
+        for name, node in _ts_functions(tree.root_node):
+            homes.setdefault(group, {}).setdefault(name, set()).add(path)
+            bodies.setdefault(group, []).append((path, name, node))
+
+    stats: dict = {}
+    for group in sorted(bodies):
+        row = {"sites": 0, "resolved": 0, "ambiguous": 0}
+        table = homes.get(group) or {}
+        for _path, _name, node in bodies[group]:
+            for callee in _ts_callees(node):
+                row["sites"] += 1
+                where = table.get(callee) or set()
+                if where:
+                    row["resolved"] += 1
+                if len(where) > 1:
+                    row["ambiguous"] += 1
+        stats[group] = row
+    return stats
+
+
+def graph_report(out_dir: str) -> dict:
+    """How much of its call tree the map resolved, per language.
+
+    Reads `call_graph_stats`, which `build()` writes from the same walk that
+    writes `call_graph_files`, and turns the three counters into the two
+    fractions a reader asks for: the share of callee names the walk could
+    place in a file, and the share it could place in more than one, which are
+    the edges the map marks `?`.
+
+    Where the `precise` extra is installed the same numbers are computed from
+    a tree-sitter parse of the TypeScript, JavaScript and Go the map read by
+    pattern, and both are printed. The pattern pass counts a function's own
+    name off its signature line and reads `if (` as a call; the parse does
+    neither, so a regex site count above the parse's is the pattern pass
+    admitting how much of what it counted was never a call.
+    """
+    path = os.path.join(out_dir, "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            m = json.load(fh) or {}
+    except (OSError, ValueError):
+        m = {}
+    stats = m.get("call_graph_stats")
+    repo = str(m.get("repo") or "")
+    report = {"map": out_dir, "repo": repo,
+              "has_call_graph_stats": isinstance(stats, dict),
+              "languages": [], "tree_sitter": {}}
+    stats = stats if isinstance(stats, dict) else {}
+    for lang in list(GRAPH_LANGS) + [k for k in sorted(stats) if k not in GRAPH_LANGS]:
+        counts = stats.get(lang)
+        if isinstance(counts, dict):
+            report["languages"].append(_graph_row(lang, counts))
+
+    ts = tree_sitter_stats(repo)
+    if "skipped" in ts:
+        report["tree_sitter"] = {"skipped": ts["skipped"]}
+        return report
+    rows = []
+    for lang in sorted(set(ts) | {r["language"] for r in report["languages"]
+                                  if r["language"] != "python"}):
+        parsed = _graph_row(lang, ts.get(lang) or {})
+        regex = next((r for r in report["languages"] if r["language"] == lang),
+                     _graph_row(lang, {}))
+        rows.append({"language": lang,
+                     "regex": regex, "tree_sitter": parsed,
+                     "delta_sites": parsed["sites"] - regex["sites"],
+                     "delta_resolved": parsed["resolved"] - regex["resolved"],
+                     "delta_resolution_rate":
+                         round(parsed["resolution_rate"] - regex["resolution_rate"], 4)})
+    if not rows:
+        # tree-sitter is here and there is nothing for it to read. Said out
+        # loud, because a silent absence reads as agreement.
+        report["tree_sitter"] = {
+            "skipped": "there is no TypeScript, JavaScript or Go under "
+                       f"{repo} to compare"}
+        return report
+    report["tree_sitter"] = {"languages": rows}
+    return report
+
+
+_GRAPH_COLUMNS = ("language", "sites", "resolved", "ambiguous",
+                  "resolution_rate", "ambiguous_share")
+
+
+def print_graph(report: dict) -> None:
+    """`graph_report` as a table, the same shape `print_table` prints."""
+    rows = report["languages"]
+    if not rows:
+        print(f"no call graph statistics in {report['map']}: the map has no "
+              "Python, TypeScript, JavaScript or Go in it, or predates "
+              "call_graph_stats")
+        return
+    widths = {c: len(c) for c in _GRAPH_COLUMNS}
+    for row in rows:
+        for c in _GRAPH_COLUMNS:
+            widths[c] = max(widths[c], len(str(row[c])))
+    print("  ".join(c.rjust(widths[c]) for c in _GRAPH_COLUMNS))
+    for row in rows:
+        print("  ".join(str(row[c]).rjust(widths[c]) for c in _GRAPH_COLUMNS))
+    print(f"map: {report['map']}  sites are callee names the walk looked at, "
+          "one per function per name; resolved are the ones it could place in "
+          "a file; ambiguous are the ones several files define, the edges "
+          "written with a trailing ?")
+    ts = report.get("tree_sitter") or {}
+    if ts.get("skipped"):
+        print(f"regex vs tree-sitter: not compared, {ts['skipped']}")
+        return
+    for row in ts.get("languages") or []:
+        r, t = row["regex"], row["tree_sitter"]
+        print(f"regex vs tree-sitter, {row['language']}: sites {r['sites']} vs "
+              f"{t['sites']} ({row['delta_sites']:+d}), resolved "
+              f"{r['resolved']} vs {t['resolved']} ({row['delta_resolved']:+d}), "
+              f"rate {r['resolution_rate']} vs {t['resolution_rate']} "
+              f"({row['delta_resolution_rate']:+})")
+
+
 # -------------------------------------------------------------------- agent
 
 
@@ -930,6 +1188,11 @@ def main(argv: list | None = None) -> int:
                              "(default 400)")
     parser.add_argument("--json", action="store_true",
                         help="print the report as JSON, no table")
+    parser.add_argument("--graph", action="store_true",
+                        help="print how much of its call tree the map "
+                             "resolved, per language, from call_graph_stats; "
+                             "with the precise extra installed, the same "
+                             "numbers from a tree-sitter parse beside them")
     parser.add_argument("--agent", action="store_true",
                         help="ask the same map two ways through the Claude API "
                              "and score both; needs ANTHROPIC_API_KEY")
@@ -949,6 +1212,19 @@ def main(argv: list | None = None) -> int:
     if not os.path.exists(os.path.join(out_dir, "framework_map.md")):
         print(f"no framework_map.md in {out_dir}", file=sys.stderr)
         return 2
+
+    if args.graph:
+        # Its own mode, not a section under the recall table: it reads three
+        # counters out of the map and, with tree-sitter installed, parses the
+        # repository again. Neither has anything to do with what a budget
+        # loses, and a run that wants the graph numbers should not pay for a
+        # hundred budgeted questions to get them.
+        report = graph_report(out_dir)
+        if args.json:
+            print(json.dumps(report, indent=2, sort_keys=True))
+        else:
+            print_graph(report)
+        return 0
 
     if args.agent:
         repo = args.repo
