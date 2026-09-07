@@ -2668,18 +2668,30 @@ def _left_out(short: list, lines: dict, handle_for, room: int) -> list:
     """Those lines for every block that was not printed, as one paragraph,
     while they fit in what is left.
 
-    In order, and the ones that do not fit are dropped: at a budget that
-    cannot hold five of these there is nothing better to do than print the
-    ones it can hold, and the first line still carries the counts.
+    Printed in the blocks' own order, but claimed in another: `unreachable`
+    takes its room first and is the last of these lines to be given up. It is
+    the block that says the answer is partial, which is why it is last in
+    `BLOCKS` and holds a quarter of the floor, and walking `short` in that
+    same order here made it the first line dropped. Measured at 600
+    characters on a suite of eight feature files with a file the graph has no
+    row for: three of these lines printed and none for `unreachable`, whose
+    row was then out of reach.
+
+    The rest are claimed in printing order, and what does not fit is dropped:
+    at a budget that cannot hold five of these there is nothing better to do
+    than print the ones it can hold, and the first line still carries every
+    count.
     """
-    out: list = []
-    for block in short:
+    kept, order = [], sorted(short, key=lambda b: b != "unreachable")
+    for block in order:
         line = _left_line(block, lines[block], handle_for)
-        cost = len(line) + (1 if out else 0)
+        cost = len(line) + (1 if kept else 0)
         if cost > room:
             continue
-        out.append(line)
+        kept.append(block)
         room -= cost
+    out = [_left_line(block, lines[block], handle_for)
+           for block in short if block in kept]
     return ["\n".join(out)] if out else []
 
 
