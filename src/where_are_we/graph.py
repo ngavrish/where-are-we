@@ -434,6 +434,21 @@ HEADS = {name: head for name, head, _pct in BLOCKS}
 FORMATS = ("behave", "pytest")
 
 
+def selectors(result: dict, fmt: str) -> list:
+    """The runner's own arguments and nothing else, for the file form.
+
+    Empty where the change reaches nothing, which is where this differs from
+    `block_lines`: the block a person reads says "nothing to run" in words,
+    and a file a pipeline runs `xargs behave <` on says it by being empty. A
+    sentence in that file is an argument to behave, and behave fails on it.
+    """
+    if fmt == "behave":
+        return _behave_lines(result) if result["scenarios"] else []
+    if fmt == "pytest":
+        return list(result["pytest"])
+    return []
+
+
 def block_lines(result: dict, block: str) -> list:
     """One block's rows, whole, before anything is cut to a budget.
 

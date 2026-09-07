@@ -630,8 +630,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "else, to FILE, and print the answer a person reads "
                          "to stdout. One argument pair or node id per line, "
                          "no first line and no head, so `xargs behave < FILE` "
-                         "is all the parsing a pipeline does. Needs "
-                         "--affected-format")
+                         "is all the parsing a pipeline does. FILE is empty, "
+                         "zero bytes, when the change reaches nothing and "
+                         "when nothing changed at all, so an empty file means "
+                         "run nothing and never the previous run's selection. "
+                         "Needs --affected-format")
     ap.add_argument("--affected-depth", type=_affected_depth,
                     default=graph.DEFAULT_DEPTH, metavar="N",
                     help="how many call hops --affected follows upward, 1 to "
@@ -1136,7 +1139,21 @@ def main() -> int:
                 if not chosen:
                     # Not an error: a pipeline asking what to re-run after a
                     # commit that changed nothing has its answer, and exit 0
-                    # is what says so.
+                    # is what says so. The file says it too, by being empty:
+                    # left as it was, it would hold the previous run's
+                    # selection and the next `xargs behave` would run the
+                    # last commit's scenarios and report them as this one's.
+                    if args.affected_out:
+                        target = os.path.abspath(args.affected_out)
+                        try:
+                            os.makedirs(os.path.dirname(target) or ".",
+                                        exist_ok=True)
+                            _write_atomic(target, "")
+                        except OSError as exc:
+                            return _write_error(exc, target)
+                        print(f"nothing changed since {args.changed}; wrote "
+                              f"an empty selection to {target}")
+                        return 0
                     print(f"nothing changed since {args.changed}")
                     return 0
             if args.affected_out:

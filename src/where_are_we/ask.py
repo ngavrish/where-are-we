@@ -23,14 +23,14 @@ try:
     from .graph import (BLOCKS as AFFECTED_BLOCKS, DEFAULT_DEPTH,
                         FORMATS as AFFECTED_FORMATS, HEADS as AFFECTED_HEADS,
                         NAMES as AFFECTED_NAMES, affected, block_lines,
-                        format_head, load as load_map, summary)
+                        format_head, load as load_map, selectors, summary)
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import rank as _rank_graph  # type: ignore[no-redef]
     from graph import (BLOCKS as AFFECTED_BLOCKS,  # type: ignore[no-redef]
                        DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
                        HEADS as AFFECTED_HEADS, NAMES as AFFECTED_NAMES,
                        affected, block_lines, format_head, load as load_map,
-                       summary)
+                       selectors, summary)
 
 # The default `--rank` and the MCP `rank` tool print, and the length of the
 # map's own `rank` key. The same number in both, so `--rank` with no files is
@@ -2568,6 +2568,52 @@ def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
     return "\n\n".join(out)
 
 
+# How many selectors an oversized tool reply names before it stops and says
+# how many there are. Enough to see what the selection looks like and to
+# recognise the suite, few enough that the reply stays a sentence rather than
+# becoming the list it is declining to print.
+MCP_SELECTORS = 20
+
+
+def affected_tool_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
+                         fmt: str = "", limit: int = 12000) -> str:
+    """What the MCP `affected` tool returns: the answer, bounded.
+
+    The command line prints a selection whole however large, because it goes
+    to `xargs` or, better, to the file `--affected-out` names. A tool reply
+    has nowhere like that to go: it lands in the conversation and is re-read
+    on every turn after it, which is why every other tool this server
+    declares has a ceiling. So a selection that fits comes back whole and is
+    the same bytes the flag prints; one that does not comes back as its count,
+    its first `MCP_SELECTORS` selectors and the command that writes the whole
+    of it to a file. Never a prefix that reads as the whole list: a selection
+    silently cut is a test run that misses tests, which is the one thing this
+    answer exists to prevent.
+    """
+    answer = affected_answer(map_path, files, depth, fmt, limit)
+    if not fmt or len(answer) <= limit:
+        return answer
+    named = [f for f in files if f]
+    result = affected(load_map(os.path.dirname(map_path) or "."), named, depth)
+    rows = selectors(result, fmt)
+    # The first line says the ceiling again, because this reply has one; the
+    # whole answer said "printed whole" and this one is not.
+    head, bhead = summary(result, limit), format_head(result, fmt)
+    tail = (f"selection too large for a tool reply: {len(rows)} selectors; "
+            f"run where-are-we --affected {','.join(named)} "
+            f"--affected-format {fmt} --affected-out FILE")
+    # A prefix, not a best fit: these are "the first N", and the last line
+    # says how many there are in all. One selector of a large suite can be a
+    # kilobyte on its own, so the count of them that fit is not fixed.
+    room, shown = limit - len(head) - len(bhead) - len(tail) - 3, []
+    for row in rows[:MCP_SELECTORS]:
+        if len(row) + 1 > room:
+            break
+        shown.append(row)
+        room -= len(row) + 1
+    return "\n".join([head, bhead] + shown + [tail])
+
+
 def selection_lines(map_path: str, files, depth: int = DEFAULT_DEPTH,
                     fmt: str = "") -> str:
     """The runner's selection alone: no first line, no head, no ceiling.
@@ -2575,12 +2621,18 @@ def selection_lines(map_path: str, files, depth: int = DEFAULT_DEPTH,
     What `--affected-out` writes, so `xargs behave < that file` is the whole
     of a pipeline's parsing. The prose answer goes to stdout for a person to
     read, and nothing has to be cut out of it again by a script.
+
+    Empty, and so a file of zero bytes, when the change reaches nothing. That
+    is the contract a pipeline is told to trust: an empty file means run
+    nothing. The sentence saying so in words belongs to the answer a person
+    reads, and written here it would be an argument behave fails on.
     """
     named = [f for f in files if f]
     if not named or fmt not in AFFECTED_FORMATS:
         return ""
     result = affected(load_map(os.path.dirname(map_path) or "."), named, depth)
-    return "\n".join(block_lines(result, fmt)) + "\n"
+    rows = selectors(result, fmt)
+    return "\n".join(rows) + "\n" if rows else ""
 
 
 # What one `affected` answer may take, in characters. The same ceiling
@@ -2629,6 +2681,12 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
         return (f"{fmt!r} is not a format; they are "
                 + ", ".join(AFFECTED_FORMATS))
     result = affected(load_map(os.path.dirname(map_path) or "."), named, depth)
+
+    if fmt:
+        # Before the ceiling, because this answer has none.
+        return "\n\n".join([summary(result, 0), format_head(result, fmt)
+                            + "\n" + "\n".join(block_lines(result, fmt))])
+
     head = summary(result, limit)
     if len(head) > limit:
         # `limit` is a ceiling here as it is for `ask()` and `context`, and
@@ -2640,10 +2698,6 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
 
     def handle_for(block: str):
         return lambda got: f"more:aff:{block}:{field}:{walked}:{got}"
-
-    if fmt:
-        return "\n\n".join([summary(result, 0), format_head(result, fmt)
-                            + "\n" + "\n".join(block_lines(result, fmt))])
 
     lines = {block: block_lines(result, block) for block in AFFECTED_NAMES}
     blocks = tuple(entry for entry in AFFECTED_BLOCKS if lines[entry[0]])
