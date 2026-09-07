@@ -3964,6 +3964,71 @@ jobs:
               "a module-level construction is in the graph now; drop this caveat"
           sys.exit(0 if rows else 1)
           EOF
+      - name: a page object owns a selector, and the word alone is not one
+        run: |
+          set -o pipefail
+          rm -rf /tmp/po
+          mkdir -p /tmp/po/shape/lib /tmp/po/words
+          # Shape alone: no `pages/` directory, no `_page.py` name, three
+          # locator constants and a class. That is the case the word count
+          # exists for, and it still fires.
+          cat > /tmp/po/shape/lib/checkout.py <<'EOF'
+          from selenium.webdriver.common.by import By
+
+
+          class Checkout:
+              PAY_BUTTON_SELECTOR = "#pay"
+              TOTAL_XPATH = "//span[@class='total']"
+              CARD_LOCATOR = (By.ID, "card")
+
+              def pay(self, driver):
+                  driver.find_element(*self.CARD_LOCATOR).click()
+          EOF
+          # The words, and nothing that makes any of them a selector: a module
+          # that talks about locators is not one. This is the shape of the
+          # mapper's own `_mapper/build.py`, which used to land in
+          # `page_objects` because it carries the pattern that finds them.
+          cat > /tmp/po/words/finder.py <<'EOF'
+          # Finds the selectors a page declares. Reads XPATH, SELECTOR and
+          # LOCATOR constants, data-testid attributes and Selenium's By, and
+          # reports what it saw.
+          import re
+
+          SHAPE = re.compile(r"(?:XPATH|SELECTOR|LOCATOR|CSS)")
+
+
+          class Finder:
+              def scan(self, text):
+                  return SHAPE.findall(text)
+          EOF
+          where-are-we --repo /tmp/po/shape --out /tmp/po/shapem --product none \
+            --quiet --no-semantic
+          where-are-we --repo /tmp/po/words --out /tmp/po/wordsm --product none \
+            --quiet --no-semantic
+          where-are-we --repo . --out /tmp/po/selfm --product none --force \
+            --quiet --no-semantic
+          python - <<'EOF'
+          import json
+
+          def pages(out):
+              return json.load(open(out + "/framework_map.json"))["page_objects"]
+
+          assert pages("/tmp/po/shapem") == ["lib/checkout.py"], pages("/tmp/po/shapem")
+          assert pages("/tmp/po/wordsm") == [], pages("/tmp/po/wordsm")
+          mine = pages("/tmp/po/selfm")
+          # The mapper's own map. `_mapper/build.py` was in this list, so
+          # `--affected`'s page objects block, `unused_api` and `unreached`'s
+          # suite list were all wrong about the largest module in the project
+          # in the same way. `ask.py` and `mcp.py` came in on the name
+          # `MCP_SELECTORS` alone, written three times each.
+          for rel in ("src/where_are_we/_mapper/build.py",
+                      "src/where_are_we/ask.py", "src/where_are_we/mcp.py"):
+              assert rel not in mine, (rel, mine)
+          assert "docs/demo/sample-suite/pages/login_page.py" in mine, mine
+          print("page objects on this repository's own map:", mine)
+          print("shape alone:", pages("/tmp/po/shapem"),
+                "- the words alone:", pages("/tmp/po/wordsm"))
+          EOF
       - name: every prose count of the tool list is the number the server serves
         run: |
           set -o pipefail
