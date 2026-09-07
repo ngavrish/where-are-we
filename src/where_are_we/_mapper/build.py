@@ -142,7 +142,14 @@ def _value_shape(value) -> str:
     `""` for a value that is a builtin on sight, `n:NAME` for a call to a
     bare name, `a:RECV.ATTR` for a call to an attribute of a bare name, and
     `?` for everything else, which is every value this pass cannot place.
+
+    `None` is `?` rather than `""`. It is an `ast.Constant` like `0` and
+    `""` are, but a parameter defaulting to `None` says nothing about what a
+    caller passes, and `x = None` before a branch that fills `x` in says
+    nothing about what `x` holds at the call.
     """
+    if isinstance(value, ast.Constant):
+        return "?" if value.value is None else ""
     if isinstance(value, _LITERAL_NODES):
         return ""
     if isinstance(value, ast.Call):
@@ -151,6 +158,27 @@ def _value_shape(value) -> str:
         if isinstance(value.func, ast.Attribute) \
                 and isinstance(value.func.value, ast.Name):
             return f"a:{value.func.value.id}.{value.func.attr}"
+    return "?"
+
+
+def _receiver_token(value) -> str:
+    """What a call was made on, as one token.
+
+    A bare name is that name, and the function's own bindings say what it
+    holds. `d.setdefault(k, set())` is a set whatever `d` is, because that is
+    what `dict.setdefault` returns when the key is missing and what the key
+    holds when it is not, so the token is `=` and the shape of the second
+    argument. Everything else is `?`: an attribute, a subscript, or any other
+    call is a receiver nothing written here places.
+    """
+    if isinstance(value, ast.Name):
+        return value.id
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute) \
+            and value.func.attr == "setdefault" and len(value.args) == 2 \
+            and not value.keywords:
+        shape = _value_shape(value.args[1])
+        if shape != "?":
+            return f"={shape}"
     return "?"
 
 
@@ -2016,7 +2044,10 @@ def build(repo: str, out_dir: str | None = None,
                         aliases[alias.asname or alias.name] = [
                             f"{package}.{alias.name}" if package else alias.name,
                             node.level, package]
-                        if alias.asname is None:
+                        if alias.asname in (None, alias.name):
+                            # `from M import name` and the redundant
+                            # `from M import name as name`, which is how a
+                            # typed package spells a deliberate re-export.
                             line = [package, node.level]
                             lines = refrom.setdefault(alias.name, [])
                             if line not in lines:
@@ -2036,9 +2067,19 @@ def build(repo: str, out_dir: str | None = None,
             for node in ast.walk(tree):
                 if not isinstance(node, ast.ClassDef):
                     continue
-                bases = [b.id if isinstance(b, ast.Name) else b.attr
-                         for b in node.bases
-                         if isinstance(b, (ast.Name, ast.Attribute))]
+                # How the base was written, kept rather than flattened to
+                # a name: `class D(Base)` is answered by what this file
+                # imports as `Base`, `class D(other.Base)` by what it imports
+                # as `other`, and `class D(Generic[T])` by nothing at all.
+                bases = []
+                for b in node.bases:
+                    if isinstance(b, ast.Name):
+                        bases.append(["n", b.id])
+                    elif isinstance(b, ast.Attribute) \
+                            and isinstance(b.value, ast.Name):
+                        bases.append(["a", b.value.id, b.attr])
+                    else:
+                        bases.append(["?"])
                 methods = sorted({k.name for k in node.body if isinstance(
                     k, (ast.FunctionDef, ast.AsyncFunctionDef))})
                 classes[node.name] = {"bases": bases, "methods": methods}
@@ -2079,12 +2120,11 @@ def build(repo: str, out_dir: str | None = None,
                         bare.add(c.func.id)
                     elif isinstance(c.func, ast.Attribute):
                         targets.add(c.func.attr)
-                        # What the call was made on. A bare name is a receiver
-                        # this pass may be able to place; anything else, an
-                        # attribute or a subscript or another call, is `?`.
+                        # What the call was made on: a bare name, the shape
+                        # a `setdefault` handed back, or `?` for a receiver
+                        # nothing written here places.
                         on_what.setdefault(c.func.attr, set()).add(
-                            c.func.value.id if isinstance(c.func.value, ast.Name)
-                            else "?")
+                            _receiver_token(c.func.value))
                         through = aliases.get(getattr(c.func.value, "id", ""))
                         if through:
                             on = said.setdefault(c.func.attr, [])
@@ -2094,8 +2134,11 @@ def build(repo: str, out_dir: str | None = None,
                 names[node.name] = sorted(b for b in bare if b)
                 if said:
                     mods[node.name] = {k: sorted(v) for k, v in said.items()}
-                if on_what:
-                    recv[node.name] = {k: sorted(v) for k, v in on_what.items()}
+                # Unconditionally, like `calls` and `names` above: two
+                # functions of one name share a key here, and a later one
+                # must replace an earlier one's tables rather than leave them
+                # standing to be read beside its own calls.
+                recv[node.name] = {k: sorted(v) for k, v in on_what.items()}
                 built_of[node] = built
                 recv_of[node] = on_what
             for node, built in built_of.items():
@@ -2114,9 +2157,8 @@ def build(repo: str, out_dir: str | None = None,
                 # around from build to build.
                 asked = {r for group in recv_of.get(node, {}).values()
                          for r in group}
-                whole = {k: sorted(v) for k, v in whole.items() if k in asked}
-                if whole:
-                    made[node.name] = whole
+                made[node.name] = {k: sorted(v) for k, v in whole.items()
+                                   if k in asked}
             return {"defs": defs, "calls": calls, "names": names,
                     "imports": imports, "mods": mods, "refrom": refrom,
                     "aliases": aliases, "recv": recv, "made": made,
@@ -2160,7 +2202,8 @@ def build(repo: str, out_dir: str | None = None,
     # `mapper.build(...)` asks the same question of `mapper.py`.
     _reexport_memo: dict = {}
 
-    def _reexport_home(start: str, name: str, where: set) -> set:
+    def _reexport_home(start: str, name: str, where: set,
+                       flavour: str = "def") -> set:
         """The file a facade takes `name` from, following its import lines.
 
         `hooks.py` calls `mapper.build(...)`; `mapper.py` is a file of this
@@ -2176,10 +2219,12 @@ def build(repo: str, out_dir: str | None = None,
         the walk with the empty set, which is the caller's signal to keep the
         candidate list it already had.
 
-        `where` is the name's homes, so it is a function of `name`, and the
-        answer is memoised on `(start, name)`.
+        `where` is the name's homes, so it is a function of `name` and of
+        which table those homes came from, and the answer is memoised on
+        `(start, name, flavour)`. `flavour` is what keeps a class named
+        `Store` and a function named `Store` from sharing an answer.
         """
-        key = (start, name)
+        key = (start, name, flavour)
         if key in _reexport_memo:
             return _reexport_memo[key]
         seen, at = {start}, start
@@ -2233,6 +2278,37 @@ def build(repo: str, out_dir: str | None = None,
                     and not _module_is_here(bound[2], bound[1], rel, py_files))
         return False
 
+    def _class_homes(rel: str, info: dict, binder: str, class_name: str):
+        """Which indexed files the base class `rel` named could be in.
+
+        `None` where the file offers no evidence at all: a bare `Base` it
+        never imported, or `other.Base` where nothing binds `other`. A name
+        that matches a class somewhere in the tree is not evidence, and an
+        edge written off one would be the map passing a guess off as a
+        lookup.
+
+        The module the import names is resolved the way a receiver is: the
+        files it names that declare the class, and failing that, the one file
+        it names read as a facade that re-exports it.
+        """
+        where = class_homes_py.get(class_name) or set()
+        if binder == class_name:
+            line = (info.get("imports") or {}).get(class_name)
+            module, level = (line[0], line[1]) if line else (None, 0)
+        else:
+            bound = (info.get("aliases") or {}).get(binder)
+            module, level = (bound[0], bound[1]) if bound else (None, 0)
+        if module is None:
+            return None
+        hits = _module_homes(module, level, rel, where)
+        if hits:
+            return hits
+        carriers = _carriers(module, level, rel)
+        if len(carriers) == 1:
+            return _reexport_home(next(iter(carriers)), class_name, where,
+                                  "class")
+        return set()
+
     def _self_home(rel: str, func_name: str, name: str):
         """Where `self.name(...)` or `cls.name(...)` inside a method goes.
 
@@ -2242,6 +2318,11 @@ def build(repo: str, out_dir: str | None = None,
         that base name declares it, one hop up, which is an answer when there
         is exactly one and the caller's cue to keep the candidate list
         otherwise.
+
+        A base the file gives no import evidence for ends the whole question
+        with the empty set. An unplaceable base may be the one that declares
+        the name, so "exactly one of the bases declares it" is not something
+        this can say once one of them is unreadable.
         """
         info = raw_calls_by_rel.get(rel) or {}
         classes = info.get("classes") or {}
@@ -2253,14 +2334,22 @@ def build(repo: str, out_dir: str | None = None,
             return None
         hits = set()
         for base in mine["bases"]:
-            beside = classes.get(base)
-            if beside is not None:
-                if name in beside["methods"]:
-                    return None
-                continue
-            for home in class_homes_py.get(base) or ():
+            if base[0] == "n":
+                beside = classes.get(base[1])
+                if beside is not None:
+                    if name in beside["methods"]:
+                        return None
+                    continue
+                homes = _class_homes(rel, info, base[1], base[1])
+            elif base[0] == "a":
+                homes = _class_homes(rel, info, base[1], base[2])
+            else:
+                homes = None
+            if homes is None:
+                return set()
+            for home in homes:
                 there = ((raw_calls_by_rel.get(home) or {}).get("classes")
-                         or {}).get(base)
+                         or {}).get(base[-1])
                 if there and name in there["methods"]:
                     hits.add(home)
         return hits
@@ -2317,15 +2406,30 @@ def build(repo: str, out_dir: str | None = None,
                 # What the call was made on, when every site in this function
                 # agrees and the function never calls the name plainly.
                 on = set(on_what.get(name) or ()) if name not in bare else set()
-                if on and all(built.get(r) and all(
+
+                def _built(token, rel=rel, built=built):
+                    """Whether one receiver token is a builtin here.
+
+                    A token beginning `=` carries its own shape, from a
+                    `setdefault` whose second argument said what comes back.
+                    Any other token is a name, and the shapes the function
+                    bound it to are what answer, all of them.
+                    """
+                    if token.startswith("="):
+                        return _is_builtin_here(rel, token[1:], aliases_here)
+                    shapes = built.get(token)
+                    return bool(shapes) and all(
                         _is_builtin_here(rel, shape, aliases_here)
-                        for shape in built[r]) for r in on):
+                        for shape in shapes)
+
+                if on and all(_built(r) for r in on):
                     # `out = set()` and then `out.add(key)`, `text = ""` and
-                    # then `text.strip()`: the function built the receiver
-                    # itself, out of a builtin, so the method is the builtin's
-                    # and no `def add` in this tree is what runs. A name the
-                    # function also binds to something else is not this case,
-                    # because one of its shapes is not a builtin.
+                    # then `text.strip()`, `d.setdefault(k, set()).add(v)`:
+                    # the function built the receiver itself, out of a
+                    # builtin, so the method is the builtin's and no `def add`
+                    # in this tree is what runs. A name the function also
+                    # binds to something else is not this case, because one of
+                    # its shapes is not a builtin.
                     continue
                 if on and on <= {"self", "cls"}:
                     inherited = _self_home(rel, func_name, name)

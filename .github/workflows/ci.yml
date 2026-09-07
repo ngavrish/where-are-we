@@ -2891,6 +2891,44 @@ jobs:
           EOF
           where-are-we --out /tmp/reexself --callers build > /tmp/reexself-callers.txt
           grep -qx "hooks.py:_ensure_map" /tmp/reexself-callers.txt
+          # The walk is three steps, and the fixture says where the cap
+          # falls: `g3 -> g2 -> g1 -> okimpl` resolves, `h1 -> h2 -> h3 -> h4
+          # -> deepimpl` is one step too far and the candidate list stands.
+          # `from impl import build as build` is the redundant rename a typed
+          # package writes to mean a deliberate re-export, and it is followed;
+          # `from impl import build as made` is a real rename and is not.
+          rm -rf /tmp/reexhops
+          mkdir -p /tmp/reexhops/repo
+          printf 'def pow3(x):\n    return x\n' > /tmp/reexhops/repo/okimpl.py
+          printf 'def pow3(x):\n    return x\n' > /tmp/reexhops/repo/otherpow.py
+          printf 'from okimpl import pow3\n' > /tmp/reexhops/repo/g1.py
+          printf 'from g1 import pow3\n' > /tmp/reexhops/repo/g2.py
+          printf 'from g2 import pow3\n' > /tmp/reexhops/repo/g3.py
+          printf 'import g3\n\n\ndef three(u):\n    return g3.pow3(u)\n' > /tmp/reexhops/repo/callerthree.py
+          printf 'def zap(x):\n    return x\n' > /tmp/reexhops/repo/deepimpl.py
+          printf 'def zap(x):\n    return x\n' > /tmp/reexhops/repo/otherzap.py
+          printf 'from deepimpl import zap\n' > /tmp/reexhops/repo/h4.py
+          printf 'from h4 import zap\n' > /tmp/reexhops/repo/h3.py
+          printf 'from h3 import zap\n' > /tmp/reexhops/repo/h2.py
+          printf 'from h2 import zap\n' > /tmp/reexhops/repo/h1.py
+          printf 'import h1\n\n\ndef deep(u):\n    return h1.zap(u)\n' > /tmp/reexhops/repo/callerdeep.py
+          printf 'def build(x):\n    return x\n' > /tmp/reexhops/repo/impl.py
+          printf 'def build(x):\n    return x\n' > /tmp/reexhops/repo/otherbuild.py
+          printf 'from impl import build as build\n' > /tmp/reexhops/repo/facade.py
+          printf 'import facade\n\n\ndef go(u):\n    return facade.build(u)\n' > /tmp/reexhops/repo/caller.py
+          printf 'from impl import build as made\n' > /tmp/reexhops/repo/renamer.py
+          printf 'import renamer\n\n\ndef go2(u):\n    return renamer.made(u)\n' > /tmp/reexhops/repo/caller2.py
+          where-are-we --repo /tmp/reexhops/repo --out /tmp/reexhops/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          graph = json.load(open("/tmp/reexhops/out/framework_map.json"))["call_graph_files"]
+          assert graph["callerthree.py:three"] == ["pow3 (okimpl.py)"], graph
+          assert graph["callerdeep.py:deep"] == ["zap (deepimpl.py|otherzap.py)?"], graph
+          assert graph["caller.py:go"] == ["build (impl.py)"], graph
+          assert "caller2.py:go2" not in graph, graph
+          print("hops and renames:", graph)
+          EOF
 
       - name: a receiver the function itself built is not a first-party call
         run: |
@@ -2959,10 +2997,70 @@ jobs:
           marked = [(k, e) for k, v in sorted(graph.items()) for e in v
                     if e.endswith("?")]
           assert len(graph) == 60, len(graph)
-          assert len(marked) <= 3, marked
+          assert len(marked) <= 1, marked
           assert all(e.startswith("add ") for _k, e in marked), marked
           print("this repository:", len(graph), "keys", len(marked), "marked",
                 marked)
+          EOF
+          # What the rule does not claim. A parameter defaulting to `None`
+          # says nothing about what a caller passes, so that edge stands. A
+          # `setdefault` whose second argument is a builtin says what comes
+          # back, so `d.setdefault(k, set()).add(v)` is `set.add`; `d[k]` says
+          # nothing and keeps its mark. Two functions of one name in a file
+          # share a graph key, and the second one's receiver is its own: the
+          # first one's `out = set()` does not settle it.
+          rm -rf /tmp/rcvedge
+          mkdir -p /tmp/rcvedge/repo
+          printf 'def add(x):\n    return x\n' > /tmp/rcvedge/repo/a.py
+          printf 'def add(x):\n    return x\n' > /tmp/rcvedge/repo/b.py
+          printf 'def f(store=None, count=0, label=""):\n    store.add(1)\n    return count, label\n' > /tmp/rcvedge/repo/nonedef.py
+          printf 'def sd(d, k, v):\n    d.setdefault(k, set()).add(v)\n    return d\n' > /tmp/rcvedge/repo/sd.py
+          printf 'def sub(d, k, v):\n    d[k].add(v)\n    return d\n' > /tmp/rcvedge/repo/sub.py
+          printf 'out = None\n\n\ndef f():\n    out = set()\n    out.add(1)\n    return out\n\n\ndef f():\n    out.add(2)\n    return out\n' > /tmp/rcvedge/repo/dup.py
+          where-are-we --repo /tmp/rcvedge/repo --out /tmp/rcvedge/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/rcvedge/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph["nonedef.py:f"] == ["add (a.py|b.py)?"], graph
+          assert graph["sub.py:sub"] == ["add (a.py|b.py)?"], graph
+          assert graph["dup.py:f"] == ["add (a.py|b.py)?"], graph
+          assert "sd.py:sd" not in graph, graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 0 and stats["marked"] == 3, stats
+          print("what the rule does not claim:", graph, stats)
+          EOF
+          # A base class is followed only where the file says where it comes
+          # from. `class D(other.Base)` where `other.py` has no `Base`, and
+          # `class E(Base)` with no import at all, both keep the candidate
+          # list; the three spellings that do carry evidence resolve, the last
+          # of them through a facade that re-exports the class.
+          rm -rf /tmp/attrbase
+          mkdir -p /tmp/attrbase/repo
+          printf 'def add(x):\n    return x\n' > /tmp/attrbase/repo/a.py
+          printf 'class Base:\n    def add(self, x):\n        return x\n' > /tmp/attrbase/repo/base.py
+          printf 'class Other:\n    pass\n' > /tmp/attrbase/repo/other.py
+          printf 'import other\n\n\nclass D(other.Base):\n    def go(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/d.py
+          printf 'class E(Base):\n    def run(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/e.py
+          printf 'from base import Base\n\n\nclass G(Base):\n    def go2(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/g.py
+          printf 'import base\n\n\nclass H(base.Base):\n    def go3(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/h.py
+          printf 'from base import Base\n' > /tmp/attrbase/repo/facade.py
+          printf 'from facade import Base\n\n\nclass K(Base):\n    def go4(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/k.py
+          where-are-we --repo /tmp/attrbase/repo --out /tmp/attrbase/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/attrbase/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph["d.py:go"] == ["add (a.py|base.py)?"], graph
+          assert graph["e.py:run"] == ["add (a.py|base.py)?"], graph
+          assert graph["g.py:go2"] == ["add (base.py)"], graph
+          assert graph["h.py:go3"] == ["add (base.py)"], graph
+          assert graph["k.py:go4"] == ["add (base.py)"], graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 3 and stats["marked"] == 2, stats
+          print("a base is followed on evidence:", graph, stats)
           EOF
 
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"
