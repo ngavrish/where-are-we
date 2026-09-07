@@ -1330,10 +1330,11 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     parts = handle[len(HANDLE_PREFIX):].split(":")
     kind = parts[0] if parts else ""
     fields = parts[1:]
-    widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2}
+    widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2,
+              "at": 2}
     if kind not in widths:
         return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
-                      "sections, find")
+                      "sections, find, at")
     if len(fields) != widths[kind]:
         return _stale(f"a more:{kind} handle has {widths[kind]} fields after "
                       f"the kind, this one has {len(fields)}")
@@ -1343,6 +1344,17 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         return _stale(f"{fields[-1]!r} is not an offset")
     if offset < 0:
         return _stale("an offset cannot be negative")
+
+    if kind == "at":
+        # The same lookup `at()` did, from the same map, continuing from the
+        # line this offset counts to. Nothing is stored between the two calls:
+        # the place is in the handle, and the definition it names is whatever
+        # the map on disk now says it is.
+        try:
+            place = _decode(fields[0])
+        except ValueError as exc:
+            return _stale(f"{fields[0]!r} is not a place this wrote: {exc}")
+        return at(map_path, place, limit, offset)
 
     if kind == "find":
         try:
@@ -1511,11 +1523,11 @@ def definitions_for(map_path: str, terms: list[str],
     extra = extra or []
     literal, expansion = [], []
     for name, where in defs.items():
-        low = name.lower()
         row = f"- `{name}` — {where}"
-        if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
+        found = _name_matches(name, terms, extra)
+        if found == "literal":
             literal.append(row)
-        elif any(t in low for t in extra):
+        elif found == "expansion":
             expansion.append(row)
     rows = sorted(literal) + sorted(expansion)
     return rows[:cap] if cap else rows
@@ -1525,3 +1537,202 @@ def definitions_for(map_path: str, terms: list[str],
 # caller that already imported it does not break. Deprecated: use
 # `definitions_for`.
 _definitions_for = definitions_for
+
+
+def _name_matches(name: str, terms: list, extra: list) -> str:
+    """`"literal"`, `"expansion"` or `""` for one name against a question.
+
+    The rule `definitions_for` has always used, named so `spans_for` answers
+    the same question about the same names: the two differ in what they print
+    about a name, never in which names they print.
+    """
+    low = name.lower()
+    if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
+        return "literal"
+    if any(t in low for t in extra):
+        return "expansion"
+    return ""
+
+
+def _site(site: dict) -> str:
+    """One declaration site: `a.py:10-24 (function)`.
+
+    `?` for an end nothing knew, which is the convention the call graph
+    already uses for a callee it could not resolve. A start with a wrong end
+    would be worse than no end at all: an agent editing by anchor would cut
+    the file at a line this map guessed.
+    """
+    end = site.get("end")
+    return (f"{site.get('file')}:{site.get('start')}-"
+            f"{end if end is not None else '?'} ({site.get('kind') or 'name'})")
+
+
+def spans_for(map_path: str, terms: list[str], extra: list[str] | None = None,
+              cap: int = DEFINITIONS_CAP) -> list[str]:
+    """Every home of every name these words name, one line per name.
+
+        charge: a.py:10-24 (function), b.py:88-91 (function)
+
+    The same names `definitions_for` returns, and all of their sites rather
+    than the first one the walk happened to reach. A name declared in two
+    files used to come back as one of the two, chosen by directory order, and
+    nothing in the answer said the other existed.
+
+    A map with no `spans` key was built before 1.5.0; then this is
+    `definitions_for`, which every such map does hold.
+    """
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh) or {}
+    except (OSError, ValueError):
+        return []
+    spans = doc.get("spans")
+    if not spans:
+        return definitions_for(map_path, terms, extra, cap)
+    extra = extra or []
+    literal, expansion = [], []
+    for name, sites in spans.items():
+        row = f"{name}: " + ", ".join(_site(s) for s in sites)
+        found = _name_matches(name, terms, extra)
+        if found == "literal":
+            literal.append(row)
+        elif found == "expansion":
+            expansion.append(row)
+    rows = sorted(literal) + sorted(expansion)
+    return rows[:cap] if cap else rows
+
+
+# What `--at` and the MCP `at` tool print at, in characters: the same budget
+# one `ask` answer gets, because it lands in the same conversation.
+AT_BUDGET = 12000
+
+
+def _at_target(target: str) -> tuple:
+    """`(file, line)` from `FILE:LINE`, or `(None, complaint)`."""
+    text = (target or "").strip()
+    file, sep, number = text.rpartition(":")
+    if not sep or not file:
+        return None, (f"{text!r} is not a place: give me FILE:LINE, the file "
+                      "and line a stack trace names")
+    try:
+        line = int(number)
+    except ValueError:
+        return None, f"{number!r} is not a line number"
+    if line < 1:
+        return None, "a line number starts at 1"
+    return (file, line), ""
+
+
+def _at_files(paths, wanted: str) -> list:
+    """The indexed paths `wanted` names, best match first.
+
+    A stack trace says `billing/charge.py`, the map holds whatever path the
+    walk saw, and both are the same file. So: the exact path if the map holds
+    it, else every path ending in it, else every path with that basename. One
+    rung at a time, and never two rungs at once, so a question that names a
+    file exactly is never answered about a different file with the same name.
+    """
+    paths = sorted(paths)
+    exact = [p for p in paths if p == wanted]
+    if exact:
+        return exact
+    suffix = [p for p in paths if p.endswith("/" + wanted)
+              or p.endswith(os.sep + wanted)]
+    if suffix:
+        return suffix
+    base = os.path.basename(wanted)
+    return [p for p in paths if os.path.basename(p) == base]
+
+
+def at(map_path: str, target: str, limit: int = AT_BUDGET,
+       offset: int = 0) -> str:
+    """The whole definition enclosing `FILE:LINE`, from the map's own index.
+
+    The move an agent makes after every stack trace, which until now was a
+    `Read` with a guessed offset around the line and a second one when the
+    guess cut the function in half. The map already knows where that
+    definition starts and ends, and already holds the lines.
+
+    The innermost enclosing definition, because a method inside a class is
+    what a line inside that method is part of; ask about the class's own line
+    to get the class. A definition whose end nothing knew cannot be said to
+    enclose anything, so it is offered as a neighbour instead: that is the
+    honest answer for a language read by the regex table, and `file:10-?` is
+    what it looks like.
+
+    Whole lines, up to `limit`, with a tail carrying the handle that fetches
+    the rest. `offset` is how many lines of the definition to skip, which is
+    what `more:at:` continues from.
+    """
+    where, complaint = _at_target(target)
+    if where is None:
+        return complaint
+    wanted, line = where
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh) or {}
+    except (OSError, ValueError) as exc:
+        return f"no map at {path}: {exc}"
+    spans = doc.get("spans") or {}
+    lines = doc.get("lines") or {}
+    if not spans:
+        return ("this map has no spans index: it was built by a version "
+                "before 1.5.0, which recorded one line per name and no end")
+    files = _at_files(set(lines) | {s["file"] for rows in spans.values()
+                                    for s in rows}, wanted)
+    if not files:
+        return (f"no file in this map is called {wanted!r}; "
+                f"{len(lines)} files were indexed")
+    here = []
+    for name, rows in spans.items():
+        for site in rows:
+            if site.get("file") in files:
+                here.append((site["file"], site["start"], site.get("end"),
+                             site.get("kind") or "name", name))
+    if not here:
+        return (f"no definition encloses {wanted}:{line} "
+                f"(nothing in this map is declared in {', '.join(files)})")
+    # Innermost first: the deepest declaration that still contains the line,
+    # then the tightest of those, then by name, so the answer to one question
+    # is one definition and the same one every time.
+    holding = sorted((s for s in here
+                      if s[2] is not None and s[1] <= line <= s[2]),
+                     key=lambda s: (-s[1], s[2], s[4], s[0]))
+    if not holding:
+        near = sorted(here, key=lambda s: (abs(s[1] - line), s[1] > line,
+                                            s[0], s[1], s[4]))[:3]
+        return (f"no definition encloses {wanted}:{line} (nearest: "
+                + ", ".join(f"{s[4]} " + _site({"file": s[0], "start": s[1],
+                                                "end": s[2], "kind": s[3]})
+                            for s in near) + ")")
+    file, start, end, kind, name = holding[0]
+    body = (lines.get(file) or [])[start - 1:end]
+    if not body:
+        return (f"{file}:{start}-{end} {name} ({kind}), and this map holds no "
+                "lines for that file")
+    head = f"{file}:{start}-{end} {name} ({kind})"
+    if offset >= len(body):
+        return _stale(f"{name} is {len(body)} lines long, and this handle asks "
+                      f"for line {offset + 1} of it")
+
+    def block(count: int, handle: bool) -> str:
+        kept = body[offset:offset + count]
+        left = len(body) - offset - len(kept)
+        out = "\n".join([head] + kept)
+        if left:
+            field = f" (more:at:{_encode(target)}:{offset + len(kept)})" \
+                if handle else ""
+            out += f"\n… {left} more lines{field}"
+        return out
+
+    most = len(body) - offset
+    for handle in (True, False):
+        # A handle only where at least one line came back: a tail pointing at
+        # the offset it was given is a chain that never advances.
+        for count in range(most, 0 if handle else -1, -1):
+            out = block(count, handle)
+            if len(out) <= limit:
+                return out
+    return head

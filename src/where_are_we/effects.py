@@ -54,6 +54,8 @@ EFFECTS = {
     "--quiet": "read",
     "--ask": "read",
     "--more": "read",
+    "--defines": "read",
+    "--at": "read",
     "--callers": "read",
     "--callees": "read",
     "--impact": "read",
@@ -97,7 +99,8 @@ EFFECTS = {
 # human reading the README was.
 NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
-            "map (--ask, --more, --callers, --callees, --impact, --sections) "
+            "map (--ask, --more, --callers, --callees, --impact, --defines, "
+            "--at, --sections) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
@@ -117,8 +120,8 @@ NOTES = {
 # before the build: it writes spec_map.json and spec_map.md and no map.
 NO_MAP_BUILD = frozenset({
     "-h", "--help", "--effects", "--dry-run", "--ask", "--more", "--callers",
-    "--callees", "--impact", "--sections", "--pointer", "--mcp", "--lsp",
-    "--init", "--install-hook", "--specs",
+    "--callees", "--impact", "--defines", "--at", "--sections", "--pointer",
+    "--mcp", "--lsp", "--init", "--install-hook", "--specs",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

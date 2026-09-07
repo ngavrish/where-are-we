@@ -28,11 +28,12 @@ import sys
 # `src/where_are_we` is itself the import root.
 try:
     from . import ask as _ask, effects, hooks, lsp, mcp, specs
-    from .ask import (IMPACT_MAX_DEPTH, ask, callees_line, callers, impact,
-                       log_answer, map_heads)
+    from .ask import (IMPACT_MAX_DEPTH, ask, at, callees_line, callers,
+                       impact, log_answer, map_heads, spans_for)
     from ._mapper.build import build
     from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
                                  digest, for_audience, meaning_tail, pointer)
+    from ._mapper.declare import spans_index
     from ._mapper.state import DEFINITIONS, INDEXED
     from ._mapper.walk import (SKIP_DIRS, _PARSE_CACHE_FILE, _config,
                                _product_roots, _write_atomic,
@@ -44,12 +45,14 @@ except ImportError:  # run as a plain file, with no package around it
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import (IMPACT_MAX_DEPTH, ask,  # type: ignore[no-redef]
-                     callees_line, callers, impact, log_answer, map_heads)
+    from ask import (IMPACT_MAX_DEPTH, ask, at,  # type: ignore[no-redef]
+                     callees_line, callers, impact, log_answer, map_heads,
+                     spans_for)
     from _mapper.build import build  # type: ignore[no-redef]
     from _mapper.render import (_as_dict, _cap_sections, brief,  # type: ignore[no-redef]
                                 changed_since, digest, for_audience,
                                 meaning_tail, pointer)
+    from _mapper.declare import spans_index  # type: ignore[no-redef]
     from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
     from _mapper.walk import (SKIP_DIRS,  # type: ignore[no-redef]
                               _PARSE_CACHE_FILE, _config, _product_roots,
@@ -467,6 +470,16 @@ def build_parser() -> argparse.ArgumentParser:
                          "invoice:12'`. Continues that same list where the "
                          "answer stopped and ends with the next handle if "
                          "there is more still. Reads the map under --out")
+    ap.add_argument("--defines", default="", metavar="NAME",
+                    help="print every place NAME is declared: one line per "
+                         "name, each home as `file:start-end (kind)`, in path "
+                         "order. `-` for an end no parser knew. Reads "
+                         "framework_map.json under --out")
+    ap.add_argument("--at", default="", dest="at_place", metavar="FILE:LINE",
+                    help="print the whole definition that encloses that line, "
+                         "the way a stack trace names it: the innermost one, "
+                         "whole lines, cut to 12000 characters with a handle "
+                         "for the rest. Reads framework_map.json under --out")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -615,7 +628,8 @@ def _dry_run_answer(args) -> int:
         ("--mcp", args.mcp), ("--lsp", args.lsp), ("--sections", args.sections),
         ("--pointer", args.pointer), ("--ask", args.ask),
         ("--more", args.more_handle), ("--callers", args.callers),
-        ("--callees", args.callees), ("--impact", args.impact)) if given]
+        ("--callees", args.callees), ("--impact", args.impact),
+        ("--defines", args.defines), ("--at", args.at_place)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
     return 0
 
@@ -700,7 +714,8 @@ def main() -> int:
     # would write is `_dry_run_answer`'s to say.
     if args.dry_run and (args.mcp or args.lsp or args.specs or args.sections
                          or args.ask or args.pointer or args.callers
-                         or args.callees or args.impact or args.more_handle):
+                         or args.callees or args.impact or args.more_handle
+                         or args.defines or args.at_place):
         return _dry_run_answer(args)
 
     # Answering from a map that already exists needs none of what follows: no
@@ -756,7 +771,8 @@ def main() -> int:
         return 0
 
     if (args.sections or args.ask or args.pointer or args.callers
-            or args.callees or args.impact or args.more_handle):
+            or args.callees or args.impact or args.more_handle
+            or args.defines or args.at_place):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -786,7 +802,8 @@ def main() -> int:
         # directory with no code map in it at all.
         if not have_map and (args.pointer or args.sections or args.callers
                              or args.callees or args.impact
-                             or args.more_handle):
+                             or args.more_handle or args.defines
+                             or args.at_place):
             # These three read the code map and only the code map, so for
             # them the spec map beside it is not an answer. Say which file is
             # missing and which one is there.
@@ -812,6 +829,21 @@ def main() -> int:
             # a handle read off a tool result resolve to the same text.
             answer = _ask.more(map_path, args.more_handle, 12000)
             log_answer(out_dir, "more", args.more_handle, answer, 12000)
+            print(answer)
+            return 0
+        if args.defines:
+            # The same call the MCP `defines` tool makes, through the same
+            # function, so a name asked here and asked there comes back byte
+            # for byte the same.
+            hits = spans_for(map_path, [args.defines.lower()])
+            answer = ("\n".join(hits) if hits
+                      else f"no declaration of {args.defines!r} in the map")
+            log_answer(out_dir, "defines", args.defines, answer, len(answer))
+            print(answer)
+            return 0
+        if args.at_place:
+            answer = at(map_path, args.at_place)
+            log_answer(out_dir, "at", args.at_place, answer, _ask.AT_BUDGET)
             print(answer)
             return 0
         if args.callers:
@@ -1039,6 +1071,9 @@ def main() -> int:
         # back "nothing in the map defines this" — the one answer that sends a
         # reader off to grep with confidence.
         m["definitions"] = dict(sorted(DEFINITIONS.items()))
+        # And every home of every one of them, for the same reason: the spans
+        # index is a copy taken when the first root finished.
+        m["spans"] = spans_index()
         m["indexed"] = dict(sorted(INDEXED.items()))
     m = redact(m)
     m["fingerprint"] = stamp_now

@@ -938,7 +938,7 @@ def _run_map_tool(name: str, args: dict, out_dir: str) -> str:
     if name == "defines":
         wanted = args.get("name")
         wanted = wanted if isinstance(wanted, list) else [str(wanted or "")]
-        hits = _mapper.definitions_for(map_path, [str(w).lower() for w in wanted])
+        hits = _mapper.spans_for(map_path, [str(w).lower() for w in wanted])
         return "\n".join(hits) if hits else "no declaration of " + ", ".join(wanted)
     if name == "callers":
         wanted = args.get("name")
@@ -968,6 +968,10 @@ def _run_map_tool(name: str, args: dict, out_dir: str) -> str:
         limit = int(asked_limit) if isinstance(asked_limit, int) else _HIT_BUDGET
         room = _share(limit, len(phrases), 5)
         return _joined([(p, _mapper.find_text(out_dir, p, room)) for p in phrases])
+    if name == "at" and hasattr(_ask, "at"):
+        places = _each(args.get("place")) or [""]
+        room = _share(_ANSWER_BUDGET, len(places), 1500)
+        return _joined([(p, _ask.at(map_path, p, room)) for p in places])
     if name == "sections":
         return "\n".join(_ask.map_heads(map_path))
     if name == "more" and hasattr(_ask, "more"):

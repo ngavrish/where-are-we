@@ -28,11 +28,11 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import (IMPACT_MAX_DEPTH, log_answer, callees_line, callers,
-                       impact, map_heads)
+    from .ask import (AT_BUDGET, IMPACT_MAX_DEPTH, at, log_answer,
+                       callees_line, callers, impact, map_heads)
 except ImportError:  # run as a plain file, with no package around it
-    from ask import (IMPACT_MAX_DEPTH,  # type: ignore[no-redef]
-                     log_answer, callees_line, callers, impact, map_heads)
+    from ask import (AT_BUDGET, IMPACT_MAX_DEPTH,  # type: ignore[no-redef]
+                     at, log_answer, callees_line, callers, impact, map_heads)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -180,15 +180,39 @@ TOOLS = [
     {
         "name": "defines",
         "description": (
-            "Where a name is declared, exactly: file and line. Functions, "
-            "classes, constants, types, step phrases, scenario names — from the "
-            "code under test as well as the suite. `name` takes a list; ask for "
-            "all of them at once."),
+            "Where a name is declared, exactly, and everywhere it is declared: "
+            "one line per name, each home as `file:start-end (kind)` in path "
+            "order, so a name two files declare says both. Functions, classes, "
+            "constants, types, step phrases and scenario names, from the code "
+            "under test as well as the suite. An end of `?` means the language "
+            "was read by the pattern table, which knows where a declaration "
+            "starts and not where it stops. `name` takes a list; ask for all "
+            "of them at once."),
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": ["string", "array"],
                                     "items": {"type": "string"}}},
             "required": ["name"],
+        },
+    },
+    {
+        "name": "at",
+        "description": (
+            "The whole definition that encloses a line: hand it the "
+            "`file:line` a stack trace or a review comment names and get back "
+            "the function or class it is inside, from its first line to its "
+            "last. Use this instead of reading a file at a guessed offset. "
+            "The innermost definition, whole lines, cut to a budget with a "
+            "`more:` handle for the rest. When nothing encloses the line the "
+            "answer says so and names the nearest declarations. `place` takes "
+            "a list."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"place": {"type": ["string", "array"],
+                                     "items": {"type": "string"},
+                                     "description": ("FILE:LINE, or a list of "
+                                                     "them")}},
+            "required": ["place"],
         },
     },
 ]
@@ -339,11 +363,10 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         if name_field is not None and not _is_str_or_str_list(name_field):
             raise _BadParams("name must be a string or a list of strings")
         wanted = _each(name_field)
-        # One pass over the map for the whole list: definitions_for
+        # One pass over the map for the whole list: spans_for
         # already takes several names, and reading the map once per name
         # is the cost this batching exists to remove.
-        hits = mapper.definitions_for(map_path,
-                                      [w.lower() for w in wanted])
+        hits = mapper.spans_for(map_path, [w.lower() for w in wanted])
         answer = ("\n".join(hits) if hits
                   else "no declaration of "
                        + ", ".join(repr(w) for w in wanted)
@@ -351,6 +374,19 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         log_answer(out_dir, "defines", ", ".join(wanted), answer,
                    len(answer))
         _reply(_text(answer), ident)
+    elif name == "at":
+        place_field = args.get("place")
+        if place_field is not None and not _is_str_or_str_list(place_field):
+            raise _BadParams("place must be a string or a list of strings")
+        wanted = _each(place_field)
+        room = _share(AT_BUDGET, len(wanted), 1500)
+        pairs = []
+        for place in wanted:
+            answer = at(map_path, place, room)
+            log_answer(out_dir, "at", place, answer, room)
+            pairs.append((place, answer))
+        _reply(_text(_joined(pairs) if pairs
+                     else "give me a place: FILE:LINE"), ident)
     elif name == "callers":
         name_field = args.get("name")
         if name_field is not None and not _is_str_or_str_list(name_field):

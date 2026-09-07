@@ -58,7 +58,8 @@ import types
 
 try:
     from ._mapper import state
-    from .ask import _definitions_for, ask, definitions_for, more
+    from .ask import (_definitions_for, ask, at, definitions_for,
+                      more, spans_for)
     from ._mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                                _SECRET_SHAPES, _cached, _config, _fingerprint,
                                _ignored, _ignores, _lines_matching,
@@ -71,14 +72,16 @@ try:
                                   _read_for_declarations,
                                   _regex_declared_names, _step_texts,
                                   _tree_sitter, _ts_symbols, declarations_in,
-                                  find_text, index_declarations, index_lines)
+                                  find_text, index_declarations, index_lines,
+                                  record_span, spans_index)
     from ._mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
                                  _cap_sections, brief, changed_since,
                                  digest, for_audience, meaning_tail, pointer)
     from ._mapper.build import _layer_line, build
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
-    from ask import _definitions_for, ask, definitions_for, more
+    from ask import (_definitions_for, ask, at, definitions_for,  # type: ignore[no-redef]
+                     more, spans_for)
     from _mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                               _SECRET_SHAPES, _cached, _config, _fingerprint,
                               _ignored, _ignores, _lines_matching,
@@ -91,7 +94,8 @@ except ImportError:  # run as a plain file, with no package around it
                                  _read_for_declarations, _regex_declared_names,
                                  _step_texts, _tree_sitter, _ts_symbols,
                                  declarations_in, find_text,
-                                 index_declarations, index_lines)
+                                 index_declarations, index_lines, record_span,
+                                 spans_index)
     from _mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
                                 _cap_sections, brief, changed_since,
                                 digest, for_audience, meaning_tail, pointer)
@@ -106,7 +110,7 @@ __version__ = state.__version__
 # `__getattr__` (which Python consults only when that lookup fails) would never
 # run, so an assignment would go nowhere the package can see.
 _STATE_NAMES = frozenset((
-    "DEFINITIONS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
+    "DEFINITIONS", "SPANS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
     "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE", "_IGNORE_CACHE",
     "_PARSE_CACHE", "_WALK_CACHE",
 ))
@@ -156,12 +160,13 @@ def _cli():
 # server and the language server would do exactly that.
 __all__ = [
     "DECLARATIONS", "DEFINITIONS", "INDEXED", "LINES", "MAX_FILES",
-    "SKIP_DIRS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
+    "SKIP_DIRS", "SPANS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
     "CACHE_SCHEMA", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
-    "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "brief", "build",
-    "changed_since", "declarations_in", "definitions_for", "digest",
+    "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief",
+    "build", "changed_since", "declarations_in", "definitions_for", "digest",
     "find_text", "fingerprint", "for_audience", "index_declarations",
-    "index_lines", "meaning_tail", "more", "pointer", "redact",
+    "index_lines", "meaning_tail", "more", "pointer", "record_span", "redact",
+    "spans_for", "spans_index",
 ]
 
 
