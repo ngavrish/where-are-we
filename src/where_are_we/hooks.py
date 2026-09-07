@@ -30,6 +30,13 @@ _BLOCK_START = "<!-- where-are-we:start -->"
 _BLOCK_END = "<!-- where-are-we:end -->"
 _MCP_ARGS = ["--repo", ".", "--out", ".wawe", "--mcp"]
 
+# The three moments the tree becomes something other than what the map says.
+_GIT_HOOKS = ("post-checkout", "post-merge", "post-commit")
+
+# The map `_ensure_map` writes for the three kinds that read one before they
+# can point at it, in the order it writes them.
+_MAP_FILES = ("framework_map.json", "framework_map.md", "framework_map_brief.md")
+
 
 def _symlink_refusal(path: str, boundary: str) -> str | None:
     """None when it is safe to write `path`; otherwise the message to hand
@@ -74,20 +81,18 @@ def _ensure_map(repo: str) -> None:
 
     wawe_dir = os.path.join(repo, ".wawe")
     map_md = os.path.join(wawe_dir, "framework_map.md")
+    # Created before the build: build() saves its parse cache into out_dir
+    # itself, and only into a directory that already exists.
+    os.makedirs(wawe_dir, exist_ok=True)
     if not os.path.exists(map_md):
-        # Created before the build: build() saves its parse cache into
-        # out_dir itself, and only into a directory that already exists.
-        os.makedirs(wawe_dir, exist_ok=True)
         m = mapper.redact(mapper.build(repo, out_dir=wawe_dir))
         m["fingerprint"] = mapper.fingerprint(repo)
-        with open(os.path.join(wawe_dir, "framework_map.json"), "w", encoding="utf-8") as fh:
-            json.dump(m, fh, indent=2)
-        with open(map_md, "w", encoding="utf-8") as fh:
-            fh.write(mapper.digest(m))
-        with open(os.path.join(wawe_dir, "framework_map_brief.md"), "w", encoding="utf-8") as fh:
-            fh.write(mapper.brief(m))
-    else:
-        os.makedirs(wawe_dir, exist_ok=True)
+        text = {"framework_map.json": json.dumps(m, indent=2),
+                "framework_map.md": mapper.digest(m),
+                "framework_map_brief.md": mapper.brief(m)}
+        for name in _MAP_FILES:
+            with open(os.path.join(wawe_dir, name), "w", encoding="utf-8") as fh:
+                fh.write(text[name])
     with open(os.path.join(wawe_dir, ".gitignore"), "w", encoding="utf-8") as fh:
         fh.write("*\n")
 
@@ -180,6 +185,46 @@ def _trigger_command(repo: str, product: str, out: str, agent_file: str) -> str:
     return " ".join(cmd) + " --quiet || true"
 
 
+def paths(repo: str, kind: str, home: str | None = None) -> list[str]:
+    """Every file `install()` can write for `kind`, in the order it writes
+    them.
+
+    One computation, used by the installers themselves and by `--dry-run`, so
+    a preview names the files the real run touches and cannot drift from
+    them. Whether a given file is then written depends on what is already in
+    it: a target that already carries this tool's block is left alone.
+    """
+    if kind == "agent":
+        kind = "claude"
+    if home is None:
+        home = os.path.expanduser("~")
+    if kind == "git":
+        hooks_dir = os.path.join(repo, ".git", "hooks")
+        return [os.path.join(hooks_dir, name) for name in _GIT_HOOKS]
+    if kind == "claude":
+        return [os.path.join(home, ".claude", "settings.json")]
+    if kind not in ("cursor", "codex", "gemini"):
+        raise ValueError(f"unknown --install-hook kind: {kind}")
+    # The three that point at a map have to have one: `_ensure_map` builds it
+    # when `framework_map.md` is not there, and writes the .gitignore either
+    # way.
+    wawe_dir = os.path.join(repo, ".wawe")
+    out = []
+    if not os.path.exists(os.path.join(wawe_dir, "framework_map.md")):
+        # A build leaves its parse cache in the directory it writes into.
+        out.append(os.path.join(wawe_dir, mapper._PARSE_CACHE_FILE))
+        out += [os.path.join(wawe_dir, name) for name in _MAP_FILES]
+    out.append(os.path.join(wawe_dir, ".gitignore"))
+    if kind == "cursor":
+        return out + [os.path.join(repo, ".cursor", "rules", "where-are-we.mdc"),
+                      os.path.join(repo, ".cursor", "mcp.json")]
+    if kind == "codex":
+        return out + [os.path.join(repo, "AGENTS.md"),
+                      os.path.join(home, ".codex", "config.toml")]
+    return out + [os.path.join(repo, "GEMINI.md"),
+                  os.path.join(repo, ".gemini", "settings.json")]
+
+
 def _install_git(repo: str, line: str) -> str:
     """The three hooks are one unit: every target is checked before any is
     written, so a refusal names its reason with nothing installed, and a
@@ -191,8 +236,8 @@ def _install_git(repo: str, line: str) -> str:
     if not os.path.isdir(hooks_dir):
         return f"{hooks_dir} does not exist -- is {repo} a git repository?"
     todo = []
-    for name in ("post-checkout", "post-merge", "post-commit"):
-        path = os.path.join(hooks_dir, name)
+    for path in paths(repo, "git"):
+        name = os.path.basename(path)
         body = ""
         if os.path.exists(path):
             try:
@@ -222,7 +267,9 @@ def _install_git(repo: str, line: str) -> str:
 
 
 def _install_claude(line: str, home: str) -> str:
-    settings = os.path.join(home, ".claude", "settings.json")
+    # No repository is involved in this one: the single file it writes is
+    # under `home`.
+    settings = paths("", "claude", home)[0]
     conf, error = _load_json_conf(settings, "hooks")
     if error:
         return error
@@ -241,8 +288,9 @@ def _install_claude(line: str, home: str) -> str:
 
 
 def _install_cursor(repo: str) -> str:
-    rule_path = os.path.join(repo, ".cursor", "rules", "where-are-we.mdc")
-    mcp_path = os.path.join(repo, ".cursor", "mcp.json")
+    # The last two paths are this kind's own files; whatever comes before
+    # them is the map `_ensure_map` has already written.
+    rule_path, mcp_path = paths(repo, "cursor")[-2:]
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
 
     # A symlinked config is refused as a symlink, not as "not valid JSON":
@@ -289,9 +337,9 @@ def _install_cursor(repo: str) -> str:
 
 
 def _install_codex(repo: str, home: str) -> str:
-    agents_path = os.path.join(repo, "AGENTS.md")
+    # The last two, as in _install_cursor: this kind's own files.
+    agents_path, toml_path = paths(repo, "codex", home)[-2:]
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
-    toml_path = os.path.join(home, ".codex", "config.toml")
     # Both targets checked before AGENTS.md is merged, so a refused toml does
     # not leave the markdown half installed.
     for path, boundary in ((agents_path, repo), (toml_path, home)):
@@ -326,8 +374,8 @@ def _install_codex(repo: str, home: str) -> str:
 
 
 def _install_gemini(repo: str) -> str:
-    md_path = os.path.join(repo, "GEMINI.md")
-    settings_path = os.path.join(repo, ".gemini", "settings.json")
+    # The last two, as in _install_cursor: this kind's own files.
+    md_path, settings_path = paths(repo, "gemini")[-2:]
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
 
     bad = _symlink_refusal(settings_path, repo)
