@@ -30,10 +30,10 @@ try:
     from . import ask as _ask, effects, graph, hooks, lsp, mcp, specs
     from .ask import (AFFECTED_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
                        RANK_LIMIT, UNREACHED_LIMIT, affected_answer, ask, at,
-                       callees_line, callers, context, file_list, impact,
-                       log_answer, map_heads, path_answer, range_answer,
-                       rank_lines, reaches_answer, selection_lines, spans_for,
-                       unreached_answer)
+                       callees_line, callers, context, dead_answer, file_list,
+                       hot_answer, impact, log_answer, map_heads, path_answer,
+                       range_answer, rank_lines, reaches_answer,
+                       selection_lines, spans_for, unreached_answer)
     from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
                                  changed_since, cost, ctags, digest, export,
@@ -1260,10 +1260,15 @@ def main() -> int:
             print(answer)
             return 0
         if args.unreached:
+            # `--limit` is how many definitions are ranked, not a character
+            # budget: the two ceilings answer different questions, and the
+            # MCP tool takes the same one under the same name.
             answer = unreached_answer(map_path, args.limit or UNREACHED_LIMIT)
             log_answer(out_dir, "unreached", str(args.limit or
                                                  UNREACHED_LIMIT), answer,
                        _ask.UNREACHED_BUDGET)
+            print(answer)
+            return 0
         if args.call_path:
             # The same call the MCP `path` tool makes, at the same budget, so
             # a chain asked here and asked there comes back byte for byte the

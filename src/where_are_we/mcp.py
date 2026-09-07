@@ -33,18 +33,18 @@ try:
                        IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
                        REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
                        affected_tool_answer, at, callees_line, callers,
-                       context, file_list, impact, log_answer, map_heads,
-                       path_answer, range_answer, rank_lines, reaches_answer,
-                       unreached_answer)
+                       context, dead_answer, file_list, hot_answer, impact,
+                       log_answer, map_heads, path_answer, range_answer,
+                       rank_lines, reaches_answer, unreached_answer)
 except ImportError:  # run as a plain file, with no package around it
     import graph  # type: ignore[no-redef]
     from ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET, GRAPH_BUDGET,
                      IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
                      REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
-                     affected_tool_answer, at, callees_line, callers, context,
-                     file_list, impact, log_answer, map_heads, path_answer,
-                     range_answer, rank_lines, reaches_answer,
-                     unreached_answer)
+                     affected_tool_answer, at, callees_line, callers,
+                     context, dead_answer, file_list, hot_answer, impact,
+                     log_answer, map_heads, path_answer, range_answer,
+                     rank_lines, reaches_answer, unreached_answer)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -728,6 +728,7 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         rows = int(limit_field or UNREACHED_LIMIT)
         answer = unreached_answer(map_path, rows, UNREACHED_BUDGET)
         log_answer(out_dir, "unreached", str(rows), answer, UNREACHED_BUDGET)
+        _reply(_text(answer), ident)
     elif name == "path":
         ends = []
         for field in ("a", "b"):

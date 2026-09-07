@@ -775,11 +775,6 @@ jobs:
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
                            "reaches", "sections", "unreached"], names
-                           "context", "defines", "find", "impact",
-                           "more", "path", "range", "rank", "sections"], names
-                           "context", "dead", "defines", "find", "hot",
-                           "impact", "more", "path", "range", "rank",
-                           "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/ctx/click_7.context").read_text()
@@ -1029,11 +1024,6 @@ jobs:
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
                            "reaches", "sections", "unreached"], names
-                           "context", "defines", "find", "impact",
-                           "more", "path", "range", "rank", "sections"], names
-                           "context", "dead", "defines", "find", "hot",
-                           "impact", "more", "path", "range", "rank",
-                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/rankout/personal.txt").read_text()
           assert mcp == cli.rstrip("\n"), (mcp, cli)
@@ -1641,11 +1631,6 @@ jobs:
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
                            "reaches", "sections", "unreached"], names
-                           "context", "defines", "find", "impact",
-                           "more", "path", "range", "rank", "sections"], names
-                           "context", "dead", "defines", "find", "hot",
-                           "impact", "more", "path", "range", "rank",
-                           "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -1959,11 +1944,6 @@ jobs:
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
                            "reaches", "sections", "unreached"], names
-                           "context", "defines", "find", "impact",
-                           "more", "path", "range", "rank", "sections"], names
-                           "context", "dead", "defines", "find", "hot",
-                           "impact", "more", "path", "range", "rank",
-                           "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/aff/checkout.txt").read_text()
@@ -3932,10 +3912,7 @@ jobs:
           rows = graph.dead(m, 40)
           names = [n for _rel, pairs in rows["files"] for n, _line in pairs]
           print(f"dead on the suite fixture: {rows['total']} row(s), {names}")
-          assert names == ["affected", "ask", "at", "callees", "callers",
-                           "context", "dead", "defines", "find", "hot",
-                           "impact", "more", "path", "range", "rank",
-                           "reaches", "sections", "unreached"], names
+          assert names == ["CheckoutPage"], names
           assert not [x for x in m["xrefs"]
                       if x.get("edge") == "calls" and x.get("object") == "CheckoutPage"], \
               "a module-level construction is in the graph now; drop this caveat"
@@ -6489,11 +6466,6 @@ jobs:
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
                            "reaches", "sections", "unreached"], names
-                           "context", "defines", "find", "impact",
-                           "more", "path", "range", "rank", "sections"], names
-                           "context", "dead", "defines", "find", "hot",
-                           "impact", "more", "path", "range", "rank",
-                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"

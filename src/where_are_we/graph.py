@@ -857,6 +857,11 @@ def path(m: dict, a: str, b: str, depth: int = DEFAULT_DEPTH) -> dict:
 
     # The start counted itself, so the reach is what the walk added to it.
     out["reached"] = len(seen) - len(starts)
+    # A goal node the walk actually arrived at, rather than one that was a
+    # start: `_climb` seeds the starts at hop 0 with no parent, and a start
+    # that is also a goal was handled above.
+    landed = sorted(n for n in seen if n in goal and seen[n][2] is not None)
+    hit = landed[0] if landed else None
     if hit is None:
         # Where the walk stopped: the last frontier it reached, which is the
         # honest answer to "how close did you get". Not the nodes nearest `b`
