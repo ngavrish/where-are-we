@@ -3087,19 +3087,32 @@ def build(repo: str, out_dir: str | None = None,
     # `--rank FILE` recomputes the same walk with the vector concentrated on
     # those files, from these same two keys read back off disk.
     #
-    # Read from the lines as the map will hold them, which is redacted: every
-    # writer runs `redact` over the map before it lands, so a ranking computed
-    # from the lines in memory is a ranking of text no reader of the file can
-    # see, and `--rank` recomputing from the file would disagree with the key
-    # beside it. Measured on this repository, 1,788 of 32,649 lines change and
-    # the two orders differ in their first row, because the top two definitions
-    # are within half a percent of each other. What is redacted here is the
-    # copy this reads; `lines` itself is left as the walk found it, and the
-    # writers redact it on the way out exactly as before.
+    # Read from the lines as the map will hold them, which is redacted: a
+    # ranking computed from text no reader of the published file can see is a
+    # map disagreeing with itself, and `--rank` recomputing from the file on
+    # disk would disagree with the key stored beside it. Measured when this
+    # was written, before `index_lines` redacted: 1,788 of 32,649 lines change
+    # under redaction and the two orders differ in their first row, because
+    # the top definitions are within half a percent of each other.
+    #
+    # `index_lines` now redacts as it records, so on every path but one
+    # `LINES` is already that text and reading it directly is what keeps the
+    # ranking honest. The exception is `build(redact_lines=False)`, which the
+    # golden fixture builder passes because a fixture holds nothing to protect
+    # and the base64-like rule occasionally matches a stretch of the temporary
+    # path the run was given; there, and only there, this redacts its own copy,
+    # so a fixture's ranking is of the same text every other ranking is of.
+    #
+    # Redacting unconditionally would also be correct, since the pass is
+    # idempotent: measured over this repository's 36,207 lines it changes none
+    # of them a second time. It would also cost 0.60 s of pattern matching on
+    # every build, warm ones included, which is the whole of what caching the
+    # redaction bought.
     spans = spans_index()
     ranked = rank.rows({"spans": spans, "repo": repo,
-                        "lines": {path: redact(rows, contiguous=True)
-                                  for path, rows in LINES.items()}})
+                        "lines": LINES if state.REDACT_LINES else
+                        {path: redact(rows, contiguous=True)
+                         for path, rows in LINES.items()}})
 
     # One sha256 over every indexed file's path and content hash. The
     # fingerprint says when the tree was last written to; this says what it
