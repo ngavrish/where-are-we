@@ -409,6 +409,96 @@
       "marked": 0
     }
   },
+  "xrefs": [
+    {
+      "subject": "<root>/code/repo/app/api.py",
+      "edge": "declares",
+      "object": "get_invoice",
+      "file": "<root>/code/repo/app/api.py",
+      "candidates": [
+        "<root>/code/repo/app/api.py"
+      ],
+      "line": 15,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/api.py",
+      "edge": "declares",
+      "object": "health",
+      "file": "<root>/code/repo/app/api.py",
+      "candidates": [
+        "<root>/code/repo/app/api.py"
+      ],
+      "line": 21,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/api.py",
+      "edge": "declares",
+      "object": "list_invoices",
+      "file": "<root>/code/repo/app/api.py",
+      "candidates": [
+        "<root>/code/repo/app/api.py"
+      ],
+      "line": 9,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/billing.py",
+      "edge": "declares",
+      "object": "charge",
+      "file": "<root>/code/repo/app/billing.py",
+      "candidates": [
+        "<root>/code/repo/app/billing.py"
+      ],
+      "line": 4,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/billing.py",
+      "edge": "declares",
+      "object": "refund",
+      "file": "<root>/code/repo/app/billing.py",
+      "candidates": [
+        "<root>/code/repo/app/billing.py"
+      ],
+      "line": 9,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/cli.py",
+      "edge": "declares",
+      "object": "main",
+      "file": "<root>/code/repo/app/cli.py",
+      "candidates": [
+        "<root>/code/repo/app/cli.py"
+      ],
+      "line": 6,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/models.py",
+      "edge": "declares",
+      "object": "Customer",
+      "file": "<root>/code/repo/app/models.py",
+      "candidates": [
+        "<root>/code/repo/app/models.py"
+      ],
+      "line": 19,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/models.py",
+      "edge": "declares",
+      "object": "Invoice",
+      "file": "<root>/code/repo/app/models.py",
+      "candidates": [
+        "<root>/code/repo/app/models.py"
+      ],
+      "line": 9,
+      "resolution": "declaration"
+    }
+  ],
   "data_flow": {
     "app/api.py": {
       "paths": [

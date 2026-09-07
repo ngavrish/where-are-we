@@ -318,6 +318,96 @@
       "marked": 0
     }
   },
+  "xrefs": [
+    {
+      "subject": "<root>/poly/repo/a.ts",
+      "edge": "declares",
+      "object": "charge",
+      "file": "<root>/poly/repo/a.ts",
+      "candidates": [
+        "<root>/poly/repo/a.ts"
+      ],
+      "line": 1,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/b.ts",
+      "edge": "declares",
+      "object": "payInvoice",
+      "file": "<root>/poly/repo/b.ts",
+      "candidates": [
+        "<root>/poly/repo/b.ts"
+      ],
+      "line": 3,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "Serve",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [
+        "<root>/poly/repo/main.go"
+      ],
+      "line": 3,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "TestServe",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [
+        "<root>/poly/repo/main.go"
+      ],
+      "line": 7,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "main",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [
+        "<root>/poly/repo/main.go"
+      ],
+      "line": 1,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "main",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [
+        "<root>/poly/repo/main.go"
+      ],
+      "line": 12,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/migrations/V1__init.sql",
+      "edge": "declares",
+      "object": "customers",
+      "file": "<root>/poly/repo/migrations/V1__init.sql",
+      "candidates": [
+        "<root>/poly/repo/migrations/V1__init.sql"
+      ],
+      "line": 1,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "b.ts:payInvoice",
+      "edge": "calls",
+      "object": "charge",
+      "file": "a.ts",
+      "candidates": [
+        "a.ts"
+      ],
+      "line": 4,
+      "resolution": "sole_declarer"
+    }
+  ],
   "data_flow": {},
   "blame_owners": {},
   "coverage_by_file": {},

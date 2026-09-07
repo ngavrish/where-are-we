@@ -1917,6 +1917,11 @@ def build(repo: str, out_dir: str | None = None,
     # definitions has to wait until all of them have been read, so it happens
     # in a second, parse-free pass below.
     func_calls: dict[str, list] = {}
+    # Every edge the two passes below write, one row each, before either
+    # cap: the table `call_graph_files` is rendered from, and the one
+    # `call_graph_stats` counts. `declares` and `imports` rows join them at
+    # the end of the build, where `spans` and `import_graph` are finished.
+    xrefs: list = []
     defined_at: dict[str, str] = {}
     # Every indexed file that declares a name, per language group. A name one
     # file declares has one home and the `(file)` half of an edge is a fact; a
@@ -1959,17 +1964,65 @@ def build(repo: str, out_dir: str | None = None,
             return "?"
         return ""
 
-    def _edge(lang: str, name: str, where, mark: str) -> str:
-        """One cross-file edge: its text, and the counter that records it.
+    def _edge(lang: str, rel: str, func: str, name: str, where, mark: str,
+              resolution: str, line) -> None:
+        """One cross-file edge: the row it writes, and the counter it moves.
 
-        Every file in `where` is named, by basename and sorted, so the edge a
-        tree produces is the same string whatever order the walk read the
-        files in. `os.walk` returns entries in directory order, so naming one
-        file out of several made the byte a property of the filesystem.
+        The row is the edge; `call_graph_files` is rendered from the rows
+        below by `_graph_from_xrefs`, so there is one place a cross-file call
+        is recorded and one place it is spelled. Every file in `where` is
+        named, by basename and sorted, when it is spelled, so the edge a tree
+        produces is the same string whatever order the walk read the files
+        in. `os.walk` returns entries in directory order, so naming one file
+        out of several made the byte a property of the filesystem.
+
+        `resolution` is the rule that placed the edge, written by the rule
+        itself where it settles the candidate list. `mark` and `resolution`
+        say one thing between them: a marked edge is `ambiguous` and no other
+        value carries a mark.
         """
         _stats(lang)["marked" if mark else "edges"] += 1
-        files = "|".join(sorted({os.path.basename(w) for w in where}))
-        return f"{name} ({files}){mark}"
+        xrefs.append({"subject": f"{rel}:{func}", "edge": "calls",
+                      "object": name,
+                      "file": (sorted(where)[0]
+                               if not mark and len(where) == 1 else None),
+                      "candidates": sorted(where), "line": line,
+                      "resolution": resolution})
+
+    def _edge_text(row: dict) -> str:
+        """One `calls` row as `call_graph_files` spells it.
+
+        `charge (a.py)`, and `charge (a.py|b.py)?` where the row names more
+        than one candidate: the same bytes 1.4.x wrote, from the row rather
+        than beside it.
+        """
+        files = "|".join(sorted({os.path.basename(w)
+                                 for w in row["candidates"]}))
+        mark = "?" if row["resolution"] == "ambiguous" else ""
+        return f"{row['object']} ({files}){mark}"
+
+    def _graph_from_xrefs(rows: list) -> dict:
+        """`call_graph_files` from the `calls` rows, in the order they were
+        written.
+
+        A key is `<basename>:<func>`, which two files of one basename share,
+        and a run of rows for one subject is one key's value: the later run
+        replaces the earlier one, exactly as an assignment per function did.
+        Rows for one subject are written together, so a run is a subject.
+        """
+        runs: list = []
+        for row in rows:
+            if row["edge"] != "calls":
+                continue
+            if runs and runs[-1][0] == row["subject"]:
+                runs[-1][1].add(_edge_text(row))
+            else:
+                runs.append((row["subject"], {_edge_text(row)}))
+        out: dict = {}
+        for subject, texts in runs:
+            rel, _, func = subject.rpartition(":")
+            out[f"{os.path.basename(rel)}:{func}"] = sorted(texts)[:8]
+        return out
 
     def _module_target(module: str, level: int, rel: str):
         """A module, as `rel` writes it, as a path under the repository.
@@ -2063,7 +2116,7 @@ def build(repo: str, out_dir: str | None = None,
             except (SyntaxError, ValueError):
                 return {"defs": [], "calls": {}, "names": {}, "imports": {},
                         "mods": {}, "refrom": {}, "aliases": {}, "recv": {},
-                        "made": {}, "classes": {}, "owner": {}}
+                        "made": {}, "classes": {}, "owner": {}, "at": {}}
             # What this file says it means by a name. `imports` is every
             # `from MOD import name`; `aliases` is what an import binds that a
             # `NAME.attr()` call can be read through, recorded as
@@ -2152,13 +2205,24 @@ def build(repo: str, out_dir: str | None = None,
                     else:
                         todo.append((child, holder))
 
-            defs, calls, names, mods, recv, made = [], {}, {}, {}, {}, {}
+            defs, calls, names, mods, recv, made, at = [], {}, {}, {}, {}, {}, {}
             built_of, recv_of = {}, {}
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 defs.append(node.name)
                 targets, bare, said, on_what, built = set(), set(), {}, {}, {}
+                # The first line this function calls each name on, which is
+                # the line an `xrefs` row carries. The first rather than any:
+                # a name called three times is one edge, and the earliest
+                # site is the one a reader finds by reading downwards.
+                first = {}
+
+                def _seen(name: str, lineno: int, first=first) -> None:
+                    was = first.get(name)
+                    if was is None or lineno < was:
+                        first[name] = lineno
+
                 for c in ast.walk(node):
                     for bound, shape in _bound_shapes(c):
                         built.setdefault(bound, set()).add(shape)
@@ -2167,8 +2231,10 @@ def build(repo: str, out_dir: str | None = None,
                     if isinstance(c.func, ast.Name):
                         targets.add(c.func.id)
                         bare.add(c.func.id)
+                        _seen(c.func.id, c.lineno)
                     elif isinstance(c.func, ast.Attribute):
                         targets.add(c.func.attr)
+                        _seen(c.func.attr, c.lineno)
                         # What the call was made on: a bare name, the shape
                         # a `setdefault` handed back, or `?` for a receiver
                         # nothing written here places.
@@ -2188,6 +2254,7 @@ def build(repo: str, out_dir: str | None = None,
                 # must replace an earlier one's tables rather than leave them
                 # standing to be read beside its own calls.
                 recv[node.name] = {k: sorted(v) for k, v in on_what.items()}
+                at[node.name] = {k: v for k, v in sorted(first.items()) if k}
                 built_of[node] = built
                 recv_of[node] = on_what
             for node, built in built_of.items():
@@ -2211,16 +2278,17 @@ def build(repo: str, out_dir: str | None = None,
             return {"defs": defs, "calls": calls, "names": names,
                     "imports": imports, "mods": mods, "refrom": refrom,
                     "aliases": aliases, "recv": recv, "made": made,
-                    "classes": classes, "owner": owner}
+                    "classes": classes, "owner": owner, "at": at}
 
         _stats("python")
-        # `func_edges_2`, because the record under this key holds six tables
-        # where 1.4.0's held five. The kind is part of the cache key, so a
-        # record whose shape changed is a record this build recomputes; the
-        # alternative, waiting for the version in the cache file's header to
-        # change, makes the correctness of a stored record depend on a
-        # release number moving in the same commit that changed its shape.
-        func_info = _cached(full, "func_edges_2", _func_calls_of)
+        # `func_edges_3`, because the record under this key now holds the
+        # line each call was first made on as well, which is what an `xrefs`
+        # row carries. The kind is part of the cache key, so a record whose
+        # shape changed is a record this build recomputes; the alternative,
+        # waiting for the version in the cache file's header to change, makes
+        # the correctness of a stored record depend on a release number
+        # moving in the same commit that changed its shape.
+        func_info = _cached(full, "func_edges_3", _func_calls_of)
         raw_calls_by_rel[rel] = func_info
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
@@ -2410,15 +2478,21 @@ def build(repo: str, out_dir: str | None = None,
         recv_by_func = info.get("recv") or {}
         made_by_func = info.get("made") or {}
         aliases_here = info.get("aliases") or {}
+        at_by_func = info.get("at") or {}
         for func_name, raw_targets in (info.get("calls") or {}).items():
             bare = set(bare_by_func.get(func_name) or ())
             mods = mods_by_func.get(func_name) or {}
             on_what = recv_by_func.get(func_name) or {}
             built = made_by_func.get(func_name) or {}
-            targets = set()
+            at_here = at_by_func.get(func_name) or {}
             for name in raw_targets:
                 where = homes_py.get(name) or set()
                 mark = _count("python", name, homes_py)
+                # The rule that placed this edge, as far as the walk has got:
+                # one file declares the name, or several do and nothing below
+                # says which. Each rule that settles the list overwrites this
+                # where it settles it.
+                resolution = "ambiguous" if mark else "sole_declarer"
                 if not where:
                     continue
                 if rel in where and (name in bare or len(where) == 1):
@@ -2491,7 +2565,7 @@ def build(repo: str, out_dir: str | None = None,
                     if len(inherited) == 1:
                         # One base, in one other file, declares it. That is
                         # where the call lands.
-                        where, mark = inherited, ""
+                        where, mark, resolution = inherited, "", "base_class"
                 if mark:
                     # The caller named the module it meant. One home under the
                     # modules it named is an answer, not a guess.
@@ -2499,7 +2573,13 @@ def build(repo: str, out_dir: str | None = None,
                     for mod, lvl, _pkg in said:
                         hits |= _module_homes(mod, lvl, rel, where)
                     if len(hits) == 1:
+                        # The `from M import name` line of a plain call, and
+                        # the module a receiver was bound to for an attribute
+                        # call: two rules reading two tables, and a row says
+                        # which of them answered.
                         where, mark = hits, ""
+                        resolution = ("import_line" if name in bare
+                                      else "receiver_import")
                     elif not hits:
                         # None of the modules the caller named declares the
                         # name, and one of them may still be a facade that
@@ -2513,9 +2593,9 @@ def build(repo: str, out_dir: str | None = None,
                                                      name, where)
                             if len(through) == 1:
                                 where, mark = through, ""
-                targets.add(_edge("python", name, where, mark))
-            if targets:
-                func_calls[f"{os.path.basename(rel)}:{func_name}"] = sorted(targets)[:8]
+                                resolution = "re_export"
+                _edge("python", rel, func_name, name, where, mark, resolution,
+                      at_here.get(name))
 
     # Same call graph for TypeScript, JavaScript and Go: there is no AST here,
     # so a definition is found by pattern and a call graph body by matching
@@ -2625,10 +2705,17 @@ def build(repo: str, out_dir: str | None = None,
         lines = body.splitlines()
         for name, line_idx in defs:
             fn_body = _brace_body(lines, line_idx)
-            targets = set()
-            for callee in sorted(set(re.findall(r"\b(\w+)\s*\(", fn_body))):
+            # The first line each callee is called on, absolute and
+            # one-based: the body starts at the signature line, so a match's
+            # own newline count is its offset from it.
+            first: dict = {}
+            for m in re.finditer(r"\b(\w+)\s*\(", fn_body):
+                first.setdefault(m.group(1),
+                                 line_idx + 1 + fn_body.count("\n", 0, m.start()))
+            for callee in sorted(first):
                 where = homes.get(callee) or set()
                 mark = _count(lang, callee, homes)
+                resolution = "ambiguous" if mark else "sole_declarer"
                 if not where or rel in where:
                     # This file declares the callee itself. There is no
                     # receiver to read here, and the body scan starts at the
@@ -2638,15 +2725,17 @@ def build(repo: str, out_dir: str | None = None,
                 if mark:
                     hits = _spec_homes(imported.get(callee) or "", rel, where)
                     if len(hits) == 1:
-                        where, mark = hits, ""
-                targets.add(_edge(lang, callee, where, mark))
-            if targets:
-                func_calls[f"{os.path.basename(rel)}:{name}"] = sorted(targets)[:8]
+                        where, mark, resolution = hits, "", "import_line"
+                _edge(lang, rel, name, callee, where, mark, resolution,
+                      first[callee])
 
-    # One cap across both languages, tie-broken by key so ties do not depend
-    # on os.walk order. `call_stats` is not capped with it: it counts what the
-    # walk looked at, and a coverage number computed from the sixty keys that
-    # survived would be a measure of the cap rather than of the walk.
+    # `call_graph_files`, from the rows the two passes wrote. One cap across
+    # both languages, tie-broken by key so ties do not depend on os.walk
+    # order. `call_stats` is not capped with it: it counts what the walk
+    # looked at, and a coverage number computed from the sixty keys that
+    # survived would be a measure of the cap rather than of the walk. Neither
+    # cap touches `xrefs`, for the same reason.
+    func_calls = _graph_from_xrefs(xrefs)
     func_calls = dict(sorted(func_calls.items(),
                             key=lambda kv: (-len(kv[1]), kv[0]))[:CALL_GRAPH_KEYS])
 
@@ -3141,6 +3230,33 @@ def build(repo: str, out_dir: str | None = None,
             for full in hashes_before_map
             if full.startswith(repo + os.sep) and not os.path.exists(full))
 
+    # The other two edges of `xrefs`, from the two keys that already hold
+    # them. A `declares` row is a span, so it names the file as `spans` and
+    # `definitions` do, which is the path a reader joins it back on; a
+    # `calls` row names the file as the call graph does, relative to the
+    # repository, and both are the spelling of the table the row came from.
+    # An `imports` row is a package depending on a package, which is all
+    # `import_graph` holds: no file to name and no one line to point at,
+    # since it is every import line of a package read together.
+    for name in sorted(spans):
+        for site in spans[name]:
+            xrefs.append({"subject": site["file"], "edge": "declares",
+                          "object": name, "file": site["file"],
+                          "candidates": [site["file"]],
+                          "line": site["start"], "resolution": "declaration"})
+    for package, used in (import_graph or {}).items():
+        for other in used:
+            xrefs.append({"subject": package, "edge": "imports",
+                          "object": other, "file": None, "candidates": [],
+                          "line": None, "resolution": "import_line"})
+    # Sorted by subject, object and line, so the table is a table rather
+    # than a walk order. `line` is null on an `imports` row and on a call
+    # site no parser gave a line, and `None` does not compare with an
+    # integer: -1 sorts a row with no line first among its own name's.
+    xrefs.sort(key=lambda r: (r["subject"], r["object"],
+                              -1 if r["line"] is None else r["line"],
+                              r["edge"], r["resolution"]))
+
     result = {
         "schema": "where-are-we/1",
         "repo": repo,
@@ -3254,6 +3370,10 @@ def build(repo: str, out_dir: str | None = None,
         "dependency_licenses": dep_licenses,
         "call_graph_files": func_calls,
         "call_graph_stats": dict(sorted(call_stats.items())),
+        # The same graph as rows, plus the declarations and the package
+        # imports: every edge with the rule that placed it, uncapped.
+        # `call_graph_files` above is rendered from the `calls` rows here.
+        "xrefs": xrefs,
         "data_flow": extracted["data_flow"],
         "blame_owners": blame_owners,
         "coverage_by_file": extracted["coverage_by_file"],
