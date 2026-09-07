@@ -1530,7 +1530,20 @@ def dead_lines(result: dict, block: str) -> list:
                 "classes this map holds in the file kinds its call graph "
                 f"reaches ({result['suffixes']}); a declaration in any other "
                 "language is not judged either way, because no row could ever "
-                "land on it"]
+                "land on it",
+                # Measured rather than guessed at: the resolver looks a callee
+                # name up in the table of function declarations, and a class
+                # name is in a table of its own beside it, so `Widget()`
+                # writes no row from inside a function either. That is why
+                # `dead` on this project's own `suite` fixture returns
+                # `CheckoutPage`, which a step module constructs at module
+                # level: it is the construction that is missing from the
+                # graph, not the module level.
+                "- a class is reached here only through something declared "
+                "inside it: the resolver places a callee by the function "
+                "declarations it indexed and holds class names in a table of "
+                "its own, so constructing a class writes no calls row and a "
+                "class only ever constructed is above"]
         rows += [f"- left out: {rule}" for rule in DEAD_EXCLUDED]
         if result["guessed"]:
             rows.append(

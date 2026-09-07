@@ -3950,19 +3950,48 @@ jobs:
           # And what `dead` says about the same fixture, so the flagship
           # suite is not the one map no step ever runs this against. One row,
           # and that row is a known false positive: `build_fixtures.py` has
-          # the steps module do `page = CheckoutPage()` at module level, and
-          # a `calls` row's subject is `<file>:<func>`, so a call outside any
-          # function has no shape to be recorded in. Recording it would mean
-          # a synthetic subject and a new `xrefs` meaning, which is a mapper
-          # change and not this release's.
+          # the steps module do `page = CheckoutPage()` at module level.
+          #
+          # The module level is not what makes it invisible. The resolver
+          # looks a callee name up in the table of function declarations and
+          # holds class names in a table of its own, so constructing a class
+          # writes no `calls` row from inside a function either. Recording
+          # module-level calls under a synthetic `<file>:<module>` subject was
+          # measured against this fixture and adds nothing here: 0 new rows on
+          # `suite`, 8 on this repository's own map, and this row stays. What
+          # would move it is making a construction an edge, which is a change
+          # to what a `calls` row means, and a mapper change rather than this
+          # release's. `dead`'s own `## How this was counted` block states the
+          # rule, which is the sentence the next two assertions guard.
           rows = graph.dead(m, 40)
           names = [n for _rel, pairs in rows["files"] for n, _line in pairs]
           print(f"dead on the suite fixture: {rows['total']} row(s), {names}")
           assert names == ["CheckoutPage"], names
           assert not [x for x in m["xrefs"]
                       if x.get("edge") == "calls" and x.get("object") == "CheckoutPage"], \
-              "a module-level construction is in the graph now; drop this caveat"
+              "a construction is in the graph now; drop this caveat"
+          said = graph.dead_lines(rows, "counted")
+          assert any("constructing a class writes no calls row" in r for r in said), said
+          print("the how-counted block names the rule that puts it there")
           sys.exit(0 if rows else 1)
+          EOF
+          # The same call from inside a function is equally absent, which is
+          # what says the module level is not the reason. `make()` calls
+          # `Widget()` and `w.go()`: one calls row, for `go`.
+          rm -rf /tmp/ctor
+          mkdir -p /tmp/ctor/a /tmp/ctor/b
+          printf 'class Widget:\n    def go(self):\n        return 1\n' > /tmp/ctor/a/w.py
+          printf 'from a.w import Widget\n\n\ndef make():\n    w = Widget()\n    return w.go()\n' > /tmp/ctor/b/m.py
+          where-are-we --repo /tmp/ctor --out /tmp/ctorm --product none --force \
+            --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          rows = [r for r in json.load(open("/tmp/ctorm/framework_map.json"))["xrefs"]
+                  if r["edge"] == "calls"]
+          got = sorted((r["subject"].rsplit("/", 1)[-1], r["object"]) for r in rows)
+          assert got == [("m.py:make", "go")], got
+          print("a constructor call from inside a function:", got,
+                "- the class name is not a callee anywhere")
           EOF
       - name: a page object owns a selector, and the word alone is not one
         run: |
