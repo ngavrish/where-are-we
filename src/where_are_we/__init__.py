@@ -15,7 +15,7 @@ except ImportError:  # run as a plain file, with no package around it
     from mapper import brief, build, digest  # type: ignore[no-redef]
 
 __all__ = ["build", "brief", "digest", "init_manifest", "main"]
-__version__ = "1.4.1"
+__version__ = "1.5.0"
 
 _FROM_CLI = frozenset(("init_manifest", "main"))
 

@@ -2,6 +2,12 @@
 
 ## 1.5.0
 
+What the neighbours in this space do better, taken: every home of a name with
+its span, one call that answers the five an agent asks on landing, a ranking of
+what the repository is built around, a content-addressed parse cache, a `tags`
+file, a cost report and an export, and every edge of the graph as a row that
+says which rule placed it.
+
 - Every home of a name, with the line it ends on. The map gains a key
   `spans`: `{name: [{file, start, end, kind}]}`, one row per declaration site,
   sorted by file then start. `definitions` is unchanged, so nothing reading it
@@ -128,18 +134,23 @@
   nothing, where it used to re-parse everything: a CI cache restored over a
   fresh checkout, a `cp -r`, a `tar x`, a container rebuild. Measured on this
   repository, 667 parses before and 0 after.
-- The parse cache schema is 4, and the file is smaller. A key and a hash name
-  their file relative to the directory the cache file is in rather than
-  absolutely, so the same path is not written out in full once per kind per
-  file; and an entry whose value is the empty list is written to an `empty`
-  section as its sha alone, which is most of the redaction diffs, since most
-  files hold nothing that looks like a credential. Measured on this
-  repository, 260 indexed files: `.wawe-cache.json` goes from 590,653 to
-  501,718 bytes, 15 percent, of which the entries are 516,359 to 449,253
-  across the two sections and the hashes 74,236 to 52,396. A schema 3 file is
-  read for its hashes, since a sha means the same thing in every release, and
-  its entries are dropped, so the first build after upgrading re-parses the
-  tree once and every build after that is warm.
+- The parse cache schema is 4, and no 1.4 cache is read. Three things changed
+  its shape over this release, and one number says so: an entry is validated
+  by the sha256 of the file's bytes rather than by its mtime and size;
+  `ts:<lang>` stored a list of names and now stores `[name, start, end, kind]`
+  rows, which an old entry read under the new code would index a character out
+  of; and a key and a hash now name their file relative to the directory the
+  cache file is in rather than absolutely, so the same path is not written out
+  in full once per kind per file. An entry whose value is the empty list is
+  written to a new `empty` section as its sha alone, which is most of the
+  redaction diffs, since most files hold nothing that looks like a credential.
+  Measured on this repository, 260 indexed files, the last two of those
+  changes take `.wawe-cache.json` from 590,653 to 501,718 bytes, 15 percent:
+  the entries from 516,359 to 449,253 across the two sections and the hashes
+  from 74,236 to 52,396. A file written by an earlier schema is read for its
+  hashes, since a sha means the same thing in every release, and dropped for
+  its entries, so the build after an upgrade re-parses the tree once and every
+  build after that is warm.
 - `HASHES_ADDED` and `HASHES_GONE` are on the `mapper` facade beside
   `HASHES_MOVED`, so a library caller reading what a build found through the
   facade gets all three lists rather than a third of the answer.
@@ -282,11 +293,16 @@
   a map of two roots holds the rows of both. The `calls` and `imports` rows
   are the first root's, as `call_graph_files` and `import_graph` are, and the
   second root's map is under `also`.
-- The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
-  list of names and now stores a list of `[name, start, end, kind]` rows, and
-  an old entry read under the new code would index a character out of a
-  string. Neither is a 1.5.0 cache written before the key changed shape, since
-  an entry validated by hash has no hash in it.
+- Every `spans` site is an absolute path. The page object and public API
+  tables used to record one relative to whichever root was being walked, and
+  `spans` does not say which root that was, so the two things written from the
+  key had to put a root back on and did it in opposite directions: `xrefs`
+  joined a relative site onto the first root it existed under, which under
+  `--also` could name a file that is not there, and the `tags` file took a
+  root off an absolute one. One spelling in the key, one rule per consumer:
+  `xrefs` copies the path through, and `tags` relativises every row against
+  the map's root, so a file an `--also` root owns is the `../` path that
+  reaches it from this one.
 - Upgrading does not add `spans` to a map that is already on disk. A build
   skips a tree that has not moved, so run `where-are-we --repo . --out ...
   --force` once after upgrading, or wait for the next commit. Until then
