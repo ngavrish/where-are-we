@@ -56,6 +56,13 @@ _ROUTE_FILE = re.compile(r"\(([^()]+)\)\s*$")
 # leaves the angle brackets alone, so this finds them after escaping.
 _OUTLINE_SLOT = re.compile(r"<[^>]*>")
 
+# How many `--name` arguments a behave selection prints one per scenario
+# before it alternates each feature file's names into one argument instead.
+# A command line has a length: 200 names of a suite's own scale is a few
+# kilobytes, which every shell carries, and a selection ten times that is
+# better sent as eight regular expressions than as two thousand arguments.
+NAME_ARGS = 200
+
 
 def load(map_dir: str) -> dict:
     """`framework_map.json` under `map_dir`, or `{}` when there is none.
@@ -277,17 +284,10 @@ def _blocks_from(m: dict, root: str, wanted: list, depth: int, seen: dict,
 
     total = sum(len(f.get("scenarios") or ())
                 for f in (m.get("features") or {}).values())
-    # How many scenarios each feature file holds, so the behave selection can
-    # tell a file every scenario of which is affected, which one `-i` selects
-    # exactly, from a file where only some are and which needs one `--name`
-    # each.
-    held = {rel: len(entry.get("scenarios") or ())
-            for rel, entry in (m.get("features") or {}).items()}
     return {"files": list(wanted), "depth": depth, "scenarios": scenarios,
             "features": features, "routes": routes, "pages": pages,
             "steps": steps, "pytest": cases, "unreachable": unreachable,
-            "total_scenarios": total, "unbound": unbound,
-            "file_scenarios": held}
+            "total_scenarios": total, "unbound": unbound}
 
 
 def _scenarios(m: dict, root: str, wanted: list, by_phrase: dict) -> tuple:
@@ -463,20 +463,44 @@ def format_head(result: dict, block: str) -> str:
     """
     if block == "pytest":
         return "## pytest node ids, one per line"
+    if not result["scenarios"]:
+        return "## behave selection"
+    if _combined(result):
+        return ("## behave selection, one argument pair per line for `xargs "
+                f"behave`: more than {NAME_ARGS} scenarios, so one --name per "
+                "feature file alternating its affected scenarios; two "
+                "scenarios of one name are one selector and behave runs both")
     return ("## behave selection, one argument pair per line for `xargs "
-            "behave`: --name per affected scenario, and -i for a feature file "
-            "only where every scenario in it is affected")
+            "behave`: one --name per affected scenario; two scenarios of one "
+            "name are one selector and behave runs both")
 
 
 def _behave_lines(result: dict) -> list:
     """The behave arguments that select exactly the scenarios named above.
 
-    One `--name` per affected scenario, anchored on the whole name, and one
-    `-i` for a feature file every scenario of which is affected, which selects
-    the same set in one argument instead of one per scenario. The `-i` pattern
-    is anchored on a path separator and on the end of the name: without that,
-    `features/pay.feature` would also select `features/pay.feature.bak` and a
-    directory whose name ends in the same letters.
+    One `--name` per affected scenario, anchored on the whole name, and
+    nothing else. `--name` is the only behave option that can express this
+    selection: it is `action="append"`, so several of them are a union, and
+    it is matched against a scenario's name wherever that scenario lives.
+
+    `-i` cannot. It was tried, for a feature file every scenario of which is
+    affected, and it is wrong twice over in behave 1.3.3: `--include` is a
+    plain `store`, so the last `-i` on the line overwrites every earlier one,
+    and it filters which files are collected at all, so it intersects with
+    `--name` rather than adding to it. Measured: a change affecting all 24
+    scenarios of 8 feature files selected 3 of them, and a change affecting
+    one whole file and half of another selected none of the three it named.
+    Under-selection, again, so brevity loses to correctness and every
+    scenario gets its own argument.
+
+    Above `NAME_ARGS` scenarios the names of one feature file are alternated
+    into a single `--name` for that file, because a command line has a length
+    and a selection of a thousand scenarios has to survive it. Same regular
+    expression, same anchors, one argument per file rather than per scenario.
+
+    Two scenarios of one name in one file are one `--name`, and behave runs
+    both. That over-selects rather than under-selects, and the block above
+    names each of them with its own line.
 
     No tag is ever emitted. behave applies `--tags` per scenario, and the map
     records the tags of a feature file as every `@word` anywhere in it,
@@ -491,32 +515,53 @@ def _behave_lines(result: dict) -> list:
     narrowed.
 
     `--name` is a regular expression behave searches the scenario's name
-    with. The name is escaped and anchored at both ends, with two allowances
-    for a scenario outline, whose rows behave runs under a name of its own:
-    it substitutes each example's values into the name and appends ` -- @1.1`
-    to it, so `Scenario Outline: Pay in <currency>` runs as `Pay in GBP --
-    @1.1`. A `<placeholder>` is therefore matched by anything and the suffix
-    is allowed after the name. Measured with behave 1.3.3: without those two
-    an outline is skipped by its own selector, which is the silent
-    under-selection this whole answer is shaped to prevent.
+    with, and `_name_pattern` is how one is written.
     """
     if not result["scenarios"]:
-        return ["no feature file in this map is reached by a change to "
-                "these files"]
-    by_file: dict = {}
-    for rel, name, _line, _why in result["scenarios"]:
-        by_file.setdefault(rel, []).append(name)
+        return ["nothing to run: no scenario in this map is reached by a "
+                "change to these files"]
+    by_file = _behave_names(result)
+    combined = _combined(result)
     out = []
-    for rel in sorted(by_file):
-        names = list(dict.fromkeys(by_file[rel]))
-        if len(names) >= result["file_scenarios"].get(rel, 0):
-            out.append("-i " + shlex.quote(f"(^|/){re.escape(rel)}$"))
+    for rel, names in by_file.items():
+        if combined:
+            out.append("--name " + shlex.quote(_name_pattern(*names)))
             continue
-        for name in sorted(names):
-            out.append("--name " + shlex.quote(_name_pattern(name)))
+        out += ["--name " + shlex.quote(_name_pattern(name)) for name in names]
     return out
 
 
-def _name_pattern(name: str) -> str:
-    """One scenario name as the regular expression `behave --name` takes."""
-    return "^" + _OUTLINE_SLOT.sub(".*", re.escape(name)) + "( -- @|$)"
+def _behave_names(result: dict) -> dict:
+    """`{feature file: [scenario names]}` for the scenarios this change
+    reaches, both keys and names sorted, each name once."""
+    by_file: dict = {}
+    for rel, name, _line, _why in result["scenarios"]:
+        names = by_file.setdefault(rel, [])
+        if name not in names:
+            names.append(name)
+    return {rel: sorted(by_file[rel]) for rel in sorted(by_file)}
+
+
+def _combined(result: dict) -> bool:
+    """Whether this selection is more `--name` arguments than one command
+    line should carry, and so is alternated one per feature file."""
+    return sum(len(names) for names in _behave_names(result).values()) > NAME_ARGS
+
+
+def _name_pattern(*names: str) -> str:
+    """Scenario names as the regular expression `behave --name` takes.
+
+    Anchored at both ends, with two allowances for a scenario outline, whose
+    rows behave runs under a name of its own: it substitutes each example's
+    values into the name and appends ` -- @1.1` to it, so `Scenario Outline:
+    Pay in <currency>` runs as `Pay in GBP -- @1.1`. A `<placeholder>` is
+    therefore matched by anything and the suffix is allowed after the name.
+    Measured with behave 1.3.3: without those two an outline is skipped by its
+    own selector, which is the silent under-selection this whole answer is
+    shaped to prevent.
+
+    Several names alternate inside one group, which is what the combined form
+    of a large selection prints.
+    """
+    inner = "|".join(_OUTLINE_SLOT.sub(".*", re.escape(name)) for name in names)
+    return "^" + (inner if len(names) == 1 else f"({inner})") + "( -- @|$)"
