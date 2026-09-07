@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.5.0
+
+- Every home of a name, with the line it ends on. The map gains a key
+  `spans`: `{name: [{file, start, end, kind}]}`, one row per declaration site,
+  sorted by file then start. `definitions` is unchanged, so nothing reading it
+  moves; what changes is that a name declared in two files no longer keeps
+  whichever of them the walk reached first and says nothing about the other.
+  The end line is `ast`'s own `end_lineno` for Python and a tree-sitter node's
+  `end_point` where a grammar is installed; for a language the pattern table
+  reads it is null and prints as `?`, because a pattern has seen the line a
+  declaration starts on and nothing that says where it stops, and a guessed
+  end is worse than none for anyone editing by anchor.
+- `--defines NAME` and the MCP `defines` tool list every home:
+  `charge: a.py:10-24 (function), b.py:88-91 (function)`. The flag is new; the
+  tool answered with one home per name before, chosen by directory order.
+- `--at FILE:LINE` and the MCP `at` tool return the whole definition enclosing
+  a line, which is the move after every stack trace and was until now a read
+  at a guessed offset. The innermost definition, whole lines, cut to the
+  answer budget with a `more:at:` handle for the rest. A line no definition
+  encloses is answered with `no definition encloses FILE:LINE` and the nearest
+  declarations, rather than with the wrong function.
+- The parse cache schema is 2. A 1.4 cache is not read: what a steps module
+  stores gained the spans of its step functions, and an old entry would come
+  back as a module that declares none.
+
 ## 1.4.1
 
 - Receivers the syntax settles. A call written `NAME.callee(...)` used to be

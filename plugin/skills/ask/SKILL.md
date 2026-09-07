@@ -27,10 +27,11 @@ line), and `find`'s hits past its limit (`more:find:`).
   finds more than "how is a settled invoice refunded".
 - **One call, several questions.** `words` is a list: `["refund", "invoice
   settled", "MAX_RETRIES"]` is one round trip, three answers.
-- **Names go to `defines`, phrases go to `find`.** `ask` ranks sections;
-  `defines(name=[...])` answers "where is X declared" with a line, and
-  `find(phrase=[...])` answers "where does this step / string live". Use the
-  narrower tool when you have a name.
+- **Names go to `defines`, phrases go to `find`, lines go to `at`.** `ask`
+  ranks sections; `defines(name=[...])` answers "where is X declared" with
+  every home and its span, `at(place=["f.py:147"])` answers "what is this line
+  inside" with the whole definition, and `find(phrase=[...])` answers "where
+  does this step / string live". Use the narrower tool when you have a name.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

@@ -27,7 +27,10 @@ message after you open it.
    first, through the MCP tools of the `where-are-we` server:
    - `ask(words=[...])` - the rows that mention those words, whole, section by
      section, with a count of what was left out.
-   - `defines(name=[...])` - where a name is declared, with the line.
+   - `defines(name=[...])` - every place a name is declared, first line to
+     last.
+   - `at(place=["file.py:147"])` - the whole definition enclosing a line, for
+     a stack trace or a failure you were handed.
    - `find(phrase=[...])` - where a phrase (a step, a string) lives.
    - `sections()` - the section headings.
    All take lists: ask for everything you need in one call.

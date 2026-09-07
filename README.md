@@ -154,6 +154,8 @@ as estimates.
 | `--ask` synonyms and stemming | "login" also searches "signin", "auth"; "invoices" also searches "invoice"; a synonym or a stem scores at half the weight of the literal word, so it never outranks an exact hit; the first line says `(also matched: signin, auth)` when an expansion found something the literal words did not; `.wawe.toml`'s `[synonyms]` table adds a project's own words to the built-in groups | Not measured | — |
 | Rows under one directory printed once | `- \`features/checkout/\`` then the files | Not measured | Bytes of an answer before/after on a 40-row directory |
 | `## Defined here` (`defines`, `_definitions_for`) | A name → file:line, every declared name in every walked file | Not measured as turns saved; the README's claim is one question instead of `grep -rn` | Count `Grep` calls per session before/after (the run's call events) |
+| `defines` (MCP), `--defines NAME`, the map's `spans` key | Every home of a name, not the first one walked: `charge: a.py:10-24 (function), b.py:88-91 (function)`, sorted by file then start, with the kind of each. The end line is exact where a parser knew it (`ast` for Python, a tree-sitter node with the `precise` extra) and `?` where the pattern table read the language, which sees where a declaration starts and not where it stops. `definitions` keeps its one-home shape, so nothing that reads it moves | Measured 2026-09-07 on this repository's own map: 544 names over 605 declaration sites, 37 of the names declared in more than one place, and before this those 37 answered with one file chosen by walk order. 130 of the 605 sites carry no end, which is every site the pattern table found. The map grew from 1,908,459 to 2,029,477 bytes and a cold build from 2.21 to 2.32 seconds | Count the names your own map declares twice: `jq '[.spans[]|select(length>1)]|length' framework_map.json` |
+| `at` (MCP), `--at FILE:LINE` | The whole definition enclosing a line, the way a stack trace names it: the innermost one, whole lines, from the map's own line index rather than the file. Cut to the answer budget with a `more:at:` handle for the rest. A line nothing encloses is answered `no definition encloses FILE:LINE` with the nearest declarations, never with the wrong function | Not measured as turns saved; the claim is one lookup instead of a `Read` at a guessed offset and a second one when the guess cut the function in half | Count `Read` calls that follow a stack trace before/after |
 | Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. Three calls are no edge at all: one to a name the calling file declares itself, one made through a module this tree does not declare, which is what `ast.walk(...)` and `from os import path` then `path.join(...)` are, and one on a receiver the function built out of a builtin, which is what `out = set()` then `out.add(key)` is. A parameter's default counts as what the function bound, `None` excepted; `*args` and `**kwargs` are a tuple and a dict; a name a nested function never binds is the one written around it; and `d.setdefault(k, set())` is a set whatever `d` is. Two more are read further: a receiver that is a file of this tree carrying a name it does not declare is followed through its own import lines to the file with the `def`, and `self.name(...)` goes to the class the method is in or to the one base that declares it, where the file says where that base came from. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 1 of the edges under them carries the mark, and it is a call on `d[k]`, which is the shape nothing written in the file settles. Mapping the previous release's own checkout with both releases, the same tree and the same 60 keys, the count goes from 20 marks to 1 | Count `Grep` calls spent chasing a callee across files before/after |
 | `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2308 sites, 561 first-party, rate 0.2431, 107 ambiguous names (share 0.0464), 156 edges and 4 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
@@ -452,6 +454,30 @@ constants, types, step phrases, scenario names. A question about a name is a
 question about where it is, and an answer without the line sends the reader to
 grep for it anyway.
 
+A name may have more than one home, and `--defines` names all of them with the
+line each one ends on:
+
+```console
+$ where-are-we --defines charge
+
+charge: billing/core.py:10-24 (function), legacy/pay.py:88-91 (function)
+```
+
+An end of `?` is a language the pattern table read: it has seen the line the
+declaration starts on and nothing that says where it stops, and a guessed end
+would be worse than none for anyone editing by anchor. The other direction of
+the same index is `--at`, which takes the `file:line` a stack trace hands you
+and prints the definition around it, so the next step is not a `Read` at a
+guessed offset:
+
+```console
+$ where-are-we --at billing/core.py:15
+
+billing/core.py:10-24 charge (function)
+def charge(amount):
+    ...
+```
+
 When a name is not there, the answer says what was indexed rather than declaring
 the absence real. A map that overstates its reach turns "I did not look" into
 "it is not there".
@@ -585,6 +611,8 @@ sixty-four thousand, every turn.
 | `--ask "words"` (with `[semantic]`) | the keyword hits plus a "Related by meaning" tail from a local embedding index |
 | `--corpus NAME=PATH` | fold an external corpus (a rules dir, a runbook) into the same semantic answers |
 | `--no-semantic` | skip the embedding index even when fastembed is installed |
+| `--defines NAME` | every place that name is declared, each as `file:start-end (kind)`, in path order |
+| `--at FILE:LINE` | the whole definition that encloses that line, with a handle for the rest of it |
 | `--mcp` | serve the map over MCP on stdin/stdout instead of answering once |
 | `--sections` | the section headings |
 
@@ -884,6 +912,8 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --quiet                      no summary line
 --dry-run                    print every path this command would write, and
                              write none of them
+--defines NAME               every place NAME is declared, with its span
+--at FILE:LINE               the whole definition that encloses that line
 --effects [--json]           what every flag does to the disk; with
                              `-- <command line>`, the class of that line
 ```
@@ -896,9 +926,12 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 where-are-we --mcp --out /path/to/the/map
 ```
 
-Four tools — `ask`, `defines`, `find`, `sections` — over JSON-RPC on stdin and
-stdout. `defines` answers where a name is declared; `find` answers where a phrase
-appears, which is the other half of what a grep was for.
+Nine tools over JSON-RPC on stdin and stdout: `ask`, `defines`, `at`, `find`,
+`sections`, `callers`, `callees`, `impact` and `more`. `defines` answers where a
+name is declared, in every file that declares it, with the line each declaration
+ends on; `at` takes the `file:line` a stack trace names and returns the whole
+definition around it; `find` answers where a phrase appears, which is the other
+half of what a grep was for.
 The same index answering the same questions; what changes is that the question is
 an argument and the answer is a tool result, rather than a shell command and its
 output sitting in the conversation to be re-read on every turn after.

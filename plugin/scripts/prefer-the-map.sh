@@ -39,7 +39,8 @@ print(json.dumps({"hookSpecificOutput": {
     "permissionDecision": "deny",
     "permissionDecisionReason": (
         "This repository has a map; ask it instead of searching. Where a name "
-        "is defined: where-are-we defines(name=[...]). Where a phrase lives: "
+        "is defined: where-are-we defines(name=[...]). What a line is inside: "
+        "at(place=[...]). Where a phrase lives: "
         "find(phrase=[...]). Anything else: ask(words=[...]). Lists, so ask for "
         "everything in one call. (WAWE_STRICT=1 refuses repository searches.)")}}))
 PY

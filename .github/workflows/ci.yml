@@ -189,6 +189,98 @@ jobs:
           if grep -q "commented" /tmp/langsmap/framework_map*.md; then
             echo "unexpected match: grep -q 'commented' /tmp/langsmap/framework_map*.md"; exit 1
           fi
+      - name: a name declared twice names both files, with its span
+        run: |
+          set -o pipefail
+          rm -rf /tmp/spans
+          mkdir -p /tmp/spans/r
+          python - <<'EOF'
+          import pathlib
+          # charge on 10, ending on 24: a body long enough that a wrong end
+          # line is a different answer rather than an off-by-one nobody sees.
+          a = ["import os", "", "", "def helper():", "    return 1", "", "",
+               "class Billing:", '    """what a Billing is."""',
+               "def charge(amount):", "    total = amount",
+               "    for i in range(3):", "        total += i",
+               "    if total > 5:", "        total = 5",
+               "    elif total < 0:", "        total = 0",
+               "    else:", "        total += 1",
+               "    while total > 99:", "        total -= 1",
+               "    if total == 3:", "        return 3", "    return total",
+               "", "", "def other():", "    return 2"]
+          pathlib.Path("/tmp/spans/r/a.py").write_text("\n".join(a) + "\n")
+          # The same name again, in another file, on 88 to 91.
+          b = ["#!/usr/bin/env python3"] + [f"# filler line {i}" for i in range(2, 88)]
+          b += ["def charge(amount):", "    if amount:", "        return amount",
+                "    return 0", "", "", "def tail():", "    return 0"]
+          pathlib.Path("/tmp/spans/r/b.py").write_text("\n".join(b) + "\n")
+          # A language the pattern table reads, with its one name on line 10.
+          d = [f"// header {i}" for i in range(1, 10)]
+          d += ["export function settle(a) {", "  return a;", "}"]
+          pathlib.Path("/tmp/spans/r/d.ts").write_text("\n".join(d) + "\n")
+          EOF
+          where-are-we --repo /tmp/spans/r --out /tmp/spans/m --product none \
+            --quiet --no-semantic
+          # Both homes, in path order, each with its span and its kind.
+          where-are-we --out /tmp/spans/m --defines charge | tee /tmp/spans/defines.txt
+          grep -qx 'charge: /tmp/spans/r/a.py:10-24 (function), /tmp/spans/r/b.py:88-91 (function)' \
+            /tmp/spans/defines.txt
+          # `definitions` keeps its shape: one home, the first walked.
+          python -c "
+          import json
+          m = json.load(open('/tmp/spans/m/framework_map.json'))
+          assert isinstance(m['definitions']['charge'], str), m['definitions']['charge']
+          sites = m['spans']['charge']
+          assert [(s['file'], s['start'], s['end'], s['kind']) for s in sites] == [
+              ('/tmp/spans/r/a.py', 10, 24, 'function'),
+              ('/tmp/spans/r/b.py', 88, 91, 'function')], sites
+          assert m['definitions']['charge'] in ('/tmp/spans/r/a.py:10',
+                                                '/tmp/spans/r/b.py:88'), m['definitions']['charge']
+          print('spans: two homes for charge, definitions unchanged')
+          "
+          # The whole enclosing definition for a line inside it, and nothing else.
+          where-are-we --out /tmp/spans/m --at /tmp/spans/r/a.py:15 > /tmp/spans/at.txt
+          head -1 /tmp/spans/at.txt | grep -qx '/tmp/spans/r/a.py:10-24 charge (function)'
+          tail -n +2 /tmp/spans/at.txt > /tmp/spans/at.py
+          sed -n '10,24p' /tmp/spans/r/a.py > /tmp/spans/want.py
+          diff -u /tmp/spans/want.py /tmp/spans/at.py
+          python -c "import ast; ast.parse(open('/tmp/spans/at.py').read()); print('--at returns text a parser accepts')"
+          # A language read by the pattern table says where the declaration
+          # starts and refuses to invent where it stops.
+          where-are-we --out /tmp/spans/m --defines settle | tee /tmp/spans/settle.txt
+          grep -qx 'settle: /tmp/spans/r/d.ts:10-? (function)' /tmp/spans/settle.txt
+          if grep -q '10-1' /tmp/spans/settle.txt; then
+            echo "unexpected match: grep -q '10-1' /tmp/spans/settle.txt"; exit 1
+          fi
+          # No end is no enclosure: the line inside it is answered with the
+          # nearest declaration rather than with a guess.
+          where-are-we --out /tmp/spans/m --at /tmp/spans/r/d.ts:11 | tee /tmp/spans/nots.txt
+          grep -q 'no definition encloses /tmp/spans/r/d.ts:11 (nearest: settle /tmp/spans/r/d.ts:10-? (function))' \
+            /tmp/spans/nots.txt
+          # The MCP tools and the flags are the same answer, byte for byte.
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"defines","arguments":{"name":"charge"}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"at","arguments":{"place":"a.py:15"}}}' \
+            | where-are-we --out /tmp/spans/m --mcp > /tmp/spans/mcp.jsonl
+          where-are-we --out /tmp/spans/m --at a.py:15 > /tmp/spans/at-rel.txt
+          python -c "
+          import json, pathlib
+          rows = [json.loads(l) for l in open('/tmp/spans/mcp.jsonl')]
+          names = sorted(t['name'] for t in rows[0]['result']['tools'])
+          assert 'at' in names, names
+          for i, path in ((1, '/tmp/spans/defines.txt'), (2, '/tmp/spans/at-rel.txt')):
+              mcp = rows[i]['result']['content'][0]['text']
+              cli = pathlib.Path(path).read_text()
+              assert mcp == cli.rstrip('\n'), (path, mcp, cli)
+          print('MCP defines/at and --defines/--at agree, byte for byte')
+          "
+          grep -q '\"tool\": \"at\"' /tmp/spans/m/.wawe-ask.log
+          # Two builds of the same tree, byte for byte.
+          where-are-we --repo /tmp/spans/r --out /tmp/spans/m2 --product none \
+            --quiet --no-semantic
+          diff -u /tmp/spans/m/framework_map.json /tmp/spans/m2/framework_map.json
+          diff -u /tmp/spans/m/framework_map.md /tmp/spans/m2/framework_map.md
       - name: who calls X
         run: |
           mkdir -p /tmp/wc
@@ -365,8 +457,8 @@ jobs:
           import json, pathlib
           rows = [json.loads(l) for l in open("/tmp/imp/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
-          assert names == ["ask", "callees", "callers", "defines", "find",
-                           "impact", "more", "sections"], names
+          assert names == ["ask", "at", "callees", "callers", "defines",
+                           "find", "impact", "more", "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -2657,8 +2749,8 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/more/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
-          assert names == ["ask", "callees", "callers", "defines", "find",
-                           "impact", "more", "sections"], names
+          assert names == ["ask", "at", "callees", "callers", "defines",
+                           "find", "impact", "more", "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
