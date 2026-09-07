@@ -2871,7 +2871,7 @@ jobs:
           EOF
           where-are-we --out /tmp/rch/golden/code/out --unreached > /tmp/rch/code.txt
           cat /tmp/rch/code.txt
-          head -1 /tmp/rch/code.txt | grep -qx 'This map names no step function and no test case, so there is nothing to reach from and nothing here can be called unreached. The graph resolved 0 of 7 callee names (0 percent).'
+          head -1 /tmp/rch/code.txt | grep -qx 'This map names no step function and no test case, so there is nothing to reach from and nothing here can be called unreached. The graph resolved 0 of 7 callee names (0 percent). There are no call graph edges in this map, so every walk here stops where it starts: what is missing is the graph, not the tests.'
           grep -qF -- '- entry points: 0 step functions, 0 pytest cases, 0 declarations' /tmp/rch/code.txt
           if grep -q 'Product definitions' /tmp/rch/code.txt; then
             echo "a map with no entry point listed definitions as unreached"; exit 1
@@ -3149,6 +3149,52 @@ jobs:
           # 16. Both flags only read.
           where-are-we --out /tmp/rch/m --reaches charge --dry-run | grep -qx 'nothing to write: --reaches only read'
           where-are-we --out /tmp/rch/m --unreached --dry-run | grep -qx 'nothing to write: --unreached only read'
+          # 17. A map whose graph is empty says so, in all three answers.
+          #     The resolution rate alone does not catch this: a JavaScript
+          #     suite calls its product from the arrow passed to `it(...)`,
+          #     which is not a declared function, so the extractor never scans
+          #     it. Every callee name it did look at is resolved, the rate
+          #     reads 100 percent, and there is no edge to walk.
+          mkdir -p /tmp/rch/js/src /tmp/rch/js/test
+          cat > /tmp/rch/js/src/cart.js <<'EOF'
+          export function total(items) { return items.length; }
+          export function unusedHelper(x) { return x; }
+          EOF
+          cat > /tmp/rch/js/test/cart.spec.js <<'EOF'
+          import { total } from "../src/cart.js";
+
+          describe("cart", () => {
+            it("adds up", () => {
+              expect(total([1, 2])).toBe(2);
+            });
+          });
+          EOF
+          where-are-we --repo /tmp/rch/js --out /tmp/rch/jsm --product none \
+            --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          stats = json.load(open("/tmp/rch/jsm/framework_map.json"))["call_graph_stats"]
+          sites = sum(r["sites"] for r in stats.values())
+          resolved = sum(r["resolved"] for r in stats.values())
+          edges = sum(r["edges"] for r in stats.values())
+          assert sites and resolved == sites and edges == 0, stats
+          print("call_graph_stats:", stats, "-", resolved, "of", sites,
+                "names resolved and", edges, "edges")
+          EOF
+          SAID='There are no call graph edges in this map, so every walk here stops where it starts: what is missing is the graph, not the tests.'
+          for answer in '--unreached' '--reaches total' '--affected src/cart.js'; do
+            # shellcheck disable=SC2086
+            where-are-we --out /tmp/rch/jsm $answer | head -1 | grep -qF -- "$SAID"
+          done
+          echo "all three answers on a 100-percent-resolved map with no edge say so"
+          # And a map that does hold edges does not say it, so the sentence is
+          # about the graph and not printed everywhere.
+          for answer in '--unreached' '--reaches charge' '--affected app/billing.py'; do
+            # shellcheck disable=SC2086
+            if where-are-we --out /tmp/rch/m $answer | grep -qF -- "$SAID"; then
+              echo "the empty-graph sentence was printed for a map with edges"; exit 1
+            fi
+          done
       - name: path shows one chain, with how each hop was resolved
         run: |
           set -o pipefail

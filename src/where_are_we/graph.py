@@ -392,7 +392,8 @@ def _blocks_from(m: dict, root: str, wanted: list, depth: int, seen: dict,
     return {"files": list(wanted), "depth": depth, "scenarios": scenarios,
             "features": features, "routes": routes, "pages": pages,
             "steps": steps, "pytest": cases, "unreachable": unreachable,
-            "total_scenarios": total, "unbound": unbound}
+            "total_scenarios": total, "unbound": unbound,
+            "no_edges": edge_count(m) == 0}
 
 
 def _scenarios(m: dict, root: str, wanted: list, by_phrase: dict) -> tuple:
@@ -486,6 +487,34 @@ def _binds(known: list, body: list, line: int, end: int) -> bool:
     return False
 
 
+def edge_count(m: dict) -> int:
+    """How many cross-file `calls` edges the walk wrote, over every language.
+
+    `resolution()` counts callee names some indexed file declares, and a name
+    the caller's own file declares is resolved without ever becoming an edge,
+    so a map can report 100 percent resolution and hold no edge at all. A
+    JavaScript suite does exactly that: the call sits in the arrow passed to
+    `it(...)`, which is not a declared function, so the extractor never scans
+    it and `call_graph_stats` comes back `{'ts_js': {'sites': 3, 'resolved':
+    3, 'edges': 0}}`. Every upward walk then stops where it starts, and a
+    list of names under a head that does not say so reads as a coverage
+    report when it is a fact about the walk.
+    """
+    stats = m.get("call_graph_stats") or {}
+    return sum(int((row or {}).get("edges") or 0) for row in stats.values())
+
+
+# The one sentence `affected`, `reaches` and `unreached` add when the graph
+# all three walk holds nothing. One string, because the three answers are
+# wrong in the same way on such a map and a reader who learns the phrase in
+# one place should meet the same words in the other two. In the first line
+# and not only in a block, for the reason the `unreachable` sentence is:
+# a block is what a small budget gives up first.
+NO_EDGES = (" There are no call graph edges in this map, so every walk here "
+            "stops where it starts: what is missing is the graph, not the "
+            "tests.")
+
+
 def summary(result: dict, limit: int) -> str:
     """The first line of every answer: what was counted, and under what rules.
 
@@ -520,6 +549,8 @@ def summary(result: dict, limit: int) -> str:
         # way this tool can be actively wrong.
         head += (f" No xrefs row names {left} of the files given, so this "
                  f"answer says nothing about {'it' if left == 1 else 'them'}.")
+    if result["no_edges"]:
+        head += NO_EDGES
     return head
 
 
@@ -2000,7 +2031,8 @@ def reaches(m: dict, name: str) -> dict:
             # never leaves the repository root. Then this answer is a fact
             # about the map and not about the tests, and it has to say so.
             "offside": bool(sites) and not crosses_roots(m) and all(
-                os.path.isabs(rel) for rel, _s, _e, _k, _m in sites)}
+                os.path.isabs(rel) for rel, _s, _e, _k, _m in sites),
+            "no_edges": edge_count(m) == 0}
 
 
 def reaches_summary(result: dict, limit: int) -> str:
@@ -2036,6 +2068,8 @@ def reaches_summary(result: dict, limit: int) -> str:
     elif result["unbound"]:
         head += (f" {result['unbound']} of {result['total_scenarios']} "
                  "scenarios hold no step this map binds to a step function.")
+    if result["no_edges"]:
+        head += NO_EDGES
     return head
 
 
@@ -2123,6 +2157,7 @@ def unreached(m: dict, limit: int = UNREACHED_LIMIT) -> dict:
             "product_files": len(product), "suite": sorted(suite),
             "suite_files": len(suite), "rate": _rate(m), "skipped": 0,
             "crosses": crosses_roots(m),
+            "no_edges": edge_count(m) == 0,
             "outside": sorted(rel for rel in product if os.path.isabs(rel))}
     # With no entry point there is nothing to be unreached from, and a list
     # of every definition under a head that says so would be read as the
@@ -2185,18 +2220,23 @@ def unreached_summary(result: dict, limit: int) -> str:
            "walk never crosses into the product checked out beside the suite"
            f" ({_plural(len(result['outside']), 'file')}) and every name in "
            "it is below.")
+    # Beside the rate rather than after the gap: the rate is the caveat this
+    # line exists to carry, and an empty graph is the extreme case of it. A
+    # map can read 100 percent resolved and hold no edge, which is the one
+    # combination where the rate alone reassures a reader wrongly.
+    rate = result["rate"] + (NO_EDGES if result["no_edges"] else "")
     if not result["entries"]:
         return ("This map names no step function and no test case, so there "
                 "is nothing to reach from and nothing here can be called "
-                "unreached. " + result["rate"] + gap)
+                "unreached. " + rate + gap)
     if not result["total"]:
         return ("Every file with a declaration is one this map names as "
                 "suite, so there is no product side here to be unreached. "
-                + result["rate"] + gap)
+                + rate + gap)
     one = result["unreached"] == 1
     return (f"Unreached: {result['unreached']} of {result['total']} product "
             f"definitions {'has' if one else 'have'} no path up to a test. "
-            + result["rate"]
+            + rate
             + " A name below can be one the walk could not place rather "
               "than one nothing tests." + gap)
 
