@@ -672,6 +672,93 @@ def _name_pattern(*names: str) -> str:
     inner = "|".join(_OUTLINE_SLOT.sub(".*", re.escape(name)) for name in names)
     return "^" + (inner if len(names) == 1 else f"({inner})") + "( -- @|$)"
 
+# The declaration kinds a `calls` row can name. The graph this walks is a
+# call graph, so a constant or a type is never reached by it and would sit in
+# `unreached` for ever whatever the tests do; naming those would drown the
+# definitions the answer is about.
+#
+# The cost is one language idiom. `const charge = (amount) => amount` is a
+# function everywhere but in the map, which records it as kind `constant`,
+# with nothing beside it saying the value is callable: the pattern table sees
+# `export const NAME =` and stops there, and `spans` keeps no initialiser. So
+# an untested arrow function is neither in this list nor in its denominator.
+# `reaches` has no such limit and answers for a constant like any other name,
+# which is where a reader who suspects one goes. Stated in the block that
+# says how the count was made.
+CALLABLE_KINDS = ("class", "function")
+
+# Definitions no answer about coverage counts, whatever the graph says. A
+# module's entry point is called by the runtime rather than by anything the
+# map can see, and `__init__` is called by every construction of its class
+# without a `calls` row naming it. One tuple, here, because `dead` asks the
+# same question of the same graph and two answers disagreeing about the same
+# definition is worse than either rule.
+ENTRY_POINTS = ("main", "__main__", "__init__")
+
+# What a path looks like when the file on it is test scaffolding rather than
+# product: the runner's own helpers, a conftest, a fixture builder. The map
+# names the files each runner holds cases in, and those are handled as suite;
+# this catches the modules beside them that declare no case and would
+# otherwise be counted as product nothing tests, which is true and useless.
+# `features/` and `e2e/` are not here on purpose: a product with a
+# `features/` package is commoner than a suite this rule would catch that the
+# map's own `features` key does not, and the cost of a false positive is a
+# whole directory of product silently leaving the answer.
+_TEST_DIRS = ("tests/", "test/", "spec/", "specs/")
+_TEST_NAMES = ("conftest.py",)
+
+
+def _is_test_path(rel: str) -> bool:
+    """Whether one repository-relative path is test scaffolding."""
+    here = rel.replace(os.sep, "/")
+    base = here.rpartition("/")[2]
+    if base in _TEST_NAMES or base.startswith("test_"):
+        return True
+    stem = base.rpartition(".")[0] or base
+    if stem.endswith(("_test", "_spec", ".test", ".spec", "Test", "Spec")):
+        return True
+    return any(here.startswith(d) or f"/{d}" in here for d in _TEST_DIRS)
+
+
+# Where the map already says the suite is, key by key. Nothing here guesses
+# from a directory name: `page_objects` and `drivers` are lists of paths,
+# `features`, `steps`, `pytest_tests`, `js_tests`, `fixtures`, `perf_suites`
+# and `helpers` are keyed by path, and `other_suites`/`more_suites` hold one
+# such mapping per runner. Everything the walk indexed and none of these
+# names is the product side: the code the tests are about, whether it sits
+# under a product root of its own (`indexed` counts that side separately) or
+# beside the suite in one repository.
+#
+# The precision of that split is the precision of the heuristics that filled
+# those keys. A product module the mapper miscalls a page object is not
+# product here, is not in the count, and is not in the list. So the files set
+# aside are printed, in a block of their own, rather than only counted.
+_SUITE_LISTS = ("page_objects", "drivers", "behave_environment_files",
+                "api_tests")
+_SUITE_KEYED = ("features", "steps", "pytest_tests", "js_tests", "fixtures",
+                "perf_suites", "helpers")
+_SUITE_RUNNERS = ("other_suites", "more_suites")
+
+# The subset of those that hold tests rather than what a test drives. A page
+# object method nothing calls is a question for `dead`; a test case nothing
+# calls is the entry point every other answer here is walked from.
+_TEST_LISTS = ("api_tests",)
+_TEST_KEYED = ("js_tests", "perf_suites")
+_TEST_RUNNERS = _SUITE_RUNNERS
+
+
+def _paths(m: dict, lists: tuple, keyed: tuple, runners: tuple) -> set:
+    """The repository-relative paths those keys name, whatever their shape."""
+    out = set()
+    for key in lists:
+        out.update(str(rel) for rel in (m.get(key) or ()) if rel)
+    for key in keyed:
+        out.update(str(rel) for rel in (m.get(key) or {}) if rel)
+    for key in runners:
+        for group in (m.get(key) or {}).values():
+            out.update(str(rel) for rel in (group or {}) if rel)
+    return out
+
 
 def suite_files(m: dict) -> set:
     """Every file the map names as part of the test suite, repo-relative.
@@ -682,15 +769,7 @@ def suite_files(m: dict) -> set:
     therefore never in this set, which is what makes the split work whether
     the product is a second root or a directory beside the suite.
     """
-    out = set()
-    for key in _SUITE_LISTS:
-        out.update(str(rel) for rel in (m.get(key) or ()) if rel)
-    for key in _SUITE_KEYED:
-        out.update(str(rel) for rel in (m.get(key) or {}) if rel)
-    for key in _SUITE_RUNNERS:
-        for group in (m.get(key) or {}).values():
-            out.update(str(rel) for rel in (group or {}) if rel)
-    return out
+    return _paths(m, _SUITE_LISTS, _SUITE_KEYED, _SUITE_RUNNERS)
 
 
 def resolution(m: dict) -> tuple:
@@ -715,6 +794,30 @@ def _rate(m: dict) -> str:
         return "This map records no call graph statistics."
     return (f"The graph resolved {resolved} of {sites} callee names "
             f"({round(100 * resolved / sites)} percent).")
+
+
+def crosses_roots(m: dict) -> bool:
+    """Whether any `calls` row names a file outside the repository root.
+
+    The call graph is extracted from the files under `--repo` and from
+    nothing else (`_mapper/build.py` builds `code_files` from a walk of that
+    one tree and the per-language extractors loop over it); a product root
+    named by `PRODUCT_SRC` is walked for declarations and lines only. So on a
+    suite checked out beside its product, no edge crosses into the product
+    and every name in it is reached by nothing. That is a property of the
+    map rather than of the tests, and an answer about coverage that does not
+    say so is wrong in the one direction that matters.
+    """
+    root = (m.get("repo") or "").replace(os.sep, "/").rstrip("/")
+    if not root:
+        return True
+    for row in m.get("xrefs") or ():
+        if row.get("edge") != "calls":
+            continue
+        for path in [row.get("file")] + list(row.get("candidates") or ()):
+            if path and not str(path).replace(os.sep, "/").startswith(root + "/"):
+                return True
+    return False
 
 
 def _definitions(m: dict, kinds=CALLABLE_KINDS) -> dict:
@@ -756,19 +859,39 @@ def _by_file(defs: dict) -> dict:
     return out
 
 
-def _inside(by_file: dict, holder: str, start, end) -> list:
-    """The names declared inside one span, which is what a class owns.
+def _members(m: dict, defs: dict, by_file: dict, holder: str, name: str,
+             start, end) -> tuple:
+    """`(members, extent)`: the names one class owns, and whether it is whole.
 
-    `spans` records no owner, so a method is not linked to its class
-    anywhere in the map. What it does record is the range of the class and
-    the line of each method, and a method's line inside a class's range is
-    the join. Where the parser knew no `end` there is no range and a class
-    owns nothing here, which the answer's head says out loud.
+    Two joins, because `spans` records no owner and either of them can be
+    missing. The first is the dotted spelling: an `ast` walk writes
+    `CheckoutPage.pay` beside `pay` for the same line, so every name in
+    `spans` beginning `<class>.` and declared in this file is a member, and
+    that holds whether or not the parser found where the class stops. The
+    second is containment: a declaration whose line is inside the class's
+    range is a member, which is what the languages read by the pattern table
+    have instead of a dotted name.
+
+    `extent` is False where the parser knew no `end` and no dotted name was
+    found either. Then the class owns nothing here, the answer covers its own
+    name and nothing under it, and `reaches_summary` says so: a page object
+    every step drives answers "nothing" in that state, and a count that is a
+    floor has to say it is one.
     """
-    if not end:
-        return []
-    return [name for line, name, _kind, _end in by_file.get(holder, ())
-            if start < line <= end]
+    members, dotted = set(), f"{name}."
+    for spelled, sites in (m.get("spans") or {}).items():
+        if not spelled.startswith(dotted):
+            continue
+        for site in sites or ():
+            if site.get("file") != holder:
+                continue
+            found = defs.get((holder, site.get("start")))
+            members.add(found[0] if found else spelled)
+    if end:
+        for line, member, _kind, _end in by_file.get(holder, ()):
+            if start < line <= end:
+                members.add(member)
+    return sorted(members), bool(end or members)
 
 
 def _chain(seen: dict, root: str, node) -> str:
@@ -787,44 +910,89 @@ def _chain(seen: dict, root: str, node) -> str:
     return " -> ".join(out)
 
 
+def _pytest_at(m: dict, root: str) -> dict:
+    """`{(file, name): rel}` for every pytest case the map names.
+
+    `pytest_tests` is `{file: [case names]}` and those names are the
+    functions themselves, so a case is a node of the call graph like any
+    other and needs no join to reach it.
+    """
+    out = {}
+    for rel, names in (m.get("pytest_tests") or {}).items():
+        for name in names or ():
+            out[(os.path.join(root, rel) if root else rel, name)] = rel
+    return out
+
+
+def entry_points(m: dict, defs: dict = None) -> tuple:
+    """`(nodes, counts)`: every place this map says a test starts.
+
+    Three kinds, because a repository has more than one runner and a
+    coverage-shaped answer that knows about one of them under-reports the
+    rest. A behave step function is the join of two `spans` sites on one
+    line. A pytest case is a name `pytest_tests` records, which is the
+    function itself. For every other runner the map records case titles
+    rather than function names (`js_tests` holds `describe`/`it` strings and
+    `api_tests` holds paths), so there every function and class declared in
+    the file counts, which reaches more than the cases do and is said out
+    loud in the block that says how the count was made.
+    """
+    root = m.get("repo") or ""
+    defs = _definitions(m) if defs is None else defs
+    step_at, _func_at = _spans_at(m)
+    steps = sorted((holder, name)
+                   for (holder, start), (name, kind, _end) in defs.items()
+                   if kind == "function" and (holder, start) in step_at)
+    cases = sorted(_pytest_at(m, root))
+    others = _paths(m, _TEST_LISTS, _TEST_KEYED, _TEST_RUNNERS)
+    runner = sorted((holder, name) for (holder, _start), (name, _k, _e)
+                    in defs.items()
+                    if _rank_graph.relative(holder, root) in others)
+    nodes = sorted(set(steps) | set(cases) | set(runner))
+    return nodes, {"steps": len(steps), "pytest": len(cases),
+                   "runners": len(runner)}
+
+
 REACHES_BLOCKS = (
     ("sites", "## Declared in", 15),
-    ("scenarios", "## Scenarios that reach it, by feature file", 60),
-    ("routes", "## Routes (named by the file each one is served from)", 25),
+    ("scenarios", "## Scenarios that reach it, by feature file (the chain "
+                  "under the first scenario of each is a line of its own)",
+     45),
+    ("pytest", "## pytest cases that reach it", 20),
+    ("routes", "## Routes (named by the file each one is served from)", 20),
 )
 REACHES_NAMES = tuple(name for name, _head, _pct in REACHES_BLOCKS)
 REACHES_HEADS = {name: head for name, head, _pct in REACHES_BLOCKS}
 
 
 def reaches(m: dict, name: str) -> dict:
-    """Which scenarios and routes reach one product function or class.
+    """Which scenarios, pytest cases and routes reach one function or class.
 
     The other direction of the same question `affected` asks, over the same
     walk: `affected` starts at what a change declares, this starts at one
     name, and both climb the `calls` rows callee to caller until they arrive
-    at a step function, which is where a scenario begins. No depth cap,
-    because the question is whether anything reaches this at all and a cap
-    would answer "nothing" for a name seven hops under a step.
+    at something that starts a test. No depth cap, because the question is
+    whether anything reaches this at all and a cap would answer "nothing"
+    for a function seven hops under a step.
 
-    A class is asked about by name and answered by its members: `spans`
-    records the range of the class and the line of each method and links them
-    to nothing, so a method's line inside a class's range is the only join
-    the map holds, and without it `reaches CheckoutPage` answers nothing at
-    all for a page object every step drives, because the constructor call
+    A class is asked about by name and answered by its members, found by the
+    dotted spelling `spans` writes beside a method and by containment in the
+    class's range. Without that join `reaches CheckoutPage` answers nothing
+    at all for a page object every step drives, because the constructor call
     sits at module level and no `calls` row is written for it.
     """
     root = m.get("repo") or ""
     defs = _definitions(m)
     by_file = _by_file(defs)
 
-    sites, seeds, seen_at = [], set(), set()
+    sites, seeds, seen_at, partial = [], set(), set(), []
     for site in ((m.get("spans") or {}).get(name) or ()):
         holder, start = site.get("file"), site.get("start")
         if (holder, start) in seen_at:
             continue
         seen_at.add((holder, start))
-        sites.append((_rank_graph.relative(holder, root), start,
-                      site.get("end"), site.get("kind") or "name"))
+        rel = _rank_graph.relative(holder, root)
+        kind = site.get("kind") or "name"
         # Both spellings: the identifier this site is counted under, and the
         # name the reader typed, because a `calls` row names whichever one
         # the caller wrote.
@@ -832,9 +1000,15 @@ def reaches(m: dict, name: str) -> dict:
         chosen = defs.get((holder, start))
         if chosen:
             seeds.add((holder, chosen[0]))
-        if site.get("kind") == "class":
-            for member in _inside(by_file, holder, start, site.get("end")):
+        members: list = []
+        if kind == "class":
+            members, extent = _members(m, defs, by_file, holder, name, start,
+                                       site.get("end"))
+            for member in members:
                 seeds.add((holder, member))
+            if not extent:
+                partial.append(rel)
+        sites.append((rel, start, site.get("end"), kind, members))
     sites.sort()
 
     walked = _climb(m, sorted(seeds), None) if seeds else {}
@@ -856,15 +1030,24 @@ def reaches(m: dict, name: str) -> dict:
         told.add(rel)
         scenarios.append((rel, scenario, line, why, chain))
 
-    routes = _routes_reached(m, {holder for holder, _name in walked})
+    cases = sorted((rel, node[1], walked[node][0])
+                   for node, rel in _pytest_at(m, root).items()
+                   if node in walked)
 
     total = sum(len(f.get("scenarios") or ())
                 for f in (m.get("features") or {}).values())
     step_at, _func_at = _spans_at(m)
     return {"name": name, "sites": sites, "scenarios": scenarios,
             "features": sorted({row[0] for row in scenarios}),
-            "routes": routes, "steps": steps, "unbound": unbound,
-            "total_scenarios": total, "map_steps": len(step_at)}
+            "routes": _routes_reached(m, {f for f, _n in walked}),
+            "pytest": cases, "steps": steps, "unbound": unbound,
+            "total_scenarios": total, "map_steps": len(step_at),
+            "partial": sorted(set(partial)),
+            # Declared under a root of its own, on a map whose call graph
+            # never leaves the repository root. Then this answer is a fact
+            # about the map and not about the tests, and it has to say so.
+            "offside": bool(sites) and not crosses_roots(m) and all(
+                os.path.isabs(rel) for rel, _s, _e, _k, _m in sites)}
 
 
 def reaches_summary(result: dict, limit: int) -> str:
@@ -877,12 +1060,24 @@ def reaches_summary(result: dict, limit: int) -> str:
             f"{_plural(len(result['sites']), 'file')} and reached by "
             f"{len(result['scenarios'])} of {result['total_scenarios']} "
             f"scenarios, {_plural(len(result['features']), 'feature file')}, "
+            f"{_plural(len(result['pytest']), 'pytest case')}, "
             f"{_plural(len(result['routes']), 'route')}, through "
             f"{_plural(len(result['steps']), 'step function')}. Walked "
             f"upward over the calls rows to any depth, {limit} characters.")
+    if result["offside"]:
+        head += (" This name is declared under a root of its own, and no "
+                 "calls row in this map names a file outside the repository "
+                 "root: the call graph is extracted from the files under "
+                 "--repo and from no other root, so nothing here can reach "
+                 "it whatever the tests do.")
+    if result["partial"]:
+        # The count below is a floor, and saying so is the difference between
+        # "no test drives this class" and "this map cannot tell you".
+        head += (" The parser did not find where this class stops and `spans`"
+                 " records no method of it by name, so the walk covered the "
+                 "class's own name and nothing declared inside it: the counts"
+                 " above are a floor.")
     if not result["map_steps"]:
-        # Not "nothing reaches this": this map has nothing to reach from, and
-        # the two read the same in an answer that only prints a count.
         head += (" This map holds no step function at all, so no scenario "
                  "can be named here whatever the code does.")
     elif result["unbound"]:
@@ -894,8 +1089,18 @@ def reaches_summary(result: dict, limit: int) -> str:
 def reaches_lines(result: dict, block: str) -> list:
     """One `reaches` block's rows, whole, before anything is cut."""
     if block == "sites":
-        return [f"- `{rel}:{start}-{end if end else '?'}` {kind}"
-                for rel, start, end, kind in result["sites"]]
+        out = []
+        for rel, start, end, kind, members in result["sites"]:
+            line = f"- `{rel}:{start}-{end if end else '?'}` {kind}"
+            if kind == "class":
+                # What the class owns, because that is what was walked from
+                # and there is no other way for a reader to see the join.
+                line += (", " + _plural(len(members), "member") + " walked"
+                         + (": " + ", ".join(members) if members else
+                            " (its extent is unknown and `spans` names none "
+                            "of them)"))
+            out.append(line)
+        return out
     if block == "scenarios":
         out = []
         for rel, name, line, why, chain in result["scenarios"]:
@@ -903,15 +1108,19 @@ def reaches_lines(result: dict, block: str) -> list:
             if chain:
                 out.append(f"  chain: {chain}")
         return out
+    if block == "pytest":
+        return [f"- `{rel}::{name}`, {_plural(hop, 'hop')}"
+                for rel, name, hop in result["pytest"]]
     if block == "routes":
         return [f"- {route}" for route in result["routes"]]
     return []
 
 
 UNREACHED_BLOCKS = (
-    ("definitions", "## Product definitions no step function reaches "
-                    "(a class counts as reached when anything inside its "
-                    "span is)", 100),
+    ("definitions", "## Product definitions no test reaches", 50),
+    ("counted", "## How this was counted", 25),
+    ("set_aside", "## Files the map names as suite, so nothing declared in "
+                  "them is counted above", 25),
 )
 UNREACHED_NAMES = tuple(name for name, _head, _pct in UNREACHED_BLOCKS)
 UNREACHED_HEADS = {name: head for name, head, _pct in UNREACHED_BLOCKS}
@@ -923,61 +1132,71 @@ UNREACHED_LIMIT = 200
 
 
 def unreached(m: dict, limit: int = UNREACHED_LIMIT) -> dict:
-    """Product definitions with no call path up to any step function.
+    """Product definitions with no call path up to anything that starts a test.
 
     The same walk as `affected` and `reaches`, run once and the other way
-    round: from every step function down its callees, to exhaustion, and what
-    that never arrives at is what no scenario runs. One walk for the whole
-    map rather than one upward walk per definition, which is the same
-    reachability read from the other end.
+    round: from every entry point `entry_points` names down its callees, to
+    exhaustion, and what that never arrives at is what no test runs. One walk
+    for the whole map rather than one upward walk per definition, which is
+    the same reachability read from the other end.
 
     Product is every indexed file the map does not name as suite (see
     `suite_files`), so a repository whose product sits under a root of its
     own and one whose product sits beside its suite are both answered from
     the keys the map already writes. A class counts as reached when anything
-    declared inside its span is reached, because a page object is driven
-    through its methods and its constructor is called at module level, where
-    no `calls` row is written.
+    declared inside its span is, because a page object is driven through its
+    methods and its constructor is called at module level, where no `calls`
+    row is written. A definition named in `ENTRY_POINTS`, and any file on a
+    test path, are out: the runtime calls one and the other is scaffolding,
+    and neither is what a reader means by untested product.
     """
     root = m.get("repo") or ""
     limit = max(1, int(limit))
-    step_at, _func_at = _spans_at(m)
     defs = _definitions(m)
     by_file = _by_file(defs)
+    suite = suite_files(m)
 
-    seeds = sorted((holder, name)
-                   for (holder, start), (name, kind, _end) in defs.items()
-                   if kind == "function" and (holder, start) in step_at)
+    seeds, counts = entry_points(m, defs)
     walked = _climb(m, seeds, None, up=False) if seeds else {}
     hit = set(walked)
-    # With no step function there is nothing to be unreached from, and a list
+
+    product = {rel for rel in (_rank_graph.relative(holder, root)
+                               for holder, _start in defs)
+               if rel not in suite}
+    # A product path that is still absolute after `relative()` is a file
+    # under a root of its own: `relative` only strips the repository root, so
+    # what it hands back whole came from somewhere else.
+    base = {"limit": limit, "entry": counts, "entries": len(seeds),
+            "product_files": len(product), "suite": sorted(suite),
+            "suite_files": len(suite), "rate": _rate(m), "skipped": 0,
+            "crosses": crosses_roots(m),
+            "outside": sorted(rel for rel in product if os.path.isabs(rel))}
+    # With no entry point there is nothing to be unreached from, and a list
     # of every definition under a head that says so would be read as the
     # coverage report it is not. The head says it and the block is empty.
     if not seeds:
-        product = {rel for rel in (_rank_graph.relative(holder, root)
-                                   for holder, _start in defs)
-                   if rel not in suite_files(m)}
-        return {"definitions": [], "unreached": 0, "total": 0, "limit": limit,
-                "steps": 0, "product_files": len(product),
-                "suite_files": len(suite_files(m)), "rate": _rate(m)}
+        return dict(base, definitions=[], unreached=0, total=0)
 
     scores: dict = {}
     for row in m.get("rank") or ():
         scores.setdefault((row.get("file"), row.get("name")),
                           row.get("score"))
 
-    suite = suite_files(m)
-    rows, total = [], 0
+    rows, total, skipped = [], 0, 0
     for (holder, start), (name, kind, end) in defs.items():
         rel = _rank_graph.relative(holder, root)
         if rel in suite:
+            continue
+        if name in ENTRY_POINTS or _is_test_path(rel):
+            skipped += 1
             continue
         total += 1
         if (holder, name) in hit:
             continue
         if kind == "class" and any(
                 (holder, member) in hit
-                for member in _inside(by_file, holder, start, end)):
+                for member in _members(m, defs, by_file, holder, name, start,
+                                       end)[0]):
             continue
         rows.append((rel, start, name, kind, scores.get((holder, name))))
 
@@ -994,57 +1213,78 @@ def unreached(m: dict, limit: int = UNREACHED_LIMIT) -> dict:
         keep = order(row)[0]
         best[row[0]] = min(best.get(row[0], keep), keep)
     rows.sort(key=lambda row: (best[row[0]], row[0]) + order(row))
-
-    # Every file the product side declares anything in, whether or not
-    # anything in it is unreached: the head divides one by the other.
-    product = {rel for rel in (_rank_graph.relative(holder, root)
-                               for holder, _start in defs)
-               if rel not in suite}
-    return {"definitions": rows[:limit], "unreached": len(rows),
-            "total": total, "limit": limit, "steps": len(seeds),
-            "product_files": len(product), "suite_files": len(suite),
-            "rate": _rate(m)}
+    return dict(base, definitions=rows[:limit], unreached=len(rows),
+                total=total, skipped=skipped)
 
 
 def unreached_summary(result: dict, limit: int) -> str:
     """The first line of an `unreached` answer, with what it cannot know.
 
     The resolution rate is in it because the whole answer turns on it: a
-    graph that placed half its callee names calls half its product unreached
+    graph that placed half its callee names calls half the product unreached
     whatever the suite covers, and a list of names under a head that does not
-    say so reads as a coverage report.
+    say so reads as a coverage report. Everything else about how the count
+    was made is a row of the block below, where it can be cut without taking
+    the caveat with it.
     """
-    files = result["product_files"] + result["suite_files"]
-    if not result["steps"]:
-        return ("This map holds no step function, so there are no steps to "
-                "reach from and nothing here can be called unreached. "
-                "Product here is every file with a declaration the map does "
-                f"not name as suite: {result['product_files']} of {files}. "
-                + result["rate"])
+    gap = ("" if result["crosses"] or not result["outside"] else
+           " No calls row names a file outside the repository root, so this "
+           "walk never crosses into the product checked out beside the suite"
+           f" ({_plural(len(result['outside']), 'file')}) and every name in "
+           "it is below.")
+    if not result["entries"]:
+        return ("This map names no step function and no test case, so there "
+                "is nothing to reach from and nothing here can be called "
+                "unreached. " + result["rate"] + gap)
     if not result["total"]:
         return ("Every file with a declaration is one this map names as "
-                "suite (features, steps, page objects, drivers, environment "
-                "files, the test files of each runner), so there is no "
-                "product side here to be unreached. " + result["rate"])
+                "suite, so there is no product side here to be unreached. "
+                + result["rate"] + gap)
     one = result["unreached"] == 1
     return (f"Unreached: {result['unreached']} of {result['total']} product "
-            f"definitions (function or class) "
-            f"{'has' if one else 'have'} no call path up to a step function. "
+            f"definitions {'has' if one else 'have'} no path up to a test. "
             + result["rate"]
-            + " A name below can be one the walk could not place rather than "
-              "one nothing tests. Product is every file with a declaration "
-              "the map does not name as suite: "
-              f"{result['product_files']} of {files}. Ranked by the map's own "
-              f"rank, showing {len(result['definitions'])}. "
-              f"{limit} characters.")
+            + " A name below can be one the walk could not place rather "
+              "than one nothing tests." + gap)
 
 
 def unreached_lines(result: dict, block: str) -> list:
-    """The one `unreached` block's rows, whole, before anything is cut."""
-    if block != "definitions":
+    """One `unreached` block's rows, whole, before anything is cut."""
+    if block == "definitions":
+        out = []
+        for rel, line, name, kind, score in result["definitions"]:
+            rank = "unranked" if score is None else f"rank {score:.9f}"
+            out.append(f"- `{rel}:{line}` {name} ({kind}), {rank}")
+        return out
+    if block == "set_aside":
+        return [f"- `{rel}`" for rel in result["suite"]]
+    if block != "counted":
         return []
-    out = []
-    for rel, line, name, kind, score in result["definitions"]:
-        rank = "unranked" if score is None else f"rank {score:.9f}"
-        out.append(f"- `{rel}:{line}` {name} ({kind}), {rank}")
+    entry = result["entry"]
+    out = [f"- entry points: {_plural(entry['steps'], 'step function')}, "
+           f"{_plural(entry['pytest'], 'pytest case')}, "
+           f"{_plural(entry['runners'], 'declaration')} in the files another "
+           "runner holds its cases in (the map records those cases by title "
+           "rather than by function, so every declaration in them counts)",
+           "- product: every file with a declaration the map does not name "
+           f"as suite, {result['product_files']} of "
+           f"{result['product_files'] + result['suite_files']}, and the "
+           "precision of that split is the precision of the map's own suite "
+           "heuristics",
+           "- kinds counted: function and class; a const bound to an arrow "
+           "function is recorded as a constant and is not one of them, "
+           "because nothing in the map says which constants are callable",
+           "- a class counts as reached when anything declared inside its "
+           "span is, found by the dotted name `spans` writes beside a method "
+           "and by containment in the class's range",
+           "- not counted: a definition named "
+           + " or ".join((", ".join(ENTRY_POINTS[:-1]), ENTRY_POINTS[-1]))
+           + f", and any file on a test path ({result.get('skipped', 0)} "
+             "left out this way)",
+           f"- ranked by the map's own rank, showing "
+           f"{len(result['definitions'])} of {result['unreached']}"]
+    if not result["crosses"] and result["outside"]:
+        out.append("- the call graph is extracted from the files under the "
+                   "repository root and from no other root, so no edge "
+                   "crosses into a product checked out beside the suite")
     return out
