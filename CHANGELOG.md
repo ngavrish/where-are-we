@@ -187,6 +187,39 @@
   `--defines`, `--at` and `--rank` as well, which have been in the set since
   they shipped, and a CI step now compares the sentence with the set so it
   cannot drift a third time.
+- Every edge, with the rule that placed it. The map gains a key `xrefs`:
+  one row per edge, `{subject, edge, object, file, candidates, line,
+  resolution}`, sorted by subject, object and line and capped by nothing.
+  `edge` is `calls` (a cross-file call), `declares` (a `spans` site) or
+  `imports` (an `import_graph` dependency). `call_graph_files` is rendered
+  from the `calls` rows rather than written beside them, so its strings and
+  the rows cannot disagree, and it keeps its shape and its bytes: a consumer
+  that parses the pipes and the `?` back out of `charge (a.py|b.py)?` can now
+  read the same fact as data instead.
+- `resolution` says how sure the map is about each edge, not only about the
+  ambiguous ones. Seven values, each written by the rule that placed the
+  edge: `sole_declarer` (one indexed file declares the name), `import_line`
+  (the caller's own import line named the file), `receiver_import` (the
+  module the receiver was bound to named it), `re_export` (a facade's own
+  import lines were followed to the file with the `def`), `base_class` (a
+  `self.name(...)` call reached the one base that declares it),
+  `declaration` (the row is the declaration site) and `ambiguous` (several
+  files declare the name and nothing said which, which is the `?` the
+  rendering carries). An unmarked edge used to cover two different degrees of
+  certainty; now it says which. There is no `local` value and no `overrides`
+  edge: a call inside the file that declares the callee never becomes an edge
+  at all, and no rule computes an override.
+- `impact` prints a `how:` line under each hop, naming in the same order the
+  rule that placed each of that hop's edges, and `step_graph` for a hop
+  through the behave step graph, which records a bare name and no rule. The
+  `depth N:` lines are unchanged. A map with no `xrefs` key gets no `how:`
+  line and no promise of one.
+- `call_graph_stats` is unchanged and now checkable: `marked` is the count of
+  `ambiguous` rows per language, and `edges` the count of the placed ones.
+- The Python parse record's cache kind is `func_edges_3`: it carries the
+  first line each name is called on, which is the line an `xrefs` row holds.
+  A `func_edges_2` record is not read, so the first build after upgrading
+  reparses the Python files.
 - The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a

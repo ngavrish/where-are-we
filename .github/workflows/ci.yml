@@ -4384,6 +4384,267 @@ jobs:
           print("a base is followed on evidence:", graph, stats)
           EOF
 
+      - name: every edge says how it was resolved
+        run: |
+          set -o pipefail
+          # The graph as rows. Every fixture the three graph steps above own
+          # is written again here, so what this asserts does not depend on
+          # which steps ran before it.
+          rm -rf /tmp/xref
+          mkdir -p /tmp/xref/mark /tmp/xref/py /tmp/xref/reex /tmp/xref/mod \
+                   /tmp/xref/base
+          # ts/js: `charge` in two files, called with nothing to say which,
+          # and called from a file that imports it from one of them.
+          printf 'export function charge(amount: number): string {\n  return `a ${amount}`;\n}\n' > /tmp/xref/mark/a.ts
+          printf 'export function charge(amount: number): string {\n  return `c ${amount}`;\n}\n' > /tmp/xref/mark/c.ts
+          printf 'export function payInvoice(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/xref/mark/b.ts
+          printf 'import { charge } from "./a";\n\nexport function settle(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/xref/mark/d.ts
+          # Python: the same two rules, plus the call inside the file that
+          # declares the name, which is no edge and so no row.
+          printf 'def charge(x):\n    return x\n' > /tmp/xref/py/aa.py
+          printf 'def charge(x):\n    return x\n' > /tmp/xref/py/bb.py
+          printf 'def charge(x):\n    return x\n\n\ndef pay_local(x):\n    return charge(x)\n' > /tmp/xref/py/local.py
+          printf 'from aa import charge\n\n\ndef pay_imported(x):\n    return charge(x)\n' > /tmp/xref/py/imp.py
+          printf 'def pay_invoice(x):\n    return charge(x)\n' > /tmp/xref/py/z.py
+          # A facade, and the receiver bound to a module that declares the
+          # name itself.
+          printf 'def build(x):\n    return x\n' > /tmp/xref/reex/impl.py
+          printf 'def build(x):\n    return x\n' > /tmp/xref/reex/other.py
+          printf 'from impl import build\n' > /tmp/xref/reex/facade.py
+          printf 'import facade\n\n\ndef go(u):\n    return facade.build(u)\n' > /tmp/xref/reex/caller.py
+          printf 'def walk(x):\n    return x\n' > /tmp/xref/mod/a.py
+          printf 'def walk(x):\n    return x\n' > /tmp/xref/mod/mymod.py
+          printf 'import mymod\n\n\ndef g(u):\n    return mymod.walk(u)\n' > /tmp/xref/mod/c.py
+          printf 'import ast\n\n\ndef f(src):\n    return [n for n in ast.walk(ast.parse(src))]\n' > /tmp/xref/mod/w.py
+          # And the base class, followed only on the evidence of an import.
+          printf 'def add(x):\n    return x\n' > /tmp/xref/base/a.py
+          printf 'class Base:\n    def add(self, x):\n        return x\n' > /tmp/xref/base/base.py
+          printf 'from base import Base\n\n\nclass G(Base):\n    def go2(self):\n        return self.add(1)\n' > /tmp/xref/base/g.py
+          printf 'class E(Base):\n    def run(self):\n        return self.add(1)\n' > /tmp/xref/base/e.py
+          for d in mark py reex mod base; do
+            where-are-we --repo "/tmp/xref/$d" --out "/tmp/xref/$d-out" \
+              --product none --force --quiet --no-semantic
+          done
+          # The golden fixtures, built here for the same reason, and this
+          # repository, which is the only tree in the step with a `spans`
+          # table worth counting.
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/xref/golden')
+          "
+          where-are-we --repo . --out /tmp/xref/self-out --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json, os
+
+          # The whole closed set, and the rule each value names. A row
+          # carrying anything else is a rule that wrote a value nobody
+          # documented.
+          CLOSED = {"sole_declarer", "import_line", "receiver_import",
+                    "re_export", "base_class", "declaration", "ambiguous"}
+          EDGES = {"calls", "declares", "imports"}
+          LANG = {".py": "python", ".ts": "ts_js", ".tsx": "ts_js",
+                  ".js": "ts_js", ".jsx": "ts_js", ".go": "go"}
+
+          def read(path):
+              return json.load(open(f"{path}/framework_map.json"))
+
+          def rendered(m):
+              """`call_graph_files` rebuilt from the `calls` rows alone.
+
+              The same two spellings the map writes: `charge (a.py)`, and
+              `charge (a.py|b.py)?` where the row names more than one
+              candidate. The 8 callees a key keeps is the map's own cap, and
+              a key is a basename, which is what the graph is keyed by.
+              """
+              out = {}
+              for r in m["xrefs"]:
+                  if r["edge"] != "calls":
+                      continue
+                  rel, _, func = r["subject"].rpartition(":")
+                  key = f"{os.path.basename(rel)}:{func}"
+                  files = "|".join(sorted({os.path.basename(c)
+                                           for c in r["candidates"]}))
+                  mark = "?" if r["resolution"] == "ambiguous" else ""
+                  out.setdefault(key, set()).add(
+                      f"{r['object']} ({files}){mark}")
+              return {k: sorted(v)[:8] for k, v in out.items()}
+
+          def check(name, path):
+              """What holds of every map: the closed set, the sort, the
+              rendering, and the two counters agreeing with the rows."""
+              m = read(path)
+              rows = m["xrefs"]
+              for r in rows:
+                  assert set(r) == {"subject", "edge", "object", "file",
+                                    "candidates", "line", "resolution"}, r
+                  assert r["edge"] in EDGES, r
+                  assert r["resolution"] in CLOSED, r
+                  if r["edge"] == "calls":
+                      assert isinstance(r["line"], int) and r["line"] > 0, r
+                      assert r["candidates"], r
+                      if r["resolution"] == "ambiguous":
+                          assert r["file"] is None and len(r["candidates"]) > 1, r
+                      else:
+                          assert r["file"] in r["candidates"], r
+                          assert len(r["candidates"]) == 1, r
+                  if r["edge"] == "declares":
+                      assert r["resolution"] == "declaration", r
+                      assert r["file"] == r["subject"], r
+                      assert isinstance(r["line"], int) and r["line"] > 0, r
+                  if r["edge"] == "imports":
+                      assert r["resolution"] == "import_line", r
+                      assert r["file"] is None and r["candidates"] == [], r
+              key = lambda r: (r["subject"], r["object"],
+                               -1 if r["line"] is None else r["line"],
+                               r["edge"], r["resolution"])
+              assert [key(r) for r in rows] == sorted(key(r) for r in rows), \
+                  f"{name}: xrefs is not sorted by subject, object, line"
+              # Every string the map prints, from the rows and from nothing
+              # else.
+              back = rendered(m)
+              for graph_key, edges in m["call_graph_files"].items():
+                  assert back.get(graph_key) == edges, (name, graph_key,
+                                                        edges, back.get(graph_key))
+              # A `?` edge has exactly the ambiguous rows its candidate list
+              # names: the same files, and no other row for that pair.
+              for graph_key, edges in m["call_graph_files"].items():
+                  for edge in edges:
+                      if not edge.endswith("?"):
+                          continue
+                      callee, _, rest = edge.partition(" (")
+                      named = sorted(rest[:-2].split("|"))
+                      hits = [r for r in rows if r["edge"] == "calls"
+                              and r["object"] == callee
+                              and f"{os.path.basename(r['subject'].rsplit(':', 1)[0])}:"
+                                  f"{r['subject'].rsplit(':', 1)[-1]}" == graph_key]
+                      assert len(hits) == 1, (name, graph_key, edge, hits)
+                      assert hits[0]["resolution"] == "ambiguous", hits
+                      assert sorted(os.path.basename(c)
+                                    for c in hits[0]["candidates"]) == named, hits
+              # `call_graph_stats` counts the rows, per language: `marked` is
+              # the ambiguous ones and `edges` the placed ones.
+              marked, placed = {}, {}
+              for r in rows:
+                  if r["edge"] != "calls":
+                      continue
+                  lang = LANG[os.path.splitext(r["subject"].rsplit(":", 1)[0])[1]]
+                  which = marked if r["resolution"] == "ambiguous" else placed
+                  which[lang] = which.get(lang, 0) + 1
+              for lang, stats in m["call_graph_stats"].items():
+                  assert stats["marked"] == marked.get(lang, 0), (name, lang, stats)
+                  assert stats["edges"] == placed.get(lang, 0), (name, lang, stats)
+              # And the declarations and the package imports are the two keys
+              # they were taken from, row for row.
+              spans = sorted((site["file"], name_, site["start"])
+                             for name_, sites in m["spans"].items()
+                             for site in sites)
+              assert sorted((r["subject"], r["object"], r["line"])
+                            for r in rows if r["edge"] == "declares") == spans, name
+              imports = sorted((pkg, other)
+                               for pkg, used in m["import_graph"].items()
+                               for other in used)
+              assert sorted((r["subject"], r["object"])
+                            for r in rows if r["edge"] == "imports") == imports, name
+              return m, rows
+
+          def resolution(rows, subject_end, callee):
+              hits = [r for r in rows if r["edge"] == "calls"
+                      and r["subject"].endswith(subject_end)
+                      and r["object"] == callee]
+              assert len(hits) == 1, (subject_end, callee, hits)
+              return hits[0]["resolution"], hits[0]
+
+          seen = set()
+          for name, path in [("mark", "/tmp/xref/mark-out"),
+                             ("py", "/tmp/xref/py-out"),
+                             ("reex", "/tmp/xref/reex-out"),
+                             ("mod", "/tmp/xref/mod-out"),
+                             ("base", "/tmp/xref/base-out"),
+                             ("poly", "/tmp/xref/golden/poly/out"),
+                             ("code", "/tmp/xref/golden/code/out"),
+                             ("suite", "/tmp/xref/golden/suite/out"),
+                             ("self", "/tmp/xref/self-out")]:
+              _m, rows = check(name, path)
+              seen |= {r["resolution"] for r in rows}
+              print(f"{name}: {len(rows)} rows, "
+                    f"{len([r for r in rows if r['edge'] == 'calls'])} of them calls")
+
+          # One rule at a time, on the fixture that isolates it.
+          mark = read("/tmp/xref/mark-out")["xrefs"]
+          assert resolution(mark, "b.ts:payInvoice", "charge")[0] == "ambiguous"
+          assert resolution(mark, "d.ts:settle", "charge")[0] == "import_line"
+          py = read("/tmp/xref/py-out")["xrefs"]
+          assert resolution(py, "imp.py:pay_imported", "charge")[0] == "import_line"
+          assert resolution(py, "z.py:pay_invoice", "charge")[0] == "ambiguous"
+          # The call inside the file that declares the name is no edge, so
+          # there is no row for it and no `local` value to write.
+          assert not [r for r in py if r["edge"] == "calls"
+                      and r["subject"].endswith("local.py:pay_local")], py
+          assert "local" not in {r["resolution"] for r in py}, py
+          reex = read("/tmp/xref/reex-out")["xrefs"]
+          assert resolution(reex, "caller.py:go", "build")[0] == "re_export"
+          mod = read("/tmp/xref/mod-out")["xrefs"]
+          got, row = resolution(mod, "c.py:g", "walk")
+          assert got == "receiver_import", row
+          assert row["file"] == "mymod.py" and row["line"] == 5, row
+          # A call through the standard library is refused before any rule
+          # runs, so it has no row either.
+          assert not [r for r in mod if r["edge"] == "calls"
+                      and r["subject"].endswith("w.py:f")], mod
+          base = read("/tmp/xref/base-out")["xrefs"]
+          assert resolution(base, "g.py:go2", "add")[0] == "base_class"
+          assert resolution(base, "e.py:run", "add")[0] == "ambiguous"
+          poly = read("/tmp/xref/golden/poly/out")["xrefs"]
+          assert resolution(poly, "b.ts:payInvoice", "charge")[0] == "sole_declarer"
+          # Every value in the closed set was written by the rule that names
+          # it, somewhere in this step, and nothing outside it was written at
+          # all.
+          assert seen == CLOSED, sorted(CLOSED - seen)
+          print("every resolution in the closed set was written by its own rule:",
+                sorted(seen))
+          EOF
+          # And the rule reaches the reader: `impact` prints it under each
+          # hop, in the same order as the keys above it.
+          where-are-we --out /tmp/xref/mark-out --impact charge --impact-depth 2 \
+            > /tmp/xref/impact.txt
+          cat /tmp/xref/impact.txt
+          grep -qx "depth 1: b.ts:payInvoice, d.ts:settle" /tmp/xref/impact.txt
+          grep -qx "how: b.ts:payInvoice ambiguous, d.ts:settle import_line" \
+            /tmp/xref/impact.txt
+          head -1 /tmp/xref/impact.txt | grep -qF "Under each hop, a how: line names, in the same order, the rule that placed each of its edges."
+          # A map with no `xrefs` key says nothing about any edge, and says
+          # nothing about saying nothing.
+          rm -rf /tmp/xref/old
+          cp -r /tmp/xref/mark-out /tmp/xref/old
+          python - <<'EOF'
+          import json
+          path = "/tmp/xref/old/framework_map.json"
+          m = json.load(open(path))
+          del m["xrefs"]
+          json.dump(m, open(path, "w"))
+          EOF
+          where-are-we --out /tmp/xref/old --impact charge --impact-depth 2 \
+            > /tmp/xref/impact-old.txt
+          if grep -q "^how: " /tmp/xref/impact-old.txt; then
+            echo "a map with no xrefs printed a how: line"; exit 1
+          fi
+          if grep -q "Under each hop" /tmp/xref/impact-old.txt; then
+            echo "a map with no xrefs promised a how: line"; exit 1
+          fi
+          # Twice over one tree is the same table, byte for byte.
+          where-are-we --repo /tmp/xref/base --out /tmp/xref/base-out2 \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          a = json.load(open("/tmp/xref/base-out/framework_map.json"))["xrefs"]
+          b = json.load(open("/tmp/xref/base-out2/framework_map.json"))["xrefs"]
+          assert a == b, "two builds of one tree wrote two tables"
+          print("two builds, one table:", len(a), "rows")
+          EOF
+
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"
         run: |
           set -o pipefail
