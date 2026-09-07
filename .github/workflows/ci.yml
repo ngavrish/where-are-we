@@ -773,6 +773,110 @@ jobs:
           print("--files billing/ puts the billing row first and keeps the rest")
           EOF
           grep -q 'more:unmatched:who-calls-whom' /tmp/rankout/ask-billing.txt
+          # 6b. And the handle a scoped answer prints reaches every row the section
+          # holds. The offset counts rows in the order the scoped answer printed, so
+          # the scope rides in the handle as a fifth field and `more()` reorders the
+          # section before it slices. Without that, a row `--files` pushed past the cut
+          # is unreachable through the handle that promised it, silently: the counts in
+          # the tail are still right.
+          where-are-we --out /tmp/rankmap --ask charge --files billing/ --limit 200 > /dev/null 2>&1 || true
+          python - <<'EOF'
+          import re
+          from where_are_we import mapper
+
+          HANDLE = re.compile(r"\(?(more:[a-z]+:[^)\s]+)\)?")
+          CHASE = ("rows", "unmatched", "defs", "sections")
+
+
+          def section_rows(text, head):
+              rows, inside = [], False
+              for line in text.splitlines():
+                  if line.startswith("## "):
+                      inside = line.strip() == head
+                      continue
+                  if inside and line.startswith("- "):
+                      rows.append(line)
+              return set(rows)
+
+
+          def reachable(m, words, budget, files, head):
+              kw = {} if files is None else {"files": files}
+              answer = mapper.ask(m, words, budget, **kw)
+              assert len(answer) <= budget, (budget, len(answer))
+              got, seen, queue = section_rows(answer, head), set(), HANDLE.findall(answer)
+              while queue:
+                  handle = queue.pop(0)
+                  if handle in seen or handle.split(":")[1] not in CHASE:
+                      continue
+                  seen.add(handle)
+                  out = mapper.more(m, handle, budget)
+                  assert not out.startswith("no such handle"), (handle, out)
+                  got |= section_rows(out, head)
+                  queue += [n for n in HANDLE.findall(out) if n not in seen]
+              return answer, got
+
+
+          m = "/tmp/rankmap/framework_map.md"
+          head = "## Who calls whom, across files"
+          whole = section_rows(mapper.ask(m, "charge", 10 ** 9), head)
+          assert len(whole) == 10, whole
+          for budget in (400, 500, 600, 900):
+              for files in (None, ["billing/"], ["caller3.py"], ["billing/", "caller7.py"]):
+                  answer, got = reachable(m, "charge", budget, files, head)
+                  missing = whole - got
+                  assert not missing, (budget, files, sorted(missing))
+                  # The scope is in every handle of a scoped answer and in none of an
+                  # unscoped one, which is what keeps the 156 golden answers byte for
+                  # byte what they were.
+                  for handle in HANDLE.findall(answer):
+                      kind, fields = handle.split(":")[1], handle.split(":")[2:]
+                      if kind not in CHASE:
+                          continue
+                      width = 3 if kind in ("rows", "unmatched") else 2
+                      assert len(fields) == width + (1 if files else 0), (handle, files)
+          print("every row of a scoped answer is reachable through its own handles, "
+                "4 budgets x 4 scopes")
+          EOF
+          # The same, on the golden suite fixture, which is the map the recall harness
+          # in `the more tool returns what an answer left out` uses.
+          rm -rf /tmp/rankgold
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/rankgold')
+          "
+          python - <<'EOF'
+          import re
+          from where_are_we import mapper
+
+          HANDLE = re.compile(r"\(?(more:[a-z]+:[^)\s]+)\)?")
+          CHASE = ("rows", "unmatched", "defs", "sections")
+          rows_of = lambda s: {l for l in s.splitlines() if l.startswith("- ")}
+          m = "/tmp/rankgold/suite/out/framework_map.md"
+          for words in ("invoice checkout", "click pay", "page object"):
+              whole = rows_of(mapper.ask(m, words, 10 ** 9))
+              for files in (None, ["steps/"], ["pages/"], ["steps/", "features/"]):
+                  kw = {} if files is None else {"files": files}
+                  for budget in (1500, 4000, 12000):
+                      answer = mapper.ask(m, words, budget, **kw)
+                      assert len(answer) <= budget, (budget, len(answer))
+                      got, seen, queue = rows_of(answer), set(), HANDLE.findall(answer)
+                      while queue:
+                          handle = queue.pop(0)
+                          if handle in seen or handle.split(":")[1] not in CHASE:
+                              continue
+                          seen.add(handle)
+                          out = mapper.more(m, handle, budget)
+                          if out.startswith("no such handle"):
+                              raise SystemExit(f"stale handle {handle!r}: {out}")
+                          got |= rows_of(out)
+                          queue += [n for n in HANDLE.findall(out) if n not in seen]
+                      missing = whole - got
+                      assert not missing, (words, files, budget, sorted(missing)[:3])
+          print("golden suite: 3 questions x 4 scopes x 3 budgets, every row the "
+                "unscoped answer holds is reachable from a scoped answer's handles")
+          EOF
           # 7. The tool and the flag are the same answer, and the server declares it.
           printf '%s\n%s\n%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
@@ -795,7 +899,28 @@ jobs:
           print("MCP rank and --rank agree, byte for byte")
           EOF
           grep -q '"tool": "rank"' /tmp/rankmap/.wawe-ask.log
-          # 8. --rank and --files are reads: naming them builds nothing.
+          # 8. A limit is a ceiling. The flag refuses what the tool refuses, rather
+          # than slicing the list from the end.
+          if where-are-we --out /tmp/rankmap --rank --limit -3 > /dev/null 2>&1; then
+            echo "--limit -3 was accepted"; exit 1
+          fi
+          if where-are-we --out /tmp/rankmap --rank --limit 0 > /dev/null 2>&1; then
+            echo "--limit 0 was accepted"; exit 1
+          fi
+          where-are-we --out /tmp/rankmap --rank --limit 3 | wc -l | grep -qx ' *3'
+          # 9. --files reads as "the files I am working in" on --rank too, and a path
+          # nothing indexed matches is said out loud instead of answered as the global
+          # order. A prefix stops at a separator: `bill` is not `billing.py`.
+          where-are-we --out /tmp/rankmap --rank --files billing/ --limit 2 > /tmp/rankout/via-files.txt
+          where-are-we --out /tmp/rankmap --rank billing/ --limit 2 > /tmp/rankout/via-rank.txt
+          diff -u /tmp/rankout/via-rank.txt /tmp/rankout/via-files.txt
+          where-are-we --out /tmp/rankmap --rank nosuch.py --limit 2 \
+            2> /tmp/rankout/warn.txt > /tmp/rankout/typo.txt
+          grep -qx "nothing indexed under 'nosuch.py'" /tmp/rankout/warn.txt
+          diff -u <(head -2 /tmp/rankout/global.txt) /tmp/rankout/typo.txt
+          where-are-we --out /tmp/rankmap --rank bill --limit 2 2>&1 >/dev/null \
+            | grep -qx "nothing indexed under 'bill'"
+          # 10. --rank and --files are reads: naming them builds nothing.
           where-are-we --effects -- --rank billing.py | head -1 | grep -qx 'read'
           where-are-we --effects -- --ask charge --files billing/ | head -1 | grep -qx 'read'
           where-are-we --effects --json | diff -u src/where_are_we/effects.json -

@@ -66,13 +66,27 @@
   answer is the stored key, which is what the CI step compares.
 - `--files a.py,b.py` on `--ask`, and `files` on the MCP `ask` tool: inside
   every section the rows naming one of those files come first and the rest
-  follow with the tail and the handle they had. A directory prefix counts,
-  paths are read relative to the repository root, and a row that names only a
-  basename is resolved through the files the map indexed, so `--files
-  billing/` reaches `refund.py:refund` in the call graph. `--files -` reads a
-  newline separated list on stdin, which is where `git diff --name-only`
-  goes. Without it no answer moves: every golden expected file was recorded
-  before this and none of them changed.
+  follow with the tail they had. A directory prefix counts and stops at a
+  separator, so `--files bill` is not `billing.py`; paths are read relative to
+  the repository root; a row that names only a basename is resolved through
+  the files the map indexed, so `--files billing/` reaches
+  `refund.py:refund` in the call graph; and a path nothing indexed matches is
+  named on stderr rather than silently answered as the whole repository.
+  `--files -` reads a newline separated list on stdin, which is where
+  `git diff --name-only` goes. Without it no answer moves: every golden
+  expected file was recorded before this and none of them changed.
+- A scoped answer's `more:` handle carries the scope, as one more
+  percent-encoded field: `more:rows:<section>:<words>:<offset>:<files>`. The
+  offset counts rows in the order the scoped answer printed, so a handle
+  without it would slice the unscoped order at that number, skipping every row
+  `--files` demoted past the cut and repeating every row it promoted. `more()`
+  rebuilds the scope from the field and reorders the section before it
+  continues, so following a scoped answer's handles reaches every row an
+  unscoped answer holds. An unscoped answer carries no fifth field and its
+  handles are character for character what they were.
+- `--rank` reads `--files` too, so the flag that means "the files I am working
+  in" means it on both tools. `--limit` is refused below 1 rather than sliced
+  from the end, which is what the MCP tool already did.
 - The parse cache schema is 2. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a

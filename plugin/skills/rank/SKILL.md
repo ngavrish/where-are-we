@@ -17,8 +17,9 @@ puts the definitions the repository is built around at the top.
 
 returns one line per definition, best first:
 
-    0.047997605 find_text /repo/src/where_are_we/_mapper/declare.py:97
-    0.040994790 build /repo/src/where_are_we/_mapper/build.py:243
+    0.043907032 build /repo/src/where_are_we/_mapper/build.py:243
+    0.043129010 build /repo/.github/workflows/ci.yml:1280
+    0.040425929 find_text /repo/src/where_are_we/_mapper/declare.py:97
 
 ## Use it two ways
 
@@ -45,6 +46,10 @@ returns one line per definition, best first:
 - **It is a ranking, not a search.** Do not use it to find a name you can
   already spell; `defines(name=...)` is one lookup and this is two hundred
   rows. Use it when you do not yet know what to ask for.
+- **A row can be a declaration the map got wrong.** The second row above is a
+  `def build` inside a heredoc in a CI workflow. The ranking reports what the
+  declaration index holds; check the file and line before you believe a row
+  that reads oddly.
 - **The graph is the map's graph.** It sees the files the walk indexed and the
   names it declared, so `## This map is incomplete` bounds this answer too.
 
