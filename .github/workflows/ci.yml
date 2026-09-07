@@ -2747,6 +2747,34 @@ jobs:
           assert stats["edges"] == 1 and stats["marked"] == 1, stats
           print("python:", graph, stats)
           EOF
+          # A call through a module this tree does not declare is no edge at
+          # all, whatever the tree declares by that name: `ast.walk` and
+          # `os.walk` reach the standard library, and the two first-party
+          # `walk` functions here are not what they reach. `mymod.walk` does
+          # reach one, and names it.
+          rm -rf /tmp/markmod
+          mkdir -p /tmp/markmod/repo
+          printf 'def walk(x):\n    return x\n' > /tmp/markmod/repo/a.py
+          printf 'def walk(x):\n    return x\n' > /tmp/markmod/repo/mymod.py
+          printf 'import ast\nimport os\n\n\ndef f(src):\n    return [n for n in ast.walk(ast.parse(src))] + list(os.walk(src))\n' > /tmp/markmod/repo/w.py
+          printf 'import mymod\n\n\ndef g(u):\n    return mymod.walk(u)\n' > /tmp/markmod/repo/c.py
+          where-are-we --repo /tmp/markmod/repo --out /tmp/markmod/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/markmod/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert "w.py:f" not in graph, graph
+          assert graph == {"c.py:g": ["walk (mymod.py)"]}, graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 1 and stats["marked"] == 0, stats
+          print("stdlib receiver:", graph, stats)
+          EOF
+          # And the answer a reader gets names the one real caller.
+          where-are-we --out /tmp/markmod/out --callers walk > /tmp/markmod/callers.txt
+          cat /tmp/markmod/callers.txt
+          grep -qx "c.py:g" /tmp/markmod/callers.txt
+          test "$(wc -l < /tmp/markmod/callers.txt)" -eq 1
           # A name exactly one file defines keeps a bare edge: the poly
           # fixture's `charge` is declared once, and its edge carries no mark.
           rm -rf /tmp/markpoly

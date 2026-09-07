@@ -1851,9 +1851,12 @@ def build(repo: str, out_dir: str | None = None,
             # What this file says it means by a name. `imports` is every
             # `from MOD import name`; `aliases` is what `import MOD` binds,
             # read back off the receiver of a `MOD.name()` call below into
-            # `mods`. A name two modules both offer through a receiver has no
-            # preference and is dropped, because a coin toss stated as a fact
-            # is what the `?` exists to avoid.
+            # `mods`, which holds, per function, every module that function
+            # calls a name on. Per function because `cli.py` calls `os.walk`
+            # in one and `specs.walk` in another, and crediting the first with
+            # the second's module is how a false edge gets written; and a list
+            # because one function calling `ast.walk` and `os.walk` has named
+            # neither module in particular.
             imports, aliases = {}, {}
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
@@ -1871,7 +1874,7 @@ def build(repo: str, out_dir: str | None = None,
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 defs.append(node.name)
-                targets, bare = set(), set()
+                targets, bare, said = set(), set(), {}
                 for c in ast.walk(node):
                     if not isinstance(c, ast.Call):
                         continue
@@ -1882,11 +1885,13 @@ def build(repo: str, out_dir: str | None = None,
                         targets.add(c.func.attr)
                         module = aliases.get(getattr(c.func.value, "id", ""))
                         if module:
-                            said = [module, 0]
-                            mods[c.func.attr] = (said if mods.get(c.func.attr, said)
-                                                 == said else None)
+                            on = said.setdefault(c.func.attr, [])
+                            if [module, 0] not in on:
+                                on.append([module, 0])
                 calls[node.name] = sorted(t for t in targets if t)
                 names[node.name] = sorted(b for b in bare if b)
+                if said:
+                    mods[node.name] = {k: sorted(v) for k, v in said.items()}
             return {"defs": defs, "calls": calls, "names": names,
                     "imports": imports, "mods": mods}
 
@@ -1896,12 +1901,17 @@ def build(repo: str, out_dir: str | None = None,
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
             homes_py.setdefault(name, set()).add(rel)
+    # Every Python file the walk indexed, which is what says whether a module
+    # a caller imported is a module of this tree at all. `ast`, `os` and
+    # `requests` name no file here; `where_are_we.mapper` names one.
+    py_files = set(raw_calls_by_rel)
     for rel, info in raw_calls_by_rel.items():
         imports = info.get("imports") or {}
-        mods = info.get("mods") or {}
+        mods_by_func = info.get("mods") or {}
         bare_by_func = info.get("names") or {}
         for func_name, raw_targets in (info.get("calls") or {}).items():
             bare = set(bare_by_func.get(func_name) or ())
+            mods = mods_by_func.get(func_name) or {}
             targets = set()
             for name in raw_targets:
                 where = homes_py.get(name) or set()
@@ -1913,14 +1923,30 @@ def build(repo: str, out_dir: str | None = None,
                     # graph is the cross-file one. Either this file is the
                     # name's only home, or the call is a plain name and a
                     # plain name reaches the local definition. An attribute
-                    # call to a name other files also declare keeps its edge:
-                    # what the receiver holds is not known here.
+                    # call to a name other files also declare keeps its edge
+                    # unless the receiver settles it below: what a receiver
+                    # holds is not known here.
+                    continue
+                said = ([imports[name]] if name in bare and name in imports
+                        else [] if name in bare else mods.get(name) or [])
+                if said and not any(_module_homes(mod, lvl, rel, py_files)
+                                    for mod, lvl in said):
+                    # `ast.walk(...)`, `os.walk(...)`, `requests.get(...)`:
+                    # the caller bound every receiver it calls this name on to
+                    # a module with an `import` line, and no file of this tree
+                    # is any of those modules. Whatever `walk` this tree
+                    # declares, this call is not to it. The test is against
+                    # every indexed file rather than against the name's homes,
+                    # because a module that re-exports a name
+                    # (`mapper.build`, defined in `_mapper/build.py`) is a
+                    # file here and its edge is real.
                     continue
                 if mark:
-                    # The caller named the module it meant. One home under
-                    # that module is an answer, not a guess.
-                    said = imports.get(name) if name in bare else mods.get(name)
-                    hits = _module_homes(said[0], said[1], rel, where) if said else set()
+                    # The caller named the module it meant. One home under the
+                    # modules it named is an answer, not a guess.
+                    hits: set = set()
+                    for mod, lvl in said:
+                        hits |= _module_homes(mod, lvl, rel, where)
                     if len(hits) == 1:
                         where, mark = hits, ""
                 targets.add(_edge("python", name, where, mark))
