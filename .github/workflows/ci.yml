@@ -2434,6 +2434,91 @@ jobs:
           fi
           echo "2400 scenarios: 80 patterns whole on stdout and in the file, "\
                "behave runs all 2400"
+          # 18. The file a pipeline runs on is the selection this command
+          #     line produced, on every exit 0. A commit that changes nothing
+          #     empties it rather than leaving the last one's scenarios in it.
+          # The scenario section 14 added is committed first, so the tree is
+          # clean and "nothing changed" means it.
+          git -C /tmp/aff/repo add -A
+          git -C /tmp/aff/repo -c user.email=ci@example.com -c user.name=ci \
+            commit -qm "the added scenario"
+          printf '\n\ndef another():\n    pass\n' >> /tmp/aff/repo/pages/checkout.py
+          where-are-we --out /tmp/aff/m --changed --affected-format behave \
+            --affected-out /tmp/aff/pipe.sel > /tmp/aff/pipe1.txt
+          test -s /tmp/aff/pipe.sel
+          grep -q '^--name ' /tmp/aff/pipe.sel
+          git -C /tmp/aff/repo checkout -- pages/checkout.py
+          where-are-we --out /tmp/aff/m --changed --affected-format behave \
+            --affected-out /tmp/aff/pipe.sel > /tmp/aff/pipe2.txt
+          cat /tmp/aff/pipe2.txt
+          grep -qx "nothing changed since HEAD; wrote an empty selection to /tmp/aff/pipe.sel" \
+            /tmp/aff/pipe2.txt
+          if test -s /tmp/aff/pipe.sel; then
+            echo "the previous run's selection was left in the file"
+            cat /tmp/aff/pipe.sel
+            exit 1
+          fi
+          # 19. A change that reaches no scenario writes an empty file, not
+          #     the sentence that says so: that sentence is an argument
+          #     behave fails on, and the prose form on stdout is where it
+          #     belongs. The pipeline idiom is the `[ -s ]` test, because
+          #     xargs given empty input runs behave with no arguments, which
+          #     is the whole suite.
+          # The sentence in words is the stdout form's, and only its.
+          where-are-we --out /tmp/aff/m --affected app/nothing-here.py \
+            --affected-format behave > /tmp/aff/empty.stdout
+          grep -q 'nothing to run: no scenario in this map is reached' \
+            /tmp/aff/empty.stdout
+          where-are-we --out /tmp/aff/m --affected app/nothing-here.py \
+            --affected-format behave --affected-out /tmp/aff/empty.sel \
+            > /tmp/aff/empty.txt
+          test ! -s /tmp/aff/empty.sel
+          test -f /tmp/aff/empty.sel
+          # With --affected-out, stdout is the blocks a person reads.
+          head -1 /tmp/aff/empty.txt | grep -q '0 of 4 scenarios'
+          grep -q '## Unreachable from the graph' /tmp/aff/empty.txt
+          where-are-we --out /tmp/aff/m --affected app/nothing-here.py \
+            --affected-format pytest --affected-out /tmp/aff/empty2.sel > /dev/null
+          test ! -s /tmp/aff/empty2.sel
+          if [ -s /tmp/aff/empty.sel ]; then
+            echo "the idiom would have run something"; exit 1
+          else
+            echo "nothing to run"
+          fi
+          # And the same test on a selection that is not empty says the
+          # other thing.
+          where-are-we --out /tmp/aff/m --affected pages/checkout.py \
+            --affected-format behave --affected-out /tmp/aff/some.sel > /dev/null
+          [ -s /tmp/aff/some.sel ] || { echo "a real selection was empty"; exit 1; }
+          # 20. The MCP tool is bounded, unlike the flag: a selection that
+          #     does not fit a tool reply comes back as its count and its
+          #     first selectors with the command that writes all of it, never
+          #     as a prefix that reads as the whole list.
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"affected","arguments":{"files":["pages/checkout.py"],"format":"behave"}}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"affected","arguments":{"files":["pages/checkout.py"]}}}' \
+            | where-are-we --out /tmp/aff/huge/.m --mcp > /tmp/aff/huge.mcp
+          python - <<'EOF'
+          import json
+          rows = [json.loads(l) for l in open("/tmp/aff/huge.mcp")]
+          selection = rows[0]["result"]["content"][0]["text"]
+          assert len(selection) <= 12000, len(selection)
+          assert selection.endswith(
+              "selection too large for a tool reply: 80 selectors; run "
+              "where-are-we --affected pages/checkout.py --affected-format "
+              "behave --affected-out FILE"), selection[-200:]
+          shown = [l for l in selection.splitlines() if l.startswith("--name ")]
+          assert 0 < len(shown) <= 20, len(shown)
+          assert selection.splitlines()[0].endswith("12000 characters."), \
+              selection.splitlines()[0]
+          prose = rows[1]["result"]["content"][0]["text"]
+          assert len(prose) <= 12000, len(prose)
+          print(f"MCP: {len(selection)} characters, {len(shown)} of 80 "
+                "selectors, and the command that writes the rest")
+          EOF
+          # The flag on the same suite is still whole, which is the point of
+          # the two answering differently.
+          test "$(grep -c '^--name ' /tmp/aff/huge.stdout)" = "80"
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json

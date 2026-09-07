@@ -26,9 +26,10 @@ grepped.
   and a changed feature file selects its own scenarios; `format="behave"`
   prints one `--name` per affected scenario rather than any tag or any file
   pattern, and two scenarios of one name are one argument that behave applies
-  to both. A selection is never cut to a budget; on the command line
-  `--affected-out FILE` writes it to a file and leaves stdout to the answer a
-  person reads.
+  to both. A selection the tool reply can hold comes back whole; a
+  larger one comes back as its count, its first selectors and the
+  `--affected-out FILE` command line that writes all of it to a file, which is
+  where a large selection belongs.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

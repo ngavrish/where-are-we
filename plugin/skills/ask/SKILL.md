@@ -45,8 +45,12 @@ line), and `find`'s hits past its limit (`more:find:`).
   scenarios, feature files, routes and page objects a change to those files
   reaches, by walking the map's call rows upward from what they declare, and
   names the files it holds no row for so you know what the answer leaves out.
-  `format="behave"` or `"pytest"` gives the runner's own selection. Ask it
-  before running a suite, instead of running all of it or guessing a subset.
+  `format="behave"` or `"pytest"` gives the runner's own selection: one
+  `--name` per affected scenario, or node ids. Ask it before running a suite,
+  instead of running all of it or guessing a subset. A selection too large for
+  one reply comes back as its count and its first selectors, with the
+  `where-are-we --affected ... --affected-out FILE` command that writes the
+  whole of it to a file; run that rather than asking again.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

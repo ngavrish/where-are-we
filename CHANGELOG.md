@@ -76,6 +76,23 @@ the map and nothing read them end to end; this release starts doing that.
   atomic, the flag is classed `writes-repo` because the path is the caller's,
   and `--dry-run` names the file and the directories it would create without
   writing either.
+- That file is empty, zero bytes, when the change reaches nothing, and when
+  `--changed` finds that nothing changed at all: an empty file means run
+  nothing, and never the previous run's selection left where it lay. The
+  sentence saying so in words stays on stdout, where a person reads it;
+  written into the file it would be an argument behave fails on. A pipeline
+  has to test for it, because `xargs` given empty input runs behave with no
+  arguments, which is the whole suite:
+  `[ -s sel.txt ] && xargs behave < sel.txt || echo "nothing to run"`.
+- The MCP `affected` tool stays bounded, unlike the flag. A tool reply lands
+  in the conversation and is re-read on every turn after it, which is why
+  every tool this server declares has a ceiling and the command line does
+  not: the flag has `--affected-out` to write a large selection to, and a
+  tool has nowhere like that to send one. A selection that fits the 12000
+  character reply comes back whole and is the same bytes the flag prints; one
+  that does not comes back as its count, its first 20 selectors and the
+  `--affected-out` command that writes all of it. Never a prefix that reads
+  as the whole list.
 - Every block is cut by the rules every other answer here is cut by: whole
   rows, a floor share of the budget with what nobody claims handed on in
   printing order, and a `more:aff:` handle under a block that could not print
