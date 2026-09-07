@@ -32,15 +32,18 @@ grepped.
   `--affected-out FILE` command line that writes all of it to a file, which is
   where a large selection belongs.
   `reaches` is that question from the other end: hand it one function or
-  class and it names the scenarios and routes that reach it, grouped by
-  feature file, with the chain of calls under the first scenario of each, and
-  with no depth cap. A class is answered by what is declared inside its span,
-  because `spans` links a method to its class through nothing but the line it
-  sits on. `unreached` names the product functions and classes no step
-  function reaches, ranked, and its first line states how much of the call
-  graph resolved, so the list is read as what it is rather than as a coverage
-  report; a map with no step function says there are no steps to reach from
-  and lists nothing.
+  class and it names the scenarios, pytest cases and routes that reach it,
+  grouped by feature file, with the chain of calls under the first scenario
+  of each, and with no depth cap. A class is answered by what is declared
+  inside it, because `spans` links a method to its class through nothing but
+  a dotted name and the line it sits on; where neither is there the first
+  line says the counts are a floor. `unreached` names the product functions
+  and classes no test reaches at all, ranked, and its first line states how
+  much of the call graph resolved, so the list is read as what it is rather
+  than as a coverage report. It also prints the files it treated as suite,
+  because the product split is only as good as the map's own heuristics, and
+  a map with no step function and no test case says there is nothing to reach
+  from and lists nothing.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

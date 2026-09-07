@@ -112,25 +112,55 @@ the map and nothing read them end to end; this release starts doing that.
   direction of `affected`, over the same walk and with no depth cap, because
   the question is whether anything reaches this at all and a cap would answer
   "nothing" for a function seven hops under a step. The answer names where
-  the name is declared, the scenarios that reach it grouped by feature file
-  with the chain of calls under the first scenario of each, and the routes
-  reached. A class is answered by what is declared inside its span: `spans`
-  records the range of a class and the line of each method and links them to
-  nothing, so a method's line inside a class's range is the only join the map
-  holds, and without it `reaches CheckoutPage` answers nothing for a page
-  object every step drives, because the constructor call sits at module level
-  and no `calls` row is written for it.
-- What the suite never reaches: `unreached` (MCP), `--unreached`, with
-  `--limit N` for how many definitions are ranked (200 by default). One walk
-  down from every step function, to exhaustion, and every product function
+  the name is declared with the members walked for a class, the scenarios
+  that reach it grouped by feature file with the chain of calls under the
+  first scenario of each, the pytest cases that reach it, and the routes
+  reached. A class is answered by what is declared inside it: `spans` records
+  the range of a class and the line of each method and links them to nothing,
+  so the dotted name it writes beside a method and that method's line inside
+  the class's range are the only joins the map holds, and without them
+  `reaches CheckoutPage` answers nothing for a page object every step drives,
+  because the constructor call sits at module level and no `calls` row is
+  written for it.
+- What no test reaches: `unreached` (MCP), `--unreached`, with `--limit N`
+  for how many definitions are ranked (200 by default). One walk down from
+  every entry point the map names, to exhaustion, and every product function
   and class it never arrives at, grouped by file and ranked by the map's own
-  `rank`. Product is every file that declares something and that the map does
-  not name as suite, read off the keys the map already writes (`features`,
-  `steps`, `page_objects`, `drivers`, `behave_environment_files`,
-  `pytest_tests`, `js_tests`, `fixtures`, `perf_suites`, `helpers`,
-  `api_tests`, `other_suites`, `more_suites`), so a product under a root of
-  its own and a product beside its suite are answered the same way. A class
-  counts as reached when anything declared inside its span is.
+  `rank`. An entry point is a behave step function, a pytest case
+  `pytest_tests` names, or any declaration in the files another runner holds
+  its cases in (`js_tests`, `api_tests`, `perf_suites`, `other_suites`,
+  `more_suites`), whose cases the map records by title rather than by
+  function. Product is every file that declares something and that the map
+  does not name as suite, read off the keys the map already writes
+  (`features`, `steps`, `page_objects`, `drivers`,
+  `behave_environment_files`, `pytest_tests`, `js_tests`, `fixtures`,
+  `perf_suites`, `helpers`, `api_tests`, `other_suites`, `more_suites`), so a
+  product under a root of its own and a product beside its suite are answered
+  the same way. A class counts as reached when anything declared inside it
+  is.
+- The answer says what it set aside and how it counted. The precision of the
+  product split is the precision of the map's own suite heuristics, so the
+  files it treated as suite are printed under a head of their own: a module
+  the mapper miscalls a page object is not product, is not in the count and
+  is not in the list, and now that is visible instead of silent. A `## How
+  this was counted` block carries the entry point tally, the product rule,
+  the kinds counted, the class rule, the exclusions and the ranking, so the
+  first line stays short enough to read.
+- `main`, `__main__` and `__init__`, and any file on a test path, are left
+  out of `unreached`. The list is `graph.ENTRY_POINTS`, in one place, because
+  `dead` asks the same question of the same graph and two answers disagreeing
+  about the same definition is worse than either rule.
+- Two limits of the map are stated in the answer rather than left to be
+  discovered. Where a class's `end` is unknown and `spans` records no dotted
+  name for a method, `reaches` says the counts are a floor instead of
+  answering nothing. Where the product is checked out under a root of its
+  own, no `calls` row crosses into it, because the call graph is extracted
+  from the files under `--repo` and from no other root; both answers say so.
+- Only `function` and `class` kinds are counted, and the block that says how
+  the count was made says why a `const` bound to an arrow function is not one
+  of them: the map records it as a constant with nothing beside it saying the
+  value is callable. `reaches` has no such limit and answers for a constant
+  like any other name.
 - The first line of `unreached` states the graph's own resolution rate, from
   `call_graph_stats`: how many of the callee names the walk looked at some
   indexed file declares. A graph that placed half its names calls half the
