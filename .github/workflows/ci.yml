@@ -447,6 +447,30 @@ jobs:
                     EOF
                     echo done
           YML
+          # A heredoc whose opener is followed by a redirection is still a
+          # heredoc: this repository's own workflow writes
+          # `python - <<'EOF' > /tmp/x`, and anchoring the delimiter to the end
+          # of the line left three names of its body in the map.
+          cat >> /tmp/quo/r/.github/workflows/ci.yml <<'YML'
+                - name: redirected
+                  run: |
+                    python - <<'PYEOF' > /tmp/redirected.bin
+                    def redirected_body(x):
+                        return x
+                    PYEOF
+                    cat <<SHELL | tee /tmp/piped.txt
+                    def piped_body(x):
+                        return x
+                    SHELL
+          YML
+          # A left shift is not a heredoc, in the languages that have both.
+          # Shell has no bare arithmetic statement, so a shift is inside
+          # `$(( ))` or after `let`, and reading one as an opener used to cost
+          # every declaration from that line to the end of the file.
+          printf '#!/bin/bash\nlet MASK=1 << bits\nAFTER=2\nLAST=3\n' \
+            > /tmp/quo/r/shift.sh
+          printf 'a:\n  run: |\n    let X=1 << bits\n    Y=2\nZKEY: 3\n' \
+            > /tmp/quo/r/shift.yml
           # A shift is not a heredoc: the same two characters at the end of a
           # line in a language that has no heredocs must not take the rest of
           # the file out of the map.
@@ -459,19 +483,26 @@ jobs:
           m = json.load(open("/tmp/quo/m/framework_map.json"))
           names = m["definitions"]
           spans = m["spans"]
-          quoted = ["of", "refund", "Ledger", "build", "Runner"]
+          quoted = ["of", "refund", "Ledger", "build", "Runner",
+                    "redirected_body", "piped_body"]
           leaked = [n for n in quoted if n in names or n in spans]
           if leaked:
               print("a quoted body was read as a declaration:", leaked)
               sys.exit(1)
-          # The same files still declare what they really declare.
-          for n in ("SOURCE", "write_tree", "Shift", "After"):
+          # The same files still declare what they really declare, and a left
+          # shift declares everything after it: this is the answer 1.4.1 gave.
+          kept = ["SOURCE", "write_tree", "Shift", "After",
+                  "MASK", "AFTER", "LAST", "ZKEY"]
+          for n in kept:
               assert n in names, (n, sorted(names))
               assert n in spans, (n, sorted(spans))
           assert names["write_tree"].endswith("fixtures.py:17"), names["write_tree"]
-          print("quoted bodies dropped:", quoted,
-                "; declarations kept:", ["SOURCE", "write_tree", "Shift", "After"])
+          print("quoted bodies dropped:", quoted, "; declarations kept:", kept)
           EOF
+          # Nothing said a file was cut, because nothing was.
+          if grep -q "heredoc" /tmp/quo/m/framework_map.md; then
+            echo "a closed heredoc was reported as unterminated"; exit 1
+          fi
           # An unterminated heredoc masks the rest of its own file and nothing
           # else: being wrong about one file is the safe way to be wrong.
           printf 'run: |\n  python - <<%sEOF%s\n  def never_closed(x):\n      return x\n' "'" "'" \
@@ -487,6 +518,31 @@ jobs:
           assert "write_tree" in m["definitions"]
           print("an unterminated heredoc masks its own file only")
           EOF
+          # And it says so. A file the map stopped reading half way through is
+          # named under `## This map is incomplete` with the delimiter that was
+          # never closed, because dropping declarations quietly is the one
+          # thing this rule must not do.
+          sed -n '/^## This map is incomplete/,/^## /p' \
+            /tmp/quo/m2/framework_map.md | tee /tmp/quo/note.txt
+          grep -qF "open.yml is never closed" /tmp/quo/note.txt
+          grep -qF "a heredoc opened with EOF" /tmp/quo/note.txt
+          # A bare delimiter is believed only when a later line closes it, so
+          # the ambiguous shape cannot eat a file on its own.
+          printf 'x=1\ncat <<NOPE\nAFTER_BARE=2\n' > /tmp/quo/r2.sh
+          mkdir -p /tmp/quo/r3 && cp /tmp/quo/r2.sh /tmp/quo/r3/s.sh
+          where-are-we --repo /tmp/quo/r3 --out /tmp/quo/m3 --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/quo/m3/framework_map.json"))
+          assert "AFTER_BARE" in m["definitions"], sorted(m["definitions"])
+          print("a bare delimiter nothing closes is not an opener:",
+                sorted(m["definitions"]))
+          EOF
+          if grep -q "heredoc" /tmp/quo/m3/framework_map.md; then
+            echo "a bare word that opened nothing was reported as a heredoc"
+            exit 1
+          fi
       - name: context returns in one call what five calls return
         run: |
           set -o pipefail

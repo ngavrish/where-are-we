@@ -12,7 +12,7 @@ import os
 import re
 
 from . import state
-from .state import DEFINITIONS, INDEXED, LINES, SPANS
+from .state import DEFINITIONS, INDEXED, LINES, SPANS, TRUNCATED
 from .walk import SLURP_LIMIT, _cached, _redact_lines, _slurp
 
 try:
@@ -493,11 +493,49 @@ def _py_spans(path: str) -> dict:
 # out of the map. These are the languages where the construct is the
 # construct, which is what a CI workflow's `python - <<'EOF'` is written in.
 _HEREDOC_EXTS = {".sh", ".bash", ".zsh", ".ksh", ".yml", ".yaml"}
-_HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1\s*$")
+
+# The operator and its delimiter word. `<<EOF`, `<< EOF`, `<<-EOF` and the
+# quoted forms, and after the word either nothing or another redirection, a
+# pipe, a background or a separator: `python - <<'EOF' > /tmp/out.bin` is a
+# heredoc, and anchoring the word to the end of the line missed it.
+_HEREDOC_START = re.compile(
+    r"""<<-?[ \t]*
+        (?: '(?P<sq>[A-Za-z_]\w*)'
+          | "(?P<dq>[A-Za-z_]\w*)"
+          | (?P<bare>[A-Za-z_]\w*) )
+        [ \t]*
+        (?: [0-9]?[<>|&;].* )?
+        $""", re.X)
+
+# Where `<<` is a left shift and not a heredoc. Shell has no bare arithmetic
+# statement, so a shift only ever appears inside `$(( ))` or `(( ))`, after
+# `let`, or in an integer declaration. That is the whole list, and it is what
+# tells `let MASK=1 << bits` from `cat <<bits`: both end in a plain word.
+_SHIFT_CONTEXT = re.compile(
+    r"\$\(\(|\(\(|(?:^|[;&|]|\bthen\b|\bdo\b|\belse\b)\s*"
+    r"(?:let\b|(?:declare|typeset|local)\s+-[a-zA-Z]*i)")
 
 
-def _heredoc_lines(body: str) -> list:
-    """The `[from, to]` line ranges of `body` that are heredoc bodies.
+def _heredoc_opener(text: str):
+    """`(delimiter, quoted)` if `text` opens a heredoc, else `None`.
+
+    `quoted` says the delimiter was written `'EOF'` or `"EOF"`, which is
+    syntax no shift can wear: `1 << 'bits'` is not arithmetic. A bare word is
+    the ambiguous form and the caller asks for its terminator before believing
+    it.
+    """
+    found = _HEREDOC_START.search(text)
+    if not found:
+        return None
+    if _SHIFT_CONTEXT.search(text[:found.start()]):
+        return None
+    word = found.group("sq") or found.group("dq")
+    return (word, True) if word else (found.group("bare"), False)
+
+
+def _heredoc_lines(body: str) -> tuple:
+    """`(ranges, unterminated)`: the `[from, to]` line ranges of `body` that
+    are heredoc bodies, and the delimiter of one that is never closed.
 
     A heredoc is text a script hands to another program, so what is written
     in it is that program's code and not this file's: this repository's own
@@ -505,21 +543,58 @@ def _heredoc_lines(body: str) -> list:
     answered "where is build declared" with a line of YAML. The terminator is
     matched stripped, which is what `<<-` means and what every YAML block
     scalar does to its own indentation anyway.
+
+    A bare delimiter is believed only when a later line holds it alone. Two
+    characters and a word are also how a left shift is written, and reading
+    one as an opener costs every declaration from that line to the end of the
+    file. A quoted delimiter needs no such proof, since `1 << 'bits'` is not
+    arithmetic in any shell.
+
+    An opener that is believed and never closed does run to the end of the
+    file, and `unterminated` is what says so: the caller puts the file in
+    `## This map is incomplete`, because a map that quietly stops indexing
+    half a file is the one thing this key must not do.
     """
+    lines = body.splitlines()
     out, term, start = [], None, 0
-    for number, text in enumerate(body.splitlines(), 1):
+    for number, text in enumerate(lines, 1):
         if term is None:
-            found = _HEREDOC_START.search(text)
-            if found:
-                term, start = found.group(2), number + 1
+            opened = _heredoc_opener(text)
+            if not opened:
+                continue
+            word, quoted = opened
+            if not quoted and not any(later.strip() == word
+                                      for later in lines[number:]):
+                continue
+            term, start = word, number + 1
             continue
         if text.strip() == term:
             if number > start:
                 out.append([start, number - 1])
             term = None
     if term is not None:
-        out.append([start, len(body.splitlines())])
-    return out
+        if len(lines) >= start:
+            out.append([start, len(lines)])
+        return out, term
+    return out, None
+
+
+def note_unterminated_heredoc(path: str, body: str, ext: str) -> None:
+    """Name a file whose heredoc never closes in `## This map is incomplete`.
+
+    Called from `index_declarations`, which runs for every file on every
+    build, rather than from the cached span pass, so that the note is printed
+    on a warm build as well as a cold one.
+    """
+    if ext not in _HEREDOC_EXTS:
+        return
+    _ranges, term = _heredoc_lines(body)
+    if term is None:
+        return
+    note = (f"a heredoc opened with {term} in {path} is never closed: the rest "
+            f"of that file is read as the body of it and declares nothing")
+    if note not in TRUNCATED:
+        TRUNCATED.append(note)
 
 
 def _not_code_lines(body: str, ext: str, exact: dict) -> set:
@@ -534,7 +609,7 @@ def _not_code_lines(body: str, ext: str, exact: dict) -> set:
     """
     ranges = list(exact.get("quoted") or ())
     if ext in _HEREDOC_EXTS:
-        ranges += _heredoc_lines(body)
+        ranges += _heredoc_lines(body)[0]
     out: set = set()
     for start, end in ranges:
         out.update(range(start, end + 1))
@@ -761,6 +836,7 @@ def index_declarations(path: str, label: str = "") -> None:
         return
     INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
     index_lines(path, body)
+    note_unterminated_heredoc(path, body, ext)
     # One list for both tables. `_declared_spans` keeps `_declared_names`'
     # order and its start lines, so `definitions` is the same index it was
     # before spans existed: the first site of each name, in walk order.

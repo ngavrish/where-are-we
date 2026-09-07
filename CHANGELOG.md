@@ -28,8 +28,14 @@ says which rule placed it.
   the phrase "the class of that command line" in a docstring. The heredoc rule
   is applied to `.sh`, `.bash`, `.zsh`, `.ksh`, `.yml` and `.yaml` and nowhere
   else, because `a << b` at the end of a line is a shift in the languages that
-  have no heredocs. An unterminated heredoc masks the rest of its own file and
-  nothing beyond it.
+  have no heredocs. It is a shift in shell too, so an opener is refused where
+  the line puts it inside `$(( ))` or `(( ))`, after `let`, or in an integer
+  declaration, and a bare delimiter is believed only when a later line closes
+  it: `let MASK=1 << bits` declares `MASK` and everything after it, as it did
+  before. A redirection after the delimiter is still a heredoc, which is what
+  `python - <<'EOF' > out.bin` is. An opener that is believed and never closed
+  runs to the end of its own file and nothing beyond it, and that file is named
+  under `## This map is incomplete` with the delimiter that was left open.
 - `--defines NAME` and the MCP `defines` tool list every home:
   `charge: a.py:10-24 (function), b.py:88-91 (function)`. The flag is new; the
   tool answered with one home per name before, chosen by directory order.
