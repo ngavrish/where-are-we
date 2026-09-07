@@ -58,43 +58,55 @@ import types
 
 try:
     from ._mapper import state
-    from .ask import _definitions_for, ask, definitions_for, more
+    from .ask import (_definitions_for, ask, at, context, definitions_for,
+                      file_list, more, rank_lines, spans_for)
     from ._mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                                _SECRET_SHAPES, _cached, _config, _fingerprint,
                                _ignored, _ignores, _lines_matching,
                                _load_parse_cache, _looks_like_suite, _manifest,
                                _product_roots, _save_parse_cache, _slurp,
-                               _walk, fingerprint, redact)
+                               _walk, content_hash, content_pairs,
+                               content_root, fingerprint, redact)
     from ._mapper.declare import (DECLARATIONS, STEP_DECORATORS,
                                   TS_LANG_BY_EXT, _DECLARES, _PER_FILE_CAP,
-                                  _TS_PARSERS, _declared_names, _line_for_name,
-                                  _read_for_declarations,
+                                  TS_END_BY_EXT, _TS_PARSERS, _declared_names,
+                                  _line_for_name, _read_for_declarations,
                                   _regex_declared_names, _step_texts,
                                   _tree_sitter, _ts_symbols, declarations_in,
-                                  find_text, index_declarations, index_lines)
+                                  find_text, index_declarations, index_lines,
+                                  record_span, spans_index)
     from ._mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
-                                 _cap_sections, brief, changed_since,
-                                 digest, for_audience, meaning_tail, pointer)
+                                 _cap_sections, brief, changed_since, cost,
+                                 ctags, digest, export, for_audience,
+                                 map_costs, meaning_tail, pointer,
+                                 section_costs)
     from ._mapper.build import _layer_line, build
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
-    from ask import _definitions_for, ask, definitions_for, more
+    from ask import (_definitions_for, ask, at,  # type: ignore[no-redef]
+                     context, definitions_for, file_list, more, rank_lines,
+                     spans_for)
     from _mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                               _SECRET_SHAPES, _cached, _config, _fingerprint,
                               _ignored, _ignores, _lines_matching,
                               _load_parse_cache, _looks_like_suite, _manifest,
                               _product_roots, _save_parse_cache, _slurp, _walk,
+                              content_hash, content_pairs, content_root,
                               fingerprint, redact)
-    from _mapper.declare import (DECLARATIONS, STEP_DECORATORS, TS_LANG_BY_EXT,
+    from _mapper.declare import (DECLARATIONS, STEP_DECORATORS, TS_END_BY_EXT,
+                                 TS_LANG_BY_EXT,
                                  _DECLARES, _PER_FILE_CAP, _TS_PARSERS,
                                  _declared_names, _line_for_name,
                                  _read_for_declarations, _regex_declared_names,
                                  _step_texts, _tree_sitter, _ts_symbols,
                                  declarations_in, find_text,
-                                 index_declarations, index_lines)
+                                 index_declarations, index_lines, record_span,
+                                 spans_index)
     from _mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
-                                _cap_sections, brief, changed_since,
-                                digest, for_audience, meaning_tail, pointer)
+                                _cap_sections, brief, changed_since, cost,
+                                ctags, digest, export, for_audience,
+                                map_costs, meaning_tail, pointer,
+                                section_costs)
     from _mapper.build import _layer_line, build
 
 __version__ = state.__version__
@@ -105,10 +117,19 @@ __version__ = state.__version__
 # sit in the module dict, ordinary attribute lookup would find it there, and
 # `__getattr__` (which Python consults only when that lookup fails) would never
 # run, so an assignment would go nowhere the package can see.
+# The three file lists are results of a build and belong here together: a
+# caller that reads the moved files through this facade and cannot reach the
+# added and the gone ones has a third of the answer. `HASHES_AT_LOAD`,
+# `HASH_MARK`, `_HASHED_THIS_BUILD`, `PARSE_CACHE_READS`, `PARSE_CACHE_WRITES`,
+# `REDACT_LINES` and `LINES_REDACTED` are build internals and stay off it.
+# `PARSED_FILES` is a result and is here beside `PARSE_COUNT`: the two are the
+# same build counted by files and by computations, and a caller reading one
+# through the facade should be able to read the other.
 _STATE_NAMES = frozenset((
-    "DEFINITIONS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
-    "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE", "_IGNORE_CACHE",
-    "_PARSE_CACHE", "_WALK_CACHE",
+    "DEFINITIONS", "SPANS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
+    "HASH_COUNT", "HASHES_ADDED", "HASHES_GONE", "HASHES_MOVED", "PARSE_COUNT",
+    "PARSED_FILES", "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE",
+    "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE",
 ))
 
 
@@ -156,12 +177,17 @@ def _cli():
 # server and the language server would do exactly that.
 __all__ = [
     "DECLARATIONS", "DEFINITIONS", "INDEXED", "LINES", "MAX_FILES",
-    "SKIP_DIRS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
-    "CACHE_SCHEMA", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
-    "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "brief", "build",
-    "changed_since", "declarations_in", "definitions_for", "digest",
-    "find_text", "fingerprint", "for_audience", "index_declarations",
-    "index_lines", "meaning_tail", "more", "pointer", "redact",
+    "SKIP_DIRS", "SPANS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
+    "CACHE_SCHEMA", "HASHES_ADDED", "HASHES_GONE", "HASHES_MOVED",
+    "HASH_COUNT", "PARSED_FILES", "PARSE_COUNT",
+    "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE", "_IGNORE_CACHE",
+    "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief", "build",
+    "changed_since", "content_hash", "content_pairs", "content_root",
+    "context", "cost", "ctags", "declarations_in", "definitions_for",
+    "digest", "export", "file_list", "find_text", "fingerprint",
+    "for_audience", "index_declarations", "index_lines", "map_costs",
+    "meaning_tail", "more", "pointer", "rank_lines", "record_span",
+    "redact", "section_costs", "spans_for", "spans_index",
 ]
 
 

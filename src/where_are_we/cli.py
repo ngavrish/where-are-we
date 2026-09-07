@@ -28,15 +28,20 @@ import sys
 # `src/where_are_we` is itself the import root.
 try:
     from . import ask as _ask, effects, hooks, lsp, mcp, specs
-    from .ask import (IMPACT_MAX_DEPTH, ask, callees_line, callers, impact,
-                       log_answer, map_heads)
-    from ._mapper.build import build
-    from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
-                                 digest, for_audience, meaning_tail, pointer)
+    from .ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask, at, callees_line,
+                       callers, context, file_list, impact, log_answer,
+                       map_heads, rank_lines, spans_for)
+    from ._mapper.build import build, declares_rows, sort_xrefs
+    from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
+                                 changed_since, cost, ctags, digest, export,
+                                 for_audience, meaning_tail, pointer)
+    from ._mapper.declare import spans_index
+    from ._mapper import state
     from ._mapper.state import DEFINITIONS, INDEXED
     from ._mapper.walk import (SKIP_DIRS, _PARSE_CACHE_FILE, _config,
-                               _product_roots, _write_atomic,
-                               _write_atomic_group, fingerprint, redact)
+                               _load_parse_cache, _product_roots,
+                               _write_atomic, _write_atomic_group,
+                               content_root, fingerprint, redact)
 except ImportError:  # run as a plain file, with no package around it
     import ask as _ask  # type: ignore[no-redef]
     import effects  # type: ignore[no-redef]
@@ -44,16 +49,22 @@ except ImportError:  # run as a plain file, with no package around it
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import (IMPACT_MAX_DEPTH, ask,  # type: ignore[no-redef]
-                     callees_line, callers, impact, log_answer, map_heads)
-    from _mapper.build import build  # type: ignore[no-redef]
-    from _mapper.render import (_as_dict, _cap_sections, brief,  # type: ignore[no-redef]
-                                changed_since, digest, for_audience,
+    from ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask,  # type: ignore[no-redef]
+                     at, callees_line, callers, context, file_list, impact,
+                     log_answer, map_heads, rank_lines, spans_for)
+    from _mapper.build import (build,  # type: ignore[no-redef]
+                               declares_rows, sort_xrefs)
+    from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
+                                _as_dict, _cap_sections, brief, changed_since,
+                                cost, ctags, digest, export, for_audience,
                                 meaning_tail, pointer)
+    from _mapper.declare import spans_index  # type: ignore[no-redef]
+    from _mapper import state  # type: ignore[no-redef]
     from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
     from _mapper.walk import (SKIP_DIRS,  # type: ignore[no-redef]
-                              _PARSE_CACHE_FILE, _config, _product_roots,
-                              _write_atomic, _write_atomic_group, fingerprint,
+                              _PARSE_CACHE_FILE, _config, _load_parse_cache,
+                              _product_roots, _write_atomic,
+                              _write_atomic_group, content_root, fingerprint,
                               redact)
 
 
@@ -162,6 +173,11 @@ def _write_artifacts(out_dir: str, m: dict, args) -> None:
                 "h2{border-color:#333}code{background:#222}}</style>"
                 + "\n".join(body_html))
         _write_atomic(os.path.join(out_dir, "framework_map.html"), html)
+    if args.ctags:
+        # Atomically like every other artefact: an editor reads `tags` while
+        # a build is running exactly as often as the MCP server reads the
+        # JSON, and a half-written tags file is a binary search over garbage.
+        _write_atomic(os.path.join(out_dir, CTAGS_NAME), ctags(m, out_dir))
     if args.agent_file:
         # Between markers, because these files are shared: whatever a human or
         # another tool put there is not this tool's to delete.
@@ -328,6 +344,40 @@ def _impact_depth(text: str) -> int:
     return value
 
 
+def _row_limit(text: str) -> int:
+    """`--limit`, refused at the parser the way `--impact-depth` is.
+
+    A limit is a ceiling, and a ceiling below one is not a smaller answer.
+    `--limit -3` used to reach a list slice, so it printed every definition in
+    the map but the last three, and `--limit 0` printed the default two
+    hundred; the MCP `rank` tool refused both with -32602. Two spellings of
+    one tool disagreeing about what the input means is worse than either
+    answer.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a whole number") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be a positive integer, not {value}")
+    return value
+
+
+def _say_unknown(map_path: str, files) -> None:
+    """One line on stderr for a named path nothing in the map matches.
+
+    stdout is untouched, so `--rank` and the MCP `rank` tool still print the
+    same bytes; what changes is that a typo is visible instead of answering
+    the question the reader did not ask.
+    """
+    missing = _ask.unknown_files(map_path, files)
+    if missing:
+        print("nothing indexed under " + ", ".join(repr(m) for m in missing),
+              file=sys.stderr)
+
+
 def _resolve_repo(given, out):
     """The repository a run is about, when --repo was not spelled out.
 
@@ -433,7 +483,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-lines", type=int, default=0,
                     help="cap the brief at this many lines; the map itself is untouched")
     ap.add_argument("--diff", action="store_true",
-                    help="print what changed since the map already in --out, and exit")
+                    help="print what changed since the map already in --out: "
+                         "the files that moved, then the keys, and exit")
     ap.add_argument("--also", default="",
                     help="other repositories to fold into the same map, comma separated")
     ap.add_argument("--docs", nargs="?", const="plan", choices=["plan", "write"],
@@ -445,6 +496,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="rebuild whenever the tree moves, checking every SECONDS")
     ap.add_argument("--html", action="store_true",
                     help="also write framework_map.html — the brief, readable in a browser")
+    ap.add_argument("--ctags", action="store_true",
+                    help="also write <out>/tags: every declaration the map "
+                         "holds in universal-ctags format, sorted by name in "
+                         "the C locale, with the kind, the line it starts on "
+                         "and, where a parser knew it, the line it ends on. "
+                         "vim, emacs, helix, kakoune and readtags read it with "
+                         "no server running")
     ap.add_argument("--force", action="store_true",
                     help="rebuild even when the existing map still matches the "
                          "repository (by default a map is built when it is missing "
@@ -467,6 +525,43 @@ def build_parser() -> argparse.ArgumentParser:
                          "invoice:12'`. Continues that same list where the "
                          "answer stopped and ends with the next handle if "
                          "there is more still. Reads the map under --out")
+    ap.add_argument("--defines", default="", metavar="NAME",
+                    help="print every place NAME is declared: one line per "
+                         "name, each home as `file:start-end (kind)`, in path "
+                         "order. `-` for an end no parser knew. Reads "
+                         "framework_map.json under --out")
+    ap.add_argument("--at", default="", dest="at_place", metavar="FILE:LINE",
+                    help="print the whole definition that encloses that line, "
+                         "the way a stack trace names it: the innermost one, "
+                         "whole lines, cut to 12000 characters with a handle "
+                         "for the rest. Reads framework_map.json under --out")
+    ap.add_argument("--context", default="", dest="context_name",
+                    metavar="NAME",
+                    help="print everything the map holds about NAME in one "
+                         "answer: where it is declared, the map rows that "
+                         "mention it, its callers, its callees and its "
+                         "impact one hop out. The five reads --defines, "
+                         "--ask, --callers, --callees and --impact do, in "
+                         "one, each block on a fixed share of 12000 "
+                         "characters with a handle for what it cut. Reads "
+                         "the map under --out")
+    ap.add_argument("--rank", nargs="?", const="", default=None,
+                    dest="rank_files", metavar="FILE[,FILE...]",
+                    help="print the definitions this repository is built "
+                         "around, best first, by PageRank over its own file "
+                         "graph. Given files, the walk is personalised on "
+                         "them: what to read when you are editing those. "
+                         "`--ask WORDS` alongside it weighs the names in the "
+                         "question ten times. Reads framework_map.json "
+                         "under --out")
+    ap.add_argument("--files", default="", metavar="FILE[,FILE...]",
+                    help="the files you are working in: on --ask, the rows "
+                         "naming one of them are printed first inside every "
+                         "section and the rest follow as usual. `-` reads a "
+                         "newline separated list on stdin, which is what "
+                         "`git diff --name-only` hands over")
+    ap.add_argument("--limit", type=_row_limit, default=0, metavar="N",
+                    help="how many rows --rank prints (default 200)")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -523,6 +618,22 @@ def build_parser() -> argparse.ArgumentParser:
                          "sections it has, and how to ask it — never the map itself")
     ap.add_argument("--sections", action="store_true",
                     help="list the section headings of an existing map and exit")
+    ap.add_argument("--cost", nargs="?", type=int, const=0, default=None,
+                    metavar="THRESHOLD",
+                    help="print what each section of an existing map costs to "
+                         "carry: rows, bytes and tokens, heaviest first, with "
+                         "a total. THRESHOLD hides every section under that "
+                         "many bytes. With --json, the same table as JSON. "
+                         "Reads framework_map.md under --out")
+    ap.add_argument("--export", default=None, metavar="FILE",
+                    help="write the map as one self-contained file: what it "
+                         "admits it is missing, what it indexed, its sections "
+                         "and what each costs, then the brief. For a channel "
+                         "with no filesystem - a PR comment, a paste. `-` "
+                         "writes it to stdout, which is where a paste usually "
+                         "comes from. Any other FILE is wherever the caller "
+                         "says, which is why the effects table calls this "
+                         "flag writes-repo")
     ap.add_argument("--corpus", action="append", default=[], metavar="NAME=PATH",
                     help="an extra corpus for the semantic index: a markdown "
                          "file or a directory of md/mdc/txt (a rules corpus, a "
@@ -540,7 +651,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "With `-- <command line>`, the class of that command "
                          "line and the flags that gave it")
     ap.add_argument("--json", action="store_true",
-                    help="with --effects: print the table as JSON")
+                    help="with --effects or --cost: print the table as JSON")
     ap.add_argument("--dry-run", action="store_true",
                     help="print every path this command line would write, one "
                          "per line, and exit without writing any of them")
@@ -596,6 +707,31 @@ def _would(path: str) -> str:
     return f"would {'replace' if os.path.exists(path) else 'write'} {path}"
 
 
+# What `--export` says when it is given a path that is not one. An empty
+# string used to be indistinguishable from the flag not being there at all,
+# so `--export ""` fell through every read branch and built the map, which is
+# the opposite of what the line asked for.
+EXPORT_EMPTY = ("--export needs a path, or `-` for stdout; "
+                "an empty one names no file")
+
+
+def _missing_parents(path: str) -> list:
+    """The directories a write to `path` would have to create, outermost
+    first, and nothing when every one of them is already there.
+
+    A preview that names the file and not the two directories under it is
+    describing half of what the run does.
+    """
+    missing, base = [], os.path.dirname(os.path.abspath(path))
+    while base and not os.path.exists(base):
+        missing.append(base)
+        parent = os.path.dirname(base)
+        if parent == base:
+            break
+        base = parent
+    return list(reversed(missing))
+
+
 def _dry_run_answer(args) -> int:
     """`--dry-run` on the command lines that answer instead of building.
 
@@ -611,11 +747,32 @@ def _dry_run_answer(args) -> int:
         for name in ("spec_map.json", "spec_map.md"):
             print(_would(os.path.join(out_dir, name)))
         return 0
+    if args.export is not None:
+        # The one read that writes. The path is the caller's, so it is named
+        # rather than described, and so are the directories that would have
+        # to exist first: `--export docs/pack/map.md` creates them, and a
+        # preview that named only the file would be describing half the
+        # write. `-` creates nothing and writes nothing: it is stdout.
+        if args.export == "-":
+            print("nothing to write: --export - writes to stdout")
+            return 0
+        if not args.export.strip():
+            print(EXPORT_EMPTY, file=sys.stderr)
+            return 2
+        target = os.path.abspath(args.export)
+        for missing in _missing_parents(target):
+            print(f"would create {missing}")
+        print(_would(target))
+        return 0
     named = [flag for flag, given in (
         ("--mcp", args.mcp), ("--lsp", args.lsp), ("--sections", args.sections),
         ("--pointer", args.pointer), ("--ask", args.ask),
         ("--more", args.more_handle), ("--callers", args.callers),
-        ("--callees", args.callees), ("--impact", args.impact)) if given]
+        ("--callees", args.callees), ("--impact", args.impact),
+        ("--defines", args.defines), ("--at", args.at_place),
+        ("--context", args.context_name),
+        ("--rank", args.rank_files is not None),
+        ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
     return 0
 
@@ -670,6 +827,8 @@ def _dry_run(args, repo: str) -> int:
                    os.path.join(out_dir, "framework_map.md")]
         if args.html:
             targets.append(os.path.join(out_dir, "framework_map.html"))
+        if args.ctags:
+            targets.append(os.path.join(out_dir, CTAGS_NAME))
         if args.agent_file:
             targets.append(os.path.abspath(args.agent_file))
     for path in targets:
@@ -700,7 +859,11 @@ def main() -> int:
     # would write is `_dry_run_answer`'s to say.
     if args.dry_run and (args.mcp or args.lsp or args.specs or args.sections
                          or args.ask or args.pointer or args.callers
-                         or args.callees or args.impact or args.more_handle):
+                         or args.callees or args.impact or args.more_handle
+                         or args.defines or args.at_place
+                         or args.context_name or args.export is not None
+                         or args.rank_files is not None
+                         or args.cost is not None):
         return _dry_run_answer(args)
 
     # Answering from a map that already exists needs none of what follows: no
@@ -756,7 +919,10 @@ def main() -> int:
         return 0
 
     if (args.sections or args.ask or args.pointer or args.callers
-            or args.callees or args.impact or args.more_handle):
+            or args.callees or args.impact or args.more_handle
+            or args.defines or args.at_place or args.context_name
+            or args.export is not None or args.rank_files is not None
+            or args.cost is not None):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -786,7 +952,11 @@ def main() -> int:
         # directory with no code map in it at all.
         if not have_map and (args.pointer or args.sections or args.callers
                              or args.callees or args.impact
-                             or args.more_handle):
+                             or args.more_handle or args.defines
+                             or args.at_place or args.context_name
+                             or args.export is not None
+                             or args.rank_files is not None
+                             or args.cost is not None):
             # These three read the code map and only the code map, so for
             # them the spec map beside it is not an answer. Say which file is
             # missing and which one is there.
@@ -806,12 +976,81 @@ def main() -> int:
             log_answer(out_dir, "sections", "", answer, len(answer))
             print(answer)
             return 0
+        if args.cost is not None:
+            # `--cost` with no number is `--cost 0`: every section, nothing
+            # hidden. A threshold of 0 is a real answer, so the flag is read
+            # as "was it given at all" rather than as a truth value.
+            answer = cost(map_path, args.cost, as_json=args.json)
+            log_answer(out_dir, "cost", str(args.cost), answer, len(answer))
+            print(answer, end="")
+            return 0
+        if args.export is not None:
+            text = export(map_path)
+            if args.export == "-":
+                # `-` is stdout, the way every tool that writes a file spells
+                # it. The destination for this flag is a PR comment or a
+                # paste, so the pipe is the common case and a file literally
+                # named `-` in the current directory is never what was meant.
+                print(text, end="")
+                return 0
+            if not args.export.strip():
+                print(EXPORT_EMPTY, file=sys.stderr)
+                return 2
+            target = os.path.abspath(args.export)
+            try:
+                os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                _write_atomic(target, text)
+            except OSError as exc:
+                return _write_error(exc, target)
+            print(f"wrote {target}")
+            return 0
         if args.more_handle:
             # `--more` is the same call the MCP `more` tool makes, at the same
             # budget `--ask` prints at, so a handle read off a CLI answer and
             # a handle read off a tool result resolve to the same text.
             answer = _ask.more(map_path, args.more_handle, 12000)
             log_answer(out_dir, "more", args.more_handle, answer, 12000)
+            print(answer)
+            return 0
+        if args.defines:
+            # The same call the MCP `defines` tool makes, through the same
+            # function, so a name asked here and asked there comes back byte
+            # for byte the same.
+            hits = spans_for(map_path, [args.defines.lower()])
+            answer = ("\n".join(hits) if hits
+                      else f"no declaration of {args.defines!r} in the map")
+            log_answer(out_dir, "defines", args.defines, answer, len(answer))
+            print(answer)
+            return 0
+        if args.at_place:
+            answer = at(map_path, args.at_place)
+            log_answer(out_dir, "at", args.at_place, answer, _ask.AT_BUDGET)
+            print(answer)
+            return 0
+        if args.context_name:
+            # The same call the MCP `context` tool makes, at the same budget,
+            # so a name asked here and asked there comes back byte for byte
+            # the same.
+            answer = context(map_path, args.context_name)
+            log_answer(out_dir, "context", args.context_name, answer,
+                       _ask.CONTEXT_BUDGET)
+            print(answer)
+            return 0
+        if args.rank_files is not None:
+            # The same call the MCP `rank` tool makes, through the same
+            # function. `--ask` alongside it is the tool's `words`: the names
+            # in the question count ten times, which is aider's first
+            # multiplier and the only one a question can move.
+            # `--files` reads as "the files I am working in", which is what
+            # `--rank`'s own argument is, so the two are one list rather than
+            # one flag quietly answering the other's question.
+            chosen = file_list(args.rank_files) + file_list(args.files,
+                                                            sys.stdin.read)
+            chosen = list(dict.fromkeys(chosen))
+            _say_unknown(map_path, chosen)
+            answer = rank_lines(map_path, chosen, args.ask,
+                                args.limit or RANK_LIMIT)
+            log_answer(out_dir, "rank", ",".join(chosen), answer, len(answer))
             print(answer)
             return 0
         if args.callers:
@@ -842,11 +1081,13 @@ def main() -> int:
         # project's `[synonyms]` still has to reach `ask()` from here.
         syn = _config(os.path.abspath(args.repo)).get("synonyms")
         _ask.set_synonyms(syn if isinstance(syn, dict) else {})
+        scope = file_list(args.files, sys.stdin.read)
+        _say_unknown(map_path, scope)
         parts = []
         if have_map:
-            parts.append(ask(map_path, args.ask))
+            parts.append(ask(map_path, args.ask, files=scope))
         if have_spec:
-            parts.append(ask(spec_path, args.ask))
+            parts.append(ask(spec_path, args.ask, files=scope))
         answer = "\n\n".join(parts)
         answer += meaning_tail(out_dir, args.ask, answer)
         log_answer(out_dir, "ask", args.ask, answer, 12000)  # ask()'s own default limit
@@ -914,12 +1155,26 @@ def main() -> int:
 
     if args.watch:
         import time as _t
-        last = ""
+        last, last_root = "", None
         print(f"watching {repo}, every {args.watch}s — Ctrl-C to stop")
         while True:
             try:
                 now_fp = fingerprint(repo)
-                if now_fp != last:
+                # The same two questions the one-shot path asks, in the same
+                # order and for the same reason. The fingerprint is the cheap
+                # one; when it says nothing has moved, the content root is
+                # what catches a rewrite that put its timestamp back. A
+                # watcher that asked only the first went on serving the old
+                # parse for as long as it ran, which is worse than the
+                # one-shot case it was fixed for: nothing else was ever going
+                # to look.
+                now_root = last_root
+                if now_fp == last:
+                    if os.path.isdir(out_dir):
+                        _load_parse_cache(out_dir)
+                    state.HASH_MARK = state.HASH_COUNT
+                    now_root = content_root(repo)
+                if now_fp != last or now_root != last_root:
                     last = now_fp
                     # Before the build, same reasoning as the primary path:
                     # build() only saves the parse cache into a directory that
@@ -931,6 +1186,7 @@ def main() -> int:
                     # since the last one and forgets names deleted since.
                     m2 = redact(build(repo, out_dir=out_dir, force=args.force))
                     m2["fingerprint"] = now_fp
+                    last_root = m2.get("content_root")
                     _write_artifacts(out_dir, m2, args)
                     c2 = m2["counts"]
                     print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
@@ -944,7 +1200,7 @@ def main() -> int:
                 # and keep watching. Ctrl-C is a BaseException and still stops.
                 print(f"rebuild failed, still watching: {type(exc).__name__}: {exc}",
                       file=sys.stderr, flush=True)
-                last = ""
+                last, last_root = "", None
             _t.sleep(args.watch)
 
     if args.install_hook:
@@ -966,7 +1222,25 @@ def main() -> int:
                 prev = json.load(fh)
         except (OSError, ValueError):
             prev = {}
+        # Both, in that order. The fingerprint is the cheap question -- has
+        # anything been written here since -- and it answers no for the one
+        # case that matters: a rewrite of the same byte count with the
+        # timestamp put back. So when it says nothing moved, the content root
+        # is asked, and it reads the stored hashes first and hashes only the
+        # files whose stat block moved, which on a tree nobody touched is no
+        # files at all. A map written before this key existed has no root to
+        # compare against and is trusted on the fingerprint alone.
         if prev.get("fingerprint") == stamp_now:
+            _load_parse_cache(out_dir)
+            # What is hashed answering this question belongs to the build it
+            # decides on, so `hashed N files` covers the whole invocation and
+            # not only the half of it that happened after this line.
+            state.HASH_MARK = state.HASH_COUNT
+            prev_root = prev.get("content_root")
+            unchanged = prev_root is None or prev_root == content_root(repo)
+        else:
+            unchanged = False
+        if unchanged:
             if not args.quiet:
                 c = (prev.get("counts") or {})
                 print(f"framework map: unchanged since it was built "
@@ -981,8 +1255,29 @@ def main() -> int:
         except (OSError, ValueError):
             print("no previous map in " + out_dir)
             return 1
+        # Every line this prints is measured against the map already in
+        # --out, and the hashes beside that map in the parse cache are the
+        # record of what it was built from. So this build reads that record
+        # and does not write over it: a --diff that rewrote the cache moved
+        # its own baseline, and the same command over the same tree named the
+        # files that moved the first time and nothing the second, while the
+        # `content_root:` row went on saying the root had moved. The build
+        # after this one writes the cache as usual.
+        state.PARSE_CACHE_WRITES = False
         now = build(repo, out_dir=out_dir)
         changed = []
+        # Which files moved, before which keys did. The map's `content_root`
+        # says the tree is not the tree it was; these are the files that made
+        # that true, and they are what a reader actually wants named.
+        for label, names in (("files whose content moved", state.HASHES_MOVED),
+                             ("files added", state.HASHES_ADDED),
+                             ("files gone", state.HASHES_GONE)):
+            if not names:
+                continue
+            shown = names[:20]
+            more_files = len(names) - len(shown)
+            changed.append(f"{label}: " + ", ".join(shown)
+                           + (f", and {more_files} more" if more_files > 0 else ""))
         for key in sorted((set(prev) | set(now)) - {"fingerprint", "repo"}):
             a, b = prev.get(key), now.get(key)
             if a == b:
@@ -1039,6 +1334,22 @@ def main() -> int:
         # back "nothing in the map defines this" — the one answer that sends a
         # reader off to grep with confidence.
         m["definitions"] = dict(sorted(DEFINITIONS.items()))
+        # And every home of every one of them, for the same reason: the spans
+        # index is a copy taken when the first root finished.
+        m["spans"] = spans_index()
+        # `xrefs` holds one row per span, so those rows are a copy of a copy:
+        # rebuilt here from the merged index, or a merged map would carry a
+        # table that names fewer files than the `spans` key beside it. The
+        # `calls` and `imports` rows are the first root's, as
+        # `call_graph_files` and `import_graph` are: a second root's call
+        # graph is under `also`, and SCHEMA.md says so.
+        # No root is passed: every site in the merged index carries the
+        # absolute path of the root it was walked under, so a page object of
+        # the second root names that root's file without anything here having
+        # to work out which root it came from.
+        m["xrefs"] = sort_xrefs(
+            [r for r in (m.get("xrefs") or []) if r["edge"] != "declares"]
+            + declares_rows(m["spans"]))
         m["indexed"] = dict(sorted(INDEXED.items()))
     m = redact(m)
     m["fingerprint"] = stamp_now

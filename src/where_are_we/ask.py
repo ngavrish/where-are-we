@@ -11,7 +11,18 @@ import hashlib
 import json
 import os
 import re
+from itertools import accumulate
 from datetime import datetime, timezone
+
+try:
+    from ._mapper import rank as _rank_graph
+except ImportError:  # run as a plain file, with no package around it
+    from _mapper import rank as _rank_graph  # type: ignore[no-redef]
+
+# The default `--rank` and the MCP `rank` tool print, and the length of the
+# map's own `rank` key. The same number in both, so `--rank` with no files is
+# the stored ranking rather than a prefix of it.
+RANK_LIMIT = _rank_graph.TOP
 
 RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
 # rows; 210 rows in this section do not mention these words"), paid for up
@@ -19,6 +30,11 @@ RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
 # tail the two counts can produce.
 RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
+RESERVE_CONTEXT = 48  # the "… N more lines" tail under one `context` block,
+# paid for up front the same way. Longer than that line can be without its
+# handle, which is the longer of its two forms: "… 123456 more lines; no room
+# for a handle" is 41 characters, and the count is a line number, so no block
+# gets near six digits of them.
 # What a tail's `(more:...)` handles cost is not a constant and is not
 # reserved up front. Reserving a fixed amount from every section's row budget
 # would have cost a row in 26 of the 150 golden answers, including sections
@@ -351,8 +367,130 @@ def _group_dirs(rows: list) -> list:
     return out
 
 
+# A rendered row's path tokens. Rows are written several ways: a backticked
+# relative path with a note after it, a definition row whose name comes first
+# and whose absolute path and line come last, a call graph key of
+# `file.py:func`, a prose line naming a file. All of them agree on what a path
+# may hold, so the row is split on everything a path may not and the pieces
+# that look like a path are tried.
+_ROW_SPLIT = re.compile(r"[^A-Za-z0-9_@.+/:~-]+")
+_LINE_SUFFIX = re.compile(r":\d+(?:-(?:\d+|\?))?$")
+
+
+def _row_paths(row: str) -> list:
+    """Every path-shaped token in one rendered row, without what follows it.
+
+    A row names a file three ways: on its own, as a backticked relative path;
+    with the line it is on, which is the shape a definition row ends in; and
+    with the function inside it, `a.py:charge`, which is how both call graphs
+    write a key. The part before the colon is the file in all three, so it is
+    what comes back.
+    """
+    out = []
+    for token in _ROW_SPLIT.split(row):
+        token = _LINE_SUFFIX.sub("", token).rstrip(".,;:")
+        for form in (token, token.split(":", 1)[0]):
+            if form and form not in out and ("/" in form or "." in form):
+                out.append(form)
+    return out
+
+
+def _scope(map_path: str, files) -> dict | None:
+    """What `--files` needs to decide whether a row is about one of them.
+
+    The repository root, because a definition row carries the absolute path a
+    name was declared at and every other row carries a relative one; and every
+    indexed file by basename, because the call graph's rows name a file the
+    way a stack trace does. `refund.py:refund` is `billing/refund.py:refund`
+    to a reader who asked for `billing/`, and the map already knows which file
+    of that name it walked.
+
+    `None` when no files were named, which is the case that reads no second
+    file and takes exactly the path this took before `--files` existed.
+    """
+    if not files:
+        return None
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    root, homes = "", {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh) or {}
+        root = data.get("repo") or ""
+        for full in (data.get("lines") or ()):
+            rel = _rank_graph.relative(full, root)
+            homes.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
+    except (OSError, ValueError):
+        pass
+    # The same list as one handle field, percent-encoded like the question
+    # beside it. A tail printed under a scoped answer carries it, and `more()`
+    # rebuilds this dict from it, so the continuation reorders the section the
+    # way the answer that printed the handle did. Without it the offset counts
+    # into one order and the slice comes out of another, and a row `--files`
+    # pushed past the cut is unreachable through the handle that promised it.
+    return {"root": root, "homes": homes, "files": list(files),
+            "field": _encode(",".join(files))}
+
+
+def _scope_field(scope) -> str:
+    """One scope's handle field, or `""` when there is no scope.
+
+    Empty for an unscoped answer, and every handle builder appends the field
+    only when it is non-empty, so an answer asked without `--files` prints the
+    handles it printed before this existed. The golden suite is the proof:
+    156 expected files, none of them moved.
+    """
+    return (scope or {}).get("field") or ""
+
+
+def _scope_from_field(map_path: str, field: str) -> dict | None:
+    """The scope a handle's own field names, rebuilt from the map on disk.
+
+    Nothing is stored between the two calls. The file list is in the handle,
+    the map is on disk, and `_scope` resolves the one against the other the
+    same way it did for the answer that printed it.
+    """
+    files = [part for part in _decode(field).split(",") if part]
+    return _scope(map_path, files)
+
+
+def _in_scope(row: str, scope: dict) -> bool:
+    """Whether one rendered row is about a file the reader named."""
+    root, homes, wanted = scope["root"], scope["homes"], scope["files"]
+    for token in _row_paths(row):
+        if _rank_graph.matches(token, root, wanted):
+            return True
+        if "/" in token:
+            continue
+        # A bare basename, which is what the call graph and several other
+        # sections print. Every file of that name the walk indexed counts:
+        # naming one of them would make the answer depend on walk order, and
+        # a repository with two `refund.py` has two answers to this question.
+        for candidate in homes.get(token, ()):
+            if _rank_graph.matches(candidate, root, wanted):
+                return True
+    return False
+
+
+def _files_first(rows: list, scope: dict | None) -> list:
+    """`rows` with the ones naming a file the reader asked for in front.
+
+    A stable partition, not a sort: inside each half the order is the order
+    the section already had, so `--files` moves rows and changes nothing else
+    about them. The tail under the section still counts what did not fit and
+    still hands back the same handle, because the handle names the section and
+    the words rather than this ordering, and `more()` continues the list the
+    section itself holds.
+    """
+    if not scope:
+        return rows
+    first, rest = [], []
+    for row in rows:
+        (first if _in_scope(row, scope) else rest).append(row)
+    return first + rest
+
+
 def _defined_here(exact: list, room: int, words: str = "",
-                  base: int = 0) -> tuple:
+                  base: int = 0, sfield: str = "") -> tuple:
     """The definitions block, whole lines up to `room`, with a count of what
     did not fit and, when `words` is given, the handle that fetches it.
 
@@ -367,41 +505,23 @@ def _defined_here(exact: list, room: int, words: str = "",
     first.
     """
     head = "## Defined here\n"
-    budget = room - RESERVE_DEFINED
-    if budget <= len(head):
-        return "", base  # not even the head fits: nothing, not a head with a count
     slug = _encode(words) if words else ""
 
-    def build(give: int, handle: bool) -> tuple:
-        idx = fit_indices(exact, budget - len(head) - give)
-        kept = [head] + [exact[i] for i in idx]
-        got = base + _first_gap(len(exact), idx)
-        line = ""
-        if len(exact) - len(idx):
-            suffix = f" (more:defs:{slug}:{got})" if handle and slug else ""
-            line = f"… {len(exact) - len(idx)} more definitions{suffix}"
-            kept.append(line)
-        return ("\n".join(kept) if len(kept) > 1 else ""), got, line
+    def tail_for(dropped: int, got: int, handles: bool) -> str:
+        if not dropped:
+            return ""
+        scoped = f":{sfield}" if sfield else ""
+        suffix = f" (more:defs:{slug}:{got}{scoped})" if handles and slug else ""
+        return f"… {dropped} more definitions{suffix}"
 
-    give, fits, most = 0, False, budget - len(head)
-    block, reached, tail = build(0, True)
-    for _ in range(4):
-        if len(block) <= room:
-            fits = True
-            break
-        if give >= most:
-            break  # every row is already given up and it still does not fit
-        # The handle's own cost, not the overflow: see `_rows_chunk`, where
-        # paying the overflow back a few characters at a time freed no row and
-        # lost the handle anyway.
-        plain = build(give, False)[2]
-        give = min(most, max(give + len(block) - room,
-                             len(tail) - len(plain)))
-        block, reached, tail = build(give, True)
-    if not fits and len(block) > room:
-        # Print the count without a handle, which is what this block did
-        # before handles existed and is bounded by RESERVE_DEFINED.
-        block, reached, tail = build(0, False)
+    block, reached, body_lines, tail = _fit_chunk(
+        head, exact, room, RESERVE_DEFINED, tail_for, base=base)
+    # A head with nothing under it is not a block. The two callers of
+    # `_fit_chunk` that print sections keep theirs, because a section head is
+    # itself an answer; this block's head says only that definitions exist,
+    # and printing it alone would spend the room on saying nothing.
+    if body_lines <= 1 and not tail:
+        return "", reached
     return block, reached
 
 
@@ -548,14 +668,24 @@ def _split_rows(body: list, terms: list) -> tuple:
     return matching, len(other)
 
 
+def is_row(line: str) -> bool:
+    """Whether one line under a heading is a row a reader asked for.
+
+    A blank line is spacing and a bold line is a subhead, so neither counts.
+    Public and used from two places: this module says "N rows do not mention
+    these words" and `render.cost` says how many rows a section costs, and
+    the two have to mean the same thing by a row or the second is describing
+    a file nobody reads.
+    """
+    return bool(line.strip()) and not line.startswith("**")
+
+
 def _rows_by_match(body: list, terms: list) -> tuple:
     """The same split as `_split_rows`, with the rows that did not match kept
     rather than counted: `more:unmatched:` has to print them."""
     matching, other = [], []
     for line in body:
-        if not line.strip():
-            continue
-        if line.startswith("**"):
+        if not is_row(line):
             continue
         if any(t in line.lower() for t in terms):
             matching.append(line)
@@ -565,7 +695,8 @@ def _rows_by_match(body: list, terms: list) -> tuple:
 
 
 def _definitions_block(map_path: str, terms: list, room: int,
-                       extra: list | None = None, words: str = "") -> str:
+                       extra: list | None = None, words: str = "",
+                       scope: dict | None = None) -> str:
     """`## Defined here`, bounded to `room`; empty when nothing was defined
     under these terms.
 
@@ -578,11 +709,12 @@ def _definitions_block(map_path: str, terms: list, room: int,
     exact = definitions_for(map_path, terms, extra)
     if not exact:
         return ""
-    return _defined_here(exact, room, words)[0]
+    return _defined_here(_files_first(exact, scope), room, words, 0,
+                         _scope_field(scope))[0]
 
 
 def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
-               offset: int, kind: str = "rows") -> str:
+               offset: int, kind: str = "rows", sfield: str = "") -> str:
     """The one line under a section that says what was left out, with the
     handle that fetches it when `sec` and `words` are given.
 
@@ -595,15 +727,20 @@ def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
     question was about, so on a line that has both they get the handle, and
     the other list is reachable by hand from the same two slugs with the kind
     changed and the offset at zero.
+
+    `sfield` is the scope `--files` was given, already encoded, appended as a
+    fifth field. Empty without `--files`, and then the handle is character for
+    character the one this printed before scopes existed.
     """
+    tail = f":{sfield}" if sfield else ""
     parts = []
     if dropped:
         noun = ("more matching rows" if kind == "rows"
                 else "more rows that do not mention these words")
-        h = f" (more:{kind}:{sec}:{words}:{offset})" if sec and words else ""
+        h = f" (more:{kind}:{sec}:{words}:{offset}{tail})" if sec and words else ""
         parts.append(f"… {dropped} {noun}{h}")
     if unmatched:
-        h = (f" (more:unmatched:{sec}:{words}:0)"
+        h = (f" (more:unmatched:{sec}:{words}:0{tail})"
              if sec and words and not dropped else "")
         parts.append(f"{unmatched} rows in this section do not mention "
                      f"these words{h}")
@@ -614,7 +751,7 @@ def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
 
 def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
                 sec: str = "", words: str = "", base: int = 0,
-                kind: str = "rows") -> tuple:
+                kind: str = "rows", sfield: str = "") -> tuple:
     """`head` plus as many of `rows` as fit in `room`, grouped by directory,
     with the tail that says what was left and how to ask for it.
 
@@ -643,31 +780,71 @@ def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
     fit and prints a directory head (``- `steps/` ``) that is not a row, so a
     handle counting output lines would skip one row per link of a chain.
     """
-    # `room` is a ceiling, not a target. The tail line is paid for up front,
-    # the head is included only if it fits, and no row is forced in: a first
-    # row longer than the room is a dropped row, not an exception. Measured
-    # at review: a 3 KB head with limit=50 came back 68 times over budget
-    # when the head and first row were forced.
-    budget = room - RESERVE_TAIL
-    if budget <= len(head):
+    def tail_for(dropped: int, got: int, handles: bool) -> str:
+        # `sfield` rides in the closure, not through `_fit_chunk`: the fitter
+        # is shared with `context`, which has no scope, and a tail builder is
+        # exactly where the two callers are allowed to differ.
+        return _tail_line(dropped, unmatched, sec if handles else "",
+                          words if handles else "", got, kind,
+                          sfield if handles else "")
+
+    chunk, reached, lines, tail = _fit_chunk(head, rows, room, RESERVE_TAIL,
+                                             tail_for, _group_dirs, base)
+    if not lines:
         # This section's head alone would overrun; skip it, not every section
         # after it.
         return "", False, base, True
+    handed = reached >= base + len(rows) or f"more:{kind}:" in tail
+    if lines == 1 and not tail:
+        return "", True, reached, handed
+    return chunk, True, reached, handed
+
+
+def _fit_chunk(head: str, rows: list, room: int, reserve: int, tail_for,
+               render=None, base: int = 0) -> tuple:
+    """`head` plus as many of `rows` as fit in `room`, and the tail that says
+    what was left out.
+
+    Returns `(chunk, reached, body_lines, tail)`: the text, how far into
+    `rows` this got counted from `base`, how many lines of it are head and
+    rows rather than tail, and the tail itself. `body_lines` is zero, and
+    `chunk` empty, when the head alone would overrun.
+
+    `room` is a ceiling, not a target. The tail line is paid for up front out
+    of `reserve`, the head is included only if it fits, and no row is forced
+    in: a first row longer than the room is a dropped row, not an exception.
+    Measured at review: a 3 KB head with limit=50 came back 68 times over
+    budget when the head and first row were forced.
+
+    `tail_for(dropped, reached, handles)` builds the tail, and is where the
+    two callers differ: `_rows_chunk` writes a section's two counts and a
+    `more:rows:` handle, `_context_chunk` a line count and a `more:ctx:` one.
+    `render`, when given, is applied to the rows that fit before they are
+    printed, which is how `_rows_chunk` groups them by directory after the
+    cut rather than before it.
+
+    Both callers used to hold their own copy of the loop below, which is the
+    give-back trade and nothing else: it is the one part of a cut that is not
+    obvious, and a fix to it landing in one copy and not the other is the
+    defect that shape invites.
+    """
+    budget = room - reserve
+    if budget <= len(head):
+        return "", base, 0, ""
+
     def build(give: int, handles: bool) -> tuple:
         idx = fit_indices(rows, budget - len(head) - give)
         got = base + _first_gap(len(rows), idx)
-        line = _tail_line(len(rows) - len(idx), unmatched,
-                          sec if handles else "", words if handles else "",
-                          got, kind)
-        body = [head] + _group_dirs([rows[i] for i in idx])
+        kept = [rows[i] for i in idx]
+        body = [head] + (render(kept) if render else kept)
+        line = tail_for(len(rows) - len(idx), got, handles)
         return "\n".join(body + ([line] if line else [])), got, len(body), line
 
-    give, fits, most = 0, False, budget - len(head)
+    give, most = 0, budget - len(head)
     chunk, reached, lines, tail = build(0, True)
     for _ in range(4):
         if len(chunk) <= room:
-            fits = True
-            break
+            return chunk, reached, lines, tail
         if give >= most:
             break  # every row is already given up and it still does not fit
         # Give the tail exactly what its handles cost, not the overflow: the
@@ -679,19 +856,16 @@ def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
         give = min(most, max(give + len(chunk) - room,
                              len(tail) - len(plain)))
         chunk, reached, lines, tail = build(give, True)
-    if not fits and len(chunk) > room:
+    if len(chunk) > room:
         # The handles still overrun the ceiling. Print the tail without them:
-        # that is what this line said before handles existed, and RESERVE_TAIL
+        # that is what this line said before handles existed, and the reserve
         # is the room already set aside for it.
         chunk, reached, lines, tail = build(0, False)
-    handed = reached >= base + len(rows) or f"more:{kind}:" in tail
-    if lines == 1 and not tail:
-        return "", True, reached, handed
-    return chunk, True, reached, handed
+    return chunk, reached, lines, tail
 
 
 def _section_answer(head: str, body: list, terms: list, room: int,
-                    words: str = "") -> tuple:
+                    words: str = "", scope: dict | None = None) -> tuple:
     """One section's answer: matching rows, grouped by directory, with a tail
     saying what didn't fit or didn't match.
 
@@ -705,11 +879,18 @@ def _section_answer(head: str, body: list, terms: list, room: int,
     `words` is the question as it was asked, unexpanded: the handle carries
     it so `more()` can expand it the same way and rank the same sections.
     Without it the tail is the plain one this printed before handles.
+
+    `files`, when given, are the paths the reader said they are working in,
+    and the rows naming one of them are printed first. Which rows the section
+    shows at a budget can change with it; which rows the section has does not,
+    and neither does the tail's arithmetic.
     """
     matching, unmatched = _split_rows(body, terms)
+    matching = _files_first(matching, scope)
     chunk, attempted, _reached, handed = _rows_chunk(
         head, matching, unmatched, room,
-        _head_slug(head) if words else "", _encode(words) if words else "")
+        _head_slug(head) if words else "", _encode(words) if words else "",
+        kind="rows", sfield=_scope_field(scope))
     return chunk, attempted, handed
 
 
@@ -849,7 +1030,7 @@ MAP_CALL_GRAPH_KEYS = 60
 MAP_STEP_GRAPH_KEYS = 120
 
 
-def _impact_caveat(target: str, depth: int) -> str:
+def _impact_caveat(target: str, depth: int, how: bool = False) -> str:
     """The first line of every `impact` reply: how to read the rest of it.
 
     Unconditional, and not only when the key data happens to show an
@@ -858,11 +1039,16 @@ def _impact_caveat(target: str, depth: int) -> str:
     nothing to notice it by; a rule stated every time is the only honest way
     to say that.
 
-    The last clause reads the `?` the map writes on an edge whose callee two
+    The `?` clause reads the mark the map writes on an edge whose callee two
     or more files declare, and which therefore names all of them. `impact`
     prints keys rather than edges, so nothing below carries the mark; the
     reader meets it in `callees` and in the map itself, and this is where it
     is explained.
+
+    `how` adds the last clause, and only a map that holds `xrefs` gets it: a
+    map built before 1.5.0 has no rule to name for any edge, and a line
+    promising a `how:` under each hop that never comes is worse than the
+    silence 1.4.x kept.
     """
     return (f"Impact of `{target}` to depth {depth}. How to read it: hops are "
             "followed by name, so where several files define one name their "
@@ -872,7 +1058,42 @@ def _impact_caveat(target: str, depth: int) -> str:
             f"graph keys and {MAP_STEP_GRAPH_KEYS} step ones, so on a large "
             "repository this radius is a floor; and an edge ending in ? "
             "names every file that declares the callee, because more than one "
-            "does.")
+            "does."
+            + (" Under each hop, a how: line names, in the same order, the "
+               "rule that placed each of its edges." if how else ""))
+
+
+def _resolutions(m: dict) -> dict:
+    """`{(graph key, callee name): {resolution}}` from the map's `xrefs`.
+
+    The graph keys `impact` walks are `<basename>:<func>` and an `xrefs`
+    subject is the same function under the path the walk read it at, so the
+    subject is read down to its basename here. Two files of one basename
+    share a key in the graph and share it here.
+
+    Empty where the map holds no `xrefs` at all, which is every map built
+    before 1.5.0, and empty where it holds only declarations: either way
+    there is no call edge here to name a rule for.
+    """
+    rows = m.get("xrefs")
+    if not rows:
+        return {}
+    out: dict = {}
+    for row in rows:
+        if row.get("edge") != "calls":
+            continue
+        rel, _, func = str(row.get("subject") or "").rpartition(":")
+        key = f"{os.path.basename(rel)}:{func}"
+        out.setdefault((key, row.get("object")), set()).add(
+            row.get("resolution"))
+    return out
+
+
+# What a hop through the behave step graph says about itself. That graph
+# records a bare callee name and no file, so there is no candidate list, no
+# rule that chose between candidates, and no `xrefs` row: the column says
+# which graph the edge came from rather than leaving a blank under it.
+STEP_GRAPH_HOW = "step_graph"
 
 
 def impact(map_json_path: str, name: str, depth: int = 3) -> str:
@@ -906,10 +1127,16 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
     if not isinstance(depth, int) or isinstance(depth, bool) \
             or depth < 1 or depth > IMPACT_MAX_DEPTH:
         return f"depth must be a whole number from 1 to {IMPACT_MAX_DEPTH}, not {depth!r}"
-    caveat = _impact_caveat(target, depth)
     if not target:
         return "impact needs a name to walk back from"
     m = _call_graphs(map_json_path)
+    # The rule behind each edge, and the hops it explains. A map with no
+    # `xrefs` key says nothing about any edge, and this answer then reads
+    # exactly as 1.4.x wrote it.
+    how_by_edge = _resolutions(m)
+    how_by_hop: list = []
+    has_rows = bool(m.get("xrefs"))
+    caveat = _impact_caveat(target, depth, has_rows)
 
     hops, notes, gave = [], [], {}
     seen_keys = set(_keys_named(m, target))
@@ -934,6 +1161,15 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
             gave.setdefault(n, set()).update(keys & set(fresh))
         seen_keys.update(fresh)
         hops.append(fresh)
+        # How each of these keys got here: the resolution of the edge from it
+        # to the name it was found under, and both of them where one key
+        # reaches two names of this hop.
+        this_hop: dict = {}
+        for n, keys in by_name.items():
+            for key in keys & set(fresh):
+                this_hop.setdefault(key, set()).update(
+                    how_by_edge.get((key, n)) or {STEP_GRAPH_HOW})
+        how_by_hop.append(this_hop)
         frontier = []
         for key in fresh:
             n = key.rsplit(":", 1)[-1]
@@ -951,6 +1187,11 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
         printed.update(shown)
         if shown:
             lines.append(f"depth {i}: " + ", ".join(shown))
+            if has_rows:
+                how = how_by_hop[i - 1]
+                lines.append("how: " + ", ".join(
+                    f"{key} {'/'.join(sorted(how.get(key) or {STEP_GRAPH_HOW}))}"
+                    for key in shown))
         if len(shown) < len(hop):
             left.append(f"{len(hop) - len(shown)} more at depth {i}")
     unshown_notes = 0
@@ -1044,7 +1285,7 @@ def _also_matched(def_block: str, section_chunks: list, terms: list, candidates:
 
 
 def _more_note(room: int, words: str = "", offset: int = 0,
-               unshown: bool = True) -> str:
+               unshown: bool = True, sfield: str = "") -> str:
     """The "more sections match" note, only if it fits: a note that says
     "more" when there is no more, or that pushes the answer past its limit,
     is the defect this guards.
@@ -1053,13 +1294,14 @@ def _more_note(room: int, words: str = "", offset: int = 0,
     unshown. When that longer note does not fit but the plain one does, the
     plain one goes out: half the note is still true.
     """
-    for form in _note_forms(words, offset, unshown):
+    for form in _note_forms(words, offset, unshown, sfield):
         if len(form) + 2 <= room:
             return form
     return ""
 
 
-def _note_forms(words: str, offset: int, unshown: bool = True) -> list:
+def _note_forms(words: str, offset: int, unshown: bool = True,
+                sfield: str = "") -> list:
     """The note under an answer that could not finish, longest first.
 
     The order is what the answer gives up first. The long form is the sentence
@@ -1079,11 +1321,12 @@ def _note_forms(words: str, offset: int, unshown: bool = True) -> list:
     if not words:
         return [plain] if unshown else []
     field = _encode(words)
+    tail = f":{sfield}" if sfield else ""
     if not unshown:
         return [f"… more of these sections than fit here; "
-                f"more:sections:{field}:{offset}"]
-    return [f"{plain}, or more:sections:{field}:{offset}",
-            f"… more sections: more:sections:{field}:{offset}",
+                f"more:sections:{field}:{offset}{tail}"]
+    return [f"{plain}, or more:sections:{field}:{offset}{tail}",
+            f"… more sections: more:sections:{field}:{offset}{tail}",
             plain]
 
 
@@ -1110,7 +1353,8 @@ def _handle_kinds(blocks: list) -> set:
 
 
 def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
-              words: str, scored: list, room: int, hold: int) -> tuple:
+              words: str, scored: list, room: int, hold: int,
+              scope: dict | None = None) -> tuple:
     """The answer's blocks, in order, with `hold` characters kept back from
     everything above the "more sections match" note so the note can still be
     printed.
@@ -1126,14 +1370,16 @@ def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
     out, section_chunks = [], []
     start = room
     room -= hold
-    def_block = _definitions_block(map_path, terms, room, candidates, words)
+    def_block = _definitions_block(map_path, terms, room, candidates, words,
+                                   scope)
     if def_block:
         out.append(def_block)
         room -= len(def_block) + 2
     seen = 0
     first_unshown = len(scored)
     for i, (_hits, h, b) in enumerate(scored):
-        chunk, attempted, handed = _section_answer(h, b, expanded, room, words)
+        chunk, attempted, handed = _section_answer(h, b, expanded, room, words,
+                                                   scope)
         if attempted:
             seen += 1
         # Where a `more:sections:` handle resumes: the first section this
@@ -1157,7 +1403,8 @@ def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
         # without the handle for what it cut, and only if the note itself
         # fits: a note that says "more" when there is no more, or that pushes
         # the answer past its limit, is the defect this guards.
-        note = _more_note(room, words, first_unshown, seen < len(scored))
+        note = _more_note(room, words, first_unshown, seen < len(scored),
+                          _scope_field(scope))
         if note:
             out.append(note)
             room -= len(note) + 2
@@ -1168,7 +1415,7 @@ def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
             seen < len(scored))
 
 
-def ask(map_path: str, words: str, limit: int = 12000) -> str:
+def ask(map_path: str, words: str, limit: int = 12000, files=()) -> str:
     """The part of the map that mentions these words, and nothing else.
 
     A map is generated so nobody has to search the repository. Then it is 253 KB,
@@ -1179,6 +1426,14 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
 
     So: sections, ranked by how much they mention what was asked, cut to a size
     that answers rather than a size that has to be paid for on every later turn.
+
+    `files` are the paths the reader is working in, from `--files a.py,b.py`
+    or the MCP `files` argument. Inside each section the rows naming one of
+    them come first and the rest follow with the section's usual tail, so an
+    agent editing `billing/` gets the same answer with its own half of the
+    repository at the top. Without it nothing about the answer changes, which
+    is checked by the golden suite: every expected file was recorded without
+    `files` and none of them moved when this was added.
     """
     try:
         text = map_text(map_path)
@@ -1196,6 +1451,10 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     # `limit` is a ceiling for everyone who calls `ask()`, this note included.
     candidates = list(dict.fromkeys(t for t in expanded if t not in terms))
     note_room = len(f"(also matched: {', '.join(candidates)})") + 2 if candidates else 0
+    # What the named files are, resolved once against the map beside this
+    # one. A question asked without `--files` opens no second file and takes
+    # exactly the path it took before.
+    scope = _scope(map_path, files)
 
     # `ask()` synthesises its own "## Defined here" below, from
     # `_definitions_block`, so the brief's own section of that name (kept
@@ -1206,7 +1465,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     scored = _rank(blocks, expanded, half)
     if not scored:
         block = _definitions_block(map_path, terms, limit - note_room,
-                                   candidates, words)
+                                   candidates, words, scope)
         if block:
             return _also_matched(block, [], terms, candidates) + block
         cblock = _callers_block(map_path, words, limit)
@@ -1237,7 +1496,7 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
     scored.sort(key=lambda x: -round(x[0], 2))  # same rounding as _rank's own sort, so this no-op re-sort cannot undo it
     room = limit - note_room
     args = (map_path, terms, expanded, candidates, words, scored)
-    built = _assemble(*args, room, 0)
+    built = _assemble(*args, room, 0, scope)
     if built[3] and "more:sections:" not in built[4]:
         # A section went unshown and the note that says so did not fit, or fit
         # only in the form that cannot say where to look. Buy it back with
@@ -1252,11 +1511,12 @@ def ask(map_path: str, words: str, limit: int = 12000) -> str:
         # which are a different list. And it must not come out of the whole
         # `## Defined here` block, because where a name was declared is the
         # question this tool is asked most.
-        for form in _note_forms(words, len(scored), built[5]):
+        for form in _note_forms(words, len(scored), built[5],
+                                _scope_field(scope)):
             if built[4] and ("more:sections:" in built[4]
                              or "more:sections:" not in form):
                 break
-            retry = _assemble(*args, room, len(form) + 2)
+            retry = _assemble(*args, room, len(form) + 2, scope)
             if not retry[4] or ("more:sections:" in form
                                 and "more:sections:" not in retry[4]):
                 continue
@@ -1315,6 +1575,15 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     same way, filters the same rows, and continues from `offset`, so the only
     state is the handle itself and a map that has not changed underneath it.
 
+    An answer asked with `--files` carries the scope in one more field, and
+    the four scoped kinds accept it: `more:rows:<section>:<words>:<offset>:
+    <files>`. It has to be there. The offset counts rows in the order the
+    scoped answer printed, and without the scope this would slice the
+    unscoped order at that number: every row `--files` demoted past the cut
+    would be skipped and every row it promoted would come back twice. That is
+    the one promise this project makes above all others, and a scoped answer
+    used to void it silently.
+
     When it has changed, the handle is stale rather than wrong: a section the
     rebuild dropped, or a list that is now shorter than the offset, comes back
     as `no such handle in this map: ...` instead of a slice of some other
@@ -1330,19 +1599,73 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     parts = handle[len(HANDLE_PREFIX):].split(":")
     kind = parts[0] if parts else ""
     fields = parts[1:]
-    widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2}
+    widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2,
+              "at": 2, "ctx": 3}
+    # The four kinds an answer's scope can reach. `find` searches the lines
+    # and `at` a definition; neither is ordered by `--files`, so neither
+    # carries the field and a handle that puts one there is malformed. `ctx`
+    # is out for the same reason from the other side: `context` takes no
+    # files, so no answer it prints is ordered by a scope. If it ever gains
+    # one, it belongs in this tuple and nowhere else.
+    scoped = ("rows", "unmatched", "defs", "sections")
     if kind not in widths:
         return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
-                      "sections, find")
+                      "sections, find, at, ctx")
+    sfield = ""
+    if kind in scoped and len(fields) == widths[kind] + 1:
+        sfield, fields = fields[-1], fields[:-1]
     if len(fields) != widths[kind]:
-        return _stale(f"a more:{kind} handle has {widths[kind]} fields after "
-                      f"the kind, this one has {len(fields)}")
+        want = (f"{widths[kind]} fields after the kind, or {widths[kind] + 1} "
+                f"with a scope," if kind in scoped
+                else f"{widths[kind]} fields after the kind,")
+        return _stale(f"a more:{kind} handle has {want} this one has "
+                      f"{len(fields) + (1 if sfield else 0)}")
+    try:
+        scope = _scope_from_field(map_path, sfield) if sfield else None
+    except ValueError as exc:
+        return _stale(f"{sfield!r} is not a file list this wrote: {exc}")
     try:
         offset = int(fields[-1])
     except ValueError:
         return _stale(f"{fields[-1]!r} is not an offset")
     if offset < 0:
         return _stale("an offset cannot be negative")
+
+    if kind == "at":
+        # The same lookup `at()` did, from the same map, continuing from the
+        # line this offset counts to. Nothing is stored between the two calls:
+        # the place is in the handle, and the definition it names is whatever
+        # the map on disk now says it is.
+        try:
+            place = _decode(fields[0])
+        except ValueError as exc:
+            return _stale(f"{fields[0]!r} is not a place this wrote: {exc}")
+        return at(map_path, place, limit, offset)
+
+    if kind == "ctx":
+        # One block of a `context` answer, from the line this offset counts
+        # to. Nothing is stored between the two calls either: the block and
+        # the name are in the handle, and the block is composed again from
+        # the same functions over the map on disk, at this call's own budget.
+        block = fields[0]
+        if block not in CONTEXT_NAMES:
+            return _stale(f"{block!r} is not a context block; they are "
+                          + ", ".join(CONTEXT_NAMES))
+        try:
+            named = _decode(fields[1])
+        except ValueError as exc:
+            return _stale(f"{fields[1]!r} is not a name this wrote: {exc}")
+        lines = _context_lines(map_path, block, named, limit)
+        if offset >= len(lines):
+            return _stale(f"the {block} block for {named!r} is {len(lines)} "
+                          f"line{'' if len(lines) == 1 else 's'} long, and "
+                          f"this handle asks for line {offset + 1} of it")
+        chunk, reached = _context_chunk(CONTEXT_HEADS[block], lines[offset:],
+                                        limit, block, fields[1], offset)
+        if reached == offset:
+            return _stale(f"line {offset + 1} of the {block} block does not "
+                          f"fit in {limit} characters")
+        return chunk
 
     if kind == "find":
         try:
@@ -1368,11 +1691,13 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         return _stale(f"{words!r} holds no word to ask about")
 
     if kind == "defs":
-        rows = definitions_for(map_path, terms, candidates, cap=0)
+        rows = _files_first(definitions_for(map_path, terms, candidates, cap=0),
+                            scope)
         if offset >= len(rows):
             return _stale(f"{len(rows)} names in this map hold {words!r}, "
                           f"and this handle asks for number {offset + 1}")
-        block, reached = _defined_here(rows[offset:], limit, words, offset)
+        block, reached = _defined_here(rows[offset:], limit, words, offset,
+                                       sfield)
         if reached == offset:
             return _stale(f"definition {offset + 1} of {len(rows)} does not "
                           f"fit in {limit} characters")
@@ -1397,11 +1722,12 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         # this walk, and a continuation that cannot say where it stopped ends
         # the chain in the middle of the list it was asked to finish.
         hold = len(f"… more sections match; ask for something narrower, or "
-                   f"more:sections:{_encode(words)}:{len(scored)}") + 2
+                   f"more:sections:{_encode(words)}:{len(scored)}"
+                   f"{':' + sfield if sfield else ''}") + 2
         out, room, reached = [], limit - hold, offset
         for i, (_hits, h, b) in enumerate(scored[offset:], offset):
             chunk, attempted, handed = _section_answer(h, b, expanded, room,
-                                                       words)
+                                                       words, scope)
             if not attempted:
                 break
             if chunk and not handed and i > offset:
@@ -1415,7 +1741,7 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
                           f"fit in {limit} characters")
         room += hold
         if reached < len(scored):
-            note = _more_note(room, words, reached)
+            note = _more_note(room, words, reached, True, sfield)
             if note:
                 out.append(note)
         return "\n\n".join(out) or (
@@ -1426,14 +1752,15 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         if _head_slug(h) != fields[0]:
             continue
         matching, other = _rows_by_match(b, expanded)
-        rows = matching if kind == "rows" else other
+        rows = _files_first(matching if kind == "rows" else other, scope)
         what = "matching rows" if kind == "rows" else "rows that do not mention it"
         if offset >= len(rows):
             return _stale(f"{h.lstrip('#').strip()!r} has {len(rows)} "
                           f"{what} for {words!r}, and this handle asks for "
                           f"number {offset + 1}")
         chunk, _attempted, reached, _handed = _rows_chunk(
-            h, rows[offset:], 0, limit, fields[0], _encode(words), offset, kind)
+            h, rows[offset:], 0, limit, fields[0], _encode(words), offset, kind,
+            sfield)
         if reached == offset:
             return _stale(f"row {offset + 1} of {len(rows)} does not fit in "
                           f"{limit} characters")
@@ -1511,11 +1838,11 @@ def definitions_for(map_path: str, terms: list[str],
     extra = extra or []
     literal, expansion = [], []
     for name, where in defs.items():
-        low = name.lower()
         row = f"- `{name}` — {where}"
-        if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
+        found = _name_matches(name, terms, extra)
+        if found == "literal":
             literal.append(row)
-        elif any(t in low for t in extra):
+        elif found == "expansion":
             expansion.append(row)
     rows = sorted(literal) + sorted(expansion)
     return rows[:cap] if cap else rows
@@ -1525,3 +1852,654 @@ def definitions_for(map_path: str, terms: list[str],
 # caller that already imported it does not break. Deprecated: use
 # `definitions_for`.
 _definitions_for = definitions_for
+
+
+def _name_matches(name: str, terms: list, extra: list) -> str:
+    """`"literal"`, `"expansion"` or `""` for one name against a question.
+
+    The rule `definitions_for` has always used, named so `spans_for` answers
+    the same question about the same names: the two differ in what they print
+    about a name, never in which names they print.
+    """
+    low = name.lower()
+    if terms and (all(t in low for t in terms) or any(t == low for t in terms)):
+        return "literal"
+    if any(t in low for t in extra):
+        return "expansion"
+    return ""
+
+
+def _site(site: dict) -> str:
+    """One declaration site: `a.py:10-24 (function)`.
+
+    `?` for an end nothing knew, which is the convention the call graph
+    already uses for a callee it could not resolve. A start with a wrong end
+    would be worse than no end at all: an agent editing by anchor would cut
+    the file at a line this map guessed.
+    """
+    end = site.get("end")
+    return (f"{site.get('file')}:{site.get('start')}-"
+            f"{end if end is not None else '?'} ({site.get('kind') or 'name'})")
+
+
+def file_list(text: str, read_stdin=None) -> list:
+    """The files a `--files` value or an MCP `files` argument names.
+
+    A comma or newline separated list, or `-` for a newline list on stdin,
+    which is how a caller hands over the output of `git diff --name-only`
+    without building a command line out of it. Blank entries are dropped and
+    the order is kept: it is a set, and printing it back in the order it was
+    given is what makes an error message recognisable.
+    """
+    if text is None:
+        return []
+    if isinstance(text, (list, tuple)):
+        given = [str(x) for x in text]
+    elif text.strip() == "-":
+        given = (read_stdin() if read_stdin else "").splitlines()
+    else:
+        given = [text]
+    out = []
+    for chunk in given:
+        for part in re.split(r"[,\n]", chunk):
+            part = part.strip()
+            if part and part not in out:
+                out.append(part)
+    return out
+
+
+def unknown_files(map_path: str, files) -> list:
+    """The paths named that no file this map indexed matches.
+
+    A typo used to be silent: `--rank nosuch.py` personalises on nothing and
+    returns the global order, which reads exactly like `--rank` with no
+    argument. The command line says so on stderr; stdout is untouched, so the
+    flag and the MCP tool still print the same bytes.
+    """
+    scope = _scope(map_path, files)
+    if not scope or not scope["homes"]:
+        # No files named, or no map beside this one to check them against.
+        # Silence is the honest answer to "is this path real" when there is
+        # nothing to ask.
+        return []
+    known = [rel for rels in scope["homes"].values() for rel in rels]
+    return [want for want in scope["files"]
+            if not any(_rank_graph.matches(rel, "", [want]) for rel in known)]
+
+
+def rank_lines(map_path: str, files=(), words=(), limit: int = RANK_LIMIT) -> str:
+    """The top definitions by PageRank over the file graph, one per line.
+
+        0.044812401 build /repo/src/where_are_we/_mapper/build.py:243
+
+    Score first, so the list reads as a ranking and sorts as one; nine digits,
+    which is what the map rounded to before it sorted, so a row printed here
+    and a row stored under `rank` are the same characters.
+
+    `files` personalises the walk on the paths the reader named and `words`
+    are the identifiers they asked about. Given neither, this recomputes what
+    the build stored, from the same two keys of the same file: the CI step
+    compares the two lists rather than trusting that they agree.
+
+    `words` is split the way `ask()` splits a question, whether it arrives as
+    one string from `--ask` or as a list from the MCP tool, so the flag and
+    the tool weigh the same identifiers and print the same bytes.
+    """
+    if isinstance(words, str):
+        words = [words]
+    words = [w for part in (words or ()) for w in re.split(r"[\s,]+", str(part)) if w]
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh) or {}
+    except (OSError, ValueError) as exc:
+        return f"no map at {path}: {exc}"
+    rows = _rank_graph.rows(data, files=files, words=words, limit=limit)
+    if not rows:
+        return "nothing to rank: the map declares no name any file references"
+    return "\n".join(f"{row['score']:.9f} {row['name']} "
+                     f"{row['file']}:{row['line']}" for row in rows)
+
+
+def spans_for(map_path: str, terms: list[str], extra: list[str] | None = None,
+              cap: int = DEFINITIONS_CAP) -> list[str]:
+    """Every home of every name these words name, one line per name.
+
+        charge: a.py:10-24 (function), b.py:88-91 (function)
+
+    The same names `definitions_for` returns, and all of their sites rather
+    than the first one the walk happened to reach. A name declared in two
+    files used to come back as one of the two, chosen by directory order, and
+    nothing in the answer said the other existed.
+
+    A map with no `spans` key was built before 1.5.0; then this is
+    `definitions_for`, which every such map does hold.
+    """
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh) or {}
+    except (OSError, ValueError):
+        return []
+    spans = doc.get("spans")
+    if not spans:
+        return definitions_for(map_path, terms, extra, cap)
+    extra = extra or []
+    literal, expansion = [], []
+    for name, sites in spans.items():
+        row = f"{name}: " + ", ".join(_site(s) for s in sites)
+        found = _name_matches(name, terms, extra)
+        if found == "literal":
+            literal.append(row)
+        elif found == "expansion":
+            expansion.append(row)
+    rows = sorted(literal) + sorted(expansion)
+    return rows[:cap] if cap else rows
+
+
+# What `--at` and the MCP `at` tool print at, in characters: the same budget
+# one `ask` answer gets, because it lands in the same conversation.
+AT_BUDGET = 12000
+
+
+def _at_target(target: str) -> tuple:
+    """`(file, line)` from `FILE:LINE`, or `(None, complaint)`."""
+    text = (target or "").strip()
+    file, sep, number = text.rpartition(":")
+    if not sep or not file:
+        return None, (f"{text!r} is not a place: give me FILE:LINE, the file "
+                      "and line a stack trace names")
+    try:
+        line = int(number)
+    except ValueError:
+        return None, f"{number!r} is not a line number"
+    if line < 1:
+        return None, "a line number starts at 1"
+    return (file, line), ""
+
+
+def _at_files(paths, wanted: str) -> list:
+    """The indexed paths `wanted` names, best match first.
+
+    A stack trace says `billing/charge.py`, the map holds whatever path the
+    walk saw, and both are the same file. So: the exact path if the map holds
+    it, else every path ending in it, else every path with that basename. One
+    rung at a time, and never two rungs at once, so a question that names a
+    path the map holds is answered about that path and no other.
+
+    The last rung can match several files, because two directories may both
+    hold an `m.py` and a bare basename does not say which. This returns all of
+    them, sorted; `at` answers about the first in path order and names the
+    rest, rather than picking one silently.
+    """
+    paths = sorted(paths)
+    exact = [p for p in paths if p == wanted]
+    if exact:
+        return exact
+    suffix = [p for p in paths if p.endswith("/" + wanted)
+              or p.endswith(os.sep + wanted)]
+    if suffix:
+        return suffix
+    base = os.path.basename(wanted)
+    return [p for p in paths if os.path.basename(p) == base]
+
+
+def at(map_path: str, target: str, limit: int = AT_BUDGET,
+       offset: int = 0) -> str:
+    """The whole definition enclosing `FILE:LINE`, from the map's own index.
+
+    The move an agent makes after every stack trace, which until now was a
+    `Read` with a guessed offset around the line and a second one when the
+    guess cut the function in half. The map already knows where that
+    definition starts and ends, and already holds the lines.
+
+    The innermost enclosing definition, because a method inside a class is
+    what a line inside that method is part of; ask about the class's own line
+    to get the class. A definition whose end nothing knew cannot be said to
+    enclose anything, so it is offered as a neighbour instead: that is the
+    honest answer for a language read by the regex table, and `file:10-?` is
+    what it looks like.
+
+    Whole lines, up to `limit`, with a tail carrying the handle that fetches
+    the rest. `offset` is how many lines of the definition to skip, which is
+    what `more:at:` continues from.
+    """
+    where, complaint = _at_target(target)
+    if where is None:
+        return complaint
+    wanted, line = where
+    path = os.path.join(os.path.dirname(map_path) or ".", "framework_map.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh) or {}
+    except (OSError, ValueError) as exc:
+        return f"no map at {path}: {exc}"
+    # `"spans" not in doc`, not `not spans`: a 1.5.0 map of a tree that
+    # declares nothing holds an empty index, and telling its reader the map is
+    # from an older release would send them to rebuild something that is
+    # already current.
+    if "spans" not in doc:
+        return ("this map has no spans index: it was built by a version "
+                "before 1.5.0, which recorded one line per name and no end. "
+                "Rebuild with --force: a build skips a tree that has not "
+                "moved, so an upgrade alone does not add the key")
+    spans = doc.get("spans") or {}
+    lines = doc.get("lines") or {}
+    files = _at_files(set(lines) | {s["file"] for rows in spans.values()
+                                    for s in rows}, wanted)
+    if not files:
+        return (f"no file in this map is called {wanted!r}; "
+                f"{len(lines)} files were indexed")
+    here = []
+    for name, rows in spans.items():
+        for site in rows:
+            if site.get("file") in files:
+                here.append((site["file"], site["start"], site.get("end"),
+                             site.get("kind") or "name", name))
+    if not here:
+        return (f"no definition encloses {wanted}:{line} "
+                f"(nothing in this map is declared in {', '.join(files)})")
+    # Innermost first: the deepest declaration that still contains the line,
+    # then the tightest of those, then by name, so the answer to one question
+    # is one definition and the same one every time.
+    holding = sorted((s for s in here
+                      if s[2] is not None and s[1] <= line <= s[2]),
+                     key=lambda s: (-s[1], s[2], s[4], s[0]))
+    if not holding:
+        near = sorted(here, key=lambda s: (abs(s[1] - line), s[1] > line,
+                                            s[0], s[1], s[4]))[:3]
+        answer = (f"no definition encloses {wanted}:{line} (nearest: "
+                  + ", ".join(f"{s[4]} " + _site({"file": s[0], "start": s[1],
+                                                  "end": s[2], "kind": s[3]})
+                              for s in near) + ")")
+        # A declaration that starts above the line and ends nobody knows where
+        # may well be the one the line is in. Saying only "nothing encloses it"
+        # would report a bound of this index as a fact about the code.
+        if any(s[2] is None and s[1] <= line for s in here):
+            answer += ("; an end of ? is a declaration this map could not "
+                       "measure, so one of them may be the one you are in")
+        return answer
+    # One file answers. Where a bare name matched several and more than one of
+    # them holds a definition here, the header names them all: an answer that
+    # picked one silently would be the map choosing, which is the thing it
+    # says out loud everywhere else.
+    also = sorted({s[0] for s in holding})
+    file, start, end, kind, name = next(s for s in holding if s[0] == also[0])
+    body = (lines.get(file) or [])[start - 1:end]
+    if not body:
+        return (f"{file}:{start}-{end} {name} ({kind}), and this map holds no "
+                "lines for that file")
+    head = f"{file}:{start}-{end} {name} ({kind})"
+    if len(also) > 1:
+        head += (f" ({wanted} also matches "
+                 + ", ".join(f for f in also if f != file)
+                 + "; this is the first in path order)")
+    if offset >= len(body):
+        return _stale(f"{name} is {len(body)} lines long, and this handle asks "
+                      f"for line {offset + 1} of it")
+
+    rest = body[offset:]
+    most = len(rest)
+    field = _encode(target)
+
+    def tail(count: int, handle: bool) -> str:
+        left = most - count
+        if not left:
+            return ""
+        with_handle = f" (more:at:{field}:{offset + count})" if handle else ""
+        return f"\n… {left} more lines{with_handle}"
+
+    def block(count: int, handle: bool) -> str:
+        return "\n".join([head] + rest[:count]) + tail(count, handle)
+
+    # How long the block would be, without building it. `at` is asked about a
+    # definition, and a definition can be eleven thousand lines: joining the
+    # whole list once per candidate count took 1.4 seconds on one, against
+    # 0.06 for every other lookup this tool answers. The lengths are a running
+    # sum, the count is found by bisection over it, and the text is joined
+    # once, at the end.
+    grown = list(accumulate((len(row) + 1 for row in rest), initial=0))
+
+    def size(count: int, handle: bool) -> int:
+        return len(head) + grown[count] + len(tail(count, handle))
+
+    for handle in (True, False):
+        # A handle only where at least one line came back: a tail pointing at
+        # the offset it was given is a chain that never advances.
+        low, high = (1 if handle else 0), most
+        if size(low, handle) > limit:
+            continue
+        while low < high:
+            mid = (low + high + 1) // 2
+            if size(mid, handle) <= limit:
+                low = mid
+            else:
+                high = mid - 1
+        # The bisection is over the lines, which only grow; the tail shrinks by
+        # a digit or two as the count rises, so the found count can be one or
+        # two long. Walked back, never far.
+        while low > (1 if handle else 0) and size(low, handle) > limit:
+            low -= 1
+        if size(low, handle) <= limit:
+            return block(low, handle)
+    return head
+
+
+# What `--context` and the MCP `context` tool print at, in characters: the
+# same budget one `ask` answer gets, because it lands in the same
+# conversation and is paid for again on every turn after.
+CONTEXT_BUDGET = 12000
+
+# How far `context` walks the blast radius. One hop, because the block is a
+# fifth of one answer and depth 3 on a name forty files reach is the whole
+# answer; the first line of every reply says so, and `impact` itself takes a
+# depth for the reader who wants more.
+CONTEXT_DEPTH = 1
+
+# The five blocks `context` composes, in the order it prints them: the tool
+# each block is the answer of, the head it prints, and the percentage of the
+# budget it is guaranteed.
+#
+# A floor, not a cap. `_context_rooms` spends the budget in two passes: pass
+# one asks every block what printing all of itself would cost, and pass two
+# gives every block the smaller of that need and its floor and then hands
+# what nobody claimed on, in this order, to the blocks still short. So a
+# block never takes room from a block that wanted it, and a block is never
+# cut while room the answer was allowed goes unspent.
+#
+# Strict shares were tried first and are the wrong shape: on the suite
+# fixture at a 12000 character budget, `CheckoutPage` printed 6,462 characters
+# of it and left 12 of its 41 declarations behind a handle, because its
+# declarations wanted more than 15 percent while callers, callees and impact
+# between them left thousands unspent. Eleven of the 224 names were cut that
+# way with room to spare. What a fixed share buys is being able to say in
+# advance what each block costs; the two passes keep the answer to a name
+# deterministic, which is the half of that anyone reads.
+#
+# The order is the printing order, so what is said first is served first.
+# The shares are stated in the first line of every answer and in the README
+# beside the flag.
+CONTEXT_BLOCKS = (
+    ("spans", "## Declared in", 15),
+    ("ask", "## What the map says", 35),
+    ("callers", "## Callers", 15),
+    ("callees", "## Callees", 15),
+    ("impact", "## Impact", 20),
+)
+CONTEXT_NAMES = tuple(block for block, _head, _pct in CONTEXT_BLOCKS)
+CONTEXT_HEADS = {block: head for block, head, _pct in CONTEXT_BLOCKS}
+
+# A directory head `_group_dirs` wrote (``- `steps/` ``) and the rows it owns.
+_GROUPED_HEAD = re.compile(r"^- `([^`]*/)`$")
+_GROUPED_ROW = re.compile(r"^  - `([^`]+)`(.*)$")
+
+
+def _ungroup_dirs(lines: list) -> list:
+    """`_group_dirs` undone: every row carrying its own whole path again.
+
+    `ask()` prints a run of rows under one directory head to save repeating
+    the prefix, which reads well in an answer nobody is going to cut a second
+    time. A `context` block is cut a second time, and a row that only means
+    something under a head three lines above it is not a whole row: cut
+    between the two, ``  - `login_steps.py` `` is a file the reader cannot
+    place, and no handle puts the head back, because the handle continues the
+    list from below it.
+
+    Measured on the suite fixture at 1500 characters: seventeen names lost a
+    row exactly this way, and none of them after this.
+    """
+    out, directory = [], None
+    for line in lines:
+        head = _GROUPED_HEAD.match(line)
+        if head:
+            directory = head.group(1)
+            continue
+        row = _GROUPED_ROW.match(line) if directory else None
+        if row:
+            out.append(f"- `{directory}{row.group(1)}`{row.group(2)}")
+            continue
+        directory = None
+        out.append(line)
+    return out
+
+
+def _context_lines(map_path: str, block: str, name: str, limit: int) -> list:
+    """One block's whole answer, as lines, before it is cut to its share.
+
+    Each block is what the tool of that name returns for this name, and
+    nothing is summarised on the way: an empty block carries the same
+    sentence the single call prints, so a `context` answer at a budget that
+    fits it holds every row the five calls hold.
+
+    `callers` and `callees` print one row per hit rather than the one comma
+    separated line their flags print, and `spans` one row per name, because a
+    block is cut by whole rows and a single line cannot be cut at all.
+
+    `limit` is this call's own budget, and the `ask` block is rendered at it
+    rather than at its share: the share decides how much of that answer is
+    printed here, and the handle under it fetches the rest of the same
+    answer, so a reader following the handle never meets a differently
+    ranked one.
+    """
+    json_path = os.path.join(os.path.dirname(map_path) or ".",
+                             "framework_map.json")
+    if block == "spans":
+        rows = spans_for(map_path, [name.lower()], cap=0)
+        # A map built before 1.5.0 has no `spans` key, and `spans_for` answers
+        # it out of `definitions`, whose rows are bullets already. Prefixing
+        # those a second time opened every row of the block with two bullets
+        # and a space, which is the first thing a reader sees in the window
+        # between installing this release and the first `--force` rebuild.
+        return [r if r.startswith("- ") else f"- {r}" for r in rows] or \
+            [f"no declaration of {name!r} in the map"]
+    if block == "ask":
+        # Without its blank lines, and with the directory grouping undone. A
+        # blank line is not a row, and this block is cut by whole rows: left
+        # in, they cost nothing to fit and so always fit, and a block small
+        # enough to hold two of them and nothing else came back as two blank
+        # lines under a head.
+        return _ungroup_dirs([line for line
+                              in ask(map_path, name, limit).splitlines()
+                              if line.strip()])
+    if block == "callers":
+        hits = callers(json_path, name)
+        return [f"- {h}" for h in hits] or [f"nothing in the map calls {name}"]
+    if block == "callees":
+        hits = callees(json_path, name)
+        return [f"- {h}" for h in hits] or [f"{name} calls nothing in the map"]
+    return impact(json_path, name, CONTEXT_DEPTH).splitlines()
+
+
+def _context_chunk(head: str, lines: list, room: int, block: str,
+                   field: str, base: int) -> tuple:
+    """`head` plus as many of `lines` as fit in `room`, with the tail that
+    says how many are left and the handle that fetches them.
+
+    Returns `(chunk, reached)`: the text, and how far into `lines` this got
+    counted from `base`, which is what the handle's offset is and what
+    `more()` checks to see whether it made any progress.
+
+    `_fit_chunk` is the cut, shared with `_rows_chunk`; what belongs to this
+    block is the tail it writes. A block whose head alone would overrun
+    prints nothing, rather than a head with a count under it. A block with no
+    line printed still prints its head and its tail: at a small budget the
+    impact block is one caveat longer than the room it was given, and a head
+    with `… 6 more lines (more:ctx:impact:charge:0)` under it is the
+    difference between a block a reader can fetch and a block they cannot see
+    exists.
+    """
+    def tail_for(left: int, got: int, handle: bool) -> str:
+        if not left:
+            return ""
+        plural = "" if left == 1 else "s"
+        if handle:
+            return (f"… {left} more line{plural} "
+                    f"(more:ctx:{block}:{field}:{got})")
+        # No room for the handle beside the count. Say that, rather than
+        # print a count of lines with nothing that fetches them: a reader
+        # told there is more and not told how to get it has been handed a
+        # fact with nothing behind it.
+        #
+        # `context` never gets here: `_context_floor` is the room for a head
+        # and a tail with its handle, and a block that cannot be given that
+        # much is left out of the answer instead. `more()` can, since it cuts
+        # a block at whatever budget it was called with and a caller may ask
+        # for two hundred characters. Measured: 0 of 1,666 `context` answers
+        # over the three fixtures at seven budgets print this line.
+        return f"… {left} more line{plural}; no room for a handle"
+
+    chunk, reached, _lines, _tail = _fit_chunk(head, lines, room,
+                                               RESERVE_CONTEXT, tail_for,
+                                               None, base)
+    return chunk, reached
+
+
+def _context_need(head: str, lines: list) -> int:
+    """The room one block needs to print all of itself.
+
+    Its head, its lines with the newline each one costs, and the tail's
+    reserve, which every block pays whether or not it ends up printing a
+    tail. Exactly the number `_fit_chunk` has to be given for `fit_indices`
+    to keep every line, so a block given this much is never cut and a block
+    given less always is.
+    """
+    return RESERVE_CONTEXT + len(head) + sum(len(line) + 1 for line in lines)
+
+
+def _context_floor(block: str, head: str, lines: list, field: str) -> int:
+    """The smallest room a block can be given and still be worth printing:
+    its head, and a tail carrying the handle that fetches the whole of it.
+
+    A head with a count under it and no handle beside the count names a list
+    nobody can ask for, and the room it costs is room the block above it
+    could have spent on its own handle. So this is a block's floor as much as
+    its percentage share is, and below it the block is left out of the answer
+    rather than printed as a stub.
+    """
+    tail = (f"… {len(lines)} more line{'' if len(lines) == 1 else 's'} "
+            f"(more:ctx:{block}:{field}:0)")
+    return max(len(head) + RESERVE_CONTEXT + 1, len(head) + 1 + len(tail))
+
+
+def _context_rooms(room: int, lines: dict, field: str) -> dict:
+    """How much of `room` each block gets, in two passes.
+
+    Pass one asks every block what printing all of itself would cost
+    (`_context_need`). Pass two walks the blocks in `CONTEXT_BLOCKS` order
+    and gives each one the smaller of that need and its floor, out of what is
+    left; then it walks them again and hands what nobody claimed to the
+    blocks still short of their need, each taking up to what it is missing.
+
+    So the percentages in `CONTEXT_BLOCKS` are floors rather than caps: a
+    block is guaranteed its share and may have more when the others do not
+    want theirs. The consequence worth stating is the one the whole tool is
+    for: when the five answers together fit the budget, every one of them is
+    printed whole, and `context` really is the five calls rather than five
+    cuts of them.
+
+    Two passes rather than a forward carry, because the block that is short
+    is usually the first one. `spans` is printed before `callers`, `callees`
+    and `impact`, and it is their unspent share that covers it; a carry could
+    only ever help the blocks after the one that saved. Measured on the suite
+    fixture at 12000 characters, `CheckoutPage`: `spans` needs 3,411 against a
+    floor of 1,777, and the second pass covers the difference out of the 4,000
+    or so that `callers` (96 needed against 1,777), `callees` (the same) and
+    `impact` (647 against 2,370) never wanted.
+
+    A block's floor is the larger of its percentage share and
+    `_context_floor`, and a block that cannot be given that much out of what
+    is left is given nothing at all. That happens below about six hundred
+    characters, where five heads, five counts and five handles do not fit
+    between them: there the blocks are served in order and the ones that fit
+    are printed as a head and a handle, so the answer says what it did not
+    print and how to fetch it. A block is printed whole only once its share
+    covers all of it, which is later still. Measured on the same fixture,
+    `click_7`: two blocks at 300 characters, three at 350, all five at 600,
+    and the first block printed whole at 800.
+
+    Deterministic: the needs come from the map, the floors from
+    `CONTEXT_BLOCKS` and the heads, and the order is the order the blocks are
+    printed in, so the same name at the same budget is always allocated the
+    same way.
+    """
+    need = {block: _context_need(CONTEXT_HEADS[block], lines[block])
+            for block in CONTEXT_NAMES}
+    given, spare = {}, room
+    for block, head, pct in CONTEXT_BLOCKS:
+        want = min(need[block], max((room * pct) // 100,
+                                    _context_floor(block, head,
+                                                   lines[block], field)))
+        given[block] = want if want <= spare else 0
+        spare -= given[block]
+    for block in CONTEXT_NAMES:
+        if spare <= 0:
+            break
+        if not given[block]:
+            continue  # a block there was no room to print stays unprinted
+        extra = min(spare, need[block] - given[block])
+        given[block] += extra
+        spare -= extra
+    return given
+
+
+def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
+    """Everything the map holds about one name, in one answer.
+
+    Five calls: `defines` for every home with its span, `ask` for the
+    signature and the rows that mention it, `callers`, `callees`, and
+    `impact` at depth 1. An agent that lands on a name made all five, paid
+    the tool call overhead five times and read the same map file five times
+    to do it. This is those functions, over that map, once.
+
+    The blocks are `CONTEXT_BLOCKS`, and the percentage beside each one is
+    the floor of what it gets: `_context_rooms` gives every block the smaller
+    of its share and what it needs, then hands the rest on in that order to
+    the blocks still short. The first line of every answer says so, so a
+    reader who is handed a cut block knows what cut it. Whole rows; a tail
+    under every block that could not print all of itself; a `more:ctx:`
+    handle on that tail, which the `more` tool resolves like any other.
+
+    The map rows block is `ask()`'s answer whole, its own `## Defined here`
+    and `## Called by` included, so a home or a caller can appear twice: once
+    in the block that is only about that, and once inside the answer `ask`
+    would have given on its own. That is the point rather than an oversight.
+    This is the five answers, not a summary of them, and a reader comparing
+    it against the single call has to find the single call's own text in it.
+    """
+    name = _bare(name)
+    if not name:
+        return "context needs a name"
+    field = _encode(name)
+    shares = "/".join(str(pct) for _b, _h, pct in CONTEXT_BLOCKS)
+    # Every character of this line is a character no block gets. At 12000 it
+    # is one percent of the answer and at the MCP server's 1500 floor it is
+    # twelve, so it says what the reader has to act on and nothing else: the
+    # five blocks in order, the ceiling, and the shares. That the shares are
+    # floors rather than caps is what `floor` says; the README and the skill
+    # file explain the pass-on rule, and a reader who wants it there does not
+    # need it in every answer.
+    head = (f"Context for `{name}`: declared, map rows, callers, callees, "
+            f"impact to depth {CONTEXT_DEPTH}. {limit} characters, floor "
+            f"shares {shares} percent.")
+    if len(head) > limit:
+        # `limit` is a ceiling, as it is for `ask()`, and this line is the
+        # smallest thing this tool has to say. Under it there is no answer,
+        # not a first line that overruns.
+        return ""
+    # Every block pays for the blank line above it, so what the blocks divide
+    # is what is left after the first line and those separators, and the
+    # answer is inside `limit` however it divides.
+    room = limit - len(head) - 2 * len(CONTEXT_BLOCKS)
+    out = [head]
+    if room > 0:
+        lines = {block: _context_lines(map_path, block, name, limit)
+                 for block in CONTEXT_NAMES}
+        rooms = _context_rooms(room, lines, field)
+        for block, bhead, _pct in CONTEXT_BLOCKS:
+            if not rooms[block]:
+                continue
+            chunk, _reached = _context_chunk(bhead, lines[block],
+                                             rooms[block], block, field, 0)
+            if chunk:
+                out.append(chunk)
+    return "\n\n".join(out)

@@ -54,11 +54,18 @@ EFFECTS = {
     "--quiet": "read",
     "--ask": "read",
     "--more": "read",
+    "--defines": "read",
+    "--at": "read",
+    "--context": "read",
+    "--rank": "read",
+    "--files": "read",
+    "--limit": "read",
     "--callers": "read",
     "--callees": "read",
     "--impact": "read",
     "--impact-depth": "read",
     "--sections": "read",
+    "--cost": "read",
     "--pointer": "read",
     "--mcp": "read",
     "--lsp": "read",
@@ -72,9 +79,17 @@ EFFECTS = {
     "--diff": "writes-map-dir",
     "--out": "writes-map-dir",
     "--html": "writes-map-dir",
+    "--ctags": "writes-map-dir",
     "--force": "writes-map-dir",
     "--watch": "writes-map-dir",
     "--agent-file": "writes-repo",
+    # `--export` answers out of a map already on disk, which would make it a
+    # read; the file it writes is at whatever path the caller named. That is
+    # the same arbitrary-path property `--agent-file` and `--docs` have, and
+    # it gets the same class they do. Not `writes-config`, which is for the
+    # flags that write where another tool reads by convention: this one
+    # writes exactly where it was told and nowhere else.
+    "--export": "writes-repo",
     "--init": "writes-repo",
     # `--docs` alone only says what it would write; `--docs write` creates the
     # files. One flag, one class, and the class is the one that writes.
@@ -97,12 +112,15 @@ EFFECTS = {
 # human reading the README was.
 NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
-            "map (--ask, --more, --callers, --callees, --impact, --sections) "
+            "map (--ask, --more, --callers, --callees, --impact, --defines, "
+            "--at, --context, --rank, --sections, --cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
     "writes-repo": "writes into the repository being mapped: a manifest, an "
-                   "agent file, the READMEs a directory has none of.",
+                   "agent file, the READMEs a directory has none of, and the "
+                   "file --export was told to write, which is at whatever "
+                   "path the caller named.",
     "writes-config": "writes where a tool other than this one reads: "
                      ".git/hooks, ~/.claude/settings.json, "
                      "~/.codex/config.toml, a Cursor rule, a Gemini setting.",
@@ -117,8 +135,9 @@ NOTES = {
 # before the build: it writes spec_map.json and spec_map.md and no map.
 NO_MAP_BUILD = frozenset({
     "-h", "--help", "--effects", "--dry-run", "--ask", "--more", "--callers",
-    "--callees", "--impact", "--sections", "--pointer", "--mcp", "--lsp",
-    "--init", "--install-hook", "--specs",
+    "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
+    "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
+    "--cost", "--export", "--context",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

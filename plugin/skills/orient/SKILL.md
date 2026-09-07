@@ -27,10 +27,21 @@ message after you open it.
    first, through the MCP tools of the `where-are-we` server:
    - `ask(words=[...])` - the rows that mention those words, whole, section by
      section, with a count of what was left out.
-   - `defines(name=[...])` - where a name is declared, with the line.
+   - `defines(name=[...])` - every place a name is declared, first line to
+     last.
+   - `at(place=["file.py:147"])` - the whole definition enclosing a line, for
+     a stack trace or a failure you were handed.
+   - `context(name=[...])` - everything the map holds about one name:
+     declared, map rows, callers, callees, impact one hop out.
    - `find(phrase=[...])` - where a phrase (a step, a string) lives.
    - `sections()` - the section headings.
-   All take lists: ask for everything you need in one call.
+   - `rank(files=[...])` - what the repository is built around, and what is
+     worth reading given the files you are editing. Ask this first in a tree
+     you do not know; `ask` tells you where a word is, this tells you which
+     names matter.
+   All take lists: ask for everything you need in one call. `ask` also takes
+   `files=[...]`, which puts the rows about those files first in every
+   section.
 3. `grep` on `.wawe/framework_map.md` is fine; `Read` of the whole file is not.
 4. If the map says `## This map is incomplete`, believe it: a bound was hit
    (file count, depth), and what is below the bound is not mapped. Raise

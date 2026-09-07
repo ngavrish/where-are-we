@@ -41,6 +41,20 @@ except PackageNotFoundError:  # a loose checkout: nothing installed it
 DEFINITIONS: dict[str, str] = {}
 
 
+# Every site of every name, not only the first: `[path, start, end, kind]` per
+# declaration, appended as files are parsed and written into the map as
+# `spans`.
+#
+# `DEFINITIONS` is filled with `setdefault`, so a name declared in two files
+# keeps the first and says nothing about the second. That was the one place
+# this map was quiet about a bound instead of naming it: `defines charge`
+# answered with one home for a name that has three, and which of the three it
+# named depended on walk order. This table keeps them all. `end` is None where
+# the language was read by the regex table, which has seen the first line of a
+# declaration and nothing that says where it stops.
+SPANS: dict[str, list] = {}
+
+
 # What was actually indexed, so an answer of "not found" can say what it looked
 # at. The first version said "this is a real absence rather than a search that
 # missed" about a constant sitting on line 31 of the product — because the
@@ -67,8 +81,92 @@ LINES: dict[str, list] = {}
 # `"symbols"` means, say, must not hand back an old value as if it still
 # answered the same question. Both are checked, not just the schema number,
 # because a release can change extraction logic without needing a new kind.
-CACHE_SCHEMA = 1
+#
+# 2: the declaration kinds carry a span. `ts:<lang>` is why the number had to
+# move: it stored a list of names and now stores a list of
+# `[name, start, end, kind]` rows, so a 1.4 entry read back under the new code
+# would take `row[0]` of a string and index a character. `spans:<ext>` is a
+# new kind an old cache simply misses, and `step_texts` gained a list the
+# reader treats as optional; neither of those alone would need a bump.
+#
+# 3: an entry is validated against the sha256 of the file's bytes rather than
+# against its mtime and size, so the entry holds `sha` where it used to hold
+# `mtime` and `size`. A schema 2 entry read under this rule has no `sha` at
+# all and would be discarded one by one; discarding the file is the same
+# answer arrived at once.
+#
+# 4: a key and a hash name their file relative to the directory the cache
+# file is in rather than absolutely, and an entry whose value is the empty
+# list is written to an `empty` section as its sha alone. Both change the
+# spelling of every key in the file, so a schema 3 file is read for its
+# hashes (a sha means the same thing in every release) and its entries are
+# dropped, which is one re-parse of the tree on the build after the upgrade.
+CACHE_SCHEMA = 4
 _PARSE_CACHE: dict = {}
+
+
+# What each file's bytes hashed to, and the (mtime, size, ctime) it had when
+# that hash was taken: `path -> {"mtime", "size", "ctime", "sha"}`. Persisted
+# beside the parse cache in the same file, and loaded from it.
+#
+# This is the pre-filter that keeps content addressing affordable. Hashing
+# every indexed file on every build would read the whole tree twice; hashing
+# only the files whose stat block moved reads nothing on a tree nobody
+# touched, and a build that reads nothing is the warm build the README
+# publishes a number for.
+#
+# `ctime` is in there because `mtime` and `size` alone are exactly the blind
+# spot this cache exists to close. A same-size rewrite with the timestamp put
+# back (rsync --times, cp -p, tar -p, a restore from a build cache, `git
+# checkout` of a line the same length) leaves both unchanged, and a pre-filter
+# reading only those two would skip the hash and serve the stale parse. The
+# inode change time cannot be set from userland: writing the file moves it,
+# and so does the `utimes` call that puts the mtime back. On a filesystem
+# where `st_ctime` means creation time instead (Windows), this degrades to
+# the mtime-and-size pre-filter, which is what the tool did before.
+_HASH_CACHE: dict = {}
+
+
+# Incremented on every sha256 actually computed, the way `PARSE_COUNT` counts
+# parses: a rebuild of a tree nobody touched should add nothing to either, and
+# WAWE_DEBUG_PARSES=1 prints both so the claim can be checked.
+HASH_COUNT = 0
+
+
+# Where this invocation's hashing started, for a caller that hashes before it
+# builds. The command line asks for a content root before deciding whether to
+# build at all, and those hashes are part of what the run cost; a build that
+# counted from its own entry would report only the hashes it took itself and
+# the debug line would say half. None means "count from build entry", which is
+# every other caller.
+HASH_MARK: int | None = None
+
+
+# What the cache file on disk says each file hashed to, as it was read, before
+# anything this process took is merged over the top. That is the record of the
+# tree the map in the same directory was built from, and it is the baseline
+# `--diff` measures against, so it has to be kept apart from the live cache:
+# the command line hashes a changed file on its way to deciding whether to
+# build, and the live cache therefore already holds the new answer by the time
+# `build()` looks.
+HASHES_AT_LOAD: dict = {}
+
+
+# The files this build has already hashed, so `--force` can distrust the hash
+# cache without reading a file twice. `--force` means nothing on disk from a
+# previous run is believed; it does not mean the same file is read once for
+# its parse and again for the content root.
+_HASHED_THIS_BUILD: set = set()
+
+
+# The files whose content hash differs from the one the loaded cache holds for
+# them, which files are in the tree that the cache had never hashed, and which
+# the cache had hashed and are no longer there. All relative to the repository,
+# filled by `build()` and read by `--diff`. The map's `content_root` says the
+# tree moved; these say what moved it.
+HASHES_MOVED: list[str] = []
+HASHES_ADDED: list[str] = []
+HASHES_GONE: list[str] = []
 
 
 # Whether this build may answer from the parse cache, as opposed to only
@@ -82,11 +180,51 @@ _PARSE_CACHE: dict = {}
 PARSE_CACHE_READS = True
 
 
+# Whether this build may write the parse cache back. `--diff` sets it False: it
+# builds a whole map only to compare it against the one already in `--out`, and
+# the cache beside that map is the record of what the map was built from. A
+# `--diff` that rewrote it moved its own baseline, so the same command run
+# twice over the same tree answered differently the second time. Set back to
+# True at the end of every build, the way `PARSE_CACHE_READS` is: both are one
+# build's setting and not the process's.
+PARSE_CACHE_WRITES = True
+
+
+# Whether `index_lines` redacts a file's lines as it records them, so that
+# `build()` returns the same text every consumer of the published map reads.
+# `tests/golden/build_fixtures.py` turns it off through `build(redact_lines=
+# False)`, for the reason written there: a fixture holds nothing to protect,
+# and the base64-like rule occasionally matches a stretch of a real temporary
+# path, which would make the pinned maps depend on what the OS named that
+# run's directory.
+REDACT_LINES = True
+
+# Whether the `lines` of the map the last `build()` in this process returned
+# were already redacted, line by line, as they were recorded. `redact()` skips
+# `lines` when this says so, because a second pass over 36,000 lines that
+# provably changes none of them cost 0.38 s of every build, warm ones
+# included. False by default and set by `build()` from its own `redact_lines`,
+# so a map that was not line-redacted at index time, and a map handed to
+# `redact()` by a process that never built one, are both swept in full: the
+# property that a map written to disk is redacted whatever produced it is
+# what this flag has to keep, not what it may trade away.
+LINES_REDACTED = False
+
+
 # Incremented on every parse actually done: an ast.parse, a tree-sitter parse,
 # or an index_declarations regex pass over a file's body. A rebuild of a tree
-# nobody touched should add nothing to it, and WAWE_DEBUG_PARSES=1 prints the
-# count so that claim can be checked instead of taken on faith.
+# nobody touched should add nothing to it.
+#
+# It counts computations, not files: one file is asked for its declarations,
+# its symbols, its call graph, its step phrases and its redaction diff, so a
+# cold build of 272 files does about 970 of these. `PARSED_FILES` is the other
+# number, and the one `WAWE_DEBUG_PARSES=1` prints, because "parsed N files"
+# has to be a count of files.
 PARSE_COUNT = 0
+
+# Every file some computation actually ran for, this build. `build()` gives it
+# a fresh set at the top, the way it takes `PARSE_COUNT`'s mark there.
+PARSED_FILES: set = set()
 
 
 _FILE_CACHE: dict[str, str] = {}
@@ -145,11 +283,16 @@ def reset(keep_indexes: bool = False) -> None:
     tree" and "what does git already track here", and a second root is a
     different question with the same key.
 
-    `_PARSE_CACHE` is deliberately not cleared. It is not this build's
-    working state: it is loaded from `out_dir` at the top of every build and
-    validated per file against mtime and size, and it is the whole reason a
-    rebuild of a tree nobody touched parses nothing.
+    `_PARSE_CACHE` and `_HASH_CACHE` are deliberately not cleared. They are
+    not this build's working state: both are loaded from `out_dir` at the top
+    of every build and validated per file against what `os.stat` says now,
+    and they are the whole reason a rebuild of a tree nobody touched parses
+    nothing and hashes nothing.
     """
+    HASHES_MOVED.clear()
+    HASHES_ADDED.clear()
+    HASHES_GONE.clear()
+    _HASHED_THIS_BUILD.clear()
     _WALK_CACHE.clear()
     _IGNORE_CACHE.clear()
     _TRACKED_CACHE.clear()
@@ -158,6 +301,7 @@ def reset(keep_indexes: bool = False) -> None:
     if keep_indexes:
         return
     DEFINITIONS.clear()
+    SPANS.clear()
     INDEXED.clear()
     LINES.clear()
     TRUNCATED.clear()
@@ -174,8 +318,11 @@ def reset(keep_indexes: bool = False) -> None:
 NO_CACHE = bool(os.environ.get("WAWE_NO_CACHE"))
 
 
-# Whether a build prints the number of files it actually parsed, to stderr,
-# so an incremental rebuild's claim can be checked instead of taken on faith.
+# Whether a build prints the number of files it actually parsed and the number
+# it actually hashed, to stderr, so an incremental rebuild's claim can be
+# checked instead of taken on faith. Both, because the parse count alone
+# cannot tell a tree that was hashed and found unchanged from one the
+# pre-filter never read at all.
 DEBUG_PARSES = bool(os.environ.get("WAWE_DEBUG_PARSES"))
 
 

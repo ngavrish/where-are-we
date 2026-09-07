@@ -28,11 +28,14 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import (IMPACT_MAX_DEPTH, log_answer, callees_line, callers,
-                       impact, map_heads)
+    from .ask import (AT_BUDGET, CONTEXT_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
+                       at, context, file_list, log_answer, callees_line,
+                       callers, impact, map_heads, rank_lines)
 except ImportError:  # run as a plain file, with no package around it
-    from ask import (IMPACT_MAX_DEPTH,  # type: ignore[no-redef]
-                     log_answer, callees_line, callers, impact, map_heads)
+    from ask import (AT_BUDGET, CONTEXT_BUDGET,  # type: ignore[no-redef]
+                     IMPACT_MAX_DEPTH, RANK_LIMIT, at, context, file_list,
+                     log_answer, callees_line, callers, impact, map_heads,
+                     rank_lines)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -65,6 +68,15 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": ("a name, a phrase, or several words — or a "
                                     "list of them, answered in one call"),
+                },
+                "files": {
+                    "type": ["string", "array"],
+                    "items": {"type": "string"},
+                    "description": ("the files you are working in: rows "
+                                    "naming one of them are printed first "
+                                    "inside every section, the rest follow. "
+                                    "A path or a directory prefix, relative "
+                                    "to the repository root"),
                 },
             },
             "required": ["words"],
@@ -180,15 +192,96 @@ TOOLS = [
     {
         "name": "defines",
         "description": (
-            "Where a name is declared, exactly: file and line. Functions, "
-            "classes, constants, types, step phrases, scenario names — from the "
-            "code under test as well as the suite. `name` takes a list; ask for "
-            "all of them at once."),
+            "Where a name is declared, exactly, and everywhere it is declared: "
+            "one line per name, each home as `file:start-end (kind)` in path "
+            "order, so a name two files declare says both. Functions, classes, "
+            "constants, types, step phrases and scenario names, from the code "
+            "under test as well as the suite. An end of `?` means the language "
+            "was read by the pattern table, which knows where a declaration "
+            "starts and not where it stops. `name` takes a list; ask for all "
+            "of them at once."),
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": ["string", "array"],
                                     "items": {"type": "string"}}},
             "required": ["name"],
+        },
+    },
+    {
+        "name": "at",
+        "description": (
+            "The whole definition that encloses a line: hand it the "
+            "`file:line` a stack trace or a review comment names and get back "
+            "the function or class it is inside, from its first line to its "
+            "last. Use this instead of reading a file at a guessed offset. "
+            "The innermost definition, whole lines, cut to a budget with a "
+            "`more:` handle for the rest. When nothing encloses the line the "
+            "answer says so and names the nearest declarations. `place` takes "
+            "a list."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"place": {"type": ["string", "array"],
+                                     "items": {"type": "string"},
+                                     "description": ("FILE:LINE, or a list of "
+                                                     "them")}},
+            "required": ["place"],
+        },
+    },
+    {
+        "name": "context",
+        "description": (
+            "Everything the map holds about one name, in one call: where it "
+            "is declared and how far each declaration runs, the rows of the "
+            "map that mention it, who calls it, what it calls, and its blast "
+            "radius one hop out. This is `defines`, `ask`, `callers`, "
+            "`callees` and `impact` fused, so landing on a name costs one "
+            "round trip rather than five. Each block gets a fixed share of "
+            "the budget and ends with a `more:` handle when it was cut; pass "
+            "that handle to `more` for the rest of that block. `name` takes "
+            "a list, and `limit` sets the budget in characters."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": ["string", "array"],
+                         "items": {"type": "string"},
+                         "description": ("a declared name, or a list of them")},
+                "limit": {"type": "integer",
+                          "description": ("characters one answer may take "
+                                          "(default 12000)")},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "rank",
+        "description": (
+            "What this repository is built around, best first: the "
+            "definitions with the most of the codebase behind them, by "
+            "PageRank over the graph of which file references which file's "
+            "names. Ask it before reading anything in an unfamiliar tree, "
+            "and give `files` to ask the better question: what should I "
+            "read given that I am editing these. A definition ten files "
+            "reach outranks one nothing calls, which is not something "
+            "counting word matches can tell you. `words` weighs the names "
+            "in your question ten times. Not a search: `ask` answers what "
+            "mentions a word, this answers what matters."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "files": {"type": ["string", "array"],
+                          "items": {"type": "string"},
+                          "description": ("the files you are working in, or "
+                                          "a directory prefix; the ranking "
+                                          "is personalised on them. Omit for "
+                                          "the repository's own order")},
+                "words": {"type": ["string", "array"],
+                          "items": {"type": "string"},
+                          "description": ("names you are asking about, worth "
+                                          "ten times an identifier you did "
+                                          "not mention")},
+                "limit": {"type": "integer",
+                          "description": "how many definitions (default 200)"},
+            },
         },
     },
 ]
@@ -301,6 +394,14 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         words_field = args.get("words")
         if words_field is not None and not _is_str_or_str_list(words_field):
             raise _BadParams("words must be a string or a list of strings")
+        files_field = args.get("files")
+        if files_field is not None and not _is_str_or_str_list(files_field):
+            raise _BadParams("files must be a string or a list of strings")
+        # `-` is the command line's "read the list on stdin", and stdin here
+        # is the JSON-RPC pipe: an argument that named it would take the
+        # session's next request for a file list. A client that wants a list
+        # sends a list.
+        scope = [f for f in file_list(files_field) if f != "-"]
         spec = os.path.join(out_dir, "spec_map.md")
         has_spec = os.path.exists(spec)
 
@@ -309,9 +410,9 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             # spent twice: the framework map and the spec map each used
             # to return a full allowance, doubling every answer.
             each = room // 2 if has_spec else room
-            answer = mapper.ask(map_path, words, each)
+            answer = mapper.ask(map_path, words, each, scope)
             if has_spec:
-                answer += "\n\n" + mapper.ask(spec, words, each)
+                answer += "\n\n" + mapper.ask(spec, words, each, scope)
             # The MCP is how sessions actually ask; leaving the
             # semantic tail on the CLI alone gave meaning to the one
             # caller nobody uses.
@@ -339,17 +440,65 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         if name_field is not None and not _is_str_or_str_list(name_field):
             raise _BadParams("name must be a string or a list of strings")
         wanted = _each(name_field)
-        # One pass over the map for the whole list: definitions_for
+        # One pass over the map for the whole list: spans_for
         # already takes several names, and reading the map once per name
         # is the cost this batching exists to remove.
-        hits = mapper.definitions_for(map_path,
-                                      [w.lower() for w in wanted])
+        hits = mapper.spans_for(map_path, [w.lower() for w in wanted])
         answer = ("\n".join(hits) if hits
                   else "no declaration of "
                        + ", ".join(repr(w) for w in wanted)
                        + " in the map")
         log_answer(out_dir, "defines", ", ".join(wanted), answer,
                    len(answer))
+        _reply(_text(answer), ident)
+    elif name == "at":
+        place_field = args.get("place")
+        if place_field is not None and not _is_str_or_str_list(place_field):
+            raise _BadParams("place must be a string or a list of strings")
+        wanted = _each(place_field)
+        room = _share(AT_BUDGET, len(wanted), 1500)
+        pairs = []
+        for place in wanted:
+            answer = at(map_path, place, room)
+            log_answer(out_dir, "at", place, answer, room)
+            pairs.append((place, answer))
+        _reply(_text(_joined(pairs) if pairs
+                     else "give me a place: FILE:LINE"), ident)
+    elif name == "context":
+        name_field = args.get("name")
+        if name_field is not None and not _is_str_or_str_list(name_field):
+            raise _BadParams("name must be a string or a list of strings")
+        limit_field = args.get("limit")
+        if limit_field is not None and not isinstance(limit_field, int):
+            raise _BadParams("limit must be an integer")
+        wanted = _each(name_field)
+        # The same split every other batching tool here makes, off the budget
+        # `--context` prints at, so one name through the tool and one name
+        # through the flag are the same answer byte for byte.
+        limit = int(limit_field or CONTEXT_BUDGET)
+        room = _share(limit, len(wanted), 1500)
+        pairs = []
+        for w in wanted:
+            answer = context(map_path, w, room)
+            log_answer(out_dir, "context", w, answer, room)
+            pairs.append((w, answer))
+        _reply(_text(_joined(pairs) if pairs else "give me a name"), ident)
+    elif name == "rank":
+        files_field = args.get("files")
+        if files_field is not None and not _is_str_or_str_list(files_field):
+            raise _BadParams("files must be a string or a list of strings")
+        words_field = args.get("words")
+        if words_field is not None and not _is_str_or_str_list(words_field):
+            raise _BadParams("words must be a string or a list of strings")
+        limit_field = args.get("limit")
+        if limit_field is not None and (not isinstance(limit_field, int)
+                                        or isinstance(limit_field, bool)
+                                        or limit_field < 1):
+            raise _BadParams("limit must be a positive integer")
+        chosen = [f for f in file_list(files_field) if f != "-"]
+        answer = rank_lines(map_path, chosen, _each(words_field),
+                            int(limit_field or RANK_LIMIT))
+        log_answer(out_dir, "rank", ",".join(chosen), answer, len(answer))
         _reply(_text(answer), ident)
     elif name == "callers":
         name_field = args.get("name")

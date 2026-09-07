@@ -20,9 +20,11 @@ from .walk import _write_atomic
 VOCAB_CAP = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
 
 try:
-    from ..ask import fit_lines, map_heads
+    from ..ask import (BRIEF_NAME, _blocks, fit_lines, is_row, map_heads,
+                       map_text)
 except ImportError:  # run as a plain file, with no package around it
-    from ask import fit_lines, map_heads  # type: ignore[no-redef]
+    from ask import (BRIEF_NAME, _blocks,  # type: ignore[no-redef]
+                     fit_lines, is_row, map_heads, map_text)
 
 
 def digest(m: dict) -> str:
@@ -1069,3 +1071,359 @@ def meaning_tail(out_dir: str, words: str, already: str, k: int = 4,
             break
         out += piece
     return out
+
+
+# The tags file: what the map already holds, in the format every editor reads.
+#
+# The three pseudo tags universal-ctags writes at the top of every file it
+# produces. They are rows like any other and they sort first: `!` is 0x21 in
+# the C locale and every name this writes starts above it, which is what
+# `!_TAG_FILE_SORTED 1` promises a reader doing a binary search.
+CTAGS_HEADER = (
+    "!_TAG_FILE_FORMAT\t2\t/extended format/",
+    "!_TAG_FILE_SORTED\t1\t/0=unsorted, 1=sorted, 2=foldcase/",
+    "!_TAG_PROGRAM_NAME\twhere-are-we\t//",
+)
+
+CTAGS_NAME = "tags"
+
+
+def _ctags_ok(field: str) -> bool:
+    """Whether one field can go in a tags file as it stands.
+
+    A tab ends a field and a newline ends a row, so neither can appear inside
+    one; and a name starting with `!` would land among the pseudo tags, where
+    a reader stops looking for real ones. The map holds step phrases and
+    scenario titles as well as identifiers, so this is a real filter and not
+    a formality. A field this refuses drops its row rather than being
+    rewritten: a name spelled differently from the source is worse than a
+    name the editor cannot jump to.
+    """
+    return bool(field) and not (set(field) & {"\t", "\n", "\r"}) \
+        and field[0] > "!"
+
+
+def ctags(m: dict, out_dir: str = "") -> str:
+    """`spans` as a universal-ctags `tags` file.
+
+    `spans` already is a tags file with the fields renamed: a name, the file
+    it is declared in, the line it starts on, what kind of thing it is, and
+    where a parser knew it, the line it ends on. Written out in the format
+    vim, emacs, helix, kakoune and `readtags` have read for thirty years, it
+    works with no server running, over a checkout mounted read only, in a
+    language whose server is not installed on this machine.
+
+    The EX command is the line number (`10;"`), not a search pattern: the
+    line number is what the map holds, and a pattern would have to be
+    reconstructed out of a file that may have moved since the build.
+
+    Paths are relative to `out_dir`, the directory the file is written into,
+    because that is where a ctags reader resolves them from: vim's
+    `tagrelative` is on by default, and emacs and helix do the same. With the
+    usual `--out .` that is the repository root and the rows read as they
+    always have; with the plugin's `--out .wawe` it is `../src/a.py`, which is
+    the file the row means. `out_dir` empty falls back to the repository root,
+    which is what a caller rendering the text without writing it gets.
+
+    Sorted as whole rows, compared as bytes, which is what `LC_ALL=C sort`
+    does and what the header's `!_TAG_FILE_SORTED 1` promises the reader
+    doing the binary search. A row starts with the name and a tab, and a tab
+    is below every byte a name or a path can hold here, so that is the name
+    first, then the file, then the line number as it is written: two sites of
+    one name in one file at lines 38 and 384 come back 384 first, because
+    `4` is below `;`. Sorting those two by their value instead would put a
+    file on disk that `sort -c` rejects and a binary search can miss.
+    """
+    base = out_dir or (m.get("repo") or "")
+    rows = set()
+    for name, sites in _as_dict(m.get("spans")).items():
+        if not _ctags_ok(name):
+            continue
+        for site in sites:
+            if not isinstance(site, dict):
+                continue
+            path, start = site.get("file"), site.get("start")
+            kind = site.get("kind") or "unknown"
+            if not path or not isinstance(start, int):
+                continue
+            # Relative to the directory the tags file is written into, which
+            # is where every ctags reader resolves a row from. Every site in
+            # `spans` is absolute, so this is the one rule that turns a site
+            # into a row rather than a rule with an exception in it: a file
+            # an `--also` root owns, and every file at all when `--out` is a
+            # subdirectory, comes out as the `../` path that reaches it from
+            # the tags file, which the same editor can also resolve.
+            if base:
+                try:
+                    path = os.path.relpath(path, base)
+                except ValueError:  # a different drive on Windows
+                    pass
+            if not _ctags_ok(path) or not _ctags_ok(kind):
+                continue
+            end = site.get("end")
+            row = f'{name}\t{path}\t{start};"\tkind:{kind}\tline:{start}'
+            if isinstance(end, int):
+                row += f"\tend:{end}"
+            rows.add(row)
+    lines = list(CTAGS_HEADER) + sorted(rows, key=lambda r: r.encode("utf-8"))
+    return "\n".join(lines) + "\n"
+
+
+# What `--cost` and `--export` are made of.
+#
+# A section is a `## ` heading and every line under it until the next one;
+# everything before the first heading is the header. Every line of the text
+# is in the header or in exactly one section, so the total a report prints is
+# the size of what it measured rather than an approximation of it.
+COST_SCHEMA = "where-are-we-cost/1"
+EXPORT_SCHEMA = "where-are-we-export/1"
+
+# Bytes per token when nothing better is available: the ratio repomix and
+# code2prompt use, and the one every vendor quotes for English prose. It is
+# an estimate, and every column that carries it says so.
+BYTES_PER_TOKEN = 4
+
+
+def section_costs(text: str) -> tuple[int, list[dict]]:
+    """`(header_bytes, sections)` for one text.
+
+    One dict per `## ` heading, in the order the text has them, carrying the
+    heading, the row count, the size in UTF-8 bytes and the section's own
+    text. Every line is in the header or in exactly one section, so
+    `header_bytes + sum(bytes)` is the size of the whole text.
+    """
+    header, sections, current = 0, [], None
+    for line in text.splitlines(keepends=True):
+        size = len(line.encode("utf-8"))
+        if line.startswith("## "):
+            current = {"section": line.strip(), "rows": 0, "bytes": size,
+                       "text": line}
+            sections.append(current)
+        elif current is None:
+            header += size
+        else:
+            current["bytes"] += size
+            current["rows"] += 1 if is_row(line) else 0
+            current["text"] += line
+    return header, sections
+
+
+def _file_costs(path: str) -> dict:
+    """One file on disk, split into its header and its `## ` sections.
+
+    Read with `newline=""` so nothing is translated on the way in: the sum of
+    the header and every section is the size `wc -c` reports for the file,
+    exactly, which is the only version of this arithmetic a reader can check
+    without running the tool.
+    """
+    with open(path, encoding="utf-8", newline="") as fh:
+        text = fh.read()
+    header, sections = section_costs(text)
+    for row in sections:
+        row["file"] = os.path.basename(path)
+    return {"file": path, "bytes": len(text.encode("utf-8")),
+            "header_bytes": header, "sections": sections}
+
+
+def map_costs(map_path: str) -> tuple[list[dict], list[dict]]:
+    """`(files, sections)`: what a map costs, measured on the files it is in.
+
+    `files` is one entry per file read, with its size, its header and every
+    section it holds, whether or not that section is counted. `sections` is
+    what a reader actually carries, in the order `--sections` prints: every
+    section of `framework_map.md`, then every section of the brief beside it
+    whose heading the map does not already have, which is the rule `map_text`
+    reads them by.
+
+    Measured per file rather than over `map_text`'s concatenation, because
+    the concatenation rejoins sections with a blank line and so reported
+    every brief section one byte heavier than it is on disk. A number a
+    reader is meant to check against `wc -c` has to be the number `wc -c`
+    gives.
+    """
+    files = [_file_costs(map_path)]
+    counted = list(files[0]["sections"])
+    have = {row["section"] for row in counted}
+    brief = os.path.join(os.path.dirname(map_path) or ".", BRIEF_NAME)
+    if os.path.exists(brief):
+        entry = _file_costs(brief)
+        files.append(entry)
+        counted += [row for row in entry["sections"]
+                    if row["section"] not in have]
+    return files, counted
+
+
+def _token_counter():
+    """`(name, count)` from an installed extra, or None to estimate.
+
+    One place asks, so one place has to learn about a tokenizer that appears
+    later; see `semantic.token_counter` for why none of the extras carries
+    one that can be reached without paying for a model download.
+    """
+    try:
+        from .. import semantic as _sem
+    except ImportError:  # run as a plain file, with no package around it
+        import semantic as _sem  # type: ignore[no-redef]
+    try:
+        return _sem.token_counter()
+    except Exception:  # noqa: BLE001 - an optional extra is never fatal here
+        return None
+
+
+def cost(map_path: str, threshold: int = 0, as_json: bool = False) -> str:
+    """What each section of the map costs to carry, heaviest first.
+
+    `wawe-measure --ask-log` reports what answers cost; nothing reported what
+    the map costs. A reader deciding whether to raise `--max-lines`, or a
+    maintainer deciding which of a hundred and forty sections earns its
+    bytes, had no number. This is that number, per section: rows, bytes and
+    tokens, sorted by bytes, with `threshold` hiding every section under that
+    many bytes.
+
+    Priced over what `ask` reads, which is `framework_map.md` plus every
+    section of the brief beside it whose heading the map does not have. A
+    report over the map file alone would say a plain code repository's map
+    costs three empty headings, which is true of that file and false of what
+    anybody carries. Each section is measured on its own file, so its byte
+    count is the one `wc -c` would give for those lines, and the report names
+    every file it read with that file's total, its header and how many of its
+    sections were counted.
+    """
+    files, sections = map_costs(map_path)
+
+    counter = _token_counter()
+    label = "estimate" if counter is None else counter[0]
+    for entry in files:
+        for row in entry["sections"]:
+            row["tokens"] = (row["bytes"] // BYTES_PER_TOKEN if counter is None
+                             else counter[1](row["text"]))
+    total_bytes = sum(r["bytes"] for r in sections)
+    total_tokens = sum(r["tokens"] for r in sections)
+
+    # Heaviest first, ties by heading, so the same map always prints the same
+    # table.
+    shown = sorted((r for r in sections if r["bytes"] >= threshold),
+                   key=lambda r: (-r["bytes"], r["section"]))
+    hidden = len(sections) - len(shown)
+    total = {"sections": len(sections), "rows": sum(r["rows"] for r in sections),
+             "bytes": total_bytes, "tokens": total_tokens}
+    # By identity, not by value: `sections` holds the very dicts `files`
+    # holds, and two sections of one map can carry the same heading, rows and
+    # bytes without being the same section.
+    kept = {id(r) for r in sections}
+    measured = [{"file": e["file"], "bytes": e["bytes"],
+                 "header_bytes": e["header_bytes"],
+                 "section_bytes": sum(r["bytes"] for r in e["sections"]),
+                 "sections": len(e["sections"]),
+                 "counted": sum(1 for r in e["sections"] if id(r) in kept)}
+                for e in files]
+    if as_json:
+        return json.dumps({
+            "schema": COST_SCHEMA,
+            "map": map_path,
+            "measured": measured,
+            "tokens": {"label": label,
+                       "bytes_per_token": BYTES_PER_TOKEN if counter is None else None},
+            "threshold": threshold,
+            "header_bytes": sum(e["header_bytes"] for e in files),
+            "hidden": hidden,
+            "sections": [{k: v for k, v in r.items() if k != "text"}
+                         for r in shown],
+            "total": total,
+        }, indent=2) + "\n"
+
+    how = (f"tokens are an estimate: bytes / {BYTES_PER_TOKEN}, since no "
+           "installed extra carries a tokenizer."
+           if counter is None else f"tokens are exact, counted by {label}.")
+    heads = ("bytes", "tokens", "rows")
+    widths = [max([len(h)] + [len(str(r[h])) for r in shown]) for h in heads]
+    where = map_path + (" and the brief beside it" if len(files) > 1 else "")
+    lines = [
+        f"{len(sections)} sections in {where}, heaviest first.",
+        how,
+        "",
+        f"{'bytes':>{widths[0]}}  {'tokens':>{widths[1]}}  "
+        f"{'rows':>{widths[2]}}  section",
+    ]
+    for r in shown:
+        lines.append(f"{r['bytes']:>{widths[0]}}  {r['tokens']:>{widths[1]}}  "
+                     f"{r['rows']:>{widths[2]}}  {r['section']}")
+    lines += ["", f"total: {total['sections']} sections, {total['bytes']} bytes, "
+                  f"{total['tokens']} tokens ({label}), {total['rows']} rows"]
+    if hidden:
+        lines.append(f"{hidden} section{'' if hidden == 1 else 's'} under "
+                     f"{threshold} bytes not shown")
+    # Every file that was read, with the arithmetic a reader can check
+    # against `wc -c`: the header plus every section in it, counted or not,
+    # is that file's size.
+    for e, m in zip(files, measured):
+        skipped = m["sections"] - m["counted"]
+        lines.append(
+            f"measured: {e['file']} is {m['bytes']} bytes, "
+            f"{m['header_bytes']} of header and {m['section_bytes']} in "
+            f"{m['sections']} section{'' if m['sections'] == 1 else 's'}"
+            + (f", {skipped} of which the map already has and this does not "
+               "count twice" if skipped else ""))
+    return "\n".join(lines) + "\n"
+
+
+def export(map_path: str) -> str:
+    """The map as one file, for a channel that has no filesystem.
+
+    A PR comment, a paste, a pack carried to another machine: somewhere the
+    map cannot be read off disk, and the pointer, which is a path and an
+    invitation to ask, is useless. So: what the map admits it is missing,
+    what it indexed, what its sections are and what each of them costs, and
+    then the brief itself, in one file that stands on its own.
+
+    Not the whole map. `framework_map.md` is the file the pointer exists to
+    keep out of a prompt, and copying it into a paste would be the same
+    mistake under a different name.
+    """
+    out_dir = os.path.dirname(map_path) or "."
+    text = map_text(map_path)
+    # The same measurement `--cost` prints, so the two never disagree about
+    # what a section costs.
+    _files, sections = map_costs(map_path)
+
+    incomplete = []
+    for head, body in _blocks(text):
+        if head.strip().lower() == "## this map is incomplete":
+            incomplete = [line for line in body if line.strip()]
+            break
+
+    try:
+        with open(os.path.join(out_dir, "framework_map.json"), encoding="utf-8") as fh:
+            indexed = _as_dict((json.load(fh) or {}).get("indexed"))
+    except (OSError, ValueError):
+        indexed = {}
+    try:
+        with open(os.path.join(out_dir, BRIEF_NAME), encoding="utf-8") as fh:
+            brief_text = fh.read()
+    except OSError:
+        brief_text = ""
+
+    lines = [
+        "# where-are-we export",
+        "",
+        f"`{EXPORT_SCHEMA}`. One file standing on its own: what this map "
+        "admits it is missing, what it indexed, what its sections are and "
+        "what each of them costs, then the brief. Built from "
+        f"`{map_path}`; where that file is readable, ask it instead, since it "
+        "holds every row this leaves out.",
+        "",
+        "## Export",
+        "",
+        "**Incomplete**",
+        "",
+    ]
+    lines += incomplete or ["- nothing was cut: no bound this build has was reached"]
+    lines += ["", "**Indexed**", ""]
+    lines += ([f"- {role}: {count} files" for role, count in sorted(indexed.items())]
+              or ["- the map on disk records no counts"])
+    lines += ["", "**Sections**", ""]
+    lines += [f"- `{r['section']}` - {r['bytes']} bytes, {r['rows']} "
+              f"row{'' if r['rows'] == 1 else 's'}" for r in sections]
+    lines += ["", f"- total: {len(sections)} sections, "
+                  f"{sum(r['bytes'] for r in sections)} bytes", ""]
+    return "\n".join(lines) + "\n" + brief_text

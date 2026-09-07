@@ -19,13 +19,14 @@ import subprocess
 import sys
 import urllib.request
 
-from . import extract, state
-from .declare import _step_texts, index_declarations
+from . import extract, rank, state
+from .declare import (_kind_of, _step_texts, index_declarations,
+                      record_span, spans_index)
 from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
 from .walk import (AST_LIMIT, SKIP_DIRS, _cached, _lines_matching,
-                   _load_parse_cache, _manifest, _product_roots,
+                   _load_parse_cache, _manifest, _product_roots, _root_of,
                    _save_parse_cache, _slurp, _slurp_source, _tree, _walk,
-                   sweep_out_dir)
+                   content_pairs, redact, sweep_out_dir)
 
 
 # How much of each call graph the map keeps. `ask.impact` tells its reader
@@ -239,8 +240,49 @@ def _bound_shapes(node) -> list:
     return out
 
 
+def declares_rows(spans: dict) -> list:
+    """The `declares` rows of `xrefs`: one per site in `spans`.
+
+    Written here rather than inside `build` because `--also` rebuilds them:
+    the first root's copy of `spans` is taken before the extra roots are
+    walked, and `cli.py` re-lifts the merged index. A table whose `declares`
+    rows named fewer files than the `spans` key beside them would break the
+    one thing this table promises, that a row is a site.
+
+    The site's path is copied through, not joined onto anything: every
+    `record_span` caller writes an absolute path, so the site already names
+    the root it was walked under. That is what makes a merged map right
+    without this function being told which roots it was merged from, and it
+    is why there is one spelling here rather than a rule per consumer.
+
+    `candidates` is empty on these rows: a declaration is not a choice between
+    files, and the file is the subject's. `file` is kept, so every row of
+    every edge answers "which file did this edge reach" the same way.
+    """
+    out = []
+    for name in sorted(spans):
+        for site in spans[name] or ():
+            path = site["file"]
+            out.append({"subject": path, "edge": "declares", "object": name,
+                        "file": path, "candidates": [],
+                        "line": site["start"], "resolution": "declaration"})
+    return out
+
+
+def sort_xrefs(rows: list) -> list:
+    """`xrefs` in its stored order: by subject, object, line, edge, rule.
+
+    A table rather than a walk order, and the same bytes whatever order the
+    filesystem handed the files over in. Every row carries a line, so there
+    is nothing here that has to stand in for a missing one.
+    """
+    return sorted(rows, key=lambda r: (r["subject"], r["object"], r["line"],
+                                       r["edge"], r["resolution"]))
+
+
 def build(repo: str, out_dir: str | None = None,
-          keep_indexes: bool = False, force: bool = False) -> dict:
+          keep_indexes: bool = False, force: bool = False,
+          redact_lines: bool = True) -> dict:
     # Nothing this build accumulates may come from the build before it. Read
     # `state.reset` for what that covers and why `--also` is the one caller
     # that passes keep_indexes.
@@ -261,6 +303,16 @@ def build(repo: str, out_dir: str | None = None,
     # again. That is the difference from WAWE_NO_CACHE=1, which also stops
     # the cache being written and so makes the next build cold as well.
     state.PARSE_CACHE_READS = not force
+    # Every line this build records is the line the published map holds, so
+    # anything computed here over `lines` and anything a reader asks the map
+    # for are the same text. `tests/golden/build_fixtures.py` is the one
+    # caller that says no, and says why where it says it.
+    #
+    # A caller that says no and then holds the map has to redact it before
+    # writing it, and has to do that before the next `build()` in the same
+    # process: `state.LINES_REDACTED`, which is what tells `redact()` whether
+    # to sweep `lines`, describes the last build rather than the map in hand.
+    state.REDACT_LINES = redact_lines
     if out_dir is not None:
         # Before anything is written: a build killed mid-write leaves a
         # temporary behind, and _stage_atomic only ever sweeps the one name it
@@ -270,6 +322,23 @@ def build(repo: str, out_dir: str | None = None,
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT
+    # The files this build parsed, as opposed to the computations it ran: one
+    # file is asked five or six questions, so the two numbers differ by about
+    # three and a half times and only one of them is a count of files.
+    state.PARSED_FILES = set()
+    # From where a caller that hashed on its way here started, not from this
+    # line: the command line asks for a content root before it decides whether
+    # to build, and those reads are part of what this run cost.
+    hashes_before = state.HASH_COUNT if state.HASH_MARK is None else state.HASH_MARK
+    state.HASH_MARK = None
+    # What the cache on disk says the last build hashed each file to, so
+    # `content_root` can say which files moved and not only that the tree did.
+    # From `HASHES_AT_LOAD` rather than from the live cache, which by now may
+    # already hold this run's own answer for a file the command line hashed on
+    # its way here. Empty on a cold build, where "everything moved" is true and
+    # says nothing, so nothing is reported as moved there.
+    hashes_before_map = ({} if no_cache else
+                         {k: v.get("sha") for k, v in state.HASHES_AT_LOAD.items()})
 
     steps: dict[str, list[str]] = {}
     for p in _walk(repo, ".py"):
@@ -370,8 +439,8 @@ def build(repo: str, out_dir: str | None = None,
         def _api_of(full=full, rel=rel):
             tree = _parse_source(full)
             if tree is None:
-                return {"api": [], "defs": []}
-            out, defs = [], []
+                return {"api": [], "defs": [], "spans": []}
+            out, defs, spans = [], [], []
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
                     for sub in node.body:
@@ -380,12 +449,27 @@ def build(repo: str, out_dir: str | None = None,
                             args = [a.arg for a in sub.args.args if a.arg != "self"]
                             out.append(f"{node.name}.{sub.name}({', '.join(args)})")
                             defs.append((f"{node.name}.{sub.name}", f"{rel}:{sub.lineno}"))
+                            spans.append([f"{node.name}.{sub.name}", sub.lineno,
+                                          sub.end_lineno, "function"])
                     defs.append((f"class {node.name}", f"{rel}:{node.lineno}"))
-            return {"api": sorted(out), "defs": defs}
+                    spans.append([f"class {node.name}", node.lineno,
+                                  node.end_lineno, "class"])
+            return {"api": sorted(out), "defs": defs, "spans": spans}
 
         api_result = _cached(full, "public_api", _api_of)
         for name, loc in api_result["defs"]:
             DEFINITIONS.setdefault(name, loc)
+        # `ast` has the end line of every one of these, so the qualified
+        # method names this block invents get a real span rather than a start
+        # and a question mark.
+        #
+        # The absolute path, which is what every other `record_span` caller
+        # writes: `spans` does not record which root a site was walked under,
+        # so a relative one is a path with no root attached, and the two keys
+        # derived from it (`xrefs`, and the `tags` file) each had to guess a
+        # root back onto it, in opposite directions.
+        for name, start, end, kind in api_result.get("spans") or ():
+            record_span(name, full, start, end, kind)
         return api_result["api"]
 
     api = {rel: _public_api(rel) for rel in page_objects + drivers}
@@ -589,6 +673,11 @@ def build(repo: str, out_dir: str | None = None,
                 for m2 in re.finditer(pattern, src, re.M):
                     line = src[:m2.start()].count("\n") + 1
                     DEFINITIONS.setdefault(m2.group(1), f"{p2}:{line}")
+                    # No end: this is a regex over a file the walk has not
+                    # parsed, and the pattern has seen the line the name is on
+                    # and nothing that says where the declaration stops.
+                    record_span(m2.group(1), p2, line, None,
+                                _kind_of(m2.group(0), m2.group(1)))
     product = {k: sorted(set(v))[:120] for k, v in product.items()}
 
     # Locators the page objects actually drive, and the timing constants that
@@ -1722,8 +1811,10 @@ def build(repo: str, out_dir: str | None = None,
             models[f"{name} (prisma)"] = re.findall(r"^\s*(\w+)\s+\w", fields, re.M)[:15]
     models = dict(list(models.items())[:30])
 
-    # How the top-level packages depend on each other.
+    # How the top-level packages depend on each other, and the import line
+    # in each file that says so.
     import_graph: dict[str, set] = {}
+    import_sites: dict = {}
     tops = {d for d in os.listdir(repo)
             if os.path.isdir(os.path.join(repo, d)) and d not in SKIP_DIRS}
     for p2 in _walk(repo, ".py") + _walk(repo, ".ts") + _walk(repo, ".js"):
@@ -1735,11 +1826,20 @@ def build(repo: str, out_dir: str | None = None,
             body = _slurp(p2)
         except OSError:
             continue
-        for mod in re.findall(r"(?:^from\s+([\w.]+)|^import\s+([\w.]+)|from\s+[\"\']([^\"\']+))",
-                              body, re.M):
-            name = (mod[0] or mod[1] or mod[2]).lstrip("./").split(".")[0].split("/")[0]
+        for mod in re.finditer(r"(?:^from\s+([\w.]+)|^import\s+([\w.]+)|from\s+[\"\']([^\"\']+))",
+                               body, re.M):
+            name = (mod.group(1) or mod.group(2) or mod.group(3)) \
+                .lstrip("./").split(".")[0].split("/")[0]
             if name in tops and name != top:
                 import_graph.setdefault(top, set()).add(name)
+                # The line as well as the pair, for the `imports` rows of
+                # `xrefs`: this key is a summary of who depends on whom, and
+                # a row that could not say which line said so would be that
+                # summary written out again in seven fields. One row per file
+                # per package, at the first line that imports it.
+                site = (top, name, p2)
+                import_sites.setdefault(
+                    site, body.count("\n", 0, mod.start()) + 1)
     import_graph = {k: sorted(v)[:10] for k, v in sorted(import_graph.items())[:25]}
 
     # Monorepo layout, if this is one.
@@ -1883,6 +1983,22 @@ def build(repo: str, out_dir: str | None = None,
     # definitions has to wait until all of them have been read, so it happens
     # in a second, parse-free pass below.
     func_calls: dict[str, list] = {}
+    # Every edge the two passes below write, one row each, before either
+    # cap: the table `call_graph_files` is rendered from, and the one
+    # `call_graph_stats` counts. `declares` rows join them at the end of the
+    # build, where `spans` is finished.
+    xrefs: list = []
+
+    def _full(rel_path: str) -> str:
+        """One repository-relative path of the call graph as `xrefs` spells it.
+
+        The call graph works in paths relative to the repository and `xrefs`
+        is absolute throughout, so a `calls` row's `file` matches the
+        `declares` row for the file it names and the table joins to itself.
+        A plain join, not a test on the path first: everything handed to this
+        comes out of the call graph, and the call graph has one spelling.
+        """
+        return os.path.join(repo, rel_path)
     defined_at: dict[str, str] = {}
     # Every indexed file that declares a name, per language group. A name one
     # file declares has one home and the `(file)` half of an edge is a fact; a
@@ -1925,17 +2041,67 @@ def build(repo: str, out_dir: str | None = None,
             return "?"
         return ""
 
-    def _edge(lang: str, name: str, where, mark: str) -> str:
-        """One cross-file edge: its text, and the counter that records it.
+    def _edge(lang: str, rel: str, func: str, name: str, where,
+              resolution: str, line) -> None:
+        """One cross-file edge: the row it writes, and the counter it moves.
 
-        Every file in `where` is named, by basename and sorted, so the edge a
-        tree produces is the same string whatever order the walk read the
-        files in. `os.walk` returns entries in directory order, so naming one
-        file out of several made the byte a property of the filesystem.
+        The row is the edge; `call_graph_files` is rendered from the rows
+        below by `_graph_from_xrefs`, so there is one place a cross-file call
+        is recorded and one place it is spelled. Every file in `where` is
+        named, by basename and sorted, when it is spelled, so the edge a tree
+        produces is the same string whatever order the walk read the files
+        in. `os.walk` returns entries in directory order, so naming one file
+        out of several made the byte a property of the filesystem.
+
+        `resolution` is the rule that placed the edge, written by the rule
+        itself where it settles the candidate list, and it is the only thing
+        that says whether the edge is a choice: the mark, the null `file` and
+        the counter the row moves are all read off it here, so a rule that
+        forgot to clear one of them is a rule that cannot exist.
         """
-        _stats(lang)["marked" if mark else "edges"] += 1
-        files = "|".join(sorted({os.path.basename(w) for w in where}))
-        return f"{name} ({files}){mark}"
+        marked = resolution == "ambiguous"
+        _stats(lang)["marked" if marked else "edges"] += 1
+        xrefs.append({"subject": f"{_full(rel)}:{func}", "edge": "calls",
+                      "object": name,
+                      "file": (None if marked or len(where) != 1
+                               else _full(sorted(where)[0])),
+                      "candidates": sorted(_full(w) for w in where),
+                      "line": line, "resolution": resolution})
+
+    def _edge_text(row: dict) -> str:
+        """One `calls` row as `call_graph_files` spells it.
+
+        `charge (a.py)`, and `charge (a.py|b.py)?` where the row names more
+        than one candidate: the same bytes 1.4.x wrote, from the row rather
+        than beside it.
+        """
+        files = "|".join(sorted({os.path.basename(w)
+                                 for w in row["candidates"]}))
+        mark = "?" if row["resolution"] == "ambiguous" else ""
+        return f"{row['object']} ({files}){mark}"
+
+    def _graph_from_xrefs(rows: list) -> dict:
+        """`call_graph_files` from the `calls` rows, in the order they were
+        written.
+
+        A key is `<basename>:<func>`, which two files of one basename share,
+        and a run of rows for one subject is one key's value: the later run
+        replaces the earlier one, exactly as an assignment per function did.
+        Rows for one subject are written together, so a run is a subject.
+        """
+        runs: list = []
+        for row in rows:
+            if row["edge"] != "calls":
+                continue
+            if runs and runs[-1][0] == row["subject"]:
+                runs[-1][1].add(_edge_text(row))
+            else:
+                runs.append((row["subject"], {_edge_text(row)}))
+        out: dict = {}
+        for subject, texts in runs:
+            rel, _, func = subject.rpartition(":")
+            out[f"{os.path.basename(rel)}:{func}"] = sorted(texts)[:8]
+        return out
 
     def _module_target(module: str, level: int, rel: str):
         """A module, as `rel` writes it, as a path under the repository.
@@ -2029,7 +2195,7 @@ def build(repo: str, out_dir: str | None = None,
             except (SyntaxError, ValueError):
                 return {"defs": [], "calls": {}, "names": {}, "imports": {},
                         "mods": {}, "refrom": {}, "aliases": {}, "recv": {},
-                        "made": {}, "classes": {}, "owner": {}}
+                        "made": {}, "classes": {}, "owner": {}, "at": {}}
             # What this file says it means by a name. `imports` is every
             # `from MOD import name`; `aliases` is what an import binds that a
             # `NAME.attr()` call can be read through, recorded as
@@ -2118,13 +2284,24 @@ def build(repo: str, out_dir: str | None = None,
                     else:
                         todo.append((child, holder))
 
-            defs, calls, names, mods, recv, made = [], {}, {}, {}, {}, {}
+            defs, calls, names, mods, recv, made, at = [], {}, {}, {}, {}, {}, {}
             built_of, recv_of = {}, {}
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 defs.append(node.name)
                 targets, bare, said, on_what, built = set(), set(), {}, {}, {}
+                # The first line this function calls each name on, which is
+                # the line an `xrefs` row carries. The first rather than any:
+                # a name called three times is one edge, and the earliest
+                # site is the one a reader finds by reading downwards.
+                first = {}
+
+                def _seen(name: str, lineno: int, first=first) -> None:
+                    was = first.get(name)
+                    if was is None or lineno < was:
+                        first[name] = lineno
+
                 for c in ast.walk(node):
                     for bound, shape in _bound_shapes(c):
                         built.setdefault(bound, set()).add(shape)
@@ -2133,8 +2310,10 @@ def build(repo: str, out_dir: str | None = None,
                     if isinstance(c.func, ast.Name):
                         targets.add(c.func.id)
                         bare.add(c.func.id)
+                        _seen(c.func.id, c.lineno)
                     elif isinstance(c.func, ast.Attribute):
                         targets.add(c.func.attr)
+                        _seen(c.func.attr, c.lineno)
                         # What the call was made on: a bare name, the shape
                         # a `setdefault` handed back, or `?` for a receiver
                         # nothing written here places.
@@ -2154,6 +2333,7 @@ def build(repo: str, out_dir: str | None = None,
                 # must replace an earlier one's tables rather than leave them
                 # standing to be read beside its own calls.
                 recv[node.name] = {k: sorted(v) for k, v in on_what.items()}
+                at[node.name] = {k: v for k, v in sorted(first.items()) if k}
                 built_of[node] = built
                 recv_of[node] = on_what
             for node, built in built_of.items():
@@ -2177,16 +2357,17 @@ def build(repo: str, out_dir: str | None = None,
             return {"defs": defs, "calls": calls, "names": names,
                     "imports": imports, "mods": mods, "refrom": refrom,
                     "aliases": aliases, "recv": recv, "made": made,
-                    "classes": classes, "owner": owner}
+                    "classes": classes, "owner": owner, "at": at}
 
         _stats("python")
-        # `func_edges_2`, because the record under this key holds six tables
-        # where 1.4.0's held five. The kind is part of the cache key, so a
-        # record whose shape changed is a record this build recomputes; the
-        # alternative, waiting for the version in the cache file's header to
-        # change, makes the correctness of a stored record depend on a
-        # release number moving in the same commit that changed its shape.
-        func_info = _cached(full, "func_edges_2", _func_calls_of)
+        # `func_edges_3`, because the record under this key now holds the
+        # line each call was first made on as well, which is what an `xrefs`
+        # row carries. The kind is part of the cache key, so a record whose
+        # shape changed is a record this build recomputes; the alternative,
+        # waiting for the version in the cache file's header to change, makes
+        # the correctness of a stored record depend on a release number
+        # moving in the same commit that changed its shape.
+        func_info = _cached(full, "func_edges_3", _func_calls_of)
         raw_calls_by_rel[rel] = func_info
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
@@ -2376,15 +2557,22 @@ def build(repo: str, out_dir: str | None = None,
         recv_by_func = info.get("recv") or {}
         made_by_func = info.get("made") or {}
         aliases_here = info.get("aliases") or {}
+        at_by_func = info.get("at") or {}
         for func_name, raw_targets in (info.get("calls") or {}).items():
             bare = set(bare_by_func.get(func_name) or ())
             mods = mods_by_func.get(func_name) or {}
             on_what = recv_by_func.get(func_name) or {}
             built = made_by_func.get(func_name) or {}
-            targets = set()
+            at_here = at_by_func.get(func_name) or {}
             for name in raw_targets:
                 where = homes_py.get(name) or set()
-                mark = _count("python", name, homes_py)
+                # The rule that placed this edge, as far as the walk has got:
+                # one file declares the name, or several do and nothing below
+                # says which. Each rule that settles the list overwrites this
+                # where it settles it, and there is no second variable saying
+                # the same thing: `resolution == "ambiguous"` is the mark.
+                resolution = ("ambiguous" if _count("python", name, homes_py)
+                              else "sole_declarer")
                 if not where:
                     continue
                 if rel in where and (name in bare or len(where) == 1):
@@ -2401,11 +2589,17 @@ def build(repo: str, out_dir: str | None = None,
                 # module this function calls the name on for an attribute
                 # call. `[module, level, package]`, the package being what
                 # says whether the module belongs to this tree.
+                # `said_from` is the rule that will have answered if one of
+                # those modules settles the list, recorded here where the
+                # table is chosen rather than worked out again from the same
+                # condition further down.
                 if name in bare:
                     from_mod = imports.get(name)
                     said = [[from_mod[0], from_mod[1], from_mod[0]]] if from_mod else []
+                    said_from = "import_line"
                 else:
                     said = mods.get(name) or []
+                    said_from = "receiver_import"
                 if said and not any(_module_is_here(pkg, lvl, rel, py_files,
                                                     where)
                                     for _mod, lvl, pkg in said):
@@ -2457,15 +2651,19 @@ def build(repo: str, out_dir: str | None = None,
                     if len(inherited) == 1:
                         # One base, in one other file, declares it. That is
                         # where the call lands.
-                        where, mark = inherited, ""
-                if mark:
+                        where, resolution = inherited, "base_class"
+                if resolution == "ambiguous":
                     # The caller named the module it meant. One home under the
                     # modules it named is an answer, not a guess.
                     hits: set = set()
                     for mod, lvl, _pkg in said:
                         hits |= _module_homes(mod, lvl, rel, where)
                     if len(hits) == 1:
-                        where, mark = hits, ""
+                        # The `from M import name` line of a plain call, and
+                        # the module a receiver was bound to for an attribute
+                        # call: two rules reading two tables, and the row
+                        # carries whichever of them chose `said`.
+                        where, resolution = hits, said_from
                     elif not hits:
                         # None of the modules the caller named declares the
                         # name, and one of them may still be a facade that
@@ -2478,10 +2676,9 @@ def build(repo: str, out_dir: str | None = None,
                             through = _reexport_home(next(iter(carriers)),
                                                      name, where)
                             if len(through) == 1:
-                                where, mark = through, ""
-                targets.add(_edge("python", name, where, mark))
-            if targets:
-                func_calls[f"{os.path.basename(rel)}:{func_name}"] = sorted(targets)[:8]
+                                where, resolution = through, "re_export"
+                _edge("python", rel, func_name, name, where, resolution,
+                      at_here.get(name))
 
     # Same call graph for TypeScript, JavaScript and Go: there is no AST here,
     # so a definition is found by pattern and a call graph body by matching
@@ -2591,28 +2788,37 @@ def build(repo: str, out_dir: str | None = None,
         lines = body.splitlines()
         for name, line_idx in defs:
             fn_body = _brace_body(lines, line_idx)
-            targets = set()
-            for callee in sorted(set(re.findall(r"\b(\w+)\s*\(", fn_body))):
+            # The first line each callee is called on, absolute and
+            # one-based: the body starts at the signature line, so a match's
+            # own newline count is its offset from it.
+            first: dict = {}
+            for m in re.finditer(r"\b(\w+)\s*\(", fn_body):
+                first.setdefault(m.group(1),
+                                 line_idx + 1 + fn_body.count("\n", 0, m.start()))
+            for callee in sorted(first):
                 where = homes.get(callee) or set()
-                mark = _count(lang, callee, homes)
+                resolution = ("ambiguous" if _count(lang, callee, homes)
+                              else "sole_declarer")
                 if not where or rel in where:
                     # This file declares the callee itself. There is no
                     # receiver to read here, and the body scan starts at the
                     # signature line, so a function's own name reads as a
                     # call: an edge out of this file would be that misread.
                     continue
-                if mark:
+                if resolution == "ambiguous":
                     hits = _spec_homes(imported.get(callee) or "", rel, where)
                     if len(hits) == 1:
-                        where, mark = hits, ""
-                targets.add(_edge(lang, callee, where, mark))
-            if targets:
-                func_calls[f"{os.path.basename(rel)}:{name}"] = sorted(targets)[:8]
+                        where, resolution = hits, "import_line"
+                _edge(lang, rel, name, callee, where, resolution,
+                      first[callee])
 
-    # One cap across both languages, tie-broken by key so ties do not depend
-    # on os.walk order. `call_stats` is not capped with it: it counts what the
-    # walk looked at, and a coverage number computed from the sixty keys that
-    # survived would be a measure of the cap rather than of the walk.
+    # `call_graph_files`, from the rows the two passes wrote. One cap across
+    # both languages, tie-broken by key so ties do not depend on os.walk
+    # order. `call_stats` is not capped with it: it counts what the walk
+    # looked at, and a coverage number computed from the sixty keys that
+    # survived would be a measure of the cap rather than of the walk. Neither
+    # cap touches `xrefs`, for the same reason.
+    func_calls = _graph_from_xrefs(xrefs)
     func_calls = dict(sorted(func_calls.items(),
                             key=lambda kv: (-len(kv[1]), kv[0]))[:CALL_GRAPH_KEYS])
 
@@ -3046,9 +3252,91 @@ def build(repo: str, out_dir: str | None = None,
 
     stated = _manifest(repo)
 
+    # Which definitions matter structurally, from the graph the two tables
+    # above already describe: files as nodes, an edge from a file that
+    # mentions a name to the file that declares it. Unpersonalised here,
+    # because a stored ranking cannot know which files a reader has open;
+    # `--rank FILE` recomputes the same walk with the vector concentrated on
+    # those files, from these same two keys read back off disk.
+    #
+    # Read from the lines as the map will hold them, which is redacted: a
+    # ranking computed from text no reader of the published file can see is a
+    # map disagreeing with itself, and `--rank` recomputing from the file on
+    # disk would disagree with the key stored beside it. Measured when this
+    # was written, before `index_lines` redacted: 1,788 of 32,649 lines change
+    # under redaction and the two orders differ in their first row, because
+    # the top definitions are within half a percent of each other.
+    #
+    # `index_lines` now redacts as it records, so on every path but one
+    # `LINES` is already that text and reading it directly is what keeps the
+    # ranking honest. The exception is `build(redact_lines=False)`, which the
+    # golden fixture builder passes because a fixture holds nothing to protect
+    # and the base64-like rule occasionally matches a stretch of the temporary
+    # path the run was given; there, and only there, this redacts its own copy,
+    # so a fixture's ranking is of the same text every other ranking is of.
+    #
+    # Redacting unconditionally would also be correct, since the pass is
+    # idempotent: measured over this repository's 36,207 lines it changes none
+    # of them a second time. It would also cost 0.60 s of pattern matching on
+    # every build, warm ones included, which is the whole of what caching the
+    # redaction bought.
+    spans = spans_index()
+    ranked = rank.rows({"spans": spans, "repo": repo,
+                        "lines": LINES if state.REDACT_LINES else
+                        {path: redact(rows, contiguous=True)
+                         for path, rows in LINES.items()}})
+
+    # One sha256 over every indexed file's path and content hash. The
+    # fingerprint says when the tree was last written to; this says what it
+    # holds, and the two disagree exactly where an mtime can be put back.
+    #
+    # Computed here, at the end, so that every file a parser was handed is
+    # already hashed and only the walk is left. The files no parser touched
+    # are hashed here for the first time, and on a cold build they are most
+    # of the reading this does.
+    pairs = content_pairs(repo)
+    if hashes_before_map:
+        moved, added = [], []
+        for rel, sha in pairs:
+            was = hashes_before_map.get(os.path.join(repo, rel.replace("/", os.sep)))
+            if was is None:
+                added.append(rel)
+            elif was != sha:
+                moved.append(rel)
+        state.HASHES_MOVED[:] = sorted(moved)
+        state.HASHES_ADDED[:] = sorted(added)
+        # A path the last build hashed and nothing holds now. The saved cache
+        # drops a file that had already gone by the time it was written, so
+        # what is left here is what went since.
+        state.HASHES_GONE[:] = sorted(
+            os.path.relpath(full, repo).replace(os.sep, "/")
+            for full in hashes_before_map
+            if full.startswith(repo + os.sep) and not os.path.exists(full))
+
+    # The other two edges of `xrefs`. A `declares` row is a `spans` site,
+    # written by `declares_rows` because `--also` rebuilds them from the
+    # merged index after the extra roots are walked. An `imports` row is one
+    # import line of one file, kept for the package pairs `import_graph`
+    # summarises: the pair without the line is that key written out again in
+    # seven fields, and the line is the half of it this table adds.
+    xrefs += declares_rows(spans)
+    for (package, other, path), line in sorted(import_sites.items()):
+        if other not in (import_graph.get(package) or ()):
+            # A pair the cap above dropped. `import_graph` is the summary and
+            # this table does not disagree with it.
+            continue
+        xrefs.append({"subject": _full(path), "edge": "imports",
+                      "object": other, "file": _full(other),
+                      "candidates": [_full(other)], "line": line,
+                      "resolution": "import_statement"})
+    xrefs = sort_xrefs(xrefs)
+
     result = {
         "schema": "where-are-we/1",
         "repo": repo,
+        # The tree by what it says rather than by when it was last written
+        # to: see `walk.content_root`, which is this same digest.
+        "content_root": _root_of(pairs),
         "stated": stated,
         "layers": {
             "features": _layer_line(sorted(features), "Gherkin features"),
@@ -3062,6 +3350,15 @@ def build(repo: str, out_dir: str | None = None,
         # name is a question about where it is, and an answer without the line
         # sends the reader to grep for it anyway.
         "definitions": dict(sorted(DEFINITIONS.items())),
+        # Every home of every name, not only the first one walked, each with
+        # the line it ends on where a parser knew it. `definitions` keeps its
+        # shape; this is where a name declared in two files says so.
+        "spans": spans,
+        # The top definitions of this repository by PageRank over its own
+        # file graph, best first. Not a word match: this is what the graph
+        # says is load-bearing, which is the other half of the question
+        # `ask` answers.
+        "rank": ranked,
         # What was looked at, so "not found" can say where it looked.
         "indexed": dict(sorted(INDEXED.items())),
         # And the lines themselves, so a phrase search is a lookup. Kept out of
@@ -3147,6 +3444,10 @@ def build(repo: str, out_dir: str | None = None,
         "dependency_licenses": dep_licenses,
         "call_graph_files": func_calls,
         "call_graph_stats": dict(sorted(call_stats.items())),
+        # The same graph as rows, plus the declarations and the package
+        # imports: every edge with the rule that placed it, uncapped.
+        # `call_graph_files` above is rendered from the `calls` rows here.
+        "xrefs": xrefs,
         "data_flow": extracted["data_flow"],
         "blame_owners": blame_owners,
         "coverage_by_file": extracted["coverage_by_file"],
@@ -3234,8 +3535,20 @@ def build(repo: str, out_dir: str | None = None,
         if note not in TRUNCATED:
             TRUNCATED.append(note)
 
-    if not no_cache:
+    if not no_cache and state.PARSE_CACHE_WRITES:
         _save_parse_cache(out_dir)
+    # Both are one build's settings, not the process's: a caller that turned
+    # either off for its own build must not decide the next one's behaviour.
+    state.PARSE_CACHE_READS = True
+    state.PARSE_CACHE_WRITES = True
+    state.REDACT_LINES = True
+    # Not restored: it is not a setting, it is what this build did to the map
+    # it is about to hand back, and `redact()` is the next thing to read it.
+    state.LINES_REDACTED = redact_lines
     if state.DEBUG_PARSES:
-        print(f"parsed {state.PARSE_COUNT - parses_before} files", file=sys.stderr)
+        print(f"parsed {len(state.PARSED_FILES)} files", file=sys.stderr)
+        # The pre-filter's own number. A tree nobody touched parses nothing
+        # because it hashes nothing, and a line that reported only the parses
+        # could not tell that from a tree that was hashed and found unchanged.
+        print(f"hashed {state.HASH_COUNT - hashes_before} files", file=sys.stderr)
     return result

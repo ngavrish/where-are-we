@@ -1,6 +1,7 @@
 {
   "schema": "where-are-we/1",
   "repo": "<repo>",
+  "content_root": "c8ecdba107bb218b520dd7c3d50eb3cd42a2dbe84649d084c0609e19a802d0d9",
   "stated": {},
   "layers": {
     "features": "Gherkin features: none found",
@@ -20,6 +21,122 @@
     "main": "<root>/code/repo/app/cli.py:6",
     "refund": "<root>/code/repo/app/billing.py:9"
   },
+  "spans": {
+    "Customer": [
+      {
+        "file": "<root>/code/repo/app/models.py",
+        "start": 19,
+        "end": 25,
+        "kind": "class"
+      }
+    ],
+    "Invoice": [
+      {
+        "file": "<root>/code/repo/app/models.py",
+        "start": 9,
+        "end": 16,
+        "kind": "class"
+      }
+    ],
+    "charge": [
+      {
+        "file": "<root>/code/repo/app/billing.py",
+        "start": 4,
+        "end": 6,
+        "kind": "function"
+      }
+    ],
+    "get_invoice": [
+      {
+        "file": "<root>/code/repo/app/api.py",
+        "start": 15,
+        "end": 17,
+        "kind": "function"
+      }
+    ],
+    "health": [
+      {
+        "file": "<root>/code/repo/app/api.py",
+        "start": 21,
+        "end": 23,
+        "kind": "function"
+      }
+    ],
+    "list_invoices": [
+      {
+        "file": "<root>/code/repo/app/api.py",
+        "start": 9,
+        "end": 11,
+        "kind": "function"
+      }
+    ],
+    "main": [
+      {
+        "file": "<root>/code/repo/app/cli.py",
+        "start": 6,
+        "end": 13,
+        "kind": "function"
+      }
+    ],
+    "refund": [
+      {
+        "file": "<root>/code/repo/app/billing.py",
+        "start": 9,
+        "end": 11,
+        "kind": "function"
+      }
+    ]
+  },
+  "rank": [
+    {
+      "name": "get_invoice",
+      "file": "<root>/code/repo/app/api.py",
+      "line": 15,
+      "score": 0.0
+    },
+    {
+      "name": "health",
+      "file": "<root>/code/repo/app/api.py",
+      "line": 21,
+      "score": 0.0
+    },
+    {
+      "name": "list_invoices",
+      "file": "<root>/code/repo/app/api.py",
+      "line": 9,
+      "score": 0.0
+    },
+    {
+      "name": "charge",
+      "file": "<root>/code/repo/app/billing.py",
+      "line": 4,
+      "score": 0.0
+    },
+    {
+      "name": "refund",
+      "file": "<root>/code/repo/app/billing.py",
+      "line": 9,
+      "score": 0.0
+    },
+    {
+      "name": "main",
+      "file": "<root>/code/repo/app/cli.py",
+      "line": 6,
+      "score": 0.0
+    },
+    {
+      "name": "Customer",
+      "file": "<root>/code/repo/app/models.py",
+      "line": 19,
+      "score": 0.0
+    },
+    {
+      "name": "Invoice",
+      "file": "<root>/code/repo/app/models.py",
+      "line": 9,
+      "score": 0.0
+    }
+  ],
   "indexed": {
     "suite": 5
   },
@@ -292,6 +409,80 @@
       "marked": 0
     }
   },
+  "xrefs": [
+    {
+      "subject": "<root>/code/repo/app/api.py",
+      "edge": "declares",
+      "object": "get_invoice",
+      "file": "<root>/code/repo/app/api.py",
+      "candidates": [],
+      "line": 15,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/api.py",
+      "edge": "declares",
+      "object": "health",
+      "file": "<root>/code/repo/app/api.py",
+      "candidates": [],
+      "line": 21,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/api.py",
+      "edge": "declares",
+      "object": "list_invoices",
+      "file": "<root>/code/repo/app/api.py",
+      "candidates": [],
+      "line": 9,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/billing.py",
+      "edge": "declares",
+      "object": "charge",
+      "file": "<root>/code/repo/app/billing.py",
+      "candidates": [],
+      "line": 4,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/billing.py",
+      "edge": "declares",
+      "object": "refund",
+      "file": "<root>/code/repo/app/billing.py",
+      "candidates": [],
+      "line": 9,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/cli.py",
+      "edge": "declares",
+      "object": "main",
+      "file": "<root>/code/repo/app/cli.py",
+      "candidates": [],
+      "line": 6,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/models.py",
+      "edge": "declares",
+      "object": "Customer",
+      "file": "<root>/code/repo/app/models.py",
+      "candidates": [],
+      "line": 19,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/code/repo/app/models.py",
+      "edge": "declares",
+      "object": "Invoice",
+      "file": "<root>/code/repo/app/models.py",
+      "candidates": [],
+      "line": 9,
+      "resolution": "declaration"
+    }
+  ],
   "data_flow": {
     "app/api.py": {
       "paths": [

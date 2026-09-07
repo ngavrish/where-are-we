@@ -96,6 +96,19 @@ jobs:
           mapper.build("/tmp/fac")
           assert mapper.PARSE_COUNT == state.PARSE_COUNT > 0, mapper.PARSE_COUNT
           assert mapper.DEFINITIONS is state.DEFINITIONS
+          # The three lists a build produces are one answer, and a caller that
+          # can read one of them through the facade can read all three.
+          for name in ("HASHES_MOVED", "HASHES_ADDED", "HASHES_GONE",
+                       "PARSED_FILES", "PARSE_COUNT"):
+              assert hasattr(mapper, name), name
+              assert name in mapper.__all__, name
+              assert getattr(mapper, name) is getattr(state, name), name
+          # And the debug line counts what it says it counts. `PARSE_COUNT` is
+          # the computations, which is several per file; the line says files.
+          assert 0 < len(state.PARSED_FILES) <= state.PARSE_COUNT, \
+              (len(state.PARSED_FILES), state.PARSE_COUNT)
+          print("facade:", len(mapper.__all__), "names;", len(state.PARSED_FILES),
+                "files parsed for", state.PARSE_COUNT, "computations")
           EOF
           # Every code path the split touched, including the two the golden
           # suite does not reach. `--pointer` and `--docs` are how the map is
@@ -189,6 +202,1367 @@ jobs:
           if grep -q "commented" /tmp/langsmap/framework_map*.md; then
             echo "unexpected match: grep -q 'commented' /tmp/langsmap/framework_map*.md"; exit 1
           fi
+      - name: a name declared twice names both files, with its span
+        run: |
+          set -o pipefail
+          rm -rf /tmp/spans
+          mkdir -p /tmp/spans/r
+          python - <<'EOF'
+          import pathlib
+          # charge on 10, ending on 24: a body long enough that a wrong end
+          # line is a different answer rather than an off-by-one nobody sees.
+          a = ["import os", "", "", "def helper():", "    return 1", "", "",
+               "class Billing:", '    """what a Billing is."""',
+               "def charge(amount):", "    total = amount",
+               "    for i in range(3):", "        total += i",
+               "    if total > 5:", "        total = 5",
+               "    elif total < 0:", "        total = 0",
+               "    else:", "        total += 1",
+               "    while total > 99:", "        total -= 1",
+               "    if total == 3:", "        return 3", "    return total",
+               "", "", "def other():", "    return 2"]
+          pathlib.Path("/tmp/spans/r/a.py").write_text("\n".join(a) + "\n")
+          # The same name again, in another file, on 88 to 91.
+          b = ["#!/usr/bin/env python3"] + [f"# filler line {i}" for i in range(2, 88)]
+          b += ["def charge(amount):", "    if amount:", "        return amount",
+                "    return 0", "", "", "def tail():", "    return 0"]
+          pathlib.Path("/tmp/spans/r/b.py").write_text("\n".join(b) + "\n")
+          # A language the pattern table reads, with its one name on line 10.
+          d = [f"// header {i}" for i in range(1, 10)]
+          d += ["export function settle(a) {", "  return a;", "}"]
+          pathlib.Path("/tmp/spans/r/d.ts").write_text("\n".join(d) + "\n")
+          EOF
+          where-are-we --repo /tmp/spans/r --out /tmp/spans/m --product none \
+            --quiet --no-semantic
+          # Both homes, in path order, each with its span and its kind.
+          where-are-we --out /tmp/spans/m --defines charge | tee /tmp/spans/defines.txt
+          grep -qx 'charge: /tmp/spans/r/a.py:10-24 (function), /tmp/spans/r/b.py:88-91 (function)' \
+            /tmp/spans/defines.txt
+          # `definitions` keeps its shape: one home, the first walked.
+          python -c "
+          import json
+          m = json.load(open('/tmp/spans/m/framework_map.json'))
+          assert isinstance(m['definitions']['charge'], str), m['definitions']['charge']
+          sites = m['spans']['charge']
+          assert [(s['file'], s['start'], s['end'], s['kind']) for s in sites] == [
+              ('/tmp/spans/r/a.py', 10, 24, 'function'),
+              ('/tmp/spans/r/b.py', 88, 91, 'function')], sites
+          assert m['definitions']['charge'] in ('/tmp/spans/r/a.py:10',
+                                                '/tmp/spans/r/b.py:88'), m['definitions']['charge']
+          print('spans: two homes for charge, definitions unchanged')
+          "
+          # The whole enclosing definition for a line inside it, and nothing else.
+          where-are-we --out /tmp/spans/m --at /tmp/spans/r/a.py:15 > /tmp/spans/at.txt
+          head -1 /tmp/spans/at.txt | grep -qx '/tmp/spans/r/a.py:10-24 charge (function)'
+          tail -n +2 /tmp/spans/at.txt > /tmp/spans/at.py
+          sed -n '10,24p' /tmp/spans/r/a.py > /tmp/spans/want.py
+          diff -u /tmp/spans/want.py /tmp/spans/at.py
+          python -c "import ast; ast.parse(open('/tmp/spans/at.py').read()); print('--at returns text a parser accepts')"
+          # A language read by the pattern table says where the declaration
+          # starts and refuses to invent where it stops.
+          where-are-we --out /tmp/spans/m --defines settle | tee /tmp/spans/settle.txt
+          grep -qx 'settle: /tmp/spans/r/d.ts:10-? (function)' /tmp/spans/settle.txt
+          if grep -q '10-1' /tmp/spans/settle.txt; then
+            echo "unexpected match: grep -q '10-1' /tmp/spans/settle.txt"; exit 1
+          fi
+          # No end is no enclosure: the line inside it is answered with the
+          # nearest declaration rather than with a guess.
+          where-are-we --out /tmp/spans/m --at /tmp/spans/r/d.ts:11 | tee /tmp/spans/nots.txt
+          grep -q 'no definition encloses /tmp/spans/r/d.ts:11 (nearest: settle /tmp/spans/r/d.ts:10-? (function))' \
+            /tmp/spans/nots.txt
+          # The MCP tools and the flags are the same answer, byte for byte.
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"defines","arguments":{"name":"charge"}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"at","arguments":{"place":"a.py:15"}}}' \
+            | where-are-we --out /tmp/spans/m --mcp > /tmp/spans/mcp.jsonl
+          where-are-we --out /tmp/spans/m --at a.py:15 > /tmp/spans/at-rel.txt
+          python -c "
+          import json, pathlib
+          rows = [json.loads(l) for l in open('/tmp/spans/mcp.jsonl')]
+          names = sorted(t['name'] for t in rows[0]['result']['tools'])
+          assert 'at' in names, names
+          for i, path in ((1, '/tmp/spans/defines.txt'), (2, '/tmp/spans/at-rel.txt')):
+              mcp = rows[i]['result']['content'][0]['text']
+              cli = pathlib.Path(path).read_text()
+              assert mcp == cli.rstrip('\n'), (path, mcp, cli)
+          print('MCP defines/at and --defines/--at agree, byte for byte')
+          "
+          grep -q '\"tool\": \"at\"' /tmp/spans/m/.wawe-ask.log
+          # A file bigger than AST_LIMIT is handed to the parser as a prefix,
+          # so the last declaration in it ends where the cut is and not where
+          # the file does. No end at all, then, and `--at` says so rather than
+          # printing a span the map cannot stand behind.
+          mkdir -p /tmp/spans/cutr
+          python - <<'EOF'
+          import pathlib
+          body = "".join(f"    x{i} = {i}  # {'y' * 70}\n" for i in range(20000))
+          pathlib.Path("/tmp/spans/cutr/huge.py").write_text(
+              "def huge():\n" + body + "    return 0\n")
+          EOF
+          where-are-we --repo /tmp/spans/cutr --out /tmp/spans/cut --product none \
+            --quiet --no-semantic
+          python -c "
+          import json
+          m = json.load(open('/tmp/spans/cut/framework_map.json'))
+          sites = m['spans']['huge']
+          assert [(s['start'], s['end']) for s in sites] == [(1, None)], sites
+          assert 'huge.py' in m['definitions']['huge'], m['definitions']['huge']
+          print('a file cut at the read limit reports no end')
+          "
+          where-are-we --out /tmp/spans/cut --at huge.py:10000 | tee /tmp/spans/cut.txt
+          grep -q 'no definition encloses huge.py:10000' /tmp/spans/cut.txt
+          grep -q 'huge /tmp/spans/cutr/huge.py:1-? (function)' /tmp/spans/cut.txt
+          grep -q 'an end of ? is a declaration this map could not measure' /tmp/spans/cut.txt
+          # And it is a lookup, not a scan: the same budget fit over an
+          # eleven-thousand-line definition used to take a second and a half.
+          python - <<'EOF'
+          import pathlib
+          rows = "".join(f"    x{i} = {i}\n" for i in range(11500))
+          pathlib.Path("/tmp/spans/w/w.py").parent.mkdir(parents=True, exist_ok=True)
+          pathlib.Path("/tmp/spans/w/w.py").write_text(
+              "def wide():\n" + rows + "    return 0\n")
+          EOF
+          where-are-we --repo /tmp/spans/w --out /tmp/spans/wm --product none \
+            --quiet --no-semantic
+          python -c "
+          import sys, time
+          from where_are_we import ask
+          start = time.monotonic()
+          out = ask.at('/tmp/spans/wm/framework_map.md', 'w.py:5000')
+          spent = time.monotonic() - start
+          assert out.startswith('/tmp/spans/w/w.py:1-11502 wide (function)'), out[:80]
+          assert len(out) <= 12000, len(out)
+          assert 'more:at:' in out.splitlines()[-1], out.splitlines()[-1]
+          assert spent < 0.2, spent
+          print(f'--at over 11,502 lines: {len(out)} bytes in {spent:.3f}s')
+          "
+          # A bare basename can match two files, and both can hold a definition
+          # around the line. The answer names them rather than choosing one
+          # quietly; a path the map holds is still answered about that path.
+          mkdir -p /tmp/spans/amb/x /tmp/spans/amb/y
+          printf 'def alpha():\n    return 1\n\n\ndef beta():\n    return 2\n' > /tmp/spans/amb/x/m.py
+          printf '# one\n# two\n# three\n# four\n# five\ndef alpha():\n    return 3\n\n\ndef delta():\n    return 4\n' > /tmp/spans/amb/y/m.py
+          where-are-we --repo /tmp/spans/amb --out /tmp/spans/ambm --product none \
+            --quiet --no-semantic
+          where-are-we --out /tmp/spans/ambm --at m.py:6 | tee /tmp/spans/amb.txt
+          head -1 /tmp/spans/amb.txt | grep -qx '/tmp/spans/amb/x/m.py:5-6 beta (function) (m.py also matches /tmp/spans/amb/y/m.py; this is the first in path order)'
+          where-are-we --out /tmp/spans/ambm --at /tmp/spans/amb/y/m.py:6 \
+            | head -1 | grep -qx '/tmp/spans/amb/y/m.py:6-7 alpha (function)'
+          # The tree-sitter half, in a virtualenv of its own so the job's own
+          # install stays the pattern-table install every other step is
+          # written against. Where the grammars will not build for this
+          # Python, the step says so instead of passing quietly.
+          rm -rf /tmp/tsvenv
+          if python -m venv /tmp/tsvenv \
+             && /tmp/tsvenv/bin/pip install -q '.[precise]' > /tmp/ts-install.log 2>&1 \
+             && /tmp/tsvenv/bin/python -c "from tree_sitter_languages import get_parser; get_parser('rust'); get_parser('typescript')" > /dev/null 2>&1; then
+            mkdir -p /tmp/spans/ts
+            printf 'pub struct A;\n\nimpl A {\n    pub fn settle(&self) -> i32 {\n        1\n    }\n}\n\nimpl B {\n    pub fn settle(&self) -> i32 {\n        2\n    }\n}\n' > /tmp/spans/ts/t.rs
+            printf 'export function settle(a) {\n  return a;\n}\n' > /tmp/spans/ts/p.ts
+            /tmp/tsvenv/bin/where-are-we --repo /tmp/spans/ts --out /tmp/spans/tsm \
+              --product none --quiet --no-semantic
+            # The same tree read by the pattern table alone, for the one
+            # comparison that matters: which names, and on which line.
+            where-are-we --repo /tmp/spans/ts --out /tmp/spans/tsm2 \
+              --product none --quiet --no-semantic
+            python -c "
+          import json
+          ts = json.load(open('/tmp/spans/tsm/framework_map.json'))
+          plain = json.load(open('/tmp/spans/tsm2/framework_map.json'))
+          # A name declared twice in one file keeps both homes, which is what
+          # a table of line-start patterns cannot do and this key exists for.
+          rs = [(s['start'], s['end'], s['kind']) for s in ts['spans']['settle']
+                if s['file'].endswith('t.rs')]
+          assert rs == [(4, 6, 'function'), (10, 12, 'function')], rs
+          # .ts is read by the pattern table either way: the grammar is asked
+          # for the end and for nothing else, so which names are declared and
+          # on which line must not move between the two installs.
+          def ts_defs(m):
+              return {k: v for k, v in m['definitions'].items() if 'p.ts' in v}
+          assert ts_defs(ts) == ts_defs(plain) != {}, (ts_defs(ts), ts_defs(plain))
+          p = [(s['start'], s['end'], s['kind']) for s in ts['spans']['settle']
+               if s['file'].endswith('p.ts')]
+          assert p == [(1, 3, 'function')], p
+          # Same three homes either way, and the grammar is what turns the end
+          # from a question mark into a line.
+          where = lambda m: [(s['file'], s['start']) for s in m['spans']['settle']]
+          assert where(ts) == where(plain), (where(ts), where(plain))
+          assert [s['end'] for s in plain['spans']['settle']] == [None, None, None], \
+              plain['spans']['settle']
+          assert [s['end'] for s in ts['spans']['settle']] == [3, 6, 12], \
+              ts['spans']['settle']
+          print('tree-sitter spans: two homes in one .rs file, and a .ts end')
+          "
+            /tmp/tsvenv/bin/where-are-we --out /tmp/spans/tsm --at t.rs:11 \
+              | head -1 | grep -qx '/tmp/spans/ts/t.rs:10-12 settle (function)'
+          else
+            echo "tree-sitter spans: [precise] does not build for this Python; skipped"
+            tail -3 /tmp/ts-install.log || true
+          fi
+          # Two builds of the same tree, byte for byte.
+          where-are-we --repo /tmp/spans/r --out /tmp/spans/m2 --product none \
+            --quiet --no-semantic
+          diff -u /tmp/spans/m/framework_map.json /tmp/spans/m2/framework_map.json
+          diff -u /tmp/spans/m/framework_map.md /tmp/spans/m2/framework_map.md
+      - name: what a file quotes is not what it declares
+        run: |
+          set -o pipefail
+          rm -rf /tmp/quo
+          mkdir -p /tmp/quo/r/.github/workflows
+          # A docstring with the word `class` in a sentence, a triple-quoted
+          # fixture that writes out a module, and a real declaration in the
+          # same file so that the fix is a filter and not an off switch.
+          cat > /tmp/quo/r/fixtures.py <<'PY'
+          """Writes a small tree.
+
+          The caller names the class of that command line, and the flag that
+          gave it each class.
+          """
+
+          SOURCE = """
+          def refund(amount):
+              return amount
+
+
+          class Ledger:
+              pass
+          """
+
+
+          def write_tree(root):
+              return SOURCE
+          PY
+          # And a workflow whose heredoc body is another language's code.
+          cat > /tmp/quo/r/.github/workflows/ci.yml <<'YML'
+          jobs:
+            check:
+              steps:
+                - name: run it
+                  run: |
+                    python - <<'EOF'
+                    def build(x):
+                        return x
+                    class Runner:
+                        pass
+                    EOF
+                    echo done
+          YML
+          # A heredoc whose opener is followed by a redirection is still a
+          # heredoc: this repository's own workflow writes
+          # `python - <<'EOF' > /tmp/x`, and anchoring the delimiter to the end
+          # of the line left three names of its body in the map.
+          cat >> /tmp/quo/r/.github/workflows/ci.yml <<'YML'
+                - name: redirected
+                  run: |
+                    python - <<'PYEOF' > /tmp/redirected.bin
+                    def redirected_body(x):
+                        return x
+                    PYEOF
+                    cat <<SHELL | tee /tmp/piped.txt
+                    def piped_body(x):
+                        return x
+                    SHELL
+          YML
+          # A left shift is not a heredoc, in the languages that have both.
+          # Shell has no bare arithmetic statement, so a shift is inside
+          # `$(( ))` or after `let`, and reading one as an opener used to cost
+          # every declaration from that line to the end of the file.
+          printf '#!/bin/bash\nlet MASK=1 << bits\nAFTER=2\nLAST=3\n' \
+            > /tmp/quo/r/shift.sh
+          printf 'a:\n  run: |\n    let X=1 << bits\n    Y=2\nZKEY: 3\n' \
+            > /tmp/quo/r/shift.yml
+          # A shift is not a heredoc: the same two characters at the end of a
+          # line in a language that has no heredocs must not take the rest of
+          # the file out of the map.
+          printf 'package main\n\nfunc Shift(a int) int {\n\treturn a <<\n\t\t3\n}\n\nfunc After(b int) int {\n\treturn b\n}\n' \
+            > /tmp/quo/r/shift.go
+          where-are-we --repo /tmp/quo/r --out /tmp/quo/m --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json, sys
+          m = json.load(open("/tmp/quo/m/framework_map.json"))
+          names = m["definitions"]
+          spans = m["spans"]
+          quoted = ["of", "refund", "Ledger", "build", "Runner",
+                    "redirected_body", "piped_body"]
+          leaked = [n for n in quoted if n in names or n in spans]
+          if leaked:
+              print("a quoted body was read as a declaration:", leaked)
+              sys.exit(1)
+          # The same files still declare what they really declare, and a left
+          # shift declares everything after it: this is the answer 1.4.1 gave.
+          kept = ["SOURCE", "write_tree", "Shift", "After",
+                  "MASK", "AFTER", "LAST", "ZKEY"]
+          for n in kept:
+              assert n in names, (n, sorted(names))
+              assert n in spans, (n, sorted(spans))
+          assert names["write_tree"].endswith("fixtures.py:17"), names["write_tree"]
+          print("quoted bodies dropped:", quoted, "; declarations kept:", kept)
+          EOF
+          # Nothing said a file was cut, because nothing was.
+          if grep -q "heredoc" /tmp/quo/m/framework_map.md; then
+            echo "a closed heredoc was reported as unterminated"; exit 1
+          fi
+          # An unterminated heredoc masks the rest of its own file and nothing
+          # else: being wrong about one file is the safe way to be wrong.
+          printf 'run: |\n  python - <<%sEOF%s\n  def never_closed(x):\n      return x\n' "'" "'" \
+            > /tmp/quo/r/open.yml
+          where-are-we --repo /tmp/quo/r --out /tmp/quo/m2 --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json, sys
+          m = json.load(open("/tmp/quo/m2/framework_map.json"))
+          if "never_closed" in m["definitions"]:
+              print("an unterminated heredoc still declared its body")
+              sys.exit(1)
+          assert "write_tree" in m["definitions"]
+          print("an unterminated heredoc masks its own file only")
+          EOF
+          # And it says so. A file the map stopped reading half way through is
+          # named under `## This map is incomplete` with the delimiter that was
+          # never closed, because dropping declarations quietly is the one
+          # thing this rule must not do.
+          sed -n '/^## This map is incomplete/,/^## /p' \
+            /tmp/quo/m2/framework_map.md | tee /tmp/quo/note.txt
+          grep -qF "open.yml is never closed" /tmp/quo/note.txt
+          grep -qF "a heredoc opened with EOF" /tmp/quo/note.txt
+          # A bare delimiter is believed only when a later line closes it, so
+          # the ambiguous shape cannot eat a file on its own.
+          printf 'x=1\ncat <<NOPE\nAFTER_BARE=2\n' > /tmp/quo/r2.sh
+          mkdir -p /tmp/quo/r3 && cp /tmp/quo/r2.sh /tmp/quo/r3/s.sh
+          where-are-we --repo /tmp/quo/r3 --out /tmp/quo/m3 --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/quo/m3/framework_map.json"))
+          assert "AFTER_BARE" in m["definitions"], sorted(m["definitions"])
+          print("a bare delimiter nothing closes is not an opener:",
+                sorted(m["definitions"]))
+          EOF
+          if grep -q "heredoc" /tmp/quo/m3/framework_map.md; then
+            echo "a bare word that opened nothing was reported as a heredoc"
+            exit 1
+          fi
+      - name: context returns in one call what five calls return
+        run: |
+          set -o pipefail
+          rm -rf /tmp/ctx
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/ctx")
+          EOF
+          M=/tmp/ctx/suite/out
+          rm -f $M/.wawe-ask.log
+          # The first line says how the answer was composed: one hop of
+          # impact, and the floor share of the budget each block was given.
+          where-are-we --out $M --context click_7 > /tmp/ctx/click_7.context
+          head -1 /tmp/ctx/click_7.context | grep -qx \
+            'Context for `click_7`: declared, map rows, callers, callees, impact to depth 1. 12000 characters, floor shares 15/35/15/15/20 percent.'
+          # And it is 134 characters, not the 181 it was: at the MCP server's
+          # 1500 floor the first line is what the blocks do not get.
+          test "$(head -1 /tmp/ctx/click_7.context | wc -m | tr -d ' ')" = "135"
+          # Ten declared names through the five flags and through the one
+          # that composes them. Between them every block is filled and every
+          # block is empty: click_7 has a caller and no callee, step_pay_7
+          # the other way round, CheckoutPage neither and forty-one homes,
+          # `Log in` and `class CheckoutPage` are a scenario and a class with
+          # no call graph at all.
+          NAMES=(click_7 step_pay_7 CheckoutPage click_1 step_pay_1 click_3 \
+                 "Log in" "def step_pay_3" "class CheckoutPage" "a registered user")
+          i=0
+          for N in "${NAMES[@]}"; do
+            i=$((i + 1))
+            printf '%s' "$N" > /tmp/ctx/$i.name
+            where-are-we --out $M --defines "$N" > /tmp/ctx/$i.defines
+            where-are-we --out $M --ask "$N" > /tmp/ctx/$i.ask
+            where-are-we --out $M --callers "$N" > /tmp/ctx/$i.callers
+            where-are-we --out $M --callees "$N" > /tmp/ctx/$i.callees
+            where-are-we --out $M --impact "$N" --impact-depth 1 > /tmp/ctx/$i.impact
+            where-are-we --out $M --context "$N" > /tmp/ctx/$i.context
+          done
+          python - <<'EOF'
+          import json, pathlib
+          from where_are_we.ask import (CONTEXT_BUDGET, CONTEXT_HEADS,
+                                        CONTEXT_NAMES, _context_lines,
+                                        _context_need, ask, callees, callers,
+                                        context, impact, more, spans_for)
+          from where_are_we.eval import handles, ordered_rows
+
+          M = "/tmp/ctx/suite/out/framework_map.md"
+          J = "/tmp/ctx/suite/out/framework_map.json"
+          read = lambda n: pathlib.Path(f"/tmp/ctx/{n}").read_text()
+
+          def rows_of(text):
+              """Every row an answer holds, however that answer spells one.
+
+              `ordered_rows` is the eval harness's own parser: it takes the
+              `- ` rows and puts the directory grouping back. The second loop
+              takes the answers that are not made of `- ` rows at all --
+              `--defines`, `--callers`, `--impact` -- whose every line is a
+              row. Heads, tails and the first line are the answer talking
+              about itself, not content, and are not rows.
+              """
+              out = {r[2:] if r.startswith("- ") else r
+                     for r in ordered_rows(text)}
+              for line in text.splitlines():
+                  line = line.strip()
+                  if line and not line.startswith(("...", "…", "## ",
+                                                   "- ", "Context for `")):
+                      out.add(line)
+              return out
+
+          def five_flags(i):
+              """The rows the five flags printed, from their captured output."""
+              want = set()
+              for suffix in ("defines", "ask", "callers", "impact"):
+                  want |= rows_of(read(f"{i}.{suffix}"))
+              # `--callees` prints one line naming every callee; the block
+              # prints one row each, so a cut can take whole rows.
+              line = read(f"{i}.callees").strip()
+              want |= ({c.strip() for c in line.split(": ", 1)[1].split(", ")}
+                       if ": " in line else {line})
+              return want
+
+          def five_calls(name):
+              """The same five answers through the functions the flags call,
+              for the sweep below: 224 names x 5 subprocesses is not a CI
+              step, and these are the calls `cli.py` makes."""
+              want = set(spans_for(M, [name.lower()]))
+              want |= rows_of(ask(M, name))
+              want |= set(callers(J, name)) or {
+                  f"nothing in the map calls {name}"}
+              want |= set(callees(J, name)) or {
+                  f"{name} calls nothing in the map"}
+              want |= rows_of(impact(J, name, 1))
+              return want
+
+          def chased(answer, budget):
+              """Every row reachable from an answer, its handles included."""
+              got, pending = rows_of(answer), list(handles(answer))
+              seen = set(pending)
+              while pending:
+                  reply = more(M, pending.pop(0), budget)
+                  got |= rows_of(reply)
+                  for nxt in handles(reply):
+                      if nxt not in seen:
+                          seen.add(nxt)
+                          pending.append(nxt)
+              return got
+
+          def whole_fits(name):
+              """Whether the five answers together fit CONTEXT_BUDGET.
+
+              `_context_rooms` gives every block the smaller of its need and
+              its floor and then hands the rest on, so every block is printed
+              whole exactly when the needs together fit the room. That is the
+              line the superset is asserted on either side of, rather than a
+              list of names someone chose.
+              """
+              lines = {b: _context_lines(M, b, name, CONTEXT_BUDGET)
+                       for b in CONTEXT_NAMES}
+              head = context(M, name, CONTEXT_BUDGET).splitlines()[0]
+              room = CONTEXT_BUDGET - len(head) - 2 * len(CONTEXT_NAMES)
+              return sum(_context_need(CONTEXT_HEADS[b], lines[b])
+                         for b in CONTEXT_NAMES) <= room
+
+          # 1. The ten names, flag by flag: every row the five flags print is
+          # in the one answer, and the answer is inside the budget.
+          for i in range(1, 11):
+              name = read(f"{i}.name")
+              answer = read(f"{i}.context")
+              assert len(answer.rstrip("\n")) <= CONTEXT_BUDGET, (name, len(answer))
+              assert whole_fits(name), f"{name} does not fit; pick another"
+              missing = sorted(five_flags(i) - rows_of(answer))
+              assert not missing, (name, missing[:3])
+          print("10 names through the five flags: every row in one answer, "
+                "every answer inside 12000 characters")
+
+          # 2. Every declared name in the fixture, no exemptions: whole where
+          # the five answers fit the budget, and behind a handle where they
+          # do not.
+          names = sorted(json.load(open(J))["definitions"])
+          fit = cut = 0
+          for name in names:
+              answer = context(M, name, CONTEXT_BUDGET)
+              assert len(answer) <= CONTEXT_BUDGET, (name, len(answer))
+              want = five_calls(name)
+              if whole_fits(name):
+                  fit += 1
+                  missing = sorted(want - rows_of(answer))
+                  assert not missing, (name, missing[:3])
+              else:
+                  cut += 1
+                  # It has to be cut, or `whole_fits` is measuring nothing.
+                  assert want - rows_of(answer), name
+                  left = sorted(want - chased(answer, CONTEXT_BUDGET))
+                  assert not left, (name, left[:3])
+          assert fit and cut, (fit, cut)
+          print(f"{len(names)} declared names at 12000: {fit} answers hold "
+                f"every row of the five calls, {cut} are cut and every cut "
+                f"row is behind a handle")
+          EOF
+          # At 1500 characters every block that could not print itself ends
+          # in a tail carrying a handle, and following the handles returns
+          # every row the whole answer holds. The budget comes through the
+          # MCP tool's own `limit`, which is the only way to ask for one.
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context","arguments":{"name":"click_7","limit":1500}}}' \
+            | where-are-we --out $M --mcp > /tmp/ctx/small.jsonl
+          python - <<'EOF'
+          import json
+          from where_are_we.ask import CONTEXT_BLOCKS, context, more
+          from where_are_we.eval import handles, ordered_rows
+
+          M = "/tmp/ctx/suite/out/framework_map.md"
+          row = json.load(open("/tmp/ctx/small.jsonl"))
+          small = row["result"]["content"][0]["text"]
+          assert small == context(M, "click_7", 1500), "MCP limit is not the budget"
+          assert len(small) <= 1500, len(small)
+
+          def blocks_of(answer):
+              """`{head: lines}` for one answer. A block is `## Head`, its
+              lines, and a tail when it was cut."""
+              return {chunk.splitlines()[0]: chunk.splitlines()
+                      for chunk in answer.split("\n\n")[1:]}
+
+          # Every name in the fixture, not the one this step was written
+          # against: the map rows block ends in `ask()`'s own tail, which
+          # carries a `more:unmatched:` handle rather than a `more:ctx:` one,
+          # and the invariant is that a tail carries a handle.
+          import json as _json
+          names = sorted(_json.load(open(
+              "/tmp/ctx/suite/out/framework_map.json"))["definitions"])
+          cut = 0
+          for name in names:
+              answer = context(M, name, 1500)
+              assert len(answer) <= 1500, (name, len(answer))
+              for head, lines in blocks_of(answer).items():
+                  if not lines[-1].startswith("…"):
+                      continue
+                  cut += 1
+                  assert "(more:" in lines[-1], (name, lines[-1])
+          assert cut, "nothing was cut at 1500; the assertion proves nothing"
+          print(f"at 1500 characters, {len(names)} names: {cut} cut blocks, every "
+                "tail carries a handle")
+
+          whole = set(ordered_rows(context(M, "click_7", 10 ** 9)))
+          got, pending = set(ordered_rows(small)), list(handles(small))
+          seen = set(pending)
+          while pending:
+              reply = more(M, pending.pop(0), 1500)
+              got |= set(ordered_rows(reply))
+              for nxt in handles(reply):
+                  if nxt not in seen:
+                      seen.add(nxt)
+                      pending.append(nxt)
+          missing = sorted(whole - got)
+          assert not missing, missing[:3]
+          print(f"click_7 at 1500 characters: {len(whole)} rows, all of them "
+                "reachable by following the handles")
+          EOF
+          # The same measurement over a hundred names, by the harness that
+          # measures `ask`: no row a handle should have returned is lost.
+          wawe-eval --map $M --tool context --questions 100 \
+            --budgets 1500,12000 --json > /tmp/ctx/eval.json
+          python - <<'EOF'
+          import json
+          report = json.load(open("/tmp/ctx/eval.json"))
+          assert report["tool"] == "context", report["tool"]
+          by_budget = {row["budget"]: row for row in report["budgets"]}
+          for budget, row in by_budget.items():
+              assert row["recall_with_handles"] == 1.0, row
+          # The first answer alone, with no handle followed. It is not 1.0
+          # because the sample holds names whose five answers do not fit
+          # 12000 at all, which the sweep above counted; the number is stated
+          # rather than asserted at 1.0, and the floor guards a regression.
+          first = by_budget[12000]["first_answer_recall"]
+          assert first >= 0.95, first
+          print("wawe-eval --tool context: recall with handles",
+                [by_budget[b]["recall_with_handles"] for b in sorted(by_budget)],
+                "at budgets", sorted(by_budget),
+                f"; first answer alone at 12000: {first}")
+          EOF
+          # The same measurement from a root whose absolute path is 80
+          # characters longer. Every row of the declarations block carries
+          # that path, so the first answer holds fewer rows at the same
+          # ceiling and `first_answer_recall` falls; recall with handles does
+          # not, because a handle fetches what the length pushed out. That is
+          # why the floor above is a floor and this is the equality: the
+          # invariant is the one that does not move with where the tree sits.
+          LONG=/tmp/ctx-a-deliberately-long-root-so-that-every-row-is-longer/x
+          rm -rf /tmp/ctx-a-deliberately-long-root-so-that-every-row-is-longer
+          python - <<EOF
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("$LONG")
+          EOF
+          wawe-eval --map $LONG/suite/out --tool context --questions 100 \
+            --budgets 1500,12000 --json > /tmp/ctx/eval-long.json
+          python - <<'EOF'
+          import json
+          short = {r["budget"]: r for r in
+                   json.load(open("/tmp/ctx/eval.json"))["budgets"]}
+          long_ = {r["budget"]: r for r in
+                   json.load(open("/tmp/ctx/eval-long.json"))["budgets"]}
+          for budget, row in long_.items():
+              assert row["recall_with_handles"] == 1.0, row
+              assert short[budget]["recall_with_handles"] == 1.0, short[budget]
+          assert long_[12000]["first_answer_recall"] >= 0.95, long_[12000]
+          print("path length moves the first answer and not the contract: "
+                "first answer at 12000",
+                short[12000]["first_answer_recall"], "at the short root and",
+                long_[12000]["first_answer_recall"], "at the long one; "
+                "recall with handles 1.0 at both, at both budgets")
+          EOF
+          # A map built before this release has no `spans` key, and `context`
+          # answers its declarations out of `definitions` instead. Those rows
+          # are bullets already, and prefixing them a second time printed
+          # `- - ` at the top of the first answer anyone sees in the window
+          # between installing 1.5.0 and the first `--force`.
+          rm -rf /tmp/ctx/old && cp -r $M /tmp/ctx/old
+          python - <<'EOF'
+          import json
+          path = "/tmp/ctx/old/framework_map.json"
+          m = json.load(open(path))
+          del m["spans"]
+          json.dump(m, open(path, "w"))
+          EOF
+          where-are-we --out /tmp/ctx/old --context click_7 > /tmp/ctx/old.txt
+          head -4 /tmp/ctx/old.txt
+          if grep -q "^- - " /tmp/ctx/old.txt; then
+            echo "context on a pre-1.5.0 map printed a doubled bullet"; exit 1
+          fi
+          grep -q "^## Declared in$" /tmp/ctx/old.txt
+          echo "context on a map with no spans key: one bullet per row"
+          # Every tool the server declares, and the flag and the tool as one
+          # answer.
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"context","arguments":{"name":"click_7"}}}' \
+            | where-are-we --out $M --mcp > /tmp/ctx/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/ctx/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more", "rank",
+                           "sections"], names
+          print("tools/list:", len(names), names)
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/ctx/click_7.context").read_text()
+          assert mcp == cli.rstrip("\n"), "MCP context and --context disagree"
+          print("MCP context and --context agree, byte for byte")
+          EOF
+          grep -q '"tool": "context"' $M/.wawe-ask.log
+          # Twice over the same map is the same answer.
+          where-are-we --out $M --context CheckoutPage > /tmp/ctx/again.txt
+          diff -u /tmp/ctx/3.context /tmp/ctx/again.txt
+      - name: rank puts the file everything calls above the file nothing calls
+        run: |
+          set -o pipefail
+          rm -rf /tmp/rank /tmp/rankout /tmp/rankmap /tmp/rankmap2
+          mkdir -p /tmp/rank /tmp/rankout
+          python - <<'EOF'
+          import pathlib
+          r = pathlib.Path("/tmp/rank")
+          (r / "billing").mkdir(parents=True, exist_ok=True)
+          (r / "many").mkdir(exist_ok=True)
+          (r / "one").mkdir(exist_ok=True)
+          # The file everything calls, and the file nothing calls.
+          (r / "core.py").write_text("def charge(amount):\n    return amount\n")
+          (r / "orphan.py").write_text("def unused(amount):\n    return amount\n")
+          # Ten callers of charge, one of them the file the ranking is personalised on
+          # and one of them under the directory --files scopes to.
+          for i in range(1, 9):
+              (r / f"caller{i}.py").write_text(
+                  f"from core import charge\n\n\ndef use{i}(amount):\n    return charge(amount)\n")
+          (r / "billing.py").write_text(
+              "from core import charge\n\n\ndef bill(amount):\n    return charge(amount)\n")
+          (r / "billing" / "refund.py").write_text(
+              "from core import charge\n\n\ndef refund(amount):\n    return charge(amount)\n")
+          # One name declared in six files, one declared in one, used the same way by
+          # the same file: the x0.1 for a name more than five files declare, on its own.
+          for i in range(1, 7):
+              (r / "many" / f"m{i}.py").write_text("def spread_helper_name(amount):\n    return amount\n")
+          (r / "one" / "o1.py").write_text("def single_helper_name(amount):\n    return amount\n")
+          (r / "user.py").write_text(
+              "from many.m1 import spread_helper_name\n"
+              "from one.o1 import single_helper_name\n\n\n"
+              "def both(amount):\n"
+              "    return spread_helper_name(amount) + single_helper_name(amount)\n")
+          EOF
+          where-are-we --repo /tmp/rank --out /tmp/rankmap --product none --quiet --no-semantic
+          # 1. The file everything calls is above the file nothing calls.
+          where-are-we --out /tmp/rankmap --rank billing.py | tee /tmp/rankout/personal.txt
+          python - <<'EOF'
+          import pathlib
+          rows = [l.split() for l in pathlib.Path("/tmp/rankout/personal.txt").read_text().splitlines()]
+          names = [name for _score, name, _where in rows]
+          assert names.index("charge") < names.index("unused"), names
+          by = {name: float(score) for score, name, _w in rows}
+          assert by["charge"] > 0 and by["unused"] == 0, by
+          # 3. The same name declared six times ranks under the one declared once.
+          assert names.index("single_helper_name") < names.index("spread_helper_name"), names
+          assert abs(by["single_helper_name"] - by["spread_helper_name"] * 10) < 1e-8, by
+          print("rank: charge over unused, one declarer over six")
+          EOF
+          # 2. With no files, --rank is the ranking the build stored.
+          where-are-we --out /tmp/rankmap --rank > /tmp/rankout/global.txt
+          python - <<'EOF'
+          import json, pathlib
+          m = json.load(open("/tmp/rankmap/framework_map.json"))
+          stored = "\n".join(f"{r['score']:.9f} {r['name']} {r['file']}:{r['line']}"
+                             for r in m["rank"])
+          got = pathlib.Path("/tmp/rankout/global.txt").read_text().rstrip("\n")
+          assert got == stored, (got[:400], stored[:400])
+          print(f"--rank with no files is the stored key, {len(m['rank'])} rows")
+          EOF
+          # 4 and 5. Two runs, two builds and both Pythons of the matrix agree: the
+          # order is written out here, so each job compares against the same bytes
+          # rather than against itself.
+          where-are-we --out /tmp/rankmap --rank > /tmp/rankout/again.txt
+          diff -u /tmp/rankout/global.txt /tmp/rankout/again.txt
+          where-are-we --repo /tmp/rank --out /tmp/rankmap2 --product none --quiet --no-semantic
+          where-are-we --out /tmp/rankmap2 --rank > /tmp/rankout/rebuilt.txt
+          diff -u /tmp/rankout/global.txt /tmp/rankout/rebuilt.txt
+          sed 's#^[0-9.]* ##; s#:[0-9]*$##; s#/tmp/rank/##' /tmp/rankout/global.txt > /tmp/rankout/order.txt
+          cat > /tmp/rankout/order-want.txt <<'EOF'
+          charge core.py
+          single_helper_name one/o1.py
+          spread_helper_name many/m1.py
+          spread_helper_name many/m2.py
+          spread_helper_name many/m3.py
+          spread_helper_name many/m4.py
+          spread_helper_name many/m5.py
+          spread_helper_name many/m6.py
+          bill billing.py
+          refund billing/refund.py
+          use1 caller1.py
+          use2 caller2.py
+          use3 caller3.py
+          use4 caller4.py
+          use5 caller5.py
+          use6 caller6.py
+          use7 caller7.py
+          use8 caller8.py
+          unused orphan.py
+          both user.py
+          EOF
+          diff -u /tmp/rankout/order-want.txt /tmp/rankout/order.txt
+          # 6. --files puts the rows about those files first, and leaves the rest.
+          where-are-we --out /tmp/rankmap --ask charge > /tmp/rankout/ask.txt
+          where-are-we --out /tmp/rankmap --ask charge --files billing/ > /tmp/rankout/ask-billing.txt
+          printf 'billing/\n' | where-are-we --out /tmp/rankmap --ask charge --files - > /tmp/rankout/ask-stdin.txt
+          diff -u /tmp/rankout/ask-billing.txt /tmp/rankout/ask-stdin.txt
+          python - <<'EOF'
+          import pathlib
+
+          def section(path, head):
+              rows, inside = [], False
+              for line in pathlib.Path(path).read_text().splitlines():
+                  if line.startswith("## "):
+                      inside = line.strip() == head
+                      continue
+                  if inside and line.startswith("- "):
+                      rows.append(line)
+              return rows
+
+          head = "## Who calls whom, across files"
+          plain = section("/tmp/rankout/ask.txt", head)
+          scoped = section("/tmp/rankout/ask-billing.txt", head)
+          assert plain and scoped, (plain, scoped)
+          assert sorted(plain) == sorted(scoped), "--files changed which rows the section has"
+          assert "refund.py:refund" in scoped[0], scoped[0]
+          assert "refund.py:refund" not in plain[0], plain[0]
+          print("--files billing/ puts the billing row first and keeps the rest")
+          EOF
+          grep -q 'more:unmatched:who-calls-whom' /tmp/rankout/ask-billing.txt
+          # 6b. And the handle a scoped answer prints reaches every row the section
+          # holds. The offset counts rows in the order the scoped answer printed, so
+          # the scope rides in the handle as a fifth field and `more()` reorders the
+          # section before it slices. Without that, a row `--files` pushed past the cut
+          # is unreachable through the handle that promised it, silently: the counts in
+          # the tail are still right.
+          where-are-we --out /tmp/rankmap --ask charge --files billing/ --limit 200 > /dev/null 2>&1 || true
+          python - <<'EOF'
+          import re
+          from where_are_we import mapper
+
+          HANDLE = re.compile(r"\(?(more:[a-z]+:[^)\s]+)\)?")
+          CHASE = ("rows", "unmatched", "defs", "sections")
+
+
+          def section_rows(text, head):
+              rows, inside = [], False
+              for line in text.splitlines():
+                  if line.startswith("## "):
+                      inside = line.strip() == head
+                      continue
+                  if inside and line.startswith("- "):
+                      rows.append(line)
+              return set(rows)
+
+
+          def reachable(m, words, budget, files, head):
+              kw = {} if files is None else {"files": files}
+              answer = mapper.ask(m, words, budget, **kw)
+              assert len(answer) <= budget, (budget, len(answer))
+              got, seen, queue = section_rows(answer, head), set(), HANDLE.findall(answer)
+              while queue:
+                  handle = queue.pop(0)
+                  if handle in seen or handle.split(":")[1] not in CHASE:
+                      continue
+                  seen.add(handle)
+                  out = mapper.more(m, handle, budget)
+                  assert not out.startswith("no such handle"), (handle, out)
+                  got |= section_rows(out, head)
+                  queue += [n for n in HANDLE.findall(out) if n not in seen]
+              return answer, got
+
+
+          m = "/tmp/rankmap/framework_map.md"
+          head = "## Who calls whom, across files"
+          whole = section_rows(mapper.ask(m, "charge", 10 ** 9), head)
+          assert len(whole) == 10, whole
+          for budget in (400, 500, 600, 900):
+              for files in (None, ["billing/"], ["caller3.py"], ["billing/", "caller7.py"]):
+                  answer, got = reachable(m, "charge", budget, files, head)
+                  missing = whole - got
+                  assert not missing, (budget, files, sorted(missing))
+                  # The scope is in every handle of a scoped answer and in none of an
+                  # unscoped one, which is what keeps the 156 golden answers byte for
+                  # byte what they were.
+                  for handle in HANDLE.findall(answer):
+                      kind, fields = handle.split(":")[1], handle.split(":")[2:]
+                      if kind not in CHASE:
+                          continue
+                      width = 3 if kind in ("rows", "unmatched") else 2
+                      assert len(fields) == width + (1 if files else 0), (handle, files)
+          print("every row of a scoped answer is reachable through its own handles, "
+                "4 budgets x 4 scopes")
+          EOF
+          # The same, on the golden suite fixture, which is the map the recall harness
+          # in `the more tool returns what an answer left out` uses.
+          rm -rf /tmp/rankgold
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/rankgold')
+          "
+          python - <<'EOF'
+          import re
+          from where_are_we import mapper
+
+          HANDLE = re.compile(r"\(?(more:[a-z]+:[^)\s]+)\)?")
+          CHASE = ("rows", "unmatched", "defs", "sections")
+          rows_of = lambda s: {l for l in s.splitlines() if l.startswith("- ")}
+          m = "/tmp/rankgold/suite/out/framework_map.md"
+          for words in ("invoice checkout", "click pay", "page object"):
+              whole = rows_of(mapper.ask(m, words, 10 ** 9))
+              for files in (None, ["steps/"], ["pages/"], ["steps/", "features/"]):
+                  kw = {} if files is None else {"files": files}
+                  for budget in (1500, 4000, 12000):
+                      answer = mapper.ask(m, words, budget, **kw)
+                      assert len(answer) <= budget, (budget, len(answer))
+                      got, seen, queue = rows_of(answer), set(), HANDLE.findall(answer)
+                      while queue:
+                          handle = queue.pop(0)
+                          if handle in seen or handle.split(":")[1] not in CHASE:
+                              continue
+                          seen.add(handle)
+                          out = mapper.more(m, handle, budget)
+                          if out.startswith("no such handle"):
+                              raise SystemExit(f"stale handle {handle!r}: {out}")
+                          got |= rows_of(out)
+                          queue += [n for n in HANDLE.findall(out) if n not in seen]
+                      missing = whole - got
+                      assert not missing, (words, files, budget, sorted(missing)[:3])
+          print("golden suite: 3 questions x 4 scopes x 3 budgets, every row the "
+                "unscoped answer holds is reachable from a scoped answer's handles")
+          EOF
+          # 7. The tool and the flag are the same answer, and the server declares it.
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rank","arguments":{"files":["billing.py"]}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"rank","arguments":{"limit":0}}}' \
+            | where-are-we --out /tmp/rankmap --mcp > /tmp/rankout/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/rankout/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          print("tools/list:", len(names), names)
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more", "rank",
+                           "sections"], names
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/rankout/personal.txt").read_text()
+          assert mcp == cli.rstrip("\n"), (mcp, cli)
+          assert rows[2]["error"]["code"] == -32602, rows[2]
+          assert rows[2]["error"]["message"] == "limit must be a positive integer", rows[2]
+          print("MCP rank and --rank agree, byte for byte")
+          EOF
+          grep -q '"tool": "rank"' /tmp/rankmap/.wawe-ask.log
+          # 8. A limit is a ceiling. The flag refuses what the tool refuses, rather
+          # than slicing the list from the end.
+          if where-are-we --out /tmp/rankmap --rank --limit -3 > /dev/null 2>&1; then
+            echo "--limit -3 was accepted"; exit 1
+          fi
+          if where-are-we --out /tmp/rankmap --rank --limit 0 > /dev/null 2>&1; then
+            echo "--limit 0 was accepted"; exit 1
+          fi
+          where-are-we --out /tmp/rankmap --rank --limit 3 | wc -l | grep -qx ' *3'
+          # 9. --files reads as "the files I am working in" on --rank too, and a path
+          # nothing indexed matches is said out loud instead of answered as the global
+          # order. A prefix stops at a separator: `bill` is not `billing.py`.
+          where-are-we --out /tmp/rankmap --rank --files billing/ --limit 2 > /tmp/rankout/via-files.txt
+          where-are-we --out /tmp/rankmap --rank billing/ --limit 2 > /tmp/rankout/via-rank.txt
+          diff -u /tmp/rankout/via-rank.txt /tmp/rankout/via-files.txt
+          where-are-we --out /tmp/rankmap --rank nosuch.py --limit 2 \
+            2> /tmp/rankout/warn.txt > /tmp/rankout/typo.txt
+          grep -qx "nothing indexed under 'nosuch.py'" /tmp/rankout/warn.txt
+          diff -u <(head -2 /tmp/rankout/global.txt) /tmp/rankout/typo.txt
+          where-are-we --out /tmp/rankmap --rank bill --limit 2 2>&1 >/dev/null \
+            | grep -qx "nothing indexed under 'bill'"
+          # 10. --rank and --files are reads: naming them builds nothing.
+          where-are-we --effects -- --rank billing.py | head -1 | grep -qx 'read'
+          where-are-we --effects -- --ask charge --files billing/ | head -1 | grep -qx 'read'
+          where-are-we --effects --json | diff -u src/where_are_we/effects.json -
+      - name: --ctags writes a sorted, correct tags file
+        run: |
+          set -o pipefail
+          rm -rf /tmp/ct
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/ct")
+          EOF
+          # Every row is a declaration site the map holds, with the same
+          # file, line, kind and end line; every site the map holds has a
+          # row unless its name or its path cannot go in the format at all;
+          # the rows are in the byte order the header promises; and every row
+          # whose name is an identifier points at a line of that file that
+          # holds the name.
+          #
+          # Identifier kinds only, for that last one. A `kind:step` row's name
+          # is a Gherkin phrase and its line is the `def` of the function the
+          # decorator above it wraps, and a `kind:scenario` or `kind:feature`
+          # row's name is a sentence from a `.feature` file that the map
+          # already stripped its keyword off. Both jump where an editor should
+          # jump; neither has its own name spelled on the line it points at. A
+          # dotted `Class.method` name is checked by its last component, which
+          # is what the `def` line actually says.
+          cat > /tmp/ct/check.py <<'EOF'
+          import json, os, sys
+          out, repo = os.environ["OUT"], os.environ["REPO"]
+          IDENTIFIER = {"function", "class", "constant", "type", "interface",
+                        "method", "variable", "module"}
+          m = json.load(open(os.path.join(out, "framework_map.json")))
+          rows = [l.rstrip("\n") for l in open(os.path.join(out, "tags"))
+                  if not l.startswith("!_TAG_")]
+          # A ctags row names its file relative to the directory the tags file
+          # is in, which is what vim's `tagrelative`, emacs and helix resolve
+          # from, so that is what the expected set is built against and what
+          # every row below is opened through.
+          def rel(p):
+              return os.path.relpath(p, out) if os.path.isabs(p) else p
+          want = set()
+          for name, sites in m["spans"].items():
+              if not name or name[0] <= "!" or set(name) & {"\t", "\n", "\r"}:
+                  continue
+              for s in sites:
+                  path, kind = rel(s["file"]), s["kind"] or "unknown"
+                  if set(path + kind) & {"\t", "\n", "\r"}:
+                      continue
+                  row = f'{name}\t{path}\t{s["start"]};"\tkind:{kind}\tline:{s["start"]}'
+                  if isinstance(s["end"], int):
+                      row += f'\tend:{s["end"]}'
+                  want.add(row)
+          missing = sorted(want - set(rows))
+          extra = sorted(set(rows) - want)
+          unsorted = rows != sorted(rows, key=str.encode)
+          # `sed -n '<line>p' <file>` on every identifier row, in one pass.
+          offline, checked = [], 0
+          for row in rows:
+              f = row.split("\t")
+              kind = next(x[5:] for x in f if x.startswith("kind:"))
+              if kind not in IDENTIFIER:
+                  continue
+              checked += 1
+              line = int(f[2].rstrip(';"'))
+              try:
+                  with open(os.path.join(out, f[1]), encoding="utf-8",
+                            errors="replace") as fh:
+                      src = fh.read().splitlines()
+              except OSError as exc:
+                  offline.append((f[0], f[1], str(exc)))
+                  continue
+              if line > len(src):
+                  offline.append((f[0], f[1], f"line {line} past the end"))
+              elif f[0].rsplit(".", 1)[-1] not in src[line - 1]:
+                  offline.append((f[0], f[1], line, src[line - 1][:60]))
+          print(f"{out}: {len(rows)} rows in tags, {len(want)} sites in spans, "
+                f"missing: {missing[:5]}, not in the map: {extra[:5]}, "
+                f"out of byte order: {unsorted}; {checked} identifier rows "
+                f"checked against their line, off: {offline[:3]}")
+          sys.exit(1 if (missing or extra or unsorted or offline) else 0)
+          EOF
+          R=/tmp/ct/code/repo
+          where-are-we --repo $R --out /tmp/ct/one --product none --ctags \
+            --force --quiet --no-semantic
+          head -5 /tmp/ct/one/tags
+          # The three pseudo tags the format is read by. Each is a row like
+          # any other and each sorts above every name, which is what the
+          # sorted flag promises a reader doing a binary search.
+          grep -qxF "$(printf '!_TAG_FILE_FORMAT\t2\t/extended format/')" /tmp/ct/one/tags
+          grep -qxF "$(printf '!_TAG_FILE_SORTED\t1\t/0=unsorted, 1=sorted, 2=foldcase/')" /tmp/ct/one/tags
+          grep -qxF "$(printf '!_TAG_PROGRAM_NAME\twhere-are-we\t//')" /tmp/ct/one/tags
+          # The format's own requirement, in the locale the format means.
+          LC_ALL=C sort -c /tmp/ct/one/tags
+          OUT=/tmp/ct/one REPO=$R python /tmp/ct/check.py
+          # And the same property once through `sed`, on a named symbol, so
+          # the shape of the check is readable without the loop above.
+          ROW=$(awk -F'\t' '$1 == "charge" { print; exit }' /tmp/ct/one/tags)
+          echo "$ROW"
+          FILE=$(printf '%s\n' "$ROW" | cut -f2)
+          LINE=$(printf '%s\n' "$ROW" | cut -f3 | tr -d ';"')
+          # Opened from the directory the tags file is in, which is the only
+          # place a ctags reader looks.
+          sed -n "${LINE}p" "/tmp/ct/one/$FILE" | grep -q "charge"
+          printf '%s\n' "$ROW" | grep -q "kind:function"
+          # The two layouts the documentation names, each with the exact row it
+          # writes: `--out .` from the repository root, which is what the
+          # README's own example does, and `--out .wawe`, which is what the
+          # plugin writes. Both resolve from where the file lives; before this
+          # the second wrote `src/b.py` into `.wawe/`, where nothing opens.
+          rm -rf /tmp/ct/lay && mkdir -p /tmp/ct/lay/src
+          printf 'def charge(x):\n    return x\n' > /tmp/ct/lay/src/b.py
+          (cd /tmp/ct/lay && where-are-we --repo . --out . --product none \
+             --force --quiet --no-semantic --ctags)
+          grep -qxF "$(printf 'charge\tsrc/b.py\t1;"\tkind:function\tline:1\tend:2')" \
+            /tmp/ct/lay/tags
+          test -f /tmp/ct/lay/src/b.py
+          where-are-we --repo /tmp/ct/lay --out /tmp/ct/lay/.wawe --product none \
+            --force --quiet --no-semantic --ctags
+          grep -qxF "$(printf 'charge\t../src/b.py\t1;"\tkind:function\tline:1\tend:2')" \
+            /tmp/ct/lay/.wawe/tags
+          test -f /tmp/ct/lay/.wawe/../src/b.py
+          # And in general: every row of both files opens from beside it.
+          python - <<'EOF'
+          import os, sys
+          for out in ("/tmp/ct/lay", "/tmp/ct/lay/.wawe"):
+              rows = [l.rstrip("\n").split("\t")
+                      for l in open(os.path.join(out, "tags"))
+                      if not l.startswith("!_TAG_")]
+              bad = [r for r in rows
+                     if not os.path.exists(os.path.join(out, r[1]))]
+              assert not bad, (out, bad[:3])
+              print(out, len(rows), "rows, every one opens from beside the file")
+          EOF
+          # The suite fixture too, where most names are scenario titles and
+          # step phrases with spaces in them rather than identifiers: the
+          # same order holds and the same cross-check passes over 200 rows.
+          S=/tmp/ct/suite/repo
+          where-are-we --repo $S --out /tmp/ct/suite-tags --product none \
+            --ctags --force --quiet --no-semantic
+          LC_ALL=C sort -c /tmp/ct/suite-tags/tags
+          OUT=/tmp/ct/suite-tags REPO=$S python /tmp/ct/check.py
+          test "$(grep -c . /tmp/ct/suite-tags/tags)" -gt 200
+          # `--out` here is outside the fixture, so the row reaches the file
+          # from where the tags file lives, which is the rule and not an
+          # exception to it.
+          grep -qF "$(printf 'Log in\t../suite/repo/features/login.feature\t1;\"\tkind:feature')" \
+            /tmp/ct/suite-tags/tags
+          # Two builds of one tree, byte for byte.
+          where-are-we --repo $R --out /tmp/ct/two --product none --ctags \
+            --force --quiet --no-semantic
+          cmp /tmp/ct/one/tags /tmp/ct/two/tags
+          # The preview names it before the build writes it.
+          where-are-we --repo $R --out /tmp/ct/preview --ctags --dry-run \
+            > /tmp/ct/dry.txt
+          cat /tmp/ct/dry.txt
+          grep -qx "would write /tmp/ct/preview/tags" /tmp/ct/dry.txt
+          if test -e /tmp/ct/preview; then
+            echo "a preview of --ctags wrote its output directory"; exit 1
+          fi
+          # And a build without the flag writes no tags file at all.
+          where-are-we --repo $R --out /tmp/ct/plain --product none --force \
+            --quiet --no-semantic
+          if test -e /tmp/ct/plain/tags; then
+            echo "a build without --ctags wrote a tags file"; exit 1
+          fi
+          # readtags is the reader the format exists for. It is checked when
+          # the runner has it or can install it; when the package cannot be
+          # installed (no network, a runner without apt) the step says so and
+          # carries on, because every assertion above is the format's own
+          # requirement rather than a stand-in for a reader.
+          if command -v readtags > /dev/null 2>&1 \
+             || { sudo apt-get update -qq && sudo apt-get install -y universal-ctags; }; then
+            readtags -t /tmp/ct/lay/tags charge | tee /tmp/ct/readtags.txt
+            test "$(cut -f1 /tmp/ct/readtags.txt | head -1)" = "charge"
+            test "$(cut -f2 /tmp/ct/readtags.txt | head -1)" = "src/b.py"
+          else
+            echo "universal-ctags is not installable on this runner: readtags was not run"
+          fi
+      - name: the map says what each of its sections costs
+        run: |
+          set -o pipefail
+          rm -rf /tmp/cost
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/cost")
+          EOF
+          M=/tmp/cost/suite/out
+          # The whole check, over the two files on disk rather than over
+          # anything the tool assembled from them. It splits `framework_map.md`
+          # and the brief independently, asserts that each file's header plus
+          # every section in it is exactly what `wc -c` says that file is, and
+          # then asserts the report's per-section bytes and rows against that
+          # split, section by section. Written to a file because it is run
+          # three times: once on the real output, which must pass, and once on
+          # each of two mutants, which must fail.
+          cat > /tmp/cost/verify.py <<'EOF'
+          import json, os, sys
+          out, prefix = sys.argv[1], sys.argv[2]
+          d = json.load(open(prefix + ".json"))
+          bad = []
+
+          def split(path):
+              """(size, header_bytes, [(heading, bytes, rows)]) for one file."""
+              with open(path, encoding="utf-8", newline="") as fh:
+                  text = fh.read()
+              header, rows, cur = 0, [], None
+              for line in text.splitlines(keepends=True):
+                  n = len(line.encode("utf-8"))
+                  if line.startswith("## "):
+                      cur = [line.strip(), n, 0]
+                      rows.append(cur)
+                  elif cur is None:
+                      header += n
+                  else:
+                      cur[1] += n
+                      cur[2] += 1 if (line.strip() and not line.startswith("**")) else 0
+              return len(text.encode("utf-8")), header, rows
+
+          map_md = os.path.join(out, "framework_map.md")
+          brief_md = os.path.join(out, "framework_map_brief.md")
+          want_files, want = [], []
+          for path in (map_md, brief_md):
+              size, header, rows = split(path)
+              on_disk = os.path.getsize(path)
+              if size != on_disk:
+                  bad.append(f"{path}: read {size} bytes, wc -c says {on_disk}")
+              if header + sum(r[1] for r in rows) != on_disk:
+                  bad.append(f"{path}: {header} header + "
+                             f"{sum(r[1] for r in rows)} sections != {on_disk}")
+              want_files.append({"file": path, "bytes": on_disk,
+                                 "header_bytes": header,
+                                 "section_bytes": sum(r[1] for r in rows),
+                                 "sections": len(rows)})
+              # The map's sections all count; the brief's count only where
+              # the map has no section of that heading, which is the rule
+              # every read composes the two files by.
+              seen = {h for h, _n, _r in want}
+              want += [r for r in rows if path == map_md or r[0] not in seen]
+
+          got_files = [{k: v for k, v in e.items() if k != "counted"}
+                       for e in d["measured"]]
+          if got_files != want_files:
+              bad.append(f"measured files differ:\n  got  {got_files}\n  want {want_files}")
+          got = {r["section"]: (r["bytes"], r["rows"]) for r in d["sections"]}
+          exp = {h: (n, rows) for h, n, rows in want}
+          if d["threshold"] == 0 and got != exp:
+              off = sorted(h for h in set(got) | set(exp) if got.get(h) != exp.get(h))
+              bad.append(f"{len(off)} sections priced differently: "
+                         + str([(h, got.get(h), exp.get(h)) for h in off[:4]]))
+          if d["total"]["bytes"] != sum(n for _h, n, _r in want):
+              bad.append(f'total {d["total"]["bytes"]} against an independent '
+                         f'{sum(n for _h, n, _r in want)}')
+          if d["total"]["sections"] != len(want):
+              bad.append(f'{d["total"]["sections"]} sections against {len(want)}')
+          # The map's own sections are in the report. A measurement that
+          # dropped `framework_map.md` would still be internally consistent.
+          map_heads_only = [h for h, _n, _r in split(map_md)[2]]
+          missing = [h for h in map_heads_only if h not in got]
+          if missing:
+              bad.append(f"framework_map.md sections missing from the report: {missing}")
+          # The section list the export prints, and the one --sections prints,
+          # are the same list in the same order.
+          sections = [l.rstrip("\n") for l in open(prefix + ".sections")]
+          parsed, seen = [], False
+          for line in open(prefix + ".export"):
+              line = line.rstrip("\n")
+              if line == "**Sections**":
+                  seen = True
+              elif seen and line.startswith("- `## "):
+                  parsed.append(line[3:line.index("` - ")])
+              elif seen and line.startswith("- total:"):
+                  break
+          if parsed != sections:
+              bad.append(f"the export prices {len(parsed)} sections and "
+                         f"--sections prints {len(sections)}")
+          if parsed != [h for h, _n, _r in want]:
+              bad.append("the export's order is not the order of the files")
+          print(f'{d["total"]["sections"]} sections, {d["total"]["bytes"]} bytes '
+                f'over {len(d["measured"])} files, '
+                f'{d["total"]["tokens"]} tokens {d["tokens"]["label"]}, '
+                f'{d["total"]["rows"]} rows')
+          print("\n".join(bad) or "every section is priced as its own file has it")
+          sys.exit(1 if bad else 0)
+          EOF
+          where-are-we --out $M --cost --json > /tmp/cost/all.json
+          where-are-we --out $M --sections > /tmp/cost/all.sections
+          where-are-we --out $M --export /tmp/cost/all.export
+          where-are-we --out $M --cost > /tmp/cost/all.txt
+          where-are-we --out $M --cost 500 > /tmp/cost/big.txt
+          cat /tmp/cost/all.txt
+          python /tmp/cost/verify.py $M /tmp/cost/all
+          # Two mutants, each of which the check must catch. Without them the
+          # arithmetic above is a partition identity over whatever the tool
+          # produced, and a measurement that forgot `framework_map.md`
+          # entirely would pass it.
+          for DROP in costs text; do
+            rm -rf /tmp/cost/mutant-$DROP
+            mkdir -p /tmp/cost/mutant-$DROP
+            cp -r src/where_are_we /tmp/cost/mutant-$DROP/where_are_we
+            DROP=$DROP python - <<'EOF'
+          import os, pathlib
+          root = pathlib.Path("/tmp/cost/mutant-" + os.environ["DROP"])
+          if os.environ["DROP"] == "costs":
+              # the report stops measuring framework_map.md
+              p = root / "where_are_we" / "_mapper" / "render.py"
+              old = ('    files = [_file_costs(map_path)]\n'
+                     '    counted = list(files[0]["sections"])\n'
+                     '    have = {row["section"] for row in counted}\n')
+              new = '    files, counted, have = [], [], set()\n'
+          else:
+              # the text every read composes stops including the map
+              p = root / "where_are_we" / "ask.py"
+              old = ('    with open(map_path, encoding="utf-8") as fh:\n'
+                     '        text = fh.read()\n')
+              new = ('    with open(map_path, encoding="utf-8") as fh:\n'
+                     '        fh.read()\n    text = ""\n')
+          t = p.read_text()
+          assert old in t, "the mutant no longer patches anything"
+          p.write_text(t.replace(old, new, 1))
+          EOF
+            MUT=/tmp/cost/mutant-$DROP/where_are_we/mapper.py
+            python $MUT --out $M --cost --json > /tmp/cost/m$DROP.json || true
+            python $MUT --out $M --sections > /tmp/cost/m$DROP.sections || true
+            python $MUT --out $M --export /tmp/cost/m$DROP.export || true
+            if python /tmp/cost/verify.py $M /tmp/cost/m$DROP; then
+              echo "the check passed on a build that dropped the map from $DROP"
+              exit 1
+            fi
+          done
+          # The text table says the same thing, and says which it is.
+          grep -q "tokens are an estimate: bytes / 4" /tmp/cost/all.txt
+          grep -q "^total: .* tokens (estimate), " /tmp/cost/all.txt
+          # Every file it read, with the arithmetic wc -c can check.
+          python - <<'EOF'
+          import os, re, sys
+          M = "/tmp/cost/suite/out"
+          bad = []
+          seen = 0
+          for line in open("/tmp/cost/all.txt"):
+              m = re.match(r"^measured: (\S+) is (\d+) bytes, (\d+) of header "
+                           r"and (\d+) in (\d+) sections?", line.rstrip("\n"))
+              if not m:
+                  continue
+              seen += 1
+              path, size, header, secs, n = m.group(1), *map(int, m.groups()[1:])
+              if size != os.path.getsize(path):
+                  bad.append(f"{path}: says {size}, wc -c says {os.path.getsize(path)}")
+              if header + secs != size:
+                  bad.append(f"{path}: {header} + {secs} != {size}")
+          if seen != 2:
+              bad.append(f"{seen} measured lines, expected 2")
+          print(f"{seen} files measured; " + ("\n".join(bad) or "each adds up to its own size"))
+          sys.exit(1 if bad else 0)
+          EOF
+          # A threshold hides the small sections and says how many.
+          ALL=$(grep -c '  ## ' /tmp/cost/all.txt)
+          BIG=$(grep -c '  ## ' /tmp/cost/big.txt)
+          echo "$ALL rows at --cost 0, $BIG rows at --cost 500"
+          test "$BIG" -lt "$ALL"
+          grep -q "under 500 bytes not shown" /tmp/cost/big.txt
+          # A map with no brief beside it does not promise one.
+          rm -rf /tmp/cost/lonely && mkdir -p /tmp/cost/lonely
+          cp $M/framework_map.md /tmp/cost/lonely/
+          where-are-we --out /tmp/cost/lonely --cost | head -1 \
+            | tee /tmp/cost/lonely.txt
+          if grep -q "brief" /tmp/cost/lonely.txt; then
+            echo "--cost named a brief that is not there"; exit 1
+          fi
+          # The export stands on its own: the notice, the counts, the section
+          # list with what each costs, then the brief.
+          head -20 /tmp/cost/all.export
+          grep -qx "# where-are-we export" /tmp/cost/all.export
+          grep -q '`where-are-we-export/1`' /tmp/cost/all.export
+          grep -qxF "**Incomplete**" /tmp/cost/all.export
+          grep -qxF "**Indexed**" /tmp/cost/all.export
+          grep -qxF "**Sections**" /tmp/cost/all.export
+          grep -qE "^- suite: [0-9]+ files$" /tmp/cost/all.export
+          grep -qxF "# Framework map (brief)" /tmp/cost/all.export
+          # `-` is stdout, and it is byte for byte the file.
+          where-are-we --out $M --export - > /tmp/cost/stdout.export
+          diff -u /tmp/cost/all.export /tmp/cost/stdout.export
+          if test -e ./-; then
+            echo "--export - wrote a file called -"; exit 1
+          fi
+          # An empty path is refused rather than falling through to a build.
+          if where-are-we --out $M --export "" > /tmp/cost/empty.txt 2>&1; then
+            echo "--export '' was accepted"; exit 1
+          fi
+          cat /tmp/cost/empty.txt
+          grep -q "needs a path" /tmp/cost/empty.txt
+          # Twice over the same map is the same answer, and the same file.
+          where-are-we --out $M --cost > /tmp/cost/all.again.txt
+          where-are-we --out $M --cost --json > /tmp/cost/all.again.json
+          where-are-we --out $M --export /tmp/cost/export.again.md
+          diff -u /tmp/cost/all.txt /tmp/cost/all.again.txt
+          diff -u /tmp/cost/all.json /tmp/cost/all.again.json
+          diff -u /tmp/cost/all.export /tmp/cost/export.again.md
+          # --cost only reads; --export writes the one file it was given, and
+          # the preview names it and every directory it would have to create.
+          where-are-we --out $M --cost --dry-run > /tmp/cost/dry.txt
+          grep -qx "nothing to write: --cost only read" /tmp/cost/dry.txt
+          where-are-we --out $M --export /tmp/cost/deep/a/b/preview.md --dry-run \
+            > /tmp/cost/dry-export.txt
+          cat /tmp/cost/dry-export.txt
+          grep -qx "would create /tmp/cost/deep" /tmp/cost/dry-export.txt
+          grep -qx "would create /tmp/cost/deep/a" /tmp/cost/dry-export.txt
+          grep -qx "would create /tmp/cost/deep/a/b" /tmp/cost/dry-export.txt
+          grep -qx "would write /tmp/cost/deep/a/b/preview.md" /tmp/cost/dry-export.txt
+          if test -e /tmp/cost/deep; then
+            echo "a preview of --export created a directory"; exit 1
+          fi
+          where-are-we --out $M --export - --dry-run > /tmp/cost/dry-stdout.txt
+          grep -qx "nothing to write: --export - writes to stdout" /tmp/cost/dry-stdout.txt
+          # And the preview is not a fiction: the real run creates all four.
+          where-are-we --out $M --export /tmp/cost/deep/a/b/preview.md
+          for path in $(sed 's/^would create //;s/^would write //' \
+                            /tmp/cost/dry-export.txt); do
+            if test ! -e "$path"; then
+              echo "the dry run named $path and the real run did not create it"
+              exit 1
+            fi
+          done
+          where-are-we --effects -- where-are-we --cost > /tmp/cost/eff-cost.txt
+          where-are-we --effects -- where-are-we --export /tmp/x.md \
+            > /tmp/cost/eff-export.txt
+          cat /tmp/cost/eff-cost.txt /tmp/cost/eff-export.txt
+          grep -qx read /tmp/cost/eff-cost.txt
+          grep -qx "\-\-cost read" /tmp/cost/eff-cost.txt
+          grep -qx writes-repo /tmp/cost/eff-export.txt
+          grep -qx "\-\-export writes-repo" /tmp/cost/eff-export.txt
       - name: who calls X
         run: |
           mkdir -p /tmp/wc
@@ -365,8 +1739,9 @@ jobs:
           import json, pathlib
           rows = [json.loads(l) for l in open("/tmp/imp/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
-          assert names == ["ask", "callees", "callers", "defines", "find",
-                           "impact", "more", "sections"], names
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more", "rank",
+                           "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -844,15 +2219,18 @@ jobs:
           for i in $(seq 1 400); do
             printf 'C%s = %s\ndef f%s(x):\n    return x\n' "$i" "$i" "$i" > /tmp/aw/r/pkg/m$i.py
           done
-          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
-          # A reader polling the three map files while a build runs must never
-          # see a size other than the settled one. On the old in-place writes
-          # every one of them passed through zero bytes.
-          (where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic &)
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic --ctags
+          # A reader polling the map files while a build runs must never see a
+          # size other than the settled one. On the old in-place writes every
+          # one of them passed through zero bytes. `tags` is in the list
+          # because an editor reads it exactly the way the MCP server reads
+          # the JSON, and through a build.
+          (where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic --ctags &)
           python - <<'EOF'
           import os, sys, time
           out = "/tmp/aw/m"
-          names = ["framework_map.json", "framework_map.md", "framework_map_brief.md"]
+          names = ["framework_map.json", "framework_map.md", "framework_map_brief.md",
+                   "tags"]
           seen = {n: set() for n in names}
           t0 = time.time()
           while time.time() - t0 < 6:
@@ -873,6 +2251,7 @@ jobs:
           # A build killed while it writes leaves the previous three files
           # exactly as they were, and no half-written JSON.
           md5_before=$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)
+          tags_before=$(md5sum /tmp/aw/m/tags | cut -d" " -f1)
           printf 'KILLED_BUILD_MARKER = 1\n' > /tmp/aw/r/pkg/late.py
           python - <<'EOF'
           import os, signal, subprocess, time
@@ -882,7 +2261,7 @@ jobs:
                       for n in os.listdir(out) if n.startswith("framework_map")}
           base = watched()
           p = subprocess.Popen(["where-are-we", "--repo", "/tmp/aw/r", "--out", out,
-                                "--force", "--quiet", "--no-semantic"],
+                                "--force", "--quiet", "--no-semantic", "--ctags"],
                                env=dict(os.environ, WAWE_NO_CACHE="1"))
           t0 = time.time()
           while time.time() - t0 < 60 and p.poll() is None:
@@ -893,14 +2272,19 @@ jobs:
           print("child exit", p.returncode)
           EOF
           test "$(md5sum /tmp/aw/m/framework_map.json | cut -d" " -f1)" = "$md5_before"
+          test "$(md5sum /tmp/aw/m/tags | cut -d" " -f1)" = "$tags_before"
           python -c "import json; json.load(open('/tmp/aw/m/framework_map.json'))"
           if grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json; then
             echo "unexpected match: grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json"; exit 1
           fi
+          if grep -q KILLED_BUILD_MARKER /tmp/aw/m/tags; then
+            echo "unexpected match: grep -q KILLED_BUILD_MARKER /tmp/aw/m/tags"; exit 1
+          fi
           # The next build sweeps away the temporary the killed one left.
-          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic
+          where-are-we --repo /tmp/aw/r --out /tmp/aw/m --force --quiet --no-semantic --ctags
           test -z "$(find /tmp/aw/m -name '*.tmp')"
           grep -q KILLED_BUILD_MARKER /tmp/aw/m/framework_map.json
+          grep -q KILLED_BUILD_MARKER /tmp/aw/m/tags
 
       - name: a build starts from nothing, whatever ran before it
         run: |
@@ -1046,6 +2430,151 @@ jobs:
           print('uncapped, sources found:', len(found))
           assert len(found) == 1, found"
 
+      - name: a same-size rewrite with a restored mtime is still seen
+        run: |
+          set -o pipefail
+          rm -rf /tmp/cr
+          mkdir -p /tmp/cr/r /tmp/cr/m
+          printf 'def charge():\n    pass\n' > /tmp/cr/r/a.py
+          printf 'def other():\n    pass\n' > /tmp/cr/r/b.py
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --force --quiet --no-semantic
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --defines charge | grep -q "a.py:1"
+          python -c "
+          import json
+          m = json.load(open('/tmp/cr/m/framework_map.json'))
+          root = m['content_root']
+          assert len(root) == 64 and int(root, 16) >= 0, root
+          assert m['fingerprint'].count(':') == 1, m['fingerprint']
+          open('/tmp/cr/root-before', 'w').write(root)
+          print('content_root', root)"
+          # The same byte count, with the timestamp put back to the
+          # nanosecond: what rsync --times, cp -p, tar -p and a restore from a
+          # build cache leave behind, and what mtime and size cannot tell from
+          # no change at all. os.utime rather than touch -d, because -d and
+          # stat -c are GNU spellings and this has to run on macOS too.
+          python -c "
+          import os
+          before = os.stat('/tmp/cr/r/a.py')
+          open('/tmp/cr/r/a.py', 'w').write('def refund():\n    pass\n')
+          os.utime('/tmp/cr/r/a.py', ns=(before.st_atime_ns, before.st_mtime_ns))
+          after = os.stat('/tmp/cr/r/a.py')
+          assert after.st_mtime_ns == before.st_mtime_ns, (before, after)
+          assert after.st_size == before.st_size, (before, after)
+          print('same size, same mtime:', after.st_size, after.st_mtime_ns)"
+          # No --force anywhere below this line.
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cr/r --out /tmp/cr/m \
+            --product none --quiet --no-semantic 2> /tmp/cr/rewrite.log
+          cat /tmp/cr/rewrite.log
+          grep -qE "^parsed [1-9][0-9]* files$" /tmp/cr/rewrite.log
+          grep -qE "^hashed [1-9][0-9]* files$" /tmp/cr/rewrite.log
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --defines refund | grep -q "a.py:1"
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --defines charge \
+            | grep -q "no declaration of 'charge' in the map"
+          if grep -q '"charge"' /tmp/cr/m/framework_map.json; then
+            echo "unexpected match: grep -q '\"charge\"' /tmp/cr/m/framework_map.json"; exit 1
+          fi
+          # The root moved with the file, and it names which file moved it.
+          python -c "
+          import json
+          root = json.load(open('/tmp/cr/m/framework_map.json'))['content_root']
+          before = open('/tmp/cr/root-before').read()
+          assert root != before, root
+          print('content_root moved to', root)"
+          # And a tree nobody touched costs neither a parse nor a hash. The
+          # map is removed rather than passing --force, for the reason the
+          # incremental rebuild step gives: --force would parse everything
+          # again on purpose, and leaving the map in place would skip the
+          # build and leave no counts to look at.
+          rm /tmp/cr/m/framework_map.json
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cr/r --out /tmp/cr/m \
+            --product none --quiet --no-semantic 2> /tmp/cr/warm.log
+          cat /tmp/cr/warm.log
+          grep -q "^parsed 0 files$" /tmp/cr/warm.log
+          grep -q "^hashed 0 files$" /tmp/cr/warm.log
+          # The build after that one is skipped outright, root and all.
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic | grep -q "unchanged since it was built"
+          # Two builds of the same tree agree on the root, and a map built
+          # somewhere else from the same bytes agrees with both.
+          rm -rf /tmp/cr/m2
+          mkdir -p /tmp/cr/m2
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m2 --product none \
+            --force --quiet --no-semantic
+          python -c "
+          import json
+          a = json.load(open('/tmp/cr/m/framework_map.json'))['content_root']
+          b = json.load(open('/tmp/cr/m2/framework_map.json'))['content_root']
+          assert a == b, (a, b)
+          print('same tree, same root:', a)"
+          # One more same-size rewrite with the timestamp put back, and
+          # --diff names the file rather than saying the tree moved. It is
+          # not skipped either: the fingerprint agrees and the root does not.
+          python -c "
+          import os
+          before = os.stat('/tmp/cr/r/b.py')
+          open('/tmp/cr/r/b.py', 'w').write('def older():\n    pass\n')
+          os.utime('/tmp/cr/r/b.py', ns=(before.st_atime_ns, before.st_mtime_ns))
+          after = os.stat('/tmp/cr/r/b.py')
+          assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)"
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic --diff > /tmp/cr/diff.txt
+          cat /tmp/cr/diff.txt
+          grep -q "^files whose content moved: b.py$" /tmp/cr/diff.txt
+          if grep -q "unchanged since it was built" /tmp/cr/diff.txt; then
+            echo "unexpected match: grep -q 'unchanged since it was built' /tmp/cr/diff.txt"; exit 1
+          fi
+          # Every line --diff prints is measured against the map in --out,
+          # which --diff does not rewrite, so the same command over the same
+          # tree answers the same way twice. It used to rewrite the parse
+          # cache and lose the file list on the second run while still saying
+          # the root had moved.
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic --diff > /tmp/cr/diff2.txt
+          diff /tmp/cr/diff.txt /tmp/cr/diff2.txt
+          # An added file and a deleted one are named too.
+          printf 'def fresh():\n    pass\n' > /tmp/cr/r/c.py
+          rm /tmp/cr/r/b.py
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic --diff > /tmp/cr/diff3.txt
+          cat /tmp/cr/diff3.txt
+          grep -q "^files added: c.py$" /tmp/cr/diff3.txt
+          grep -q "^files gone: b.py$" /tmp/cr/diff3.txt
+          # --force distrusts the hashes as well as the parses, so a content
+          # root can always be recomputed from the bytes.
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cr/r --out /tmp/cr/m \
+            --product none --force --quiet --no-semantic 2> /tmp/cr/forced.log
+          cat /tmp/cr/forced.log
+          grep -qE "^hashed [1-9][0-9]* files$" /tmp/cr/forced.log
+          # And the watcher asks the same two questions the one-shot path
+          # asks. Before this it triggered on the fingerprint alone, so a
+          # rewrite that put its timestamp back was invisible for as long as
+          # the watcher ran, which is worse than the one-shot case: nothing
+          # else was ever going to look.
+          rm -rf /tmp/cr/w /tmp/cr/wm
+          mkdir -p /tmp/cr/w /tmp/cr/wm
+          printf 'def watched():\n    pass\n' > /tmp/cr/w/a.py
+          where-are-we --repo /tmp/cr/w --out /tmp/cr/wm --product none \
+            --force --quiet --no-semantic
+          PYTHONUNBUFFERED=1 where-are-we --repo /tmp/cr/w --out /tmp/cr/wm \
+            --product none --watch 1 --no-semantic > /tmp/cr/watch.log 2>&1 &
+          WP=$!
+          sleep 2
+          python -c "
+          import os
+          before = os.stat('/tmp/cr/w/a.py')
+          open('/tmp/cr/w/a.py', 'w').write('def swapped():\n    pass\n')
+          os.utime('/tmp/cr/w/a.py', ns=(before.st_atime_ns, before.st_mtime_ns))
+          after = os.stat('/tmp/cr/w/a.py')
+          assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)"
+          sleep 5
+          kill $WP || true
+          cat /tmp/cr/watch.log
+          grep -q '"swapped"' /tmp/cr/wm/framework_map.json
+          if grep -q '"watched"' /tmp/cr/wm/framework_map.json; then
+            echo "unexpected match: grep -q '\"watched\"' /tmp/cr/wm/framework_map.json"; exit 1
+          fi
+
       - name: --force reads nothing from the parse cache and rewrites it
         run: |
           rm -rf /tmp/fc
@@ -1115,7 +2644,7 @@ jobs:
           PY
           export W
           PRODUCT_SRC=none PYTHONUNBUFFERED=1 where-are-we --repo "$W/repo" \
-            --out "$W/repo/.wawe" --watch 1 --no-semantic --html \
+            --out "$W/repo/.wawe" --watch 1 --no-semantic --html --ctags \
             > "$W/watch.log" 2>&1 &
           WP=$!
           python "$W/waitfor.py" one
@@ -1142,6 +2671,8 @@ jobs:
           # watched directory said there was no map.
           test -s "$W/repo/.wawe/framework_map.md"
           test -s "$W/repo/.wawe/framework_map.html"
+          test -s "$W/repo/.wawe/tags"
+          LC_ALL=C sort -c "$W/repo/.wawe/tags"
           where-are-we --repo "$W/repo" --out "$W/repo/.wawe" --ask one \
             | grep -q "Defined here"
           # One failing iteration is printed and the watcher keeps going.
@@ -1696,6 +3227,32 @@ jobs:
           # PEM state is per file: b_page's contribution to any aggregated
           # list survives a_page's header. It used to be blanked with it.
           grep -q "distinctive-b-content" /tmp/sec/m/framework_map.json
+          # `redact()` skips `lines` when the build that made the map redacted
+          # them as it recorded them, so the same tree has to come out of both
+          # passes as the same map. And the skip is conditional on that: a map
+          # whose lines were not redacted at index time is swept in full here,
+          # which is what keeps "a map written to disk is redacted" true
+          # whatever produced it.
+          python - <<'EOF'
+          import json
+          from where_are_we import mapper
+          from where_are_we._mapper import state, walk
+          m = mapper.build("/tmp/sec/r", out_dir="/tmp/sec/m2")
+          assert state.LINES_REDACTED is True
+          skipped = walk.redact(m)
+          state.LINES_REDACTED = False
+          swept = walk.redact(m)
+          assert skipped == swept, [k for k in swept if swept[k] != skipped.get(k)]
+          assert skipped["lines"] == m["lines"], "the pass over lines was not inert"
+          raw = mapper.build("/tmp/sec/r", out_dir="/tmp/sec/m3",
+                             redact_lines=False)
+          assert state.LINES_REDACTED is False
+          assert any("[redacted]" in ln
+                     for rows in walk.redact(raw)["lines"].values()
+                     for ln in rows), "an unredacted map came through the pass raw"
+          print("the writers' pass and the index-time pass agree, and the "
+                "unredacted build is still swept")
+          EOF
 
       - name: every environment variable the code reads is in the README table
         run: |
@@ -2159,7 +3716,7 @@ jobs:
           rm -rf /tmp/pol
           mkdir -p /tmp/pol/r
           printf 'x = 1\n' > /tmp/pol/r/a.py
-          # Nine broad handlers across the package, and each one is a server
+          # Ten broad handlers across the package, and each one is a server
           # loop, an optional dependency, or a third-party parser over a file
           # this package did not write. Every other one now names what it
           # catches, so a programming error in the lines it covers is a
@@ -2174,6 +3731,7 @@ jobs:
               "build.py": 1,           # git for-each-ref plus a strip and a slice
               "declare.py": 2,         # an optional tree-sitter grammar, and its parser
               "eval.py": 1,            # --graph's tree-sitter second opinion
+              "render.py": 1,          # --cost asking an optional extra for a tokenizer
           }
           bad = []
           for path in sorted(pathlib.Path("src/where_are_we").rglob("*.py")):
@@ -2657,8 +4215,9 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/more/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
-          assert names == ["ask", "callees", "callers", "defines", "find",
-                           "impact", "more", "sections"], names
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more", "rank",
+                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
@@ -3096,6 +4655,497 @@ jobs:
           print("a base is followed on evidence:", graph, stats)
           EOF
 
+      - name: every edge says how it was resolved
+        run: |
+          set -o pipefail
+          # The graph as rows. Every fixture the three graph steps above own
+          # is written again here, so what this asserts does not depend on
+          # which steps ran before it.
+          rm -rf /tmp/xref
+          mkdir -p /tmp/xref/mark /tmp/xref/py /tmp/xref/reex /tmp/xref/mod \
+                   /tmp/xref/base /tmp/xref/dup/a /tmp/xref/dup/b \
+                   /tmp/xref/also/a /tmp/xref/also/b /tmp/xref/pkg/steps \
+                   /tmp/xref/pkg/pages /tmp/xref/alsop/a \
+                   /tmp/xref/alsop/b/pages /tmp/xref/alsop/b/steps
+          # ts/js: `charge` in two files, called with nothing to say which,
+          # and called from a file that imports it from one of them.
+          printf 'export function charge(amount: number): string {\n  return `a ${amount}`;\n}\n' > /tmp/xref/mark/a.ts
+          printf 'export function charge(amount: number): string {\n  return `c ${amount}`;\n}\n' > /tmp/xref/mark/c.ts
+          printf 'export function payInvoice(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/xref/mark/b.ts
+          printf 'import { charge } from "./a";\n\nexport function settle(amount: number): string {\n  return charge(amount);\n}\n' > /tmp/xref/mark/d.ts
+          # Python: the same two rules, plus the call inside the file that
+          # declares the name, which is no edge and so no row.
+          printf 'def charge(x):\n    return x\n' > /tmp/xref/py/aa.py
+          printf 'def charge(x):\n    return x\n' > /tmp/xref/py/bb.py
+          printf 'def charge(x):\n    return x\n\n\ndef pay_local(x):\n    return charge(x)\n' > /tmp/xref/py/local.py
+          printf 'from aa import charge\n\n\ndef pay_imported(x):\n    return charge(x)\n' > /tmp/xref/py/imp.py
+          printf 'def pay_invoice(x):\n    return charge(x)\n' > /tmp/xref/py/z.py
+          # A facade, and the receiver bound to a module that declares the
+          # name itself.
+          printf 'def build(x):\n    return x\n' > /tmp/xref/reex/impl.py
+          printf 'def build(x):\n    return x\n' > /tmp/xref/reex/other.py
+          printf 'from impl import build\n' > /tmp/xref/reex/facade.py
+          printf 'import facade\n\n\ndef go(u):\n    return facade.build(u)\n' > /tmp/xref/reex/caller.py
+          printf 'def walk(x):\n    return x\n' > /tmp/xref/mod/a.py
+          printf 'def walk(x):\n    return x\n' > /tmp/xref/mod/mymod.py
+          printf 'import mymod\n\n\ndef g(u):\n    return mymod.walk(u)\n' > /tmp/xref/mod/c.py
+          printf 'import ast\n\n\ndef f(src):\n    return [n for n in ast.walk(ast.parse(src))]\n' > /tmp/xref/mod/w.py
+          # The base class, followed only on the evidence of an import.
+          printf 'def add(x):\n    return x\n' > /tmp/xref/base/a.py
+          printf 'class Base:\n    def add(self, x):\n        return x\n' > /tmp/xref/base/base.py
+          printf 'from base import Base\n\n\nclass G(Base):\n    def go2(self):\n        return self.add(1)\n' > /tmp/xref/base/g.py
+          printf 'class E(Base):\n    def run(self):\n        return self.add(1)\n' > /tmp/xref/base/e.py
+          # Two files of one basename, each declaring `f`. They share a key in
+          # `call_graph_files`, which is keyed by basename, and the later one
+          # written wins it; the rows keep both, under the whole path.
+          printf 'def f():\n    return charge(1)\n' > /tmp/xref/dup/a/x.py
+          printf 'def f():\n    return refund(1)\n' > /tmp/xref/dup/b/x.py
+          printf 'def charge(v):\n    return v\n' > /tmp/xref/dup/charge.py
+          printf 'def refund(v):\n    return v\n' > /tmp/xref/dup/refund.py
+          # Two roots in one map. `--also` merges the second root's names into
+          # the first root's `spans`, and the `declares` rows are rebuilt from
+          # the merged index rather than left as the first root's copy.
+          printf 'ONLY_IN_A = 1\n\n\ndef shared_name():\n    return 1\n' > /tmp/xref/also/a/alpha.py
+          printf 'ONLY_IN_B = 1\n\n\ndef only_b():\n    return 2\n\n\ndef use_b():\n    return only_b()\n' > /tmp/xref/also/b/beta.py
+          # The same again, with the second root holding a page object and
+          # a step table. Those two tables record a span relative to the
+          # root being walked and `spans` does not keep which root that
+          # was, so rows that resolved every relative site against the
+          # first root named a file that is not there.
+          printf 'ONLY_IN_A = 1\n' > /tmp/xref/alsop/a/one.py
+          printf '"""The checkout page."""\n\n\nclass CheckoutPage:\n    def click_pay(self):\n        pass\n' > /tmp/xref/alsop/b/pages/checkout.py
+          printf 'from behave import step\n\nfrom pages.checkout import CheckoutPage\n\n\n@step("the customer pays")\ndef step_pay(context):\n    return CheckoutPage().click_pay()\n' > /tmp/xref/alsop/b/steps/pay_steps.py
+          # Two top-level packages, one importing the other: the `imports`
+          # rows, with the file the import line is in and the line it is on.
+          printf 'def open_checkout():\n    return 1\n' > /tmp/xref/pkg/pages/checkout.py
+          printf 'import os\n\nfrom pages.checkout import open_checkout\n\n\ndef step_pay():\n    return open_checkout()\n' > /tmp/xref/pkg/steps/pay.py
+          for d in mark py reex mod base dup pkg; do
+            where-are-we --repo "/tmp/xref/$d" --out "/tmp/xref/$d-out" \
+              --product none --force --quiet --no-semantic
+          done
+          where-are-we --repo /tmp/xref/also/a --out /tmp/xref/also-out \
+            --also /tmp/xref/also/b --product none --force --quiet --no-semantic
+          # `--ctags` too, because the tags file is the other artefact this
+          # map's `spans` key is written out as and the two are compared below.
+          where-are-we --repo /tmp/xref/alsop/a --out /tmp/xref/alsop-out \
+            --also /tmp/xref/alsop/b --product none --force --quiet \
+            --no-semantic --ctags
+          # The golden fixtures, built here for the same reason, and this
+          # repository, which is the only tree in the step with a `spans`
+          # table worth counting.
+          python -c "
+          import sys
+          sys.path.insert(0, 'tests/golden')
+          import build_fixtures
+          build_fixtures.build_all('/tmp/xref/golden')
+          "
+          where-are-we --repo . --out /tmp/xref/self-out --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json, os
+
+          # The whole closed set, and the rule each value names. A row
+          # carrying anything else is a rule that wrote a value nobody
+          # documented.
+          CLOSED = {"sole_declarer", "import_line", "receiver_import",
+                    "re_export", "base_class", "declaration", "ambiguous",
+                    "import_statement"}
+          EDGES = {"calls", "declares", "imports"}
+          LANG = {".py": "python", ".ts": "ts_js", ".tsx": "ts_js",
+                  ".js": "ts_js", ".jsx": "ts_js", ".go": "go"}
+
+          def read(path):
+              return json.load(open(f"{path}/framework_map.json"))
+
+          def text(row):
+              """One `calls` row as `call_graph_files` spells it: `charge
+              (a.py)`, and `charge (a.py|b.py)?` where the row names more than
+              one candidate."""
+              files = "|".join(sorted({os.path.basename(c)
+                                       for c in row["candidates"]}))
+              mark = "?" if row["resolution"] == "ambiguous" else ""
+              return f"{row['object']} ({files}){mark}"
+
+          def by_subject(m):
+              """The `calls` rows grouped the way the renderer groups them,
+              by whole-path subject, and cut to the 8 callees a key keeps."""
+              out = {}
+              for r in m["xrefs"]:
+                  if r["edge"] == "calls":
+                      out.setdefault(r["subject"], set()).add(text(r))
+              return {s: sorted(v)[:8] for s, v in out.items()}
+
+          def check(name, path):
+              """What holds of every map: the closed set, the sort, the
+              rendering, the join, and the two counters agreeing with the
+              rows."""
+              m = read(path)
+              rows = m["xrefs"]
+              for r in rows:
+                  assert set(r) == {"subject", "edge", "object", "file",
+                                    "candidates", "line", "resolution"}, r
+                  assert r["edge"] in EDGES, r
+                  assert r["resolution"] in CLOSED, r
+                  assert isinstance(r["line"], int) and r["line"] > 0, r
+                  assert os.path.isabs(r["subject"].rsplit(":", 1)[0]), r
+                  for candidate in r["candidates"]:
+                      assert os.path.isabs(candidate), r
+                  if r["edge"] == "calls":
+                      assert r["candidates"], r
+                      if r["resolution"] == "ambiguous":
+                          assert r["file"] is None and len(r["candidates"]) > 1, r
+                      else:
+                          assert r["file"] in r["candidates"], r
+                          assert len(r["candidates"]) == 1, r
+                  if r["edge"] == "declares":
+                      assert r["resolution"] == "declaration", r
+                      assert r["file"] == r["subject"], r
+                      # A declaration is not a choice between files, so the
+                      # candidate list is empty rather than the subject
+                      # written a third time.
+                      assert r["candidates"] == [], r
+                      # And the path is a file on disk. Checked without
+                      # going through the code's own rule: the row is a
+                      # site, and a site names a file that can be opened.
+                      assert os.path.exists(r["subject"]), (name, r)
+                  if r["edge"] == "imports":
+                      assert r["resolution"] == "import_statement", r
+                      assert r["file"] == r["candidates"][0], r
+                      assert os.path.isabs(r["subject"]), r
+              key = lambda r: (r["subject"], r["object"], r["line"],
+                               r["edge"], r["resolution"])
+              assert [key(r) for r in rows] == sorted(key(r) for r in rows), \
+                  f"{name}: xrefs is not sorted by subject, object, line"
+              # One path spelling, so the table joins to itself: the file a
+              # `calls` row settled on is the subject of the `declares` rows
+              # for that file.
+              declared = {r["subject"] for r in rows if r["edge"] == "declares"}
+              for r in rows:
+                  if r["edge"] == "calls":
+                      for candidate in r["candidates"]:
+                          assert candidate in declared, (name, r)
+              # Every string the map prints, from the rows and from nothing
+              # else. A graph key is a basename and a subject is a whole path,
+              # so where two files share a basename the key is whichever of
+              # them the walk wrote last and the rows hold both; the table
+              # does not record the walk order, so the assertion there is that
+              # the key is one of them.
+              rendered = by_subject(m)
+              same_key = {}
+              for subject, edges in rendered.items():
+                  rel, _, func = subject.rpartition(":")
+                  same_key.setdefault(f"{os.path.basename(rel)}:{func}",
+                                      []).append(edges)
+              for graph_key, edges in m["call_graph_files"].items():
+                  candidates = same_key.get(graph_key)
+                  assert candidates, (name, graph_key, "no rows for this key")
+                  if len(candidates) == 1:
+                      assert candidates[0] == edges, (name, graph_key, edges,
+                                                      candidates[0])
+                  else:
+                      assert edges in candidates, (name, graph_key, edges,
+                                                   candidates)
+              # A `?` edge has exactly the ambiguous rows its candidate list
+              # names: the same files, and no other row for that pair.
+              for graph_key, edges in m["call_graph_files"].items():
+                  for edge in edges:
+                      if not edge.endswith("?"):
+                          continue
+                      callee, _, rest = edge.partition(" (")
+                      named = sorted(rest[:-2].split("|"))
+                      hits = [r for r in rows if r["edge"] == "calls"
+                              and r["object"] == callee
+                              and f"{os.path.basename(r['subject'].rsplit(':', 1)[0])}:"
+                                  f"{r['subject'].rsplit(':', 1)[-1]}" == graph_key]
+                      assert hits, (name, graph_key, edge)
+                      assert all(h["resolution"] == "ambiguous" for h in hits), hits
+                      assert sorted(os.path.basename(c)
+                                    for c in hits[0]["candidates"]) == named, hits
+              # `call_graph_stats` counts the rows, per language: `marked` is
+              # the ambiguous ones and `edges` the placed ones.
+              marked, placed = {}, {}
+              for r in rows:
+                  if r["edge"] != "calls":
+                      continue
+                  lang = LANG[os.path.splitext(r["subject"].rsplit(":", 1)[0])[1]]
+                  which = marked if r["resolution"] == "ambiguous" else placed
+                  which[lang] = which.get(lang, 0) + 1
+              for lang, stats in m["call_graph_stats"].items():
+                  assert stats["marked"] == marked.get(lang, 0), (name, lang, stats)
+                  assert stats["edges"] == placed.get(lang, 0), (name, lang, stats)
+              # And the declarations are `spans`, site for site, on the whole
+              # path: every site `spans` holds is absolute, so a `declares`
+              # row copies the path through and nothing here has to guess a
+              # root back onto it. The same assertion for a merged map as for
+              # a map of one root, which is what the one spelling buys.
+              for name_, sites in m["spans"].items():
+                  for site in sites:
+                      assert os.path.isabs(site["file"]), (name, name_, site)
+              spans = sorted((site["file"], name_, site["start"])
+                             for name_, sites in m["spans"].items()
+                             for site in sites)
+              assert sorted((r["subject"], r["object"], r["line"])
+                            for r in rows if r["edge"] == "declares") == spans, \
+                  f"{name}: declares rows are not the spans sites"
+              # The `imports` rows are the pairs `import_graph` names, with
+              # the file and the line that key cannot hold.
+              pairs = sorted((pkg, other)
+                             for pkg, used in m["import_graph"].items()
+                             for other in used)
+              rel_of = lambda p: os.path.relpath(p, m["repo"]).split(os.sep)[0]
+              assert sorted({(rel_of(r["subject"]), r["object"])
+                             for r in rows if r["edge"] == "imports"}) == pairs, \
+                  f"{name}: imports rows are not the import_graph pairs"
+              return m, rows
+
+          def resolution(rows, subject_end, callee):
+              hits = [r for r in rows if r["edge"] == "calls"
+                      and r["subject"].endswith(subject_end)
+                      and r["object"] == callee]
+              assert len(hits) == 1, (subject_end, callee, hits)
+              return hits[0]["resolution"], hits[0]
+
+          seen = set()
+          for name, path in [("mark", "/tmp/xref/mark-out"),
+                             ("py", "/tmp/xref/py-out"),
+                             ("reex", "/tmp/xref/reex-out"),
+                             ("mod", "/tmp/xref/mod-out"),
+                             ("base", "/tmp/xref/base-out"),
+                             ("dup", "/tmp/xref/dup-out"),
+                             ("pkg", "/tmp/xref/pkg-out"),
+                             ("also", "/tmp/xref/also-out"),
+                             ("alsop", "/tmp/xref/alsop-out"),
+                             ("poly", "/tmp/xref/golden/poly/out"),
+                             ("code", "/tmp/xref/golden/code/out"),
+                             ("suite", "/tmp/xref/golden/suite/out"),
+                             ("self", "/tmp/xref/self-out")]:
+              _m, rows = check(name, path)
+              seen |= {r["resolution"] for r in rows}
+              print(f"{name}: {len(rows)} rows, "
+                    f"{len([r for r in rows if r['edge'] == 'calls'])} of them "
+                    f"calls, {len([r for r in rows if r['edge'] == 'imports'])} "
+                    f"imports")
+
+          # One rule at a time, on the fixture that isolates it.
+          mark = read("/tmp/xref/mark-out")["xrefs"]
+          assert resolution(mark, "b.ts:payInvoice", "charge")[0] == "ambiguous"
+          assert resolution(mark, "d.ts:settle", "charge")[0] == "import_line"
+          py = read("/tmp/xref/py-out")["xrefs"]
+          assert resolution(py, "imp.py:pay_imported", "charge")[0] == "import_line"
+          assert resolution(py, "z.py:pay_invoice", "charge")[0] == "ambiguous"
+          # The call inside the file that declares the name is no edge, so
+          # there is no row for it and no `local` value to write.
+          assert not [r for r in py if r["edge"] == "calls"
+                      and r["subject"].endswith("local.py:pay_local")], py
+          assert "local" not in {r["resolution"] for r in py}, py
+          reex = read("/tmp/xref/reex-out")["xrefs"]
+          assert resolution(reex, "caller.py:go", "build")[0] == "re_export"
+          mod = read("/tmp/xref/mod-out")["xrefs"]
+          got, row = resolution(mod, "c.py:g", "walk")
+          assert got == "receiver_import", row
+          assert row["file"].endswith("/mymod.py") and row["line"] == 5, row
+          # A call through the standard library is refused before any rule
+          # runs, so it has no row either.
+          assert not [r for r in mod if r["edge"] == "calls"
+                      and r["subject"].endswith("w.py:f")], mod
+          base = read("/tmp/xref/base-out")["xrefs"]
+          assert resolution(base, "g.py:go2", "add")[0] == "base_class"
+          assert resolution(base, "e.py:run", "add")[0] == "ambiguous"
+          poly = read("/tmp/xref/golden/poly/out")["xrefs"]
+          assert resolution(poly, "b.ts:payInvoice", "charge")[0] == "sole_declarer"
+          # Two files of one basename: one graph key, two subjects, and the
+          # rows hold the callee each of them really calls.
+          dup = read("/tmp/xref/dup-out")
+          assert list(dup["call_graph_files"]) == ["x.py:f"], dup["call_graph_files"]
+          calls = sorted((r["subject"], r["object"]) for r in dup["xrefs"]
+                         if r["edge"] == "calls")
+          assert [c[1] for c in calls] == ["charge", "refund"], calls
+          assert calls[0][0].endswith("/a/x.py:f") and \
+              calls[1][0].endswith("/b/x.py:f"), calls
+          # Two roots: every name in the merged `spans` has its row, which is
+          # what `check` asserted above for this map as for every other.
+          also = read("/tmp/xref/also-out")
+          assert "ONLY_IN_B" in also["spans"], sorted(also["spans"])
+          assert {r["object"] for r in also["xrefs"] if r["edge"] == "declares"} \
+              == set(also["spans"]), "an --also map's rows are not its spans"
+          # The page object of an `--also` root is that root's file: `spans`
+          # recorded it relative to the root being walked, and a row that
+          # joined it to the first root named a path nothing can open.
+          alsop = read("/tmp/xref/alsop-out")
+          pages = [r for r in alsop["xrefs"] if r["edge"] == "declares"
+                   and "pages" in r["subject"]]
+          assert pages, sorted(alsop["spans"])
+          assert all(r["subject"].startswith("/tmp/xref/alsop/b/") for r in pages), \
+              pages
+          assert "click_pay" in alsop["spans"], sorted(alsop["spans"])
+          # And the other artefact derived from `spans` says the same thing
+          # about those files. A `tags` row names its file from the directory
+          # the tags file is in, an `xrefs` row is absolute, and joining the
+          # first onto that directory gives the second: one spelling in the
+          # key, one rule per consumer, and no file named two ways by two
+          # artefacts of one build.
+          sites = {(r["subject"], r["object"], r["line"])
+                   for r in alsop["xrefs"] if r["edge"] == "declares"}
+          tags = set()
+          for row in open("/tmp/xref/alsop-out/tags"):
+              if row.startswith("!_TAG_"):
+                  continue
+              f = row.rstrip("\n").split("\t")
+              tags.add((os.path.normpath(
+                            os.path.join("/tmp/xref/alsop-out", f[1])),
+                        f[0], int(f[2].rstrip(';"'))))
+          untagged = sorted(s for s in sites if s not in tags)
+          assert not untagged, untagged[:5]
+          print("tags rows and xrefs declares rows name the same files:",
+                len(tags), "rows,", len(sites), "sites")
+          # And the import line, named by file and line.
+          pkg = read("/tmp/xref/pkg-out")
+          rows = [r for r in pkg["xrefs"] if r["edge"] == "imports"]
+          assert len(rows) == 1, rows
+          assert rows[0]["subject"].endswith("/steps/pay.py"), rows
+          assert rows[0]["object"] == "pages" and rows[0]["line"] == 3, rows
+          assert rows[0]["file"].endswith("/pages"), rows
+          # Every value in the closed set was written by the rule that names
+          # it, somewhere in this step, and nothing outside it was written at
+          # all.
+          assert seen == CLOSED, sorted(CLOSED - seen)
+          print("every resolution in the closed set was written by its own rule:",
+                sorted(seen))
+          EOF
+          # And the rule reaches the reader: `impact` prints it under each
+          # hop, in the same order as the keys above it.
+          where-are-we --out /tmp/xref/mark-out --impact charge --impact-depth 2 \
+            > /tmp/xref/impact.txt
+          cat /tmp/xref/impact.txt
+          grep -qx "depth 1: b.ts:payInvoice, d.ts:settle" /tmp/xref/impact.txt
+          grep -qx "how: b.ts:payInvoice ambiguous, d.ts:settle import_line" \
+            /tmp/xref/impact.txt
+          head -1 /tmp/xref/impact.txt | grep -qF "Under each hop, a how: line names, in the same order, the rule that placed each of its edges."
+          # A map with no `xrefs` key says nothing about any edge, and says
+          # nothing about saying nothing.
+          rm -rf /tmp/xref/old
+          cp -r /tmp/xref/mark-out /tmp/xref/old
+          python - <<'EOF'
+          import json
+          path = "/tmp/xref/old/framework_map.json"
+          m = json.load(open(path))
+          del m["xrefs"]
+          json.dump(m, open(path, "w"))
+          EOF
+          where-are-we --out /tmp/xref/old --impact charge --impact-depth 2 \
+            > /tmp/xref/impact-old.txt
+          if grep -q "^how: " /tmp/xref/impact-old.txt; then
+            echo "a map with no xrefs printed a how: line"; exit 1
+          fi
+          if grep -q "Under each hop" /tmp/xref/impact-old.txt; then
+            echo "a map with no xrefs promised a how: line"; exit 1
+          fi
+          # Twice over one tree is the same table, byte for byte.
+          where-are-we --repo /tmp/xref/base --out /tmp/xref/base-out2 \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          a = json.load(open("/tmp/xref/base-out/framework_map.json"))["xrefs"]
+          b = json.load(open("/tmp/xref/base-out2/framework_map.json"))["xrefs"]
+          assert a == b, "two builds of one tree wrote two tables"
+          print("two builds, one table:", len(a), "rows")
+          EOF
+          # The cache kind this table's line numbers moved to. The registry
+          # that keeps a retired kind out of the cache file is the list of
+          # kinds the source asks for, and a record under a retired one is
+          # dropped when the cache is written rather than carried forever.
+          python - <<'EOF'
+          import pathlib, re
+          from where_are_we._mapper.walk import CACHE_KINDS, CACHE_KIND_PREFIXES
+          src = "\n".join(p.read_text() for p in
+                          pathlib.Path("src/where_are_we").rglob("*.py"))
+          asked = set(re.findall(r'_cached\(\s*[\w.\[\]"\']+\s*,\s*f?"([^"]+)"',
+                                 src))
+          literal = {k for k in asked if "{" not in k}
+          families = {k.split("{")[0] for k in asked if "{" in k}
+          missing = sorted(literal - set(CACHE_KINDS))
+          unasked = sorted(set(CACHE_KINDS) - literal)
+          assert not missing and not unasked, (
+              f"CACHE_KINDS in _mapper/walk.py is not the set of kinds the "
+              f"source asks _cached for: missing {missing}, listed but never "
+              f"asked for {unasked}. A kind missing from that list is dropped "
+              f"from the parse cache every time it is written, so add it "
+              f"there.")
+          assert families == set(CACHE_KIND_PREFIXES), \
+              (f"CACHE_KIND_PREFIXES is not the set of kind families: "
+               f"{sorted(families ^ set(CACHE_KIND_PREFIXES))}")
+          print("cache kinds:", len(literal), "literal,", sorted(families))
+          EOF
+          rm -rf /tmp/xref/cache
+          cp -r /tmp/xref/base /tmp/xref/cache
+          where-are-we --repo /tmp/xref/cache --out /tmp/xref/cache-out \
+            --product none --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          path = "/tmp/xref/cache-out/.wawe-cache.json"
+          doc = json.load(open(path))
+          entry = next(iter(doc["entries"]))
+          # A record written by a release whose shape has since changed, as
+          # an upgraded checkout carries one.
+          doc["entries"]["func_edges_2\x1e" + entry.split("\x1e", 1)[-1]] = \
+              {"mtime": 0, "size": 0, "value": {}}
+          json.dump(doc, open(path, "w"))
+          EOF
+          # A build that finds the tree unchanged writes nothing, so the
+          # cache is only rewritten once something moves.
+          printf 'def later(x):\n    return x\n' > /tmp/xref/cache/later.py
+          where-are-we --repo /tmp/xref/cache --out /tmp/xref/cache-out \
+            --product none --quiet --no-semantic
+          python - <<'EOF'
+          import json, os
+          doc = json.load(open("/tmp/xref/cache-out/.wawe-cache.json"))
+          # Both sections an entry can be written to: `entries` holds the
+          # values, `empty` holds the sha of every entry whose value is the
+          # empty list, and a retired kind has to be gone from both.
+          kinds = {k.split("\x1e", 1)[0]
+                   for k in list(doc["entries"]) + list(doc["empty"])}
+          assert "func_edges_2" not in kinds, sorted(kinds)
+          assert "func_edges_3" in kinds, sorted(kinds)
+          # Every path in the file is relative to the directory the file is
+          # in, and reaches a file from there.
+          for k in list(doc["entries"]) + list(doc["empty"]):
+            rel = k.split("\x1e", 1)[-1]
+            assert not os.path.isabs(rel), k
+            assert os.path.exists(os.path.join("/tmp/xref/cache-out", rel)), k
+          for rel in doc["hashes"]:
+            assert not os.path.isabs(rel), rel
+            assert os.path.exists(os.path.join("/tmp/xref/cache-out", rel)), rel
+          print("retired cache kinds dropped; kinds kept:", len(kinds),
+                "; entries:", len(doc["entries"]), "empty:", len(doc["empty"]),
+                "hashes:", len(doc["hashes"]), "; every path relative")
+          EOF
+          # A cache written by the previous schema, whose keys are absolute:
+          # its entries go, because what a key spells is what this bump
+          # changed, and its hashes stay, because a sha means the same thing
+          # in every release. The build after the upgrade re-parses once.
+          python - <<'EOF'
+          import json, os
+          from where_are_we._mapper import state, walk
+          path = "/tmp/xref/cache-out/.wawe-cache.json"
+          doc = json.load(open(path))
+          out = "/tmp/xref/cache-out"
+          old = {"schema": 3, "version": state.__version__,
+                 "entries": {k.split("\x1e", 1)[0] + "\x1e"
+                             + os.path.join(out, k.split("\x1e", 1)[-1]): v
+                             for k, v in doc["entries"].items()},
+                 "hashes": {os.path.join(out, k): v
+                            for k, v in doc["hashes"].items()}}
+          json.dump(old, open(path, "w"))
+          state._PARSE_CACHE, state.HASHES_AT_LOAD, state._HASH_CACHE = {}, {}, {}
+          walk._load_parse_cache(out)
+          assert state._PARSE_CACHE == {}, "a schema 3 cache kept its entries"
+          assert len(state.HASHES_AT_LOAD) == len(doc["hashes"]), \
+              (len(state.HASHES_AT_LOAD), len(doc["hashes"]))
+          assert all(os.path.isabs(k) for k in state.HASHES_AT_LOAD)
+          print("a schema 3 cache: entries dropped, ",
+                len(state.HASHES_AT_LOAD), "hashes kept")
+          EOF
+
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"
         run: |
           set -o pipefail
@@ -3178,6 +5228,27 @@ jobs:
                 f"not in the table: {missing}, not on the parser: {extra}, "
                 f"with a class the order does not know: {unclassed}")
           sys.exit(1 if (missing or extra or unclassed) else 0)
+          EOF
+          # The README's copy of the set that decides whether a line builds
+          # a map is that set. It has drifted twice: `--defines` and `--at`
+          # went into the frozenset with Task 1 and never into the sentence,
+          # and `--context` went into neither, so `--context Foo` was
+          # classified as a build although it returns from the answer branch.
+          python - <<'EOF'
+          import pathlib, re, sys
+          from where_are_we import effects
+          doc = pathlib.Path("README.md").read_text()
+          m = re.search(r"A command line naming none of (.*?) builds the map into",
+                        doc, re.S)
+          assert m, "the README sentence about NO_MAP_BUILD is gone or reworded"
+          named = set(re.findall(r"`(--[a-z-]+)`", m.group(1)))
+          # `-h` is the only member the sentence does not spell: it says
+          # --help, which is the same action under its long name.
+          want = set(effects.NO_MAP_BUILD) - {"-h"}
+          print(f"{len(named)} flags in the README sentence, {len(want)} in "
+                f"NO_MAP_BUILD, only in the README: {sorted(named - want)}, "
+                f"only in the set: {sorted(want - named)}")
+          sys.exit(0 if named == want else 1)
           EOF
           # The file in the wheel is the table, byte for byte. Regenerate
           # it with the same command when the table moves:
@@ -3280,7 +5351,8 @@ jobs:
           xargs sha256sum < /tmp/dryout/files.before | sha256sum > /tmp/dryout/hash.before
           where-are-we --repo /tmp/dry/repo --init --dry-run > /tmp/dryout/init.txt
           where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
-            --agent-file /tmp/dry/repo/AGENTS.md --dry-run > /tmp/dryout/agent.txt
+            --agent-file /tmp/dry/repo/AGENTS.md --ctags --dry-run \
+            > /tmp/dryout/agent.txt
           where-are-we --repo /tmp/dry/repo --install-hook git --dry-run \
             > /tmp/dryout/git.txt
           where-are-we --repo /tmp/dry/repo --install-hook claude --dry-run \
@@ -3321,6 +5393,7 @@ jobs:
           grep -qx "would write /tmp/dry/repo/.framework-map.json" /tmp/dryout/init.txt
           grep -qx "would write /tmp/dry/repo/AGENTS.md" /tmp/dryout/agent.txt
           grep -qx "would write /tmp/dry/repo/.wawe/framework_map.md" /tmp/dryout/agent.txt
+          grep -qx "would write /tmp/dry/repo/.wawe/tags" /tmp/dryout/agent.txt
           for hook in post-checkout post-merge post-commit; do
             grep -qx "would write /tmp/dry/repo/.git/hooks/$hook" /tmp/dryout/git.txt
           done
@@ -3336,7 +5409,7 @@ jobs:
           where-are-we --repo /tmp/dry/repo --install-hook claude
           where-are-we --repo /tmp/dry/repo --init
           where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
-            --agent-file /tmp/dry/repo/AGENTS.md --quiet --no-semantic
+            --agent-file /tmp/dry/repo/AGENTS.md --ctags --quiet --no-semantic
           sed 's/^would write //;s/^would replace //' \
             /tmp/dryout/init.txt /tmp/dryout/agent.txt /tmp/dryout/git.txt \
             /tmp/dryout/claude.txt | sort -u > /tmp/dryout/promised

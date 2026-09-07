@@ -307,15 +307,25 @@ def _chase(map_path: str, answer: str, budget: int, max_calls: int) -> tuple:
 _ANSWERS: dict = {}
 
 
-def answer_for(map_path: str, words: str, budget: int) -> str:
-    """`ask()` through a memo keyed on (map, words, budget)."""
-    key = (map_path, words, budget)
+def answer_for(map_path: str, words: str, budget: int,
+               tool: str = "ask") -> str:
+    """The tool under test, through a memo keyed on (map, words, budget, tool).
+
+    `ask` and `context` are budgeted the same way and cut by the same rules,
+    so the same recall measurement answers for both: the reference is the
+    tool's own answer at a budget nothing could exceed, and the arms are the
+    tool at each budget plus everything its handles return.
+    """
+    key = (map_path, words, budget, tool)
     if key not in _ANSWERS:
-        _ANSWERS[key] = _ask.ask(map_path, words, budget)
+        _ANSWERS[key] = (_ask.context(map_path, words, budget)
+                         if tool == "context"
+                         else _ask.ask(map_path, words, budget))
     return _ANSWERS[key]
 
 
-def _pick(map_path: str, pools: dict, n: int, seed: int) -> tuple:
+def _pick(map_path: str, pools: dict, n: int, seed: int,
+          tool: str = "ask") -> tuple:
     """`n` questions that actually match something, balanced across the
     sources that have anything.
 
@@ -329,7 +339,7 @@ def _pick(map_path: str, pools: dict, n: int, seed: int) -> tuple:
     asked, references, per_kind, leftovers, skipped = [], {}, collections.Counter(), [], 0
 
     def take(word):
-        reference = ordered_rows(answer_for(map_path, word, 10 ** 9))
+        reference = ordered_rows(answer_for(map_path, word, 10 ** 9, tool))
         if not reference:
             return False
         asked.append(word)
@@ -356,16 +366,29 @@ def _pick(map_path: str, pools: dict, n: int, seed: int) -> tuple:
 
 
 def evaluate(out_dir: str, n: int, budgets: list, seed: int,
-             max_calls: int = 400) -> dict:
+             max_calls: int = 400, tool: str = "ask") -> dict:
     """The deterministic report: per budget, what the first answer holds and
-    what the first answer plus its handles holds, against the whole answer."""
+    what the first answer plus its handles holds, against the whole answer.
+
+    `tool` is which budgeted answer is measured: `ask`, or `context`, which
+    composes five of them and cuts each block by the same rules. The
+    questions differ with it. `ask` takes words and is asked the map's own
+    three sources; `context` takes a name, so it is asked the declared names
+    and nothing else - a section heading's longest word is not a name, and
+    measuring `context` on one would measure the four empty blocks it would
+    have.
+    """
     map_path = os.path.join(out_dir, "framework_map.md")
     have = handles_available()
     pools = question_pool(out_dir)
-    asked, references, per_kind, skipped = _pick(map_path, pools, n, seed)
+    if tool == "context":
+        pools = {kind: (words if kind == "name" else [])
+                 for kind, words in pools.items()}
+    asked, references, per_kind, skipped = _pick(map_path, pools, n, seed, tool)
 
     report = {
         "map": out_dir,
+        "tool": tool,
         "seed": seed,
         "pool": sum(len(v) for v in pools.values()),
         "pool_by_kind": {kind: len(pools.get(kind) or []) for kind in KINDS},
@@ -385,7 +408,7 @@ def evaluate(out_dir: str, n: int, budgets: list, seed: int,
         for word in asked:
             reference = references[word]
             wanted = set(reference)
-            answer = answer_for(map_path, word, budget)
+            answer = answer_for(map_path, word, budget, tool)
             sizes.append(len(answer))
             shown = rows(answer)
             first = shown & wanted
@@ -471,7 +494,8 @@ def print_table(report: dict) -> None:
         print("  ".join(str(row[c]).rjust(widths[c]) for c in _COLUMNS))
     by_kind = ", ".join(f"{kind} {report['questions_by_kind'][kind]}"
                         f"/{report['pool_by_kind'][kind]}" for kind in KINDS)
-    print(f"map: {report['map']}  questions: {report['questions']} "
+    print(f"map: {report['map']}  tool: {report.get('tool', 'ask')}  "
+          f"questions: {report['questions']} "
           f"of {report['pool']} in the pool ({by_kind})  seed: {report['seed']}")
     if not report["handles"]:
         print("handles: not available in this build")
@@ -938,7 +962,7 @@ def _run_map_tool(name: str, args: dict, out_dir: str) -> str:
     if name == "defines":
         wanted = args.get("name")
         wanted = wanted if isinstance(wanted, list) else [str(wanted or "")]
-        hits = _mapper.definitions_for(map_path, [str(w).lower() for w in wanted])
+        hits = _mapper.spans_for(map_path, [str(w).lower() for w in wanted])
         return "\n".join(hits) if hits else "no declaration of " + ", ".join(wanted)
     if name == "callers":
         wanted = args.get("name")
@@ -968,6 +992,17 @@ def _run_map_tool(name: str, args: dict, out_dir: str) -> str:
         limit = int(asked_limit) if isinstance(asked_limit, int) else _HIT_BUDGET
         room = _share(limit, len(phrases), 5)
         return _joined([(p, _mapper.find_text(out_dir, p, room)) for p in phrases])
+    if name == "at" and hasattr(_ask, "at"):
+        places = _each(args.get("place")) or [""]
+        room = _share(_ANSWER_BUDGET, len(places), 1500)
+        return _joined([(p, _ask.at(map_path, p, room)) for p in places])
+    if name == "context" and hasattr(_ask, "context"):
+        wanted = _each(args.get("name")) or [""]
+        asked_limit = args.get("limit")
+        limit = (int(asked_limit) if isinstance(asked_limit, int)
+                 else _ANSWER_BUDGET)
+        room = _share(limit, len(wanted), 1500)
+        return _joined([(w, _ask.context(map_path, w, room)) for w in wanted])
     if name == "sections":
         return "\n".join(_ask.map_heads(map_path))
     if name == "more" and hasattr(_ask, "more"):
@@ -1216,6 +1251,12 @@ def main(argv: list | None = None) -> int:
                         help="comma separated byte budgets (default 350,1500,12000)")
     parser.add_argument("--seed", type=int, default=0,
                         help="seed for the question sample (default 0)")
+    parser.add_argument("--tool", default="ask", choices=["ask", "context"],
+                        help="which budgeted answer to measure: ask, or "
+                             "context, which composes five of them and cuts "
+                             "each block by the same rules (default ask). "
+                             "context is asked declared names only, since "
+                             "that is what it takes")
     parser.add_argument("--assert-from", type=int, default=1500, metavar="BYTES",
                         help="fail (exit 1) on rows no handle returned only at "
                              "budgets of at least BYTES (default 1500, the MCP "
@@ -1281,7 +1322,11 @@ def main(argv: list | None = None) -> int:
         parser.error("--budgets needs at least one number")
     if any(b < 0 for b in budgets):
         parser.error("--budgets takes byte counts, which are not negative")
-    report = evaluate(out_dir, args.questions, budgets, args.seed, args.max_more)
+    if args.tool == "context" and not hasattr(_ask, "context"):
+        print("this build has no context tool", file=sys.stderr)
+        return 2
+    report = evaluate(out_dir, args.questions, budgets, args.seed,
+                      args.max_more, args.tool)
 
     if args.json:
         print(json.dumps(report, indent=2, sort_keys=True))

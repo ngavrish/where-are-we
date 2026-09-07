@@ -1,6 +1,7 @@
 {
   "schema": "where-are-we/1",
   "repo": "<repo>",
+  "content_root": "5c2907ca17473f74e138751b5e383bdc41809ec488c8150596d51075bb39ada6",
   "stated": {},
   "layers": {
     "features": "Gherkin features: none found",
@@ -18,6 +19,100 @@
     "main": "<root>/poly/repo/main.go:1",
     "payInvoice": "<root>/poly/repo/b.ts:3"
   },
+  "spans": {
+    "Serve": [
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 3,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "TestServe": [
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 7,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "charge": [
+      {
+        "file": "<root>/poly/repo/a.ts",
+        "start": 1,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "customers": [
+      {
+        "file": "<root>/poly/repo/migrations/V1__init.sql",
+        "start": 1,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "main": [
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 1,
+        "end": null,
+        "kind": "module"
+      },
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 12,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "payInvoice": [
+      {
+        "file": "<root>/poly/repo/b.ts",
+        "start": 3,
+        "end": null,
+        "kind": "function"
+      }
+    ]
+  },
+  "rank": [
+    {
+      "name": "charge",
+      "file": "<root>/poly/repo/a.ts",
+      "line": 1,
+      "score": 0.350877193
+    },
+    {
+      "name": "payInvoice",
+      "file": "<root>/poly/repo/b.ts",
+      "line": 3,
+      "score": 0.0
+    },
+    {
+      "name": "Serve",
+      "file": "<root>/poly/repo/main.go",
+      "line": 3,
+      "score": 0.0
+    },
+    {
+      "name": "TestServe",
+      "file": "<root>/poly/repo/main.go",
+      "line": 7,
+      "score": 0.0
+    },
+    {
+      "name": "main",
+      "file": "<root>/poly/repo/main.go",
+      "line": 1,
+      "score": 0.0
+    },
+    {
+      "name": "customers",
+      "file": "<root>/poly/repo/migrations/V1__init.sql",
+      "line": 1,
+      "score": 0.0
+    }
+  ],
   "indexed": {
     "suite": 4
   },
@@ -223,6 +318,82 @@
       "marked": 0
     }
   },
+  "xrefs": [
+    {
+      "subject": "<root>/poly/repo/a.ts",
+      "edge": "declares",
+      "object": "charge",
+      "file": "<root>/poly/repo/a.ts",
+      "candidates": [],
+      "line": 1,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/b.ts",
+      "edge": "declares",
+      "object": "payInvoice",
+      "file": "<root>/poly/repo/b.ts",
+      "candidates": [],
+      "line": 3,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/b.ts:payInvoice",
+      "edge": "calls",
+      "object": "charge",
+      "file": "<root>/poly/repo/a.ts",
+      "candidates": [
+        "<root>/poly/repo/a.ts"
+      ],
+      "line": 4,
+      "resolution": "sole_declarer"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "Serve",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [],
+      "line": 3,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "TestServe",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [],
+      "line": 7,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "main",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [],
+      "line": 1,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/main.go",
+      "edge": "declares",
+      "object": "main",
+      "file": "<root>/poly/repo/main.go",
+      "candidates": [],
+      "line": 12,
+      "resolution": "declaration"
+    },
+    {
+      "subject": "<root>/poly/repo/migrations/V1__init.sql",
+      "edge": "declares",
+      "object": "customers",
+      "file": "<root>/poly/repo/migrations/V1__init.sql",
+      "candidates": [],
+      "line": 1,
+      "resolution": "declaration"
+    }
+  ],
   "data_flow": {},
   "blame_owners": {},
   "coverage_by_file": {},

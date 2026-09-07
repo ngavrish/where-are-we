@@ -6,6 +6,7 @@ are in this repository", "what does this one say" and "has it changed since the
 last build", and the rest of the package is built on those answers.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -16,9 +17,10 @@ from . import state
 from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
                     _TRACKED_CACHE, _WALK_CACHE)
 
-# `CACHE_SCHEMA`, `PARSE_COUNT`, `_PARSE_CACHE` and `__version__` are reached
-# through `state` rather than imported by name: three of them are rebound, and
-# a name imported by value would go on holding whatever it held at import time.
+# `CACHE_SCHEMA`, `HASH_COUNT`, `PARSE_COUNT`, `_HASH_CACHE`, `_PARSE_CACHE`
+# and `__version__` are reached through `state` rather than imported by name:
+# several of them are rebound, and a name imported by value would go on
+# holding whatever it held at import time.
 
 
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
@@ -166,24 +168,104 @@ def _write_atomic_group(pairs) -> None:
             raise
 
 
+# Every kind `_cached` is asked for, and the two families whose kind carries
+# the language or the extension it parsed. A record under any other kind was
+# written by a release whose shape has since changed: `func_edges_2` held six
+# tables where `func_edges_3` holds seven, and nothing reads one again. They
+# are dropped when the cache is written, so an upgraded checkout stops
+# carrying a table nothing can read. A CI step asserts this list is the list
+# of kinds the source asks for.
+CACHE_KINDS = frozenset((
+    "call_graph", "complexity", "exports_py", "func_edges_3", "hooks",
+    "module_doc", "public_api", "py_spans_2", "pytest_ast", "redactions",
+    "step_texts", "symbols"))
+CACHE_KIND_PREFIXES = ("spans:", "ts:")
+
+
+def _kind_is_live(key: str) -> bool:
+    """Whether a cache key's kind is one this release still computes."""
+    kind = key.split("\x1e", 1)[0]
+    return kind in CACHE_KINDS or kind.startswith(CACHE_KIND_PREFIXES)
+
+
+def _cache_path_in(out_dir: str, path: str) -> str:
+    """One indexed file's path as the cache file writes it: relative to the
+    directory the cache file itself is in.
+
+    The cache holds one key per file per kind plus one hash entry per file,
+    and an absolute path is most of every one of them: on this repository the
+    same 272 paths were written 13 times over. Relative to `out_dir` rather
+    than to the repository because `out_dir` is where the file being written
+    is, so nothing has to be told a second root, and `--also` folds in as the
+    `../` path that reaches the other checkout. A path on another Windows
+    drive has no relative form and keeps its absolute one, which `_cache_path_out`
+    passes straight back through.
+    """
+    try:
+        return os.path.relpath(path, out_dir)
+    except ValueError:  # a different drive on Windows
+        return path
+
+
+def _cache_path_out(out_dir: str, path: str) -> str:
+    """The inverse of `_cache_path_in`: what the process works in, absolute."""
+    if os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(out_dir, path))
+
+
 def _load_parse_cache(out_dir: str) -> None:
-    """Every `(kind, path)` -> `{"mtime", "size", "value"}` entry a previous
-    build persisted, if it was written by this schema and this version of
-    the tool; otherwise the whole file is discarded rather than trusted
-    entry by entry.
+    """Every `(kind, path)` -> `{"sha", "value"}` entry and every
+    `path -> {"mtime", "size", "ctime", "sha"}` hash a previous build
+    persisted, if the file was written by this schema and this version of the
+    tool; otherwise the whole file is discarded rather than trusted entry by
+    entry.
 
     Walking the tree is cheap; parsing every module is not, and a repository
-    where three files changed does not need the other nine hundred re-parsed."""
+    where three files changed does not need the other nine hundred re-parsed.
+    The hashes ride along in the same file because they answer the same
+    question one step earlier: which files are worth looking at again.
+
+    Paths on disk are relative to `out_dir` and absolute in memory, so the
+    two spellings meet here and in `_save_parse_cache` and nowhere else.
+    `empty` is the section holding the entries whose value is the empty list,
+    which is a sha and nothing else; it is read back as the entry it stands
+    for, so `_cached` sees one shape."""
     try:
         with open(os.path.join(out_dir, _PARSE_CACHE_FILE), encoding="utf-8") as fh:
             doc = json.load(fh)
+        hashes = {_cache_path_out(out_dir, k): v
+                  for k, v in (doc.get("hashes") or {}).items()}
         if (doc.get("schema") != state.CACHE_SCHEMA
                 or doc.get("version") != state.__version__):
+            # Only the parse entries go. What a kind stores is what a schema
+            # bump changes; the sha256 of a file's bytes means the same thing
+            # in every release, and the hashes this process took itself are
+            # not on disk to be distrusted in the first place.
             state._PARSE_CACHE = {}
+            state.HASHES_AT_LOAD = hashes
             return
-        state._PARSE_CACHE = doc.get("entries") or {}
+        entries = {}
+        for k, v in (doc.get("entries") or {}).items():
+            kind, _, path = k.partition("\x1e")
+            entries[f"{kind}\x1e{_cache_path_out(out_dir, path)}"] = v
+        for k, sha in (doc.get("empty") or {}).items():
+            kind, _, path = k.partition("\x1e")
+            entries[f"{kind}\x1e{_cache_path_out(out_dir, path)}"] = \
+                {"sha": sha, "value": []}
+        state._PARSE_CACHE = entries
+        state.HASHES_AT_LOAD = hashes
+        # Under, not over: a hash this process took describes the file as it
+        # is, and one read off disk describes it as it was when that file was
+        # last saved. The command line hashes on its way to deciding whether
+        # to build at all, and a load that replaced the dict threw those away
+        # and had `build()` read every one of those files a second time.
+        # Nothing can be served stale by keeping them, because `content_hash`
+        # validates every entry against the file's current stat block anyway.
+        state._HASH_CACHE = {**hashes, **state._HASH_CACHE}
     except (OSError, ValueError):
         state._PARSE_CACHE = {}
+        state.HASHES_AT_LOAD = {}
 
 
 def _save_parse_cache(out_dir: str) -> None:
@@ -195,11 +277,26 @@ def _save_parse_cache(out_dir: str) -> None:
         return
     try:
         # A file that moved or was deleted since the last build otherwise
-        # keeps its stale entry forever: nothing else ever prunes one.
-        live = {k: v for k, v in state._PARSE_CACHE.items()
-                if os.path.exists(k.split("\x1e", 1)[-1])}
+        # keeps its stale entry forever, and so does a record under a kind
+        # this release no longer computes: nothing else ever prunes either.
+        live, empty = {}, {}
+        for k, v in state._PARSE_CACHE.items():
+            kind, _, path = k.partition("\x1e")
+            if not os.path.exists(path) or not _kind_is_live(k):
+                continue
+            short = f"{kind}\x1e{_cache_path_in(out_dir, path)}"
+            # An entry whose value is the empty list is a sha and a shape.
+            # 246 of this repository's 272 redaction diffs are empty, and
+            # writing each of them as `{"sha": ..., "value": []}` under an
+            # absolute path cost four times what the sha alone costs.
+            if v.get("value") == []:
+                empty[short] = v.get("sha")
+            else:
+                live[short] = v
+        hashes = {_cache_path_in(out_dir, k): v
+                  for k, v in state._HASH_CACHE.items() if os.path.exists(k)}
         doc = {"schema": state.CACHE_SCHEMA, "version": state.__version__,
-               "entries": live}
+               "entries": live, "empty": empty, "hashes": hashes}
         # Atomically: a reader that lands mid-write used to see a prefix,
         # fail to parse it and throw the whole cache away, and re-parse a
         # tree nobody had touched.
@@ -208,20 +305,136 @@ def _save_parse_cache(out_dir: str) -> None:
         pass
 
 
+# How much of a file is read at a time while hashing it. A whole file in
+# memory is what `_slurp` already refuses to do for the large ones, and a hash
+# has no reason to hold more than the block it is folding in.
+_HASH_CHUNK = 1024 * 1024
+
+
+def content_hash(path: str) -> str | None:
+    """The sha256 of a file's bytes, hex, or None for a file that cannot be
+    read. Computed once per file per build, and once per change after that.
+
+    The stat block is the pre-filter and the hash is the answer. If `path` has
+    the mtime, size and ctime it had when its hash was last taken, that hash
+    still describes it and nothing is read; otherwise the bytes are read in
+    blocks and folded into a fresh digest. On a tree nobody touched that is
+    one `stat` per file and no reads at all, which is the whole reason this is
+    affordable enough to key the parse cache on.
+
+    Read `state._HASH_CACHE` for why the ctime is in the pre-filter: without
+    it, the one case content addressing exists to catch (a same-size rewrite
+    with the timestamp put back) is the one case the pre-filter would skip.
+
+    `--force` distrusts this cache the way it distrusts the parse cache, so
+    that one command exists that recomputes a content root from the bytes
+    rather than from a stat block. It costs one read per file and not two:
+    a file this build has already hashed is not hashed again for the root.
+    """
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    entry = state._HASH_CACHE.get(path)
+    trusted = state.PARSE_CACHE_READS or path in state._HASHED_THIS_BUILD
+    if (trusted and entry is not None and entry.get("mtime") == st.st_mtime_ns
+            and entry.get("size") == st.st_size
+            and entry.get("ctime") == st.st_ctime_ns):
+        return entry.get("sha")
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            while True:
+                block = fh.read(_HASH_CHUNK)
+                if not block:
+                    break
+                digest.update(block)
+    except OSError:
+        return None
+    sha = digest.hexdigest()
+    state.HASH_COUNT += 1
+    state._HASHED_THIS_BUILD.add(path)
+    state._HASH_CACHE[path] = {"mtime": st.st_mtime_ns, "size": st.st_size,
+                               "ctime": st.st_ctime_ns, "sha": sha}
+    return sha
+
+
+def content_pairs(repo: str) -> list:
+    """Every indexed file under `repo` as `(path relative to repo, sha256)`,
+    sorted by path. A file that cannot be read is left out rather than given
+    an invented hash: it is not in the map either.
+
+    The set is `_indexable`'s, which is the set the walk indexes and the set
+    `fingerprint` stamps, so all three are answering about the same files.
+    """
+    pairs = []
+    for full in _indexable(repo):
+        sha = content_hash(full)
+        if sha is None:
+            continue
+        pairs.append((os.path.relpath(full, repo).replace(os.sep, "/"), sha))
+    pairs.sort()
+    return pairs
+
+
+def content_root(repo: str) -> str:
+    """One sha256 over the sorted `(relative path, hash)` pairs: what the tree
+    says, rather than when it last said it.
+
+    `fingerprint` answers "has anything been written here since", from the
+    commit and the newest mtime, and that is the cheap question. This answers
+    "is the content the same", and it is the one an mtime cannot be made to
+    answer: a rewrite that kept its length and had its timestamp put back
+    moves this and not that. Both are kept, because the mtime is what makes
+    the check cheap and this is what makes it true.
+
+    Deterministic by construction: the pairs are sorted, and a path is written
+    as it reads relative to the repository root with forward slashes on every
+    platform. The encoding is unambiguous because of the NUL after the path: a
+    filename may legally contain a newline, so the newline between records
+    would not separate them on its own, while a NUL cannot appear in a path on
+    any filesystem this runs on and never appears in a hex digest.
+    """
+    return _root_of(content_pairs(repo))
+
+
+def _root_of(pairs) -> str:
+    """The root digest of already-collected `(relative path, hash)` pairs.
+
+    Split out from `content_root` for `build()`, which needs the pairs
+    themselves as well (it reports which of them moved) and must arrive at the
+    same digest the command line compares against, byte for byte, rather than
+    at its own copy of this loop.
+    """
+    digest = hashlib.sha256()
+    for rel, sha in pairs:
+        digest.update(rel.encode("utf-8", "surrogateescape"))
+        digest.update(b"\0")
+        digest.update(sha.encode("ascii"))
+        digest.update(b"\n")
+    return digest.hexdigest()
+
+
 def _cached(path: str, kind: str, compute):
     """Run `compute()` once per file per kind, and reuse the answer after that.
 
-    Keyed by the path and the kind of thing being computed, so the same file
+    Keyed by the path, the kind of thing being computed and the sha256 of the
+    file's bytes. The path and the kind pick the entry out, so the same file
     can hold a cached step-phrase list and a cached call graph without one
-    overwriting the other. The stored mtime and size are what say whether the
-    file has actually changed since; a build that trusted only the path would
-    hand back last month's answer for a file the sha changed underneath.
-    That check has a blind spot: a file rewritten with the same byte count
-    inside the same filesystem timestamp tick keeps its old mtime and size,
-    and the stale value is served. `--force` is the escape hatch: it sets
-    `state.PARSE_CACHE_READS` False for that build, so nothing here is
-    believed and every answer is computed again, and the cache is rewritten
-    from what that build found.
+    overwriting the other; the hash is what says the entry still describes the
+    file. A build that trusted only the path would hand back last month's
+    answer for a file that had been rewritten underneath it.
+
+    The key used to be the path, the kind, the mtime and the size, and that
+    had a blind spot: a file rewritten with the same byte count and its
+    timestamp put back keeps both, and the stale value was served. `--force`
+    was the only escape. The hash has no such spot, and `content_hash` keeps
+    the mtime and size as its own pre-filter so that the tree nobody touched
+    still costs one `stat` per file and no reads.
+
+    `--force` still sets `state.PARSE_CACHE_READS` False for that build, so
+    nothing here is believed and every answer is computed again, and the cache
+    is rewritten from what that build found.
 
     WAWE_NO_CACHE=1 goes further and makes this a plain call to `compute()`
     with nothing recorded at all, for whoever wants a build that leaves the
@@ -229,21 +442,22 @@ def _cached(path: str, kind: str, compute):
     """
     if state.NO_CACHE:
         state.PARSE_COUNT += 1
+        state.PARSED_FILES.add(path)
         return compute()
-    try:
-        st = os.stat(path)
-    except OSError:
+    sha = content_hash(path)
+    if sha is None:
         state.PARSE_COUNT += 1
+        state.PARSED_FILES.add(path)
         return compute()
     key = f"{kind}\x1e{path}"
     if state.PARSE_CACHE_READS:
         entry = state._PARSE_CACHE.get(key)
-        if (entry is not None and entry.get("mtime") == st.st_mtime
-                and entry.get("size") == st.st_size):
+        if entry is not None and entry.get("sha") == sha:
             return entry["value"]
     value = compute()
     state.PARSE_COUNT += 1
-    state._PARSE_CACHE[key] = {"mtime": st.st_mtime, "size": st.st_size, "value": value}
+    state.PARSED_FILES.add(path)
+    state._PARSE_CACHE[key] = {"sha": sha, "value": value}
     return value
 
 
@@ -477,6 +691,15 @@ def redact(value, contiguous: bool = False):
     that list is swept with the state that says whether it is inside one.
     Every other list is an aggregate over files and gets no shared state:
     a header in one file's row used to blank the rows of every file after it.
+
+    `lines` is passed through untouched when `state.LINES_REDACTED` says the
+    build that produced the map redacted every line as it recorded it. It is
+    the only key this pass can know is already done, it is by far the largest,
+    and the pass over it is provably inert: on this repository's 36,000 lines
+    it changed none of them. It cost 0.38 s of every build all the same. Every
+    other key is swept whatever produced the map, and a map from a build that
+    said `redact_lines=False`, or from no build at all, has its lines swept
+    here as before, so nothing is written to disk unredacted.
     """
     if isinstance(value, str):
         out = _PEM_BLOCK.sub("[redacted]", value)
@@ -494,7 +717,13 @@ def redact(value, contiguous: bool = False):
     if isinstance(value, list):
         return _redact_lines(value) if contiguous else [redact(v) for v in value]
     if isinstance(value, dict):
-        return {k: redact(v, contiguous or k == _CONTIGUOUS_KEY)
+        # The key name, at whatever depth it is found, which is the same rule
+        # `contiguous` has always been chosen by. The map has one `lines` key
+        # and it is at the top, so nothing else takes either branch today; a
+        # nested section ever named `lines` would take both, and would have to
+        # be renamed or given its own test here.
+        return {k: (v if k == _CONTIGUOUS_KEY and state.LINES_REDACTED
+                    else redact(v, contiguous or k == _CONTIGUOUS_KEY))
                 for k, v in value.items()}
     return value
 
@@ -545,7 +774,13 @@ def _lines_matching(body, words, limit=4):
     return out
 
 
-def _slurp(path: str, limit: int = 400000) -> str:
+# What one extractor reads of one file by default. Named because two other
+# modules have to know it: a declaration whose end line sits at this bound was
+# not seen to end, it was cut off there.
+SLURP_LIMIT = 400000
+
+
+def _slurp(path: str, limit: int = SLURP_LIMIT) -> str:
     """Read a file once per run, up to `limit` bytes. The sections each used to
     walk and re-read the tree for themselves, and a hundred sections over a
     hundred-thousand-file repository is a hundred passes over the same disk for

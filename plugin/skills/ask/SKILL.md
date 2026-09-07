@@ -27,10 +27,20 @@ line), and `find`'s hits past its limit (`more:find:`).
   finds more than "how is a settled invoice refunded".
 - **One call, several questions.** `words` is a list: `["refund", "invoice
   settled", "MAX_RETRIES"]` is one round trip, three answers.
-- **Names go to `defines`, phrases go to `find`.** `ask` ranks sections;
-  `defines(name=[...])` answers "where is X declared" with a line, and
-  `find(phrase=[...])` answers "where does this step / string live". Use the
-  narrower tool when you have a name.
+- **Say where you are working.** `files=["billing/", "core.py"]` puts the rows
+  naming those paths first inside every section; the rest still print, with
+  the same tail and the same handle. A directory prefix counts, and paths are
+  read relative to the repository root.
+- **When you do not know what to ask for, `rank` first.** `ask` answers what
+  mentions a word; `rank(files=[...])` answers which definitions the codebase
+  is built around, and which matter given the files you are in.
+- **Names go to `defines`, phrases go to `find`, lines go to `at`.** `ask`
+  ranks sections; `defines(name=[...])` answers "where is X declared" with
+  every home and its span, `at(place=["f.py:147"])` answers "what is this line
+  inside" with the whole definition, and `find(phrase=[...])` answers "where
+  does this step / string live". Use the narrower tool when you have a name,
+  and `context(name=[...])` when the name is new to you and you want all five
+  answers about it in one call.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

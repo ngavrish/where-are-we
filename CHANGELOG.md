@@ -1,5 +1,324 @@
 # Changelog
 
+## 1.5.0
+
+What the neighbours in this space do better, taken: every home of a name with
+its span, one call that answers the five an agent asks on landing, a ranking of
+what the repository is built around, a content-addressed parse cache, a `tags`
+file, a cost report and an export, and every edge of the graph as a row that
+says which rule placed it.
+
+- Every home of a name, with the line it ends on. The map gains a key
+  `spans`: `{name: [{file, start, end, kind}]}`, one row per declaration site,
+  sorted by file then start. `definitions` is unchanged, so nothing reading it
+  moves; what changes is that a name declared in two files no longer keeps
+  whichever of them the walk reached first and says nothing about the other.
+  The end line is `ast`'s own `end_lineno` for Python and a tree-sitter node's
+  `end_point` where a grammar is installed; for a language the pattern table
+  reads it is null and prints as `?`, because a pattern has seen the line a
+  declaration starts on and nothing that says where it stops, and a guessed
+  end is worse than none for anyone editing by anchor.
+- What a file quotes is not what it declares. The lines inside a Python string
+  literal, docstrings included, and the body of a `<<EOF` heredoc in a shell
+  script or a workflow are text this file hands to something else, so they are
+  no longer read for declarations. On this repository that is three names
+  gone: `refund`, a `def` inside the string `tests/golden/build_fixtures.py`
+  writes out; `build`, a `def` inside a `python - <<'EOF'` block in the CI
+  workflow, which used to outrank the real `build` in `rank`; and `of`, from
+  the phrase "the class of that command line" in a docstring. The heredoc rule
+  is applied to `.sh`, `.bash`, `.zsh`, `.ksh`, `.yml` and `.yaml` and nowhere
+  else, because `a << b` at the end of a line is a shift in the languages that
+  have no heredocs. It is a shift in shell too, so an opener is refused where
+  the line puts it inside `$(( ))` or `(( ))`, after `let`, or in an integer
+  declaration, and a bare delimiter is believed only when a later line closes
+  it: `let MASK=1 << bits` declares `MASK` and everything after it, as it did
+  before. A redirection after the delimiter is still a heredoc, which is what
+  `python - <<'EOF' > out.bin` is. An opener that is believed and never closed
+  runs to the end of its own file and nothing beyond it, and that file is named
+  under `## This map is incomplete` with the delimiter that was left open.
+- `--defines NAME` and the MCP `defines` tool list every home:
+  `charge: a.py:10-24 (function), b.py:88-91 (function)`. The flag is new; the
+  tool answered with one home per name before, chosen by directory order.
+- `--at FILE:LINE` and the MCP `at` tool return the whole definition enclosing
+  a line, which is the move after every stack trace and was until now a read
+  at a guessed offset. The innermost definition, whole lines, cut to the
+  answer budget with a `more:at:` handle for the rest. A line no definition
+  encloses is answered with `no definition encloses FILE:LINE` and the nearest
+  declarations, rather than with the wrong function.
+- Under the `precise` extra, `.ts`, `.tsx`, `.js`, `.jsx` and `.go` get real
+  end lines too. The grammar is asked how far a declaration runs and nothing
+  else: which names those files declare, and on which line, is the pattern
+  table's answer either way, so `definitions` is the same map with the extra
+  installed and without it.
+- `--context NAME` and the MCP `context` tool answer in one call what five
+  calls answered before: where the name is declared and how far each
+  declaration runs, the rows of the map that mention it, who calls it, what it
+  calls, and its blast radius one hop out. Nothing new is parsed and nothing
+  new is stored; it is `defines`, `ask`, `callers`, `callees` and `impact`
+  over the same map, so an agent that lands on a name pays one round trip
+  rather than five. The budget is counted in characters, as `ask`'s is, and
+  the first line says so: it names the five blocks, the ceiling and the
+  shares, in 134 characters rather than the 181 an earlier draft spent,
+  because at the MCP server's 1500 floor that line is twelve percent of the
+  answer. The budget is allocated in two passes: every block is
+  given the smaller of what printing all of itself would cost and its floor
+  share - 15 percent for the declarations, 35 for the map's rows, 15 for the
+  callers, 15 for the callees, 20 for the impact - and what nobody claimed is
+  handed on in that same order to the blocks still short. So when the five
+  answers together fit the budget, every one of them is printed whole; and the
+  same name at the same budget is always the same answer, since the needs come
+  from the map and the order is fixed. Whole rows; a block that could not
+  print all of itself ends in a tail carrying a `more:ctx:` handle that `more`
+  resolves like any other, and a block that could not be given room for even
+  that is left out rather than printed as a count nobody can follow.
+- `wawe-eval --tool context` measures the new tool with the harness that
+  measures `ask`: over 100 names of the suite fixture, recall with handles is
+  1.0 at 1500 and at 12000 characters, which the CI step `context returns in
+  one call what five calls return` asserts, at that root and at one whose
+  absolute path is 80 characters longer, since path length moves how many rows
+  fit and not what a handle returns.
+- What the repository is built around, ranked. The map gains a key `rank`:
+  the top 200 definitions as `{name, file, line, score}`, best first, from
+  PageRank over the graph the map already describes. Files are the nodes; an
+  edge runs from a file that uses a name to the file that declares it,
+  weighted by the square root of how often it uses it; aider's four
+  multipliers apply, x10 for a long snake, kebab or camel name and x0.1 for a
+  leading underscore or a name more than five files declare. A hundred
+  iterations of power iteration at damping 0.85, nodes walked in sorted
+  order, scores rounded to nine digits before they are sorted and ties broken
+  by path, so two builds of one tree and both supported Pythons write the
+  same bytes. No dependency: the iteration is forty lines of arithmetic.
+- `--rank [FILE,...]` and the MCP `rank` tool answer the same question with
+  the walk personalised on the files you name, which is the one worth asking:
+  what should I read given that I am editing these. `--ask WORDS` alongside
+  it, or the tool's `words`, weighs the identifiers in the question ten
+  times. `--limit N` says how many rows; with no files and no words the
+  answer is the stored key, which is what the CI step compares.
+- `--files a.py,b.py` on `--ask`, and `files` on the MCP `ask` tool: inside
+  every section the rows naming one of those files come first and the rest
+  follow with the tail they had. A directory prefix counts and stops at a
+  separator, so `--files bill` is not `billing.py`; paths are read relative to
+  the repository root; a row that names only a basename is resolved through
+  the files the map indexed, so `--files billing/` reaches
+  `refund.py:refund` in the call graph; and a path nothing indexed matches is
+  named on stderr rather than silently answered as the whole repository.
+  `--files -` reads a newline separated list on stdin, which is where
+  `git diff --name-only` goes. Without it no answer moves: every golden
+  expected file was recorded before this and none of them changed.
+- A scoped answer's `more:` handle carries the scope, as one more
+  percent-encoded field: `more:rows:<section>:<words>:<offset>:<files>`. The
+  offset counts rows in the order the scoped answer printed, so a handle
+  without it would slice the unscoped order at that number, skipping every row
+  `--files` demoted past the cut and repeating every row it promoted. `more()`
+  rebuilds the scope from the field and reorders the section before it
+  continues, so following a scoped answer's handles reaches every row an
+  unscoped answer holds. An unscoped answer carries no fifth field and its
+  handles are character for character what they were.
+- `--rank` reads `--files` too, so the flag that means "the files I am working
+  in" means it on both tools. `--limit` is refused below 1 rather than sliced
+  from the end, which is what the MCP tool already did.
+- The parse cache is keyed on content. An entry is now `(path, kind, sha256 of
+  the file's bytes)` rather than `(path, kind, mtime, size)`, so a rewrite that
+  kept its byte count and had its timestamp put back (rsync --times, cp -p,
+  tar -p, a restore from a build cache, a `git checkout` of a line the same
+  length) is re-parsed without `--force`. That was the one staleness hole the
+  README named out loud, and it is closed.
+- Hashing stays affordable because it is pre-filtered: a file whose mtime,
+  size and inode change time are what they were when its hash was last taken
+  is not read at all. A rebuild of a tree nobody touched hashes nothing and
+  parses nothing, and `WAWE_DEBUG_PARSES=1` now prints `hashed N files` beside
+  `parsed N files` so both halves of that claim can be checked. `parsed N
+  files` counts files: one file is asked for its declarations, its symbols,
+  its call graph, its step phrases and its redaction diff, so the count of
+  computations is about three and a half times larger and it was that count
+  the line used to print. The computation count is still `PARSE_COUNT`, which
+  the `mapper` facade exposes. The inode
+  change time is in the pre-filter because the mtime and the size alone are
+  exactly the case content addressing exists to catch, and nothing in
+  userland can put a ctime back.
+- A tree whose timestamps all moved while its content did not now re-parses
+  nothing, where it used to re-parse everything: a CI cache restored over a
+  fresh checkout, a `cp -r`, a `tar x`, a container rebuild. Measured on this
+  repository, 667 parses before and 0 after.
+- The parse cache schema is 4, and no 1.4 cache is read. Three things changed
+  its shape over this release, and one number says so: an entry is validated
+  by the sha256 of the file's bytes rather than by its mtime and size;
+  `ts:<lang>` stored a list of names and now stores `[name, start, end, kind]`
+  rows, which an old entry read under the new code would index a character out
+  of; and a key and a hash now name their file relative to the directory the
+  cache file is in rather than absolutely, so the same path is not written out
+  in full once per kind per file. An entry whose value is the empty list is
+  written to a new `empty` section as its sha alone, which is most of the
+  redaction diffs, since most files hold nothing that looks like a credential.
+  Measured on this repository, 260 indexed files, the last two of those
+  changes take `.wawe-cache.json` from 590,653 to 501,718 bytes, 15 percent:
+  the entries from 516,359 to 449,253 across the two sections and the hashes
+  from 74,236 to 52,396. Against 1.4.1 the file is larger, not smaller, since
+  1.4.1 kept no hashes and fewer kinds at all. A file written by an earlier schema is read for its
+  hashes, since a sha means the same thing in every release, and dropped for
+  its entries, so the build after an upgrade re-parses the tree once and every
+  build after that is warm.
+- `HASHES_ADDED` and `HASHES_GONE` are on the `mapper` facade beside
+  `HASHES_MOVED`, so a library caller reading what a build found through the
+  facade gets all three lists rather than a third of the answer.
+- New map key `content_root`: one sha256 over the sorted `(path relative to
+  the repository, hash)` pairs of every indexed file. `fingerprint` keeps its
+  documented `<commit>:<newest mtime in nanoseconds>` format and its meaning;
+  the root is the sibling that says what the tree holds rather than when it
+  was last written to. A build is now skipped only when both agree, and
+  `--watch` asks both questions on every tick rather than only the first.
+  Two limits worth knowing: the root is compared only when the map already in
+  `--out` has one, so the first build after upgrading an existing `--out` from
+  1.4.x still decides on the fingerprint alone and can serve one more stale
+  answer; and where `st_ctime` is a creation time rather than an inode change
+  time (Windows), the pre-filter cannot see a same-size rewrite that put its
+  mtime back, and neither can the root.
+- `--force` distrusts the content hashes as well as the parses, so there is
+  one command that recomputes a content root from the bytes. It still reads
+  each file once, not twice.
+- `--diff` names the files whose content moved, were added or are gone before
+  it names the map keys that moved with them. It reads the parse cache and no
+  longer writes it: everything it prints is measured against the map already
+  in `--out`, and a `--diff` that rewrote the cache moved its own baseline and
+  answered differently the second time it was run over the same tree.
+- `build()` returns redacted lines. The map on disk has always been redacted;
+  what changes is that the value `build()` hands a library caller is now the
+  same text, so anything computed inside the build over `lines` and anything
+  a reader asks the map for agree. Redaction runs once per file as the lines
+  are recorded and what it changed is cached under the file's hash, so a
+  rebuild of a tree nobody touched redacts nothing. The whole-map pass the
+  writers run now passes `lines` through rather than sweeping them a second
+  time, because that is where they were redacted: the pass over 36,000 lines
+  of this repository provably changed none of them and cost 0.46 s of every
+  build, warm ones included. It still sweeps every other key, and it still
+  sweeps `lines` for a map whose build said `redact_lines=False` or for a map
+  handed to it by a process that never built one, so a map written to disk is
+  redacted whatever produced it. The published map is byte for byte what it
+  was. `build(redact_lines=False)` is for a caller that wants the raw lines,
+  which is the golden fixture builder and nothing else.
+- `--ctags` writes `<out>/tags` beside the map: every declaration site the
+  `spans` key holds, in universal-ctags format, with the line number as the EX
+  command, `kind:`, `line:` and, where a parser knew it, `end:`. The map was
+  already a tags file with the fields renamed; writing one costs a sort and a
+  format string and buys vim, emacs, helix, kakoune, `readtags` and everything
+  else that has read the format for thirty years, with no server running, over
+  a checkout mounted read only, in a language whose server is not installed on
+  the machine. Rows are sorted as bytes over the whole row, which is what
+  `LC_ALL=C sort` checks and what the file's own `!_TAG_FILE_SORTED 1` promises
+  a reader doing a binary search; a name or a path holding a tab or a newline
+  is left out rather than rewritten, since a name spelled differently from the
+  source is worse than a name the editor cannot jump to. Written atomically
+  like every other artefact, and named by `--dry-run` before it exists.
+- `--cost [THRESHOLD]` says what each section of the map costs to carry: rows,
+  bytes and tokens, heaviest first, with a total, and with every section under
+  THRESHOLD bytes hidden. `--cost --json` prints the same table as
+  `where-are-we-cost/1`. The sections are the ones a reader carries: every one
+  in `framework_map.md`, then every one in the brief beside it whose heading
+  the map does not already have, which is the rule every read composes the two
+  files by. Each is measured on its own file rather than on the two joined
+  together, so a byte count is the one `wc -c` gives for those lines, and the
+  report ends with a `measured:` line per file whose header plus sections is
+  exactly that file's size. The token column is `bytes / 4` and says
+  `estimate`: no extra this project has carries a tokenizer that can be
+  reached without downloading a model, and a precise count from the wrong
+  tokenizer would be worse than an honest division.
+  `semantic.token_counter()` is the one place that has to learn about a
+  tokenizer if one ever arrives.
+- `--export FILE` writes the map as one self-contained file: the incompleteness
+  notice, the `indexed:` counts, every section with its byte and row count,
+  then the brief. For the case where a map has to travel through something
+  with no filesystem, a PR comment or a paste, and the pointer, which is a
+  path and an invitation to ask, is no use. `--export -` writes it to stdout,
+  which is where a paste usually comes from; an empty path is refused rather
+  than falling through to a build, and `--dry-run` names every directory the
+  write would have to create as well as the file. Not the whole map: the big
+  file is the one the pointer exists to keep out of a prompt. The internal
+  renderer named `digest` keeps its name; the flag is `--export` because the
+  two would otherwise be one word for two different things.
+- The effects table gains all three. `--ctags` is `writes-map-dir`, `--cost` is
+  `read` and appends to the answer log like every other read, and `--export` is
+  `writes-repo`, the class `--agent-file` and `--docs` already carry for the
+  same reason: the path is the caller's and the flag cannot say in advance
+  where it lands.
+- `--context` joins the set of flags that answer without building, so
+  `where-are-we --context Foo` is classified `read` rather than picking up the
+  build floor a command line with no read flag on it carries. It answers out
+  of a map on disk and returns before any build, and has since it shipped;
+  only the classification was wrong. `effects.json` does not move, since the
+  set is not part of the manifest. The README's copy of that list gains
+  `--defines`, `--at` and `--rank` as well, which have been in the set since
+  they shipped, and a CI step now compares the sentence with the set so it
+  cannot drift a third time.
+- Every edge, with the rule that placed it. The map gains a key `xrefs`:
+  one row per edge, `{subject, edge, object, file, candidates, line,
+  resolution}`, sorted by subject, object and line and capped by nothing.
+  `edge` is `calls` (a cross-file call), `declares` (a `spans` site) or
+  `imports` (one import line, with the file it is in and the line it is on,
+  for the package pairs `import_graph` summarises). Every path in every row
+  is absolute, which is the spelling `definitions` and most of `spans` use,
+  so the table joins to itself: the file a `calls` row settled on is the
+  subject of the `declares` rows for that file. A `declares` row's
+  `candidates` is empty, because a declaration is not a choice between
+  files, and a site the page object and step tables recorded relative to the
+  root being walked is named under the root it exists under, so an `--also`
+  map of two checkouts names each file where it really is. `call_graph_files` is derived
+  from the `calls` rows by the renderer that writes it, and holds less than
+  they do: it is cut to 8 callees a key and 60 keys, and its keys are
+  basenames, so where two files of one basename declare one function name
+  they share a key and the file the walk read last owns it while both keep
+  their rows. A consumer that parses the pipes and the `?` back out of
+  `charge (a.py|b.py)?` can now read the same fact as data instead.
+- `resolution` says how sure the map is about each edge, not only about the
+  ambiguous ones. Eight values, each written by the rule that placed the
+  edge: `sole_declarer` (one indexed file declares the name), `import_line`
+  (the caller's own import line named the file), `receiver_import` (the
+  module the receiver was bound to named it), `re_export` (a facade's own
+  import lines were followed to the file with the `def`), `base_class` (a
+  `self.name(...)` call reached the one base that declares it),
+  `declaration` (the row is the declaration site), `import_statement` (the
+  row is the import line) and `ambiguous` (several files declare the name and
+  nothing said which, which is the `?` the rendering carries). An unmarked
+  edge used to cover two different degrees of certainty; now it says which.
+  There is no `local` value and no `overrides` edge: a call inside the file
+  that declares the callee never becomes an edge at all, and no rule computes
+  an override.
+- `impact` prints a `how:` line under each hop, naming in the same order the
+  rule that placed each of that hop's edges, and `step_graph` for a hop
+  through the behave step graph, which records a bare name and no rule. The
+  `depth N:` lines are unchanged. A map with no `xrefs` key gets no `how:`
+  line and no promise of one.
+- `call_graph_stats` is unchanged and now checkable: `marked` is the count of
+  `ambiguous` rows per language, and `edges` the count of the placed ones.
+- The Python parse record's cache kind is `func_edges_3`: it carries the
+  first line each name is called on, which is the line an `xrefs` row holds.
+  A `func_edges_2` record is not read, so the first build after upgrading
+  reparses the Python files, and it is dropped rather than carried: a record
+  under any kind this release no longer computes is left out when the cache
+  is written, which used to leave half an upgraded checkout's cache file
+  unreadable until someone ran `--force`.
+- Under `--also` the `declares` rows are rebuilt from the merged `spans`, so
+  a map of two roots holds the rows of both. The `calls` and `imports` rows
+  are the first root's, as `call_graph_files` and `import_graph` are, and the
+  second root's map is under `also`.
+- Every `spans` site is an absolute path. The page object and public API
+  tables used to record one relative to whichever root was being walked, and
+  `spans` does not say which root that was, so the two things written from the
+  key had to put a root back on and did it in opposite directions: `xrefs`
+  joined a relative site onto the first root it existed under, which under
+  `--also` could name a file that is not there, and the `tags` file took a
+  root off an absolute one. One spelling in the key, one rule per consumer:
+  `xrefs` copies the path through, and `tags` relativises every row against the
+  directory the tags file is written into, which is where every ctags reader
+  resolves it from. With the usual `--out .` at the repository root that is
+  the path it always was; with the plugin's `--out .wawe` it is `../src/a.py`,
+  which is the file the row means and which used to be a path that opened
+  nothing.
+- Upgrading does not add `spans` to a map that is already on disk. A build
+  skips a tree that has not moved, so run `where-are-we --repo . --out ...
+  --force` once after upgrading, or wait for the next commit. Until then
+  `--defines` answers in the old `- \`name\` - file:line` shape from the old
+  map, and `--at` says the map has no spans index and names the fix.
+
 ## 1.4.1
 
 - Receivers the syntax settles. A call written `NAME.callee(...)` used to be

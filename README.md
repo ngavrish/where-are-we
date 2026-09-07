@@ -108,8 +108,10 @@ words or to open `framework_map.md`.
     /plugin install where-are-we@where-are-we
 
 The plugin builds the map at session start, puts its pointer into the session's
-context, serves the map's tools over MCP (`ask`, `find`, `defines`,
-`sections`) and ships five skills. It needs `where-are-we` on PATH
+context, serves all eleven of the map's tools over MCP (`ask`, `at`, `callees`,
+`callers`, `context`, `defines`, `find`, `impact`, `more`, `rank`, `sections`)
+and ships six skills (`ask`, `orient`, `rank`, `readmes`, `spec-map`,
+`where-defined`). It needs `where-are-we` on PATH
 (`pipx install where-are-we`). Details in [plugin/README.md](plugin/README.md).
 
 ## Everything it does, and what it is measured to save
@@ -126,21 +128,24 @@ as estimates.
 | Feature | What it does | Measured impact | If not measured, how to |
 |---|---|---|---|
 | One tree walk → `framework_map.md`, `framework_map_brief.md`, `framework_map.json` | Indexes layers, entry points, routes, data model, public surface, call graph, steps, scenarios, fixtures, CI, duplicates, dead code, every declared name with its line. Declarations are indexed by dedicated regex for Python, TypeScript/JavaScript, Rust, Kotlin, C# and Ruby (a tree-sitter parse tree instead, for the languages it has a grammar for, where `pip install "where-are-we[precise]"` is present), and by a generic pattern for anything else | Build: ~10 s on the 184-feature suite, offline, 0 tokens (README). 75 sections on this repository, 28 on the demo suite | — |
-| Deterministic output | Same tree, same map, byte for byte | `tests/golden/check.py` (CI step `golden`): two builds of three fixture trees are byte-identical on every CI run; 150 `ask` cases pinned | n/a |
+| Deterministic output | Same tree, same map, byte for byte | `tests/golden/check.py` (CI step `golden`): two builds of three fixture trees are byte-identical on every CI run; 156 `ask` cases pinned | n/a |
 | `schema: where-are-we/1`, stable JSON contract (`SCHEMA.md`) | Sections may be added within a major; existing shapes keep | Not measurable; a promise | Consumers: any agent runner that reads the JSON (`find_text`, `_definitions_for`) |
-| Fingerprint (`<commit>:<newest mtime in nanoseconds>`) and `--force` | A build is skipped when the tree has not moved. The mtime keeps the precision the filesystem reports, so an edit inside the same second as the build before it is still seen, and it covers every file the map indexes rather than a fixed list of extensions, so an edit to a `.go`, `.rs`, `.kt`, `.cs`, `.rb`, `.java`, `.yaml`, `.tf` or `.proto` file is seen too | Not measured | CI steps `idempotent` (two builds of the same tree, the second prints `unchanged since it was built`), `an edit in the same second as the build is still seen`, and `the fingerprint watches exactly the files the map indexes` (five languages edited in turn, each one rebuilt) |
-| Incremental rebuild: `_cached()` around every `ast.parse`, tree-sitter parse and declaration scan, keyed by path, kind, mtime and size (`--force` reads nothing from it and rewrites it; `WAWE_NO_CACHE=1` neither reads nor writes it) | A rebuild only re-parses the files that actually changed since the last build in the same `--out`. `--force` parses everything again, because mtime and size cannot tell a same-size rewrite that kept its timestamp from no change at all | Measured 2026-09-05 on this repository (366 files parsed): cold build 1.05 s, warm build 0.80 s, warm build after touching one module 0.84 s, `--force` 1.09 s. `WAWE_DEBUG_PARSES=1` printed `parsed 366 files` cold, `parsed 0 files` warm, `parsed 4 files` after touching one module, `parsed 366 files` under `--force`, and `parsed 0 files` again on the build after that `--force`. Map output identical with and without the cache (`tests/golden/check.py`, plus a `WAWE_NO_CACHE=1` build diffed byte for byte against a cached one, fingerprint excluded) | — |
+| Fingerprint (`<commit>:<newest mtime in nanoseconds>`), `content_root` and `--force` | A build is skipped when the tree has not moved. The mtime keeps the precision the filesystem reports, so an edit inside the same second as the build before it is still seen, and it covers every file the map indexes rather than a fixed list of extensions, so an edit to a `.go`, `.rs`, `.kt`, `.cs`, `.rb`, `.java`, `.yaml`, `.tf` or `.proto` file is seen too. A skip needs the content root to agree as well as the fingerprint: the root is a sha256 over the sorted `(path, hash)` pairs of every indexed file, so a rewrite that kept its byte count and had its timestamp put back moves the root and the build runs. `--watch` asks the same two questions on every tick. Two caveats: the root is compared only when the map already in `--out` has one, so the first build after upgrading an existing `--out` from 1.4.x still decides on the fingerprint alone; and the hash of a file is retaken only when its mtime, size or inode change time moved, so on a filesystem where `st_ctime` is a creation time rather than an inode change time (Windows) the same-size restored-mtime rewrite is missed until something else about the file moves. `--force` distrusts the hashes as well as the parses, so one command always recomputes the root from the bytes | Not measured | CI steps `idempotent` (two builds of the same tree, the second prints `unchanged since it was built`), `an edit in the same second as the build is still seen`, `a same-size rewrite with a restored mtime is still seen` (one-shot and under `--watch`), and `the fingerprint watches exactly the files the map indexes` (five languages edited in turn, each one rebuilt) |
+| Incremental rebuild: `_cached()` around every `ast.parse`, tree-sitter parse and declaration scan, keyed by path, kind and the sha256 of the file's bytes, with `(mtime, size, ctime)` as the pre-filter that says whether the hash needs taking again (`--force` reads nothing from it and rewrites it; `WAWE_NO_CACHE=1` neither reads nor writes it) | A rebuild only re-parses the files that actually changed since the last build in the same `--out`, and a change is a change of content: a same-size rewrite with the timestamp put back is re-parsed without `--force`, which is what the mtime-and-size key could not tell from no change at all. A tree nobody touched still costs one `stat` per file and no reads, and a tree whose timestamps all moved while its content did not (a restored CI cache, a `cp -r`, a `tar x`, a container rebuild) re-parses nothing where it used to re-parse everything | Measured 2026-09-07 on this repository at 1.5.0, exported with `git archive` to `/tmp/wawe-self/repo` so the figures are reproducible, 260 indexed files: cold build best 2.94 s and median 3.31 s over six runs; warm build, one file touched so the tree has moved, best 1.69 s and median 1.83 s; a build over a tree nothing touched at all is the skip, about 0.2 s. `WAWE_DEBUG_PARSES=1` prints `parsed 260 files` / `hashed 260 files` cold and `parsed 0 files` / `hashed 1 files` warm. `parsed N files` counts files: the count of computations, about three and a half times larger because one file is asked for its declarations, its symbols, its call graph, its step phrases and its redaction diff, is `PARSE_COUNT` on the `mapper` facade. Against 1.4.1 on the same tree, eight alternating pairs so that a drifting machine cannot favour either side: cold, the median paired difference is +0.34 s, 2.78 s before against 3.09 s after at their best. Both sides of a pair are slower than the isolated cold run above, because alternating runs contend for the same disk; the paired difference is the number to read, and it is the content hashing and the one redaction pass, paid once and cached under each file's hash so that no warm build pays either again. Map output identical with and without the cache (`tests/golden/check.py`, plus a `WAWE_NO_CACHE=1` build diffed byte for byte against a cached one, fingerprint excluded) | — |
 | `## This map is incomplete` | What a bound cut (file count, spec depth) is named at the top of the map | Not measured; a correctness feature: an answer of "absent" is never given past a bound | Count answers that say "indexed: …" per run |
-| Every artefact written to a temporary and renamed into place | Nothing ever reads a half-written map, and a build killed mid-write leaves the previous one whole. Covers `framework_map.{json,md,html}`, the brief, `spec_map.*`, `semantic_index.{npy,json}`, `.wawe-cache.json`, `.pointer-head`, and the two files written outside `--out`: the agent file and `.framework-map.json`. The start-of-build sweep of a dead writer's temporaries covers what lives in `--out`, which is everything but those last two: a build knows where its output directory is and does not know where a previous run was told to put an agent file | Measured 2026-09-05 on a 3,000-file repository: a reader polling sizes through a build saw 26 zero-byte hits on `framework_map.json` before and none in 4.2 million reads after; six readers calling `defines` and `ask` through a rebuild loop saw 4 unparseable JSON reads and 4 empty `defines` answers before and none after; SIGTERM at the first touch of the map files left a zero-byte JSON beside a stale `.md` before, and the previous three files byte for byte after | CI step `every artefact is replaced, never truncated in place` |
-| Every file read is bounded | `_slurp` reads at most 400 KB for a scan and `_slurp_source` at most 2 MB for a parser, once per (path, limit) and cached, so a build costs the limit rather than the size of what it walks. A file a parser only saw part of is named in the map | Measured 2026-09-06: a 198 MB `.py` cost 785 MB of peak RSS and 3.97 s before, 39 MB and 0.19 s after; a 196 MB `.ts` cost 590 MB and now 29 MB; a `.py` and a `.ts` together cost 1171 MB and now 42 MB | CI steps `a very large file costs the read limit, not its size` and `a large module is parsed, not silently dropped` |
+| Every artefact written to a temporary and renamed into place | Nothing ever reads a half-written map, and a build killed mid-write leaves the previous one whole. Covers `framework_map.{json,md,html}`, the brief, `tags`, `spec_map.*`, `semantic_index.{npy,json}`, `.wawe-cache.json`, `.pointer-head`, and the two files written outside `--out`: the agent file and `.framework-map.json`. The start-of-build sweep of a dead writer's temporaries covers what lives in `--out`, which is everything but those last two: a build knows where its output directory is and does not know where a previous run was told to put an agent file | Measured 2026-09-05 on a 3,000-file repository: a reader polling sizes through a build saw 26 zero-byte hits on `framework_map.json` before and none in 4.2 million reads after; six readers calling `defines` and `ask` through a rebuild loop saw 4 unparseable JSON reads and 4 empty `defines` answers before and none after; SIGTERM at the first touch of the map files left a zero-byte JSON beside a stale `.md` before, and the previous three files byte for byte after | CI step `every artefact is replaced, never truncated in place` |
+| Every file read into memory is bounded | `_slurp` reads at most 400 KB for a scan and `_slurp_source` at most 2 MB for a parser, once per (path, limit) and cached, so a build holds the limit rather than the size of what it walks. A file a parser only saw part of is named in the map. The one unbounded read is the content hash, which streams a file in 1 MB blocks and keeps none of it: a bounded read cannot notice a change past the bound, so this is about memory rather than about bytes off the disk, and a large asset is re-read whenever its stat block moves | Measured 2026-09-06: a 198 MB `.py` cost 785 MB of peak RSS and 3.97 s before, 39 MB and 0.19 s after; a 196 MB `.ts` cost 590 MB and now 29 MB; a `.py` and a `.ts` together cost 1171 MB and now 42 MB | CI steps `a very large file costs the read limit, not its size` and `a large module is parsed, not silently dropped` |
 | An optional source that misbehaves does not end the build | `--runs-api`, `git log` and `git blame` are history the map is better with and fine without, so a tracker answering something that is not HTTP, or an author name the locale cannot decode, costs that section and not the run | Measured 2026-09-06: a socket answering `GARBAGE NOT HTTP` exited 1 with a `BadStatusLine` traceback and wrote no map before, and exits 0 with a map after; `LC_ALL=C` with the author `Renée Müller` exited 1 with `UnicodeDecodeError` before, and after writes `blame_owners {'a.py': ['Renée Müller (1)']}`, the name exact | CI step `an optional source that misbehaves does not end the build` |
 | A symlink or a pipe in the tree is not read | A file whose link resolves outside the repository is skipped, so nothing outside it is copied into a map that gets committed and pasted into prompts, and anything that is not a regular file is skipped, so a FIFO does not block the build forever. A link that stays inside the repository is still followed, and the map says what it left out | Measured 2026-09-05: a `passwd.py` symlinked to `/etc/passwd` put the whole file into the map's line index before and is absent after; a FIFO named `x.py` hung the build past a 60 second bound with nothing written before, and after it finishes and indexes its sibling | CI steps `a symlink out of the repository is not read into the map` and `a pipe does not hang the build, and dead temporaries are swept` |
 | `.wawe.toml`, `.wawe-ignore`, `WAWE_MAX_FILES`, `WAWE_JUNIT_DIRS` (os.pathsep separated; default: the repository's own `reports`, `test-results`, `junit`, `build/test-results`, plus `/runs`, never `/tmp`) | A project states its invocation, exclusions and where its JUnit history lives once. `.wawe.toml`'s `[synonyms]` table adds a project's own words to `--ask`'s built-in groups | Not measured | — |
 | `--product`, sibling guessing only for a suite, `--product none` | The application under test is indexed beside its suite; a plain code repository does not index its neighbours | Measured 2026-09-03 on this repository: before the fix the map held 231 files of three unrelated sibling repositories (3.1 MB JSON, `defines` answering with their paths); after, `indexed: suite 75`, 818 KB | — |
 | `--also` | Fold other repositories into one map | Not measured | — |
-| `--diff` | What changed since the map already in `--out` | the pointer names what moved since the last session; CI step "pointer says what changed since the last session" proves it | — |
-| `--watch SECONDS` | Rebuild whenever the tree moves: a full rebuild each time, writing every artefact a one-shot build writes, and an iteration that raises is printed and the loop carries on | Not measured | CI step `--watch rebuilds whole, writes every file, and survives a failure`: twenty files added while watching all reach the map, a deleted name leaves it, `framework_map.md` and `--html` are written, and replacing the output directory with a plain file prints `rebuild failed, still watching` without ending the watcher |
+| `--diff` | What changed since the map already in `--out`, naming the files whose content hash moved, were added or are gone before the map keys that moved with them. It reads the parse cache and does not write it, so that everything it prints is measured against the map on disk and the same command over the same tree answers the same way twice | the pointer names what moved since the last session; CI step "pointer says what changed since the last session" proves it | — |
+| `--watch SECONDS` | Rebuild whenever the tree moves, by the fingerprint and the content root together, the same two questions a one-shot build asks: a full rebuild each time, writing every artefact a one-shot build writes, and an iteration that raises is printed and the loop carries on | Not measured | CI step `--watch rebuilds whole, writes every file, and survives a failure`: twenty files added while watching all reach the map, a deleted name leaves it, `framework_map.md` and `--html` are written, and replacing the output directory with a plain file prints `rebuild failed, still watching` without ending the watcher |
 | `--html` | The brief as a page | Not measured | — |
+| `--ctags` → `<out>/tags` | Every declaration the map holds, in universal-ctags format: name, file, the line as the EX command, `kind:`, `line:` and `end:` where a parser knew it. A row names its file relative to the directory the tags file is in, which is where every ctags reader resolves it from (vim's `tagrelative` is on by default): with the usual `--out .` at the repository root that is `src/a.py`, and with `--out .wawe` it is `../src/a.py`, and both open. Sorted as bytes, so the binary search the header promises works. vim, emacs, helix, kakoune and `readtags` open it with no server running, on a checkout mounted read only, in a language whose server is not installed. A build without the flag leaves whatever `tags` is already in `--out` alone, exactly as a build without `--html` leaves `framework_map.html`: the file may be one real ctags wrote, and this tool does not delete files it was not asked to write | Measured 2026-09-07 on this repository at 1.5.0, built with `--out .` at the repository root: 672 rows over 617 names, 54,375 bytes, written in the same build that writes the map. An `--out` somewhere else writes the same rows with the path that reaches each file from there | CI step `--ctags writes a sorted, correct tags file`: the pseudo tags are present, `LC_ALL=C sort -c` passes, every row is a declaration site the map holds and every site has a row, `charge` names `app/billing.py:4` and that line declares it, two builds are byte identical, and `readtags` reads it where the runner can install universal-ctags |
+| `--cost [THRESHOLD]`, `--cost --json` | What each section costs to carry: rows, bytes and tokens, heaviest first, with a total and a threshold that hides the small ones. A section is a `## ` heading, and the sections are the ones a reader carries: every one in `framework_map.md`, then every one in `framework_map_brief.md` beside it whose heading the map does not already have, which is the rule every read composes the two files by. Each is measured on its own file, so its byte count is what `wc -c` would give for those lines, and the report ends with a `measured:` line per file whose header plus sections is that file's size. Tokens are `bytes / 4` and the output says `estimate`, because no extra this project has carries a tokenizer that can be reached without downloading a model | Measured 2026-09-07 on this repository at 1.5.0: 71 sections over the two files, 34,414 bytes, 8,580 tokens, 409 rows. `wc -c` agrees: `framework_map.md` is 1,330 bytes (140 of header, 1,190 in 3 sections) and `framework_map_brief.md` is 33,446 (222 of header, 33,224 in 68 sections). The heaviest section is `## Defined here` at 5,955 bytes and 52 sections are under 500 | CI step `the map says what each of its sections costs`, which splits both files independently and asserts every section against that split, and fails on a build that stops measuring `framework_map.md` |
+| `--export FILE` | The map as one self-contained file for a channel with no filesystem (a PR comment, a paste): the incompleteness notice, the `indexed:` counts, every section of `framework_map.md` and of the brief beside it with what each costs, then the brief itself. `--export -` writes it to stdout; an empty path is refused | Measured 2026-09-07 on this repository at 1.5.0: 37,779 bytes against 1,330 of `framework_map.md`, 33,446 of the brief and 2,702,888 of `framework_map.json` | CI step `the map says what each of its sections costs`: the file parses back into the section list `--sections` prints, in the same order, with the byte counts `--cost` reports |
 | `--init` → `.framework-map.json` manifest | A starter manifest the map reads `stated` facts from | Not measured | — |
 
 ### What an agent carries vs what it asks
@@ -150,18 +155,24 @@ as estimates.
 | The pointer (`--pointer`, `--agent-file`) | ~600–850 bytes in the prompt naming the map, its sections and how to ask; the map stays on disk | Map inlined: ≈ 64k tokens re-sent every turn, 27.4M tokens over one run, a quarter of that run; pointer: ≈ 212 tokens (300× less); a 5-hour allowance gone in 74 min vs the budget going to work (README, measured on one production run) | — |
 | Orientation replaced by one `--ask` | The first turns of a session stop being `ls`/`find`/`grep` | ~40 orientation turns → 1 on the measured suite (README) | — |
 | `--ask` / MCP `ask`: whole rows, ranked sections, honest tail | Only rows that mention the words, never a cut row, `limit` a strict ceiling, "… N more matching rows (more:rows:...); M rows do not mention these words" - the tail names what was left out and carries the handle `more` fetches it with | Before 0.12: an answer could exceed its limit 68× (3 KB head at limit 50) and cut a row mid-word; after: ≤ limit on every golden case (150), 5/5 fixture checks. `.wawe/.wawe-ask.log` records every answer; `wawe-measure --ask-log .wawe` prints median/p95/max tokens | — |
-| `more` (MCP), `--more HANDLE` | What an answer left out, by the handle it printed: a section's unshown rows, the rows in it that never matched, definitions past the block's cap, the sections that did not fit, `find`'s hits past its limit. Stateless: the handle names a section, the words and a position, and `more` recomputes the ranking from the map on disk, so a rebuilt map answers "no such handle in this map" rather than a slice of some other list | Measured 2026-09-07 on the `suite` golden fixture, question "invoice checkout": chasing the handles from `ask(..., 1500)` to exhaustion returns all 167 rows the unbudgeted answer holds, in 10 calls; from `ask(..., 12000)`, 167 in 1 call. At 350 characters, 166 of 167 - the missing row is 446 characters long and cannot fit in a 350-character answer, and `more` says so | — |
+| `more` (MCP), `--more HANDLE` | What an answer left out, by the handle it printed: a section's unshown rows, the rows in it that never matched, definitions past the block's cap, the sections that did not fit, `find`'s hits past its limit. Stateless: the handle names a section, the words and a position, and `more` recomputes the ranking from the map on disk, so a rebuilt map answers "no such handle in this map" rather than a slice of some other list | Measured 2026-09-07 on the `suite` golden fixture built at `/tmp/wawe-cost`, question "invoice checkout": chasing the handles from `ask(..., 1500)` to exhaustion returns all 198 rows the unbudgeted answer holds, in 17 calls; from `ask(..., 12000)`, 198 in 1 call. At 350 characters, 197 of 198 - the missing row is 446 characters long and cannot fit in a 350-character answer, and `more` says so | — |
 | `--ask` synonyms and stemming | "login" also searches "signin", "auth"; "invoices" also searches "invoice"; a synonym or a stem scores at half the weight of the literal word, so it never outranks an exact hit; the first line says `(also matched: signin, auth)` when an expansion found something the literal words did not; `.wawe.toml`'s `[synonyms]` table adds a project's own words to the built-in groups | Not measured | — |
 | Rows under one directory printed once | `- \`features/checkout/\`` then the files | Not measured | Bytes of an answer before/after on a 40-row directory |
 | `## Defined here` (`defines`, `_definitions_for`) | A name → file:line, every declared name in every walked file | Not measured as turns saved; the README's claim is one question instead of `grep -rn` | Count `Grep` calls per session before/after (the run's call events) |
-| Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. Three calls are no edge at all: one to a name the calling file declares itself, one made through a module this tree does not declare, which is what `ast.walk(...)` and `from os import path` then `path.join(...)` are, and one on a receiver the function built out of a builtin, which is what `out = set()` then `out.add(key)` is. A parameter's default counts as what the function bound, `None` excepted; `*args` and `**kwargs` are a tuple and a dict; a name a nested function never binds is the one written around it; and `d.setdefault(k, set())` is a set whatever `d` is. Two more are read further: a receiver that is a file of this tree carrying a name it does not declare is followed through its own import lines to the file with the `def`, and `self.name(...)` goes to the class the method is in or to the one base that declares it, where the file says where that base came from. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 1 of the edges under them carries the mark, and it is a call on `d[k]`, which is the shape nothing written in the file settles. Mapping the previous release's own checkout with both releases, the same tree and the same 60 keys, the count goes from 20 marks to 1 | Count `Grep` calls spent chasing a callee across files before/after |
-| `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2308 sites, 561 first-party, rate 0.2431, 107 ambiguous names (share 0.0464), 156 edges and 4 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
+| `defines` (MCP), `--defines NAME`, the map's `spans` key | Every home of a name, not the first one walked: `charge: a.py:10-24 (function), b.py:88-91 (function)`, sorted by file then start, with the kind of each. The end line is exact where a parser knew it (`ast` for Python, a tree-sitter node with the `precise` extra) and `?` where the pattern table read the language, which sees where a declaration starts and not where it stops. `definitions` keeps its one-home shape, so nothing that reads it moves | Measured 2026-09-07 on this repository's own map at 1.5.0: 617 names over 672 declaration sites, 35 of the names declared in more than one place, and before this those 35 answered with one file chosen by walk order. 104 of the 672 sites carry no end, which is every site the pattern table found. The key is 123,353 bytes of the 2,702,888-byte map on disk, 4.6 percent | Count the names your own map declares twice: `jq '[.spans[]|select(length>1)]|length' framework_map.json` |
+| `at` (MCP), `--at FILE:LINE` | The whole definition enclosing a line, the way a stack trace names it: the innermost one, whole lines, from the map's own line index rather than the file. Cut to the answer budget with a `more:at:` handle for the rest. A line nothing encloses is answered `no definition encloses FILE:LINE` with the nearest declarations, never with the wrong function | Not measured as turns saved; the claim is one lookup instead of a `Read` at a guessed offset and a second one when the guess cut the function in half | Count `Read` calls that follow a stack trace before/after |
+| `rank` (MCP), `--rank [FILE,...]`, the map's `rank` key | What the repository is built around, best first, by PageRank over its own file graph: nodes are files, an edge runs from a file that uses a name to the file that declares it weighted `sqrt(uses)`, and aider's four multipliers apply (x10 a long snake/kebab/camel name, x10 a name the question asked about, x0.1 a leading underscore, x0.1 a name more than five files declare). Given files it is personalised on them, which answers "what should I read given that I am editing these" rather than "what mentions this word". 100 power iterations at damping 0.85, scores rounded to 9 digits before sorting, ties by path: the same order on every machine and both supported Pythons | Measured 2026-09-07 on this repository's own map at 1.5.0: the top four are `declare.py`'s `find_text` at 0.061419466, `build.py`'s `build`, `ask.py`'s inner `build`, which is where the answer budget is spent, and `eval.py`'s `add`. `--rank src/where_are_we/ask.py` does not change that order and raises `find_text` from 0.061419466 to 0.080008437, a third, which is the personalisation showing up as a score rather than as a swap. The scores are of a map that indexes this file, so editing it moves their last digits and the order is what the CI step pins. The key is 30,765 bytes of the 2,702,888-byte map on disk, 1.1 percent | Compare the top ten to the files you would name yourself: `where-are-we --rank --limit 10` |
+| `--files a.py,b.py`, `files` on MCP `ask` | The files you are working in: inside every section the rows naming one of them are printed first and the rest follow with the section's usual tail and handle. A path or a directory prefix, relative to the repository root, and `--files -` reads a newline list on stdin, which is what `git diff --name-only` hands over. A row that names only a basename, which is how both call graphs write a key, is resolved through the files the map indexed. The tail's handle carries the scope, so `more` reorders the section before it continues and a scoped answer reaches every row an unscoped one does | Not measured as turns saved; the claim is that the half of the answer about your own directory is at the top of it rather than under the cut | Diff `--ask X` against `--ask X --files <your dir>` at a small `limit` |
+| Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. Three calls are no edge at all: one to a name the calling file declares itself, one made through a module this tree does not declare, which is what `ast.walk(...)` and `from os import path` then `path.join(...)` are, and one on a receiver the function built out of a builtin, which is what `out = set()` then `out.add(key)` is. A parameter's default counts as what the function bound, `None` excepted; `*args` and `**kwargs` are a tuple and a dict; a name a nested function never binds is the one written around it; and `d.setdefault(k, set())` is a set whatever `d` is. Two more are read further: a receiver that is a file of this tree carrying a name it does not declare is followed through its own import lines to the file with the `def`, and `self.name(...)` goes to the class the method is in or to the one base that declares it, where the file says where that base came from. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map at 1.5.0: 60 keys, 129 edges under them, 1 of which carries the mark, and it is a call on `d[k]`, which is the shape nothing written in the file settles. 1.4.1 mapping the same tree writes the same 60 keys, the same 129 edges and the same 1 mark: the receiver rules that took that count from 20 to 1 are 1.4.1's, and this release does not move it | Count `Grep` calls spent chasing a callee across files before/after |
+| Every edge as a row that says how it was resolved (`xrefs`) | The graph normalised: one row per edge, `{subject, edge, object, file, candidates, line, resolution}`, sorted by subject, object and line and capped by nothing. Every path in every row is absolute, so the table joins to itself: the file a `calls` row settled on is the subject of the `declares` rows for that file. `edge` is `calls` (a cross-file call), `declares` (a `spans` site, whose `candidates` is empty because a declaration is not a choice between files) or `imports` (one import line, with the file it is in and the line it is on, for the package pairs `import_graph` summarises). A `declares` row is the site as `spans` holds it, joined onto nothing: every site is recorded with the absolute path of the root it was walked under, so a page object of an `--also` root names that root's file and the `tags` file written from the same key names it too. `resolution` names the rule that placed the edge and is one of eight values: `sole_declarer` one indexed file declares the name, `import_line` the caller's own import line named the file, `receiver_import` the module the receiver was bound to named it, `re_export` a facade's own import lines were followed to the file with the `def`, `base_class` a `self.name(...)` call reached the one base that declares it, `declaration` the row is the declaration site, `import_statement` the row is the import line, and `ambiguous` several files declare the name and nothing said which, which is the `?` the rendering carries. `call_graph_files` is derived from the `calls` rows by the renderer that writes it, and holds less than they do: cut to 8 callees a key and 60 keys, and keyed by basename, so where two files of one basename declare one function name they share a key and the file the walk read last owns it while both keep their rows here. There is no `local` value and no `overrides` edge: a call inside the file that declares the callee never becomes an edge, and no rule computes an override | Measured 2026-09-07 on this repository's own map at 1.5.0: 893 rows, 221 of them calls (191 `sole_declarer`, 11 `re_export`, 7 `receiver_import`, 5 `import_line`, 7 `ambiguous`) and 672 declarations; `call_graph_stats` counts 214 edges and 7 marked, which is the same 221 rows counted the other way. The key is 273,961 bytes of the 2,702,888-byte map on disk, 10.1 percent, of which the `declares` rows are 182,558 of the 256,974-byte table. On the `suite` golden fixture, built at a fixed `/tmp/wawe-cost` so the number is reproducible, 75,821 bytes of 182,322, 41.6 percent: the share is larger because that map is small and 224 of its 265 rows are declarations. The whole release against 1.4.1 on the same tree is 2,277,523 to 2,702,888 bytes, 19 percent, for `spans`, `rank`, `content_root` and this; on the `suite` fixture the same two releases are 54,317 to 182,322 bytes, which is more than a tripling, because a small map is mostly the four keys this release adds and a large one is mostly its lines | Read `xrefs` instead of parsing the pipes and the `?` back out of a rendered edge |
+| `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07 at 1.5.0, fixtures built at `/tmp/wawe-cost`. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each. This repository: python 2818 sites, 737 first-party, rate 0.2615, 123 ambiguous names (share 0.0436), 214 edges and 7 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667. The tree-sitter comparison line needs the `precise` extra, which is not installed in the environment these figures were taken in; without it `--graph` prints `regex vs tree-sitter: not compared`, and with it, measured 2026-09-05, tree-sitter saw 1 and 2 sites for the poly fixture's same code | The row above is the measurement |
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
 | `callees` (MCP), `--callees` | What a name calls, the other direction of `callers`: every callee with the file it is defined in, from the same two graphs, cross-file only | Not measured as turns saved; the claim is one lookup instead of reading the function to find out what it reaches | Count `Read` calls spent opening a function to list its calls before/after |
-| `impact` (MCP), `--impact NAME [--impact-depth N]` | The blast radius of a name: every `file:func` that reaches it within N hops (1 to 6, 3 by default), grouped by hop and sorted inside each. A visited set walks a cycle once, and the keys defining the name itself are the change rather than its radius. The first line of every reply states the rules the answer was built under, unconditionally: hops are followed by name, so where several files define one name their callers are unioned; only cross-file calls are in the graph; and the map keeps at most 60 cross-file and 120 step graph keys, so on a large repository the radius is a floor. Where the key data shows the clash a `note:` names up to five of the keys and how many more. Capped at 200 `file:func` entries in the whole reply, note keys included, with a line naming how many are left and at which depth; no handle to fetch them, because the tool already takes a depth and narrowing is the reader's move. A depth outside 1 to 6 is refused: exit 2 on the command line, JSON-RPC -32602 on the tool | Not measured as turns saved; the claim is one lookup instead of running `callers` outward by hand, hop after hop | Count `callers` calls per session before/after |
+| `impact` (MCP), `--impact NAME [--impact-depth N]` | The blast radius of a name: every `file:func` that reaches it within N hops (1 to 6, 3 by default), grouped by hop and sorted inside each. A visited set walks a cycle once, and the keys defining the name itself are the change rather than its radius. The first line of every reply states the rules the answer was built under, unconditionally: hops are followed by name, so where several files define one name their callers are unioned; only cross-file calls are in the graph; and the map keeps at most 60 cross-file and 120 step graph keys, so on a large repository the radius is a floor. Under each hop, where the map holds `xrefs`, a `how:` line names in the same order the rule that placed each of those edges, and `step_graph` for a hop through the behave step graph, which records a bare name and no rule. Where the key data shows the clash a `note:` names up to five of the keys and how many more. Capped at 200 `file:func` entries in the whole reply, note keys included, with a line naming how many are left and at which depth; no handle to fetch them, because the tool already takes a depth and narrowing is the reader's move. A depth outside 1 to 6 is refused: exit 2 on the command line, JSON-RPC -32602 on the tool | Not measured as turns saved; the claim is one lookup instead of running `callers` outward by hand, hop after hop | Count `callers` calls per session before/after |
+| `context` (MCP), `--context NAME` | Everything the map holds about one name, in one answer: where it is declared with every span, the rows of the map that mention it, its callers, its callees, and its impact one hop out. The five calls an agent used to make on landing on a name, composed from the same functions over the same map. The budget is allocated in two passes: every block is given the smaller of what it needs and its floor share - 15% declared, 35% map rows, 15% callers, 15% callees, 20% impact - and what nobody claimed is then handed on in that same order to the blocks still short. So when the five answers together fit the budget every one of them is printed whole, and the same name at the same budget is always the same answer. Whole rows; a block that could not print itself ends in a tail carrying a `more:ctx:` handle the `more` tool resolves | Measured 2026-09-07 on the `suite` golden fixture, all 224 declared names at 12000 characters: 182 answers hold every row `--defines`, `--ask`, `--callers`, `--callees` and `--impact --impact-depth 1` return, and the other 42, whose five answers do not fit 12000 at all, have every cut row behind a handle. `wawe-eval --tool context` over 100 names reports recall with handles 1.0 at 1500 and 12000, and 0.6984 and 0.9943 for the first answer alone at those two budgets | Count the tool calls a session spends on one name before/after (the run's call events) |
 | `find` (MCP) | Where a phrase or string lives, with the line | Not measured | Same |
 | `sections` (MCP), `--sections` | The headings, now map + brief (75 vs 3 before 0.12.1) | Measured 2026-09-03: a code repository's `--sections` went from 3 empty suite headings to 75 | — |
-| `wawe-eval` | Generates questions from the map, asks each at no budget to get the rows the map holds for it, and reports what a budgeted answer shows of those, three ways: macro (per question), pooled (all rows), and over the five rows that ranked highest, plus a count of the rows too long to print at that budget at all. With `more` in the build it also reports what the answer plus its handles reaches | Measured 2026-09-07 on the suite fixture, 100 questions, seed 0: first-answer recall 0.476 / 0.857 / 0.9999 at 350 / 1500 / 12000 bytes; pooled 0.105 / 0.305 / 0.999; top-5 0.725 / 1.000 / 1.000; 34 / 0 / 0 rows longer than the budget; mean answer 303 / 885 / 2051 bytes. Recall with handles, over the rows that fit, is asserted 1.0 by the CI step `wawe-eval: the budget loses no row the map holds`, which exits 1 on any such row a handle fails to return, from the release that adds `more` onwards | `--agent` compares the map tools against grep and read on the same questions; not run in CI |
+| `wawe-eval` | Generates questions from the map, asks each at no budget to get the rows the map holds for it, and reports what a budgeted answer shows of those, three ways: macro (per question), pooled (all rows), and over the five rows that ranked highest, plus a count of the rows too long to print at that budget at all. With `more` in the build it also reports what the answer plus its handles reaches | Measured 2026-09-07 at 1.5.0 on the suite fixture built at `/tmp/wawe-cost`, 100 questions, seed 0: first-answer recall 0.4292 / 0.8392 / 0.9996 at budgets of 350 / 1500 / 12000 characters; pooled 0.0886 / 0.2884 / 0.997; top-5 0.6317 / 1.0 / 1.0; 34 / 0 / 0 rows longer than the budget; mean answer 303.0 / 973.3 / 2220.0 characters. Recall with handles, over the rows that fit, is asserted 1.0 by the CI step `wawe-eval: the budget loses no row the map holds`, which exits 1 on any such row a handle fails to return, from the release that adds `more` onwards | `--agent` compares the map tools against grep and read on the same questions; not run in CI |
 | `--for author|coder`, `--only`, `--skip`, `--max-lines` | A brief tailored to who reads it; capped per section | Not measured in tokens; the per-section cap keeps every head (3×50 rows at 30 lines → every head present, before: the last sections dropped) | Token count of the brief per audience |
 
 ### The other map
@@ -200,7 +211,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | GitHub Action (`ngavrish/where-are-we@v1`): inputs `repo`, `product`, `out`, `agent-file`, `comment`; outputs `brief`, `summary` | Map on CI, optional PR comment | Not measured | — |
 | pre-commit hook | Rebuild on commit so a map is never stale | Not measured | — |
 | `--install-hook git|claude|cursor|codex|gemini` | `git`: post-checkout/merge/commit hooks that rebuild; `claude` (`agent` is the same thing): a SessionStart hook for an agent harness (distinct from `--agent-file`, which writes the brief into a file); `cursor`: a Cursor rule at `.cursor/rules/where-are-we.mdc` plus `.cursor/mcp.json`; `codex`: an `AGENTS.md` block plus `~/.codex/config.toml`; `gemini`: a `GEMINI.md` block plus `.gemini/settings.json`. `cursor`, `codex` and `gemini` build the map into `.wawe` first if it is not already there; `git` and `claude` do not, since they already build into whatever `--out` was passed on their own first trigger, and a pre-build for them would be a second map in a different place. Each kind installs all of its files or none: every target is checked before the first write, and a refusal names the cause | Not measured | — |
-| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the eight tools over MCP (`ask`, `find`, `defines`, `sections`, `callers`, `callees`, `impact`, `more`); skills `orient`, `ask`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,sections,callers,callees,impact,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
+| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the eleven tools over MCP (`ask`, `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`, `impact`, `more`); skills `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,context,rank,sections,callers,callees,impact,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
 | Packages: PyPI wheel + sdist, deb (apt repo with key), rpm, Homebrew tap, GitHub release with SBOM (SPDX) and sigstore signatures | Install anywhere | — | — |
 
 ### Honesty features (not savings, guarantees)
@@ -217,7 +228,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | `--install-hook` is one unit | Every target is checked before any is written; a refusal installs nothing and names its cause, a rerun finishes the job (CI step `install-hook git refuses a symlinked hook file`) |
 | A guard can tell a read from a write | `--effects` ships the class of every flag this tool's parser knows, `--effects -- <command line>` classifies one line without running it, and `--dry-run` names every path a write would touch and touches none of them. The table cannot drift from the parser or from the `effects.json` in the wheel: a CI step compares all three (CI steps `every flag the parser knows is in the effects table, and nothing else is`, `a command line says what it would write before it runs`, `--dry-run names every path it would write and writes none of them`) |
 | A source in UTF-16 is read | A file with a byte order mark is decoded, indexed and answerable; a binary that merely starts with one is not (CI step `a UTF-16 source file is decoded, indexed and answerable`) |
-| An edge the map is guessing at says so | A cross-file callee several files declare is written `charge (a.ts\|c.ts)?`: every candidate, sorted, and a question mark, which is the map declining to pass a choice off as a lookup. A call to a name the calling file declares is no edge at all, and an import that names one file settles it without the mark. The mark is about the name: a call through a variable to a name one file declares is written plain, because what the map does not know there is the receiver rather than the name. Every `impact` reply states the rule (CI step `an ambiguous edge names every file that declares the callee, and is matched without the mark`) |
+| An edge the map is guessing at says so | A cross-file callee several files declare is written `charge (a.ts\|c.ts)?`: every candidate, sorted, and a question mark, which is the map declining to pass a choice off as a lookup. A call to a name the calling file declares is no edge at all, and an import that names one file settles it without the mark. The mark is about the name: a call through a variable to a name one file declares is written plain, because what the map does not know there is the receiver rather than the name. Every `impact` reply states the rule (CI step `an ambiguous edge names every file that declares the callee, and is matched without the mark`). An unmarked edge covers two different degrees of certainty, so the map's `xrefs` key says which rule settled every edge, marked or not, and `impact` prints it under each hop (CI step `every edge says how it was resolved`) |
 | The graph says what it looked at and what it wrote | `call_graph_stats` counts, per language, the callee names the walk looked at, how many of them some indexed file declares and how many several declare, which is a measure of the tree rather than of the graph, and beside them the cross-file edges written and the ones written with a `?`, which is the graph. Over the whole walk, not the 60 keys that survive the cap. `wawe-eval --map OUT --graph` prints them, and with tree-sitter installed prints what a real parse makes of the same code beside them (CI step `wawe-eval --graph: the map says how much of its call tree it resolved`) |
 
 ### How to measure it on your own sessions
@@ -358,8 +369,9 @@ wawe-eval --map .wawe --graph          # a table
 wawe-eval --map .wawe --graph --json   # the same numbers as JSON
 ```
 
-Measured 2026-09-07, the three golden fixtures built under `/tmp/graphfix`
-and this repository mapped with `--product none --no-semantic`:
+Measured 2026-09-07 at 1.5.0, the three golden fixtures built under
+`/tmp/graphfix` and this repository, exported with `git archive` to
+`/tmp/wawe-self/repo`, mapped with `--product none --no-semantic`:
 
 | map | language | sites | resolved | ambiguous | edges | marked | resolution rate | ambiguous share |
 |---|---|---|---|---|---|---|---|---|
@@ -367,7 +379,7 @@ and this repository mapped with `--product none --no-semantic`:
 | code fixture | python | 7 | 0 | 0 | 0 | 0 | 0.0 | 0.0 |
 | poly fixture | ts_js | 3 | 3 | 0 | 1 | 0 | 1.0 | 0.0 |
 | poly fixture | go | 5 | 5 | 0 | 0 | 0 | 1.0 | 0.0 |
-| where-are-we | python | 2308 | 561 | 107 | 156 | 4 | 0.2431 | 0.0464 |
+| where-are-we | python | 2818 | 737 | 123 | 214 | 7 | 0.2615 | 0.0436 |
 | where-are-we | ts_js | 2 | 2 | 0 | 0 | 0 | 1.0 | 0.0 |
 | where-are-we | go | 3 | 2 | 0 | 0 | 0 | 0.6667 | 0.0 |
 
@@ -378,22 +390,23 @@ together, though. The poly fixture scores 1.0 in both languages and holds one
 edge, because a rate of 1.0 says every name it calls is declared nearby, not
 that a graph was drawn; `edges` is the half that says a graph was drawn.
 
-This repository's 0.2431 is what a Python tree looks like when most of what
+This repository's 0.2615 is what a Python tree looks like when most of what
 a function calls is a builtin, a method on an object or a standard library
-name. Of its 2308 sites, 605 are Python builtins and 664 are `str`, `list`,
-`dict` and `set` method names no file here declares, so more than half the
-denominator is unreachable by any name graph, and 309 of the 561 first-party
-names have the calling file as their only home, which is a call the
-cross-file graph does not hold either. The graph under it is 156 edges, 4 of
-them marked.
+name. Of its 2818 sites, 727 are Python builtins and 847 are `str`, `list`,
+`dict` and `set` method names no file here declares, so 1,574 of the 2,818,
+more than half the denominator, is unreachable by any name graph; and 516 of
+the 737 first-party names never become a cross-file edge, most of them a call
+to a name the calling file declares itself, which the cross-file graph does
+not hold either. The graph under it is 214 edges, 7 of them marked.
 
 Of the 60 keys the map keeps, 1 edge carries the mark. It is `pool[kind]
 .add(word)` in `eval.py`, a call on a subscript: nothing written in that
 file says what the container holds, so the map names both files with a
-`def add` and says it is choosing. Mapping the previous release's own
-checkout with both releases, the same tree and the same 60 keys, the count
-goes from 20 marks to 1. Some of those edges did not vanish, they were
-corrected: the edge `hooks.py:_ensure_map` used to carry for `build` named
+`def add` and says it is choosing. 1.4.1 mapping this same tree writes the same 60
+keys, the same 129 edges and the same 1 mark, so that count is 1.4.1's
+receiver rules holding rather than anything this release changed; the release
+before them wrote 20 marks over the same 60 keys. Some of those edges did not
+vanish, they were corrected: the edge `hooks.py:_ensure_map` used to carry for `build` named
 two candidate files, and is now `build (build.py)`, read off `mapper.py`'s
 own `from ._mapper.build import build`. The rest are gone from the graph
 rather than corrected: `out.add(key)` in a function that wrote
@@ -452,9 +465,138 @@ constants, types, step phrases, scenario names. A question about a name is a
 question about where it is, and an answer without the line sends the reader to
 grep for it anyway.
 
+A name may have more than one home, and `--defines` names all of them with the
+line each one ends on:
+
+```console
+$ where-are-we --defines charge
+
+charge: billing/core.py:10-24 (function), legacy/pay.py:88-91 (function)
+```
+
+An end of `?` is a declaration this map could not measure: a language the
+pattern table read, which has seen the line a declaration starts on and
+nothing that says where it stops, or a file over a megabyte, of which the
+parser was handed the first megabyte and so never saw the end. A guessed end
+would be worse than none for anyone editing by anchor. Installing the
+`precise` extra turns `?` into a line for TypeScript, JavaScript, Go, Rust,
+Kotlin, C# and Ruby, and changes nothing about which names are declared where.
+
+Upgrading to 1.5.0 does not add `spans` to the map you already have: a build
+skips a tree that has not moved. Run it once with `--force` after upgrading,
+or wait for the next commit. The other direction of
+the same index is `--at`, which takes the `file:line` a stack trace hands you
+and prints the definition around it, so the next step is not a `Read` at a
+guessed offset:
+
+```console
+$ where-are-we --at billing/core.py:15
+
+billing/core.py:10-24 charge (function)
+def charge(amount):
+    ...
+```
+
 When a name is not there, the answer says what was indexed rather than declaring
 the absence real. A map that overstates its reach turns "I did not look" into
 "it is not there".
+
+Both of those answer "where is this name". The question before it is which names
+are worth knowing at all, and no amount of word matching answers that, because
+importance is a property of the graph rather than of the text. `--rank` runs
+PageRank over the graph the map already holds: files are nodes, an edge runs
+from a file that uses a name to the file that declares it, and the weight is
+the square root of how often. Aider's repo map is where the idea and the four
+multipliers come from.
+
+```console
+$ where-are-we --rank --limit 4
+
+0.061419466 find_text /repo/src/where_are_we/_mapper/declare.py:135
+0.060390690 build /repo/src/where_are_we/_mapper/build.py:283
+0.047834365 build /repo/src/where_are_we/ask.py:835
+0.033650027 add /repo/src/where_are_we/eval.py:136
+```
+
+That is this repository's own map, unedited: the declaration scanner, the
+build, `ask`'s inner budget loop and the counter `wawe-eval` runs over its
+questions. The scores are of a map that indexes this README, so editing this
+file moves their last digits; the order is what the CI step pins, across both
+supported Pythons.
+
+Name the files you are working in and the walk is personalised on them, which
+turns "what matters here" into the question actually worth asking: what should I
+read given that I am editing this. On `ask.py`, `find_text` goes from 0.0614 to
+0.0800, a third, and keeps first place, which is right: `ask.py` is what calls
+it. Personalisation shows up here as a score rather than as a swap, because the
+unpersonalised ranking already has it first.
+
+```console
+$ where-are-we --rank src/where_are_we/ask.py --limit 2
+
+0.080008437 find_text /repo/src/where_are_we/_mapper/declare.py:135
+0.059723023 build /repo/src/where_are_we/_mapper/build.py:283
+```
+
+The same files bias `--ask` without changing what it found: `--ask charge
+--files billing/` prints the `billing/` rows first inside every section and the
+rest after them, with the section's usual tail. The handle on that tail carries
+the scope as one more field, so `more` reorders the section the same way before
+it continues: a scoped answer reaches every row an unscoped one does, which is
+the guarantee the tail is there to make. `--files -` reads the list on stdin, so
+`git diff --name-only | where-are-we --ask charge --files -` asks the map about
+the branch you are on.
+
+Paths are compared relative to the repository root, and a prefix stops at a
+directory separator, so `--files bill` is not `billing.py`. A path nothing
+indexed matches is named on stderr rather than answered as if it were the whole
+repository.
+
+Landing on a name usually raises all five questions at once, and `--context`
+answers them together:
+
+```console
+$ where-are-we --context charge
+
+Context for `charge`: declared, map rows, callers, callees, impact to depth 1. 12000 characters, floor shares 15/35/15/15/20 percent.
+
+## Declared in
+- charge: billing/core.py:10-24 (function)
+- charge: legacy/pay.py:88-91 (function)
+
+## What the map says
+## Defined here
+- `charge` — billing/core.py:10
+...
+
+## Callers
+- checkout.py:pay
+
+## Callees
+- settle (billing/ledger.py)
+
+## Impact
+Impact of `charge` to depth 1. How to read it: ...
+depth 1: checkout.py:pay
+```
+
+The shares are floors, and the budget is allocated in two passes. The first
+asks every block what printing all of itself would cost. The second gives each
+block the smaller of that and its share - 15 percent of the budget for the
+declarations, 35 for the map's own rows, 15 for the callers, 15 for the
+callees, 20 for the impact - and then hands what nobody claimed to the blocks
+still short, in that same order. So when the five answers together fit the
+budget, every one of them is printed whole; and the same name at the same
+budget always composes the same answer, since the needs come from the map and
+the order is fixed.
+
+A block that could not print all of itself ends in `… N more lines
+(more:ctx:...)`, and `--more` on that handle returns the rest of that block.
+A block that could not even be given the room to name itself and carry that
+handle is left out rather than printed as a count nobody can follow, and the
+blocks are served in order, so below about a thousand characters the first of
+them are printed and the rest are not there. That is why the MCP server never
+asks for less than 1500: under it some rows are out of reach.
 
 ## The other map: the specifications
 
@@ -517,6 +659,45 @@ about the codebase.
 | `--spec-limit` | tickets fetched at most (60) |
 | `WAWE_MAX_FILES` | files read from the repository (40000) |
 | `.wawe-ignore` | paths never read at all |
+
+## What it has that the others do not
+
+Every other tool in this space does one of three things. Some hand the model a
+pile of text and hope: repomix, gitingest, code2prompt. Some hand it a search
+index whose answers move when the embedding model does: claude-context,
+chunkhound, continue's `@codebase`, greptile. Some hand it a live language
+server that has to be installed, started and kept warm per language: serena,
+mcp-language-server, opencode. This one treats the budget as a contract and
+publishes what the contract costs. An answer is whole rows or no row, never a
+row cut in the middle. It is at or under its stated ceiling. Every section ends
+by counting what it left out and carrying a handle that fetches it. And
+`wawe-eval` measures, on every CI run, what the cut loses: first-answer recall,
+pooled recall, top-5 recall, rows longer than the budget, and recall after
+every handle is followed, with that last number asserted at 1.0 from 1500
+characters upward.
+
+Nobody else states that. Repomix counts tokens and never says what
+`--compress` dropped. Aider binary-searches its map into `--map-tokens` and
+says nothing about what fell out. Every vector-backed tool returns top-k and is
+silent about rank eleven. Graphify is the only other project that publishes
+reproducible retrieval numbers and tags where an edge came from, and it still
+needs a model for anything that is not code.
+
+The same honesty runs through the rest. An absence names what was searched
+(`indexed: suite 260 files`) instead of asserting the thing does not exist.
+`## This map is incomplete` names every bound that cut. A cross-file edge the
+map is guessing at is written `charge (a.ts|c.ts)?` with every candidate
+listed, rather than passing a choice off as a lookup. `call_graph_stats`
+publishes how much of the call tree resolved, 0.2615 on this repository,
+instead of quietly reporting only the edges it managed to draw.
+
+And the test suite is a first class thing here, which it is nowhere else: step
+phrases with their overlaps and duplicates, feature to step traceability,
+scenario history and slow steps read out of JUnit XML, quarantine tags, fragile
+locators, test-id ownership, and the product under test indexed beside the
+suite that drives it. It builds in one tree walk, offline, for zero tokens,
+byte identically, out of the standard library, and what reaches the prompt is
+an 849-byte pointer rather than the map.
 
 ## Why install it
 
@@ -585,8 +766,16 @@ sixty-four thousand, every turn.
 | `--ask "words"` (with `[semantic]`) | the keyword hits plus a "Related by meaning" tail from a local embedding index |
 | `--corpus NAME=PATH` | fold an external corpus (a rules dir, a runbook) into the same semantic answers |
 | `--no-semantic` | skip the embedding index even when fastembed is installed |
+| `--defines NAME` | every place that name is declared, each as `file:start-end (kind)`, in path order |
+| `--at FILE:LINE` | the whole definition that encloses that line, with a handle for the rest of it |
+| `--context NAME` | the five answers about a name in one: declared, map rows, callers, callees, impact one hop out |
+| `--rank [FILE,...]` | the definitions this repository is built around, best first; given files, what to read while editing them |
+| `--limit N` | how many rows `--rank` prints (default 200; below 1 is refused) |
+| `--ask "words" --files a.py,b.py` | the same answer with the rows about those files first in every section; `--files -` reads the list on stdin |
 | `--mcp` | serve the map over MCP on stdin/stdout instead of answering once |
 | `--sections` | the section headings |
+| `--cost [N]` | what each section of `framework_map.md` and of the brief beside it costs: rows, bytes and estimated tokens, heaviest first, hiding what is under N bytes |
+| `--export FILE` | the map and its brief as one file to paste: the notice, the counts, the priced section list, then the brief. `-` for stdout |
 
 `WAWE_EMBED_CACHE=<file>` caches the semantic index's embeddings in one sqlite
 file keyed by model and text, so a rebuild does not recompute vectors it already
@@ -659,9 +848,9 @@ of its flags carries.
 
 | class | what it touches | flags |
 |---|---|---|
-| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
-| `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--force`, `--watch`, `--diff` |
-| `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of | `--init`, `--agent-file`, `--docs` |
+| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--defines`, `--at`, `--context`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
+| `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--ctags`, `--force`, `--watch`, `--diff` |
+| `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of, and the file `--export` was told to write, which is at whatever path the caller named | `--init`, `--agent-file`, `--docs`, `--export` |
 | `writes-config` | where a tool other than this one reads: `.git/hooks`, `~/.claude/settings.json`, `~/.codex/config.toml`, a Cursor rule, a Gemini setting | `--install-hook` |
 | `network` | off this machine: a tracker fetch, a runs API | `--specs`, `--spec-cmd`, `--spec-source`, `--spec-depth`, `--spec-limit`, `--runs-api` |
 
@@ -686,11 +875,13 @@ writes-map-dir
 A flag is resolved the way argparse resolves it, so `--eff` is `--effects`
 and the class of an abbreviated line is the class of the line that runs.
 
-A command line naming none of `--ask`, `--sections`, `--pointer`, `--callers`,
-`--callees`, `--impact`, `--more`, `--mcp`, `--lsp`, `--init`,
-`--install-hook`, `--specs`, `--dry-run`, `--effects` or `--help` builds the
-map into `--out`, so `where-are-we --repo .` is `writes-map-dir` on the
-strength of the build alone and says so as a `build writes-map-dir` line.
+A command line naming none of `--ask`, `--more`, `--defines`, `--at`,
+`--context`, `--rank`, `--callers`, `--callees`, `--impact`, `--sections`,
+`--cost`, `--export`, `--pointer`, `--mcp`, `--lsp`, `--init`,
+`--install-hook`, `--specs`, `--dry-run`, `--effects`
+or `--help` builds the map into `--out`,
+so `where-are-we --repo .` is `writes-map-dir` on the strength of the build
+alone and says so as a `build writes-map-dir` line.
 
 `--dry-run` prints every path the command can write, one per line, and exits
 without writing any of them:
@@ -714,10 +905,11 @@ It covers every command line, not only the ones that write:
 |---|---|
 | `--init` | the manifest |
 | `--install-hook KIND` | the files that kind installs, and for `claude` or `codex` with `HOME` unset, the same refusal the real install gives, exit 2 |
-| `--agent-file`, or a plain build | the map files under `--out`, the parse cache, `framework_map.html` with `--html`, and the agent file |
+| `--agent-file`, or a plain build | the map files under `--out`, the parse cache, `framework_map.html` with `--html`, `tags` with `--ctags`, and the agent file |
 | `--docs write` | the documents it would create, or `nothing to write: every directory already explains itself` |
 | `--specs` | `spec_map.json` and `spec_map.md`. The tracker command is not run |
-| `--ask`, `--mcp` and the other reads | `nothing to write: --ask only read`, and no answer, since an answer is not a preview |
+| `--export FILE` | `FILE`, at whatever path was given. The file is not written |
+| `--ask`, `--cost`, `--mcp` and the other reads | `nothing to write: --ask only read`, and no answer, since an answer is not a preview |
 
 The optional semantic index adds `semantic_index.json` and
 `semantic_index.npy` to the same directory as the map.
@@ -741,7 +933,7 @@ defaults from.
 | `WAWE_SPEC_LIMIT` | `specs.py` | the most tickets one spec map will fetch | `60` |
 | `WAWE_MAX_FILES` | `_mapper/walk.py` | the most files one walk will visit before it stops and says so in the map | `40000` |
 | `WAWE_NO_CACHE` | `_mapper/build.py`, `_mapper/walk.py` | set to anything: parse every file again and leave the parse cache exactly as it was. `--force` re-parses but rewrites the cache | unset: the cache is read and written |
-| `WAWE_DEBUG_PARSES` | `_mapper/build.py` | set to anything: print the parse count per build to stderr, to see what an incremental rebuild actually re-read | unset: silent |
+| `WAWE_DEBUG_PARSES` | `_mapper/build.py` | set to anything: print the parse count and the hash count per build to stderr, to see what an incremental rebuild actually re-read and re-hashed | unset: silent |
 | `WAWE_JUNIT_DIRS` | `_mapper/build.py` | extra directories of JUnit XML to read past runs from, separated by the platform's path separator | unset: the repository's own reports directories |
 | `WAWE_POINTER_MAX` | `_mapper/state.py` | the byte cap on the pointer, the block a SessionStart hook puts into context | `4000` |
 | `WAWE_VOCAB` | `_mapper/render.py` | cap on how many vocabulary entries the brief prints, split across the groups | `0`, meaning no cap |
@@ -805,7 +997,9 @@ its own in `.framework-map.json` and what it states wins:
 `.wawe.toml` holds CLI flags as defaults, `.wawe-ignore` keeps build output out,
 existing files are never overwritten, and anything shaped like a credential is
 redacted before it reaches a file. The commit and the newest file in the tree are
-recorded with the map, so a re-run on an unchanged tree costs a stat walk.
+recorded with the map, and so is a sha256 over what every indexed file holds, so
+a re-run on an unchanged tree costs a stat walk and a re-run on a tree whose
+timestamps lie still sees it.
 
 ### What is redacted
 
@@ -873,17 +1067,32 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --only "routes,data model"   keep only these sections in the brief
 --skip "coverage,history"    drop these
 --max-lines N                cap the brief per section; the full map is untouched
---diff                       what changed since the map already in --out
+--diff                       what changed since the map already in --out:
+                             the files that moved, then the keys
 --init                       write a starter .framework-map.json
 --install-hook KIND          wire it into something that already runs:
                              git|claude|cursor|codex|gemini (agent = claude)
 --watch SECONDS              rebuild whenever the tree moves
 --html                       also write framework_map.html
+--ctags                      also write <out>/tags, in universal-ctags format
 --force                      rebuild even when nothing moved, reading
                              nothing from the parse cache
 --quiet                      no summary line
 --dry-run                    print every path this command would write, and
                              write none of them
+--defines NAME               every place NAME is declared, with its span
+--at FILE:LINE               the whole definition that encloses that line
+--context NAME               declared, map rows, callers, callees and
+                             impact one hop out, in one answer
+--rank [FILE,...]            the definitions the repository is built around,
+                             personalised on the files you name
+--files FILE[,FILE]          on --ask: those files' rows first in every
+                             section; `-` reads the list on stdin
+--limit N                    how many rows --rank prints (default 200)
+--cost [THRESHOLD]           what the map and its brief cost per section:
+                             rows, bytes and tokens, heaviest first
+--export FILE                the map as one self-contained file to paste,
+                             or `-` for stdout
 --effects [--json]           what every flag does to the disk; with
                              `-- <command line>`, the class of that line
 ```
@@ -896,9 +1105,16 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 where-are-we --mcp --out /path/to/the/map
 ```
 
-Four tools — `ask`, `defines`, `find`, `sections` — over JSON-RPC on stdin and
-stdout. `defines` answers where a name is declared; `find` answers where a phrase
-appears, which is the other half of what a grep was for.
+Eleven tools over JSON-RPC on stdin and stdout: `ask`, `defines`, `at`,
+`context`, `rank`, `find`, `sections`, `callers`, `callees`, `impact` and
+`more`. `defines` answers where a name is declared, in every file that declares
+it, with the line each declaration ends on; `at` takes the `file:line` a stack
+trace names and returns the whole definition around it; `context` answers all
+five questions about a name at once, so landing on one costs a single round
+trip; `rank` answers what the repository is built around, and takes the files
+you are editing so the answer is about them; `find` answers where a phrase
+appears, which is the other half of what a grep was for. `ask` takes `files`
+for the same reason `--files` exists.
 The same index answering the same questions; what changes is that the question is
 an argument and the answer is a tool result, rather than a shell command and its
 output sitting in the conversation to be re-read on every turn after.
