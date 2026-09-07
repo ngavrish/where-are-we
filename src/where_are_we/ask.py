@@ -14,10 +14,23 @@ import re
 from itertools import accumulate
 from datetime import datetime, timezone
 
+# Named imports rather than `from . import graph`: that spelling names the
+# package as well as the module, and this module is one the package's own
+# `__init__` can reach, so it would put `ask` on a cycle with the facade.
+# `tests/golden/import_graph.py` is what says so.
 try:
     from ._mapper import rank as _rank_graph
+    from .graph import (BLOCKS as AFFECTED_BLOCKS, DEFAULT_DEPTH,
+                        FORMATS as AFFECTED_FORMATS, HEADS as AFFECTED_HEADS,
+                        NAMES as AFFECTED_NAMES, affected, block_lines,
+                        format_head, load as load_map, summary)
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import rank as _rank_graph  # type: ignore[no-redef]
+    from graph import (BLOCKS as AFFECTED_BLOCKS,  # type: ignore[no-redef]
+                       DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
+                       HEADS as AFFECTED_HEADS, NAMES as AFFECTED_NAMES,
+                       affected, block_lines, format_head, load as load_map,
+                       summary)
 
 # The default `--rank` and the MCP `rank` tool print, and the length of the
 # map's own `rank` key. The same number in both, so `--rank` with no files is
@@ -1600,17 +1613,19 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     kind = parts[0] if parts else ""
     fields = parts[1:]
     widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2,
-              "at": 2, "ctx": 3}
+              "at": 2, "ctx": 3, "aff": 4}
     # The four kinds an answer's scope can reach. `find` searches the lines
     # and `at` a definition; neither is ordered by `--files`, so neither
     # carries the field and a handle that puts one there is malformed. `ctx`
     # is out for the same reason from the other side: `context` takes no
     # files, so no answer it prints is ordered by a scope. If it ever gains
-    # one, it belongs in this tuple and nowhere else.
+    # one, it belongs in this tuple and nowhere else. `aff` carries a file
+    # list of its own and is still not scoped: those files are the question
+    # it answers rather than an ordering laid over an answer to another one.
     scoped = ("rows", "unmatched", "defs", "sections")
     if kind not in widths:
         return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
-                      "sections, find, at, ctx")
+                      "sections, find, at, ctx, aff")
     sfield = ""
     if kind in scoped and len(fields) == widths[kind] + 1:
         sfield, fields = fields[-1], fields[:-1]
@@ -1662,6 +1677,41 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
                           f"this handle asks for line {offset + 1} of it")
         chunk, reached = _context_chunk(CONTEXT_HEADS[block], lines[offset:],
                                         limit, block, fields[1], offset)
+        if reached == offset:
+            return _stale(f"line {offset + 1} of the {block} block does not "
+                          f"fit in {limit} characters")
+        return chunk
+
+    if kind == "aff":
+        # The same walk `affected` did, from the same map, continuing from
+        # the line this offset counts to. Nothing is stored between the two
+        # calls: the block, the files and the depth are in the handle, and
+        # the graph is whatever the map on disk now holds.
+        block = fields[0]
+        if block not in AFFECTED_NAMES and block not in AFFECTED_FORMATS:
+            return _stale(f"{block!r} is not an affected block; they are "
+                          + ", ".join(AFFECTED_NAMES + AFFECTED_FORMATS))
+        try:
+            named = [f for f in _decode(fields[1]).split(",") if f]
+        except ValueError as exc:
+            return _stale(f"{fields[1]!r} is not a file list this wrote: {exc}")
+        try:
+            walked = int(fields[2])
+        except ValueError:
+            return _stale(f"{fields[2]!r} is not a depth")
+        result = affected(load_map(os.path.dirname(map_path) or "."),
+                                named, walked)
+        lines = block_lines(result, block)
+        if offset >= len(lines):
+            return _stale(f"the {block} block for {', '.join(named)} is "
+                          f"{len(lines)} line{'' if len(lines) == 1 else 's'} "
+                          f"long, and this handle asks for line {offset + 1} "
+                          "of it")
+        head = (format_head(result, block) if block in AFFECTED_FORMATS
+                else AFFECTED_HEADS[block])
+        chunk, reached = _block_chunk(
+            head, lines[offset:], limit,
+            lambda got: f"more:aff:{block}:{fields[1]}:{walked}:{got}", offset)
         if reached == offset:
             return _stale(f"line {offset + 1} of the {block} block does not "
                           f"fit in {limit} characters")
@@ -2307,6 +2357,12 @@ def _context_lines(map_path: str, block: str, name: str, limit: int) -> list:
 
 def _context_chunk(head: str, lines: list, room: int, block: str,
                    field: str, base: int) -> tuple:
+    """One `context` block, cut to `room`, with its `more:ctx:` handle."""
+    return _block_chunk(head, lines, room,
+                        lambda got: f"more:ctx:{block}:{field}:{got}", base)
+
+
+def _block_chunk(head: str, lines: list, room: int, handle_at, base: int) -> tuple:
     """`head` plus as many of `lines` as fit in `room`, with the tail that
     says how many are left and the handle that fetches them.
 
@@ -2322,20 +2378,24 @@ def _context_chunk(head: str, lines: list, room: int, block: str,
     with `… 6 more lines (more:ctx:impact:charge:0)` under it is the
     difference between a block a reader can fetch and a block they cannot see
     exists.
+
+    `handle_at(reached)` writes the handle that fetches the rest, and is
+    where the two kinds of block differ: `context` prints a `more:ctx:` one
+    and `affected` a `more:aff:`. Everything else about the cut, the tail and
+    the floor below is the same for both, so both are the same code.
     """
     def tail_for(left: int, got: int, handle: bool) -> str:
         if not left:
             return ""
         plural = "" if left == 1 else "s"
         if handle:
-            return (f"… {left} more line{plural} "
-                    f"(more:ctx:{block}:{field}:{got})")
+            return f"… {left} more line{plural} ({handle_at(got)})"
         # No room for the handle beside the count. Say that, rather than
         # print a count of lines with nothing that fetches them: a reader
         # told there is more and not told how to get it has been handed a
         # fact with nothing behind it.
         #
-        # `context` never gets here: `_context_floor` is the room for a head
+        # `context` never gets here: `_block_floor` is the room for a head
         # and a tail with its handle, and a block that cannot be given that
         # much is left out of the answer instead. `more()` can, since it cuts
         # a block at whatever budget it was called with and a caller may ask
@@ -2361,7 +2421,7 @@ def _context_need(head: str, lines: list) -> int:
     return RESERVE_CONTEXT + len(head) + sum(len(line) + 1 for line in lines)
 
 
-def _context_floor(block: str, head: str, lines: list, field: str) -> int:
+def _block_floor(head: str, lines: list, handle: str) -> int:
     """The smallest room a block can be given and still be worth printing:
     its head, and a tail carrying the handle that fetches the whole of it.
 
@@ -2372,20 +2432,28 @@ def _context_floor(block: str, head: str, lines: list, field: str) -> int:
     rather than printed as a stub.
     """
     tail = (f"… {len(lines)} more line{'' if len(lines) == 1 else 's'} "
-            f"(more:ctx:{block}:{field}:0)")
+            f"({handle})")
     return max(len(head) + RESERVE_CONTEXT + 1, len(head) + 1 + len(tail))
 
 
 def _context_rooms(room: int, lines: dict, field: str) -> dict:
+    """How much of `room` each `context` block gets."""
+    return _block_rooms(room, CONTEXT_BLOCKS, lines,
+                        lambda block: f"more:ctx:{block}:{field}:0")
+
+
+def _block_rooms(room: int, blocks: tuple, lines: dict, handle_for) -> dict:
     """How much of `room` each block gets, in two passes.
 
     Pass one asks every block what printing all of itself would cost
-    (`_context_need`). Pass two walks the blocks in `CONTEXT_BLOCKS` order
-    and gives each one the smaller of that need and its floor, out of what is
-    left; then it walks them again and hands what nobody claimed to the
-    blocks still short of their need, each taking up to what it is missing.
+    (`_context_need`). Pass two walks the blocks in the order they are
+    printed in and gives each one the smaller of that need and its floor, out
+    of what is left; then it walks them again and hands what nobody claimed
+    to the blocks still short of their need, each taking up to what it is
+    missing. `context` and `affected` are both cut this way, with their own
+    block tuples and their own handles.
 
-    So the percentages in `CONTEXT_BLOCKS` are floors rather than caps: a
+    So the percentages beside the blocks are floors rather than caps: a
     block is guaranteed its share and may have more when the others do not
     want theirs. The consequence worth stating is the one the whole tool is
     for: when the five answers together fit the budget, every one of them is
@@ -2402,7 +2470,7 @@ def _context_rooms(room: int, lines: dict, field: str) -> dict:
     `impact` (647 against 2,370) never wanted.
 
     A block's floor is the larger of its percentage share and
-    `_context_floor`, and a block that cannot be given that much out of what
+    `_block_floor`, and a block that cannot be given that much out of what
     is left is given nothing at all. That happens below about six hundred
     characters, where five heads, five counts and five handles do not fit
     between them: there the blocks are served in order and the ones that fit
@@ -2412,21 +2480,21 @@ def _context_rooms(room: int, lines: dict, field: str) -> dict:
     `click_7`: two blocks at 300 characters, three at 350, all five at 600,
     and the first block printed whole at 800.
 
-    Deterministic: the needs come from the map, the floors from
-    `CONTEXT_BLOCKS` and the heads, and the order is the order the blocks are
-    printed in, so the same name at the same budget is always allocated the
-    same way.
+    Deterministic: the needs come from the map, the floors from the block
+    tuple and the heads, and the order is the order the blocks are printed
+    in, so the same question at the same budget is always allocated the same
+    way.
     """
-    need = {block: _context_need(CONTEXT_HEADS[block], lines[block])
-            for block in CONTEXT_NAMES}
+    need = {block: _context_need(head, lines[block])
+            for block, head, _pct in blocks}
     given, spare = {}, room
-    for block, head, pct in CONTEXT_BLOCKS:
+    for block, head, pct in blocks:
         want = min(need[block], max((room * pct) // 100,
-                                    _context_floor(block, head,
-                                                   lines[block], field)))
+                                    _block_floor(head, lines[block],
+                                                 handle_for(block))))
         given[block] = want if want <= spare else 0
         spare -= given[block]
-    for block in CONTEXT_NAMES:
+    for block, _head, _pct in blocks:
         if spare <= 0:
             break
         if not given[block]:
@@ -2495,6 +2563,80 @@ def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
                 continue
             chunk, _reached = _context_chunk(bhead, lines[block],
                                              rooms[block], block, field, 0)
+            if chunk:
+                out.append(chunk)
+    return "\n\n".join(out)
+
+
+# What one `affected` answer may take, in characters. The same ceiling
+# `ask()` and `context` print at, so a selection read off the command line
+# and a selection read off the MCP tool are the same answer at the same size.
+AFFECTED_BUDGET = 12000
+
+
+def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
+                    fmt: str = "", limit: int = AFFECTED_BUDGET) -> str:
+    """Which tests a change to `files` reaches, from the graph in the map.
+
+    `graph.affected` does the walk and this cuts it: the first line states
+    the counts, the depth and the ceiling, and each block below gets the
+    smaller of what it needs and its floor share, with what nobody claimed
+    handed on in printing order, exactly as `context` divides its own budget.
+    A block that could not print all of itself ends in a tail carrying a
+    `more:aff:` handle, and `more()` continues that block from the line the
+    handle names.
+
+    A block with nothing in it is not printed at all: the first line has
+    already said the count, and five heads over five empty lists are five
+    rows of a budget spent saying nothing twice. `fmt` replaces the blocks
+    with the one list a runner takes, `behave` or `pytest`, which is then the
+    whole answer and is printed even when it is empty, because there the
+    empty list is the answer.
+    """
+    named = [f for f in files if f]
+    if not named:
+        return "affected needs the files a change touched"
+    if fmt and fmt not in AFFECTED_FORMATS:
+        return (f"{fmt!r} is not a format; they are "
+                + ", ".join(AFFECTED_FORMATS))
+    result = affected(load_map(os.path.dirname(map_path) or "."),
+                            named, depth)
+    head = summary(result, limit)
+    if len(head) > limit:
+        # `limit` is a ceiling here as it is for `ask()` and `context`, and
+        # this line is the smallest thing this tool has to say. Under it
+        # there is no answer, not a first line that overruns.
+        return ""
+    field = _encode(",".join(named))
+    walked = result["depth"]
+
+    def handle_for(block: str):
+        return lambda got: f"more:aff:{block}:{field}:{walked}:{got}"
+
+    if fmt:
+        room = limit - len(head) - 2
+        if room <= 0:
+            return head
+        chunk, _reached = _block_chunk(format_head(result, fmt),
+                                       block_lines(result, fmt), room,
+                                       handle_for(fmt), 0)
+        return "\n\n".join([head] + ([chunk] if chunk else []))
+
+    lines = {block: block_lines(result, block) for block in AFFECTED_NAMES}
+    blocks = tuple(entry for entry in AFFECTED_BLOCKS if lines[entry[0]])
+    out = [head]
+    # Every block pays for the blank line above it, so what the blocks divide
+    # is what is left after the first line and those separators, and the
+    # answer is inside `limit` however it divides.
+    room = limit - len(head) - 2 * len(blocks)
+    if blocks and room > 0:
+        rooms = _block_rooms(room, blocks, lines,
+                             lambda block: handle_for(block)(0))
+        for block, bhead, _pct in blocks:
+            if not rooms[block]:
+                continue
+            chunk, _reached = _block_chunk(bhead, lines[block], rooms[block],
+                                           handle_for(block), 0)
             if chunk:
                 out.append(chunk)
     return "\n\n".join(out)
