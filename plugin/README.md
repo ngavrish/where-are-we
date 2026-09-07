@@ -24,7 +24,9 @@ grepped.
   answer does not cover. A scenario is reached through a step phrase matched
   as a 40 character substring, a route through the file it is served from,
   and a changed feature file selects its own scenarios; `format="behave"`
-  prints a `--name` per scenario rather than any tag.
+  prints one `--name` per affected scenario rather than any tag or any file
+  pattern, and two scenarios of one name are one argument that behave applies
+  to both.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

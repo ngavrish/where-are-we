@@ -43,16 +43,25 @@ the map and nothing read them end to end; this release starts doing that.
   `git diff` is one line and exit 2, and a commit that changed nothing is
   "nothing changed since HEAD" and exit 0.
 - `--affected-format behave` prints one `--name` per affected scenario,
-  anchored on its name, and one `-i` for a feature file every scenario of
-  which is affected, which selects the same set in one argument. It never
-  prints a tag: behave applies `--tags` per scenario, and the map records a
+  anchored on its name, and nothing else. `--name` is the only option behave
+  unions: it is `action="append"` and it matches a scenario wherever it
+  lives. `-i` is a plain store, so the last one on the line overwrites the
+  rest, and it filters which feature files are collected at all, so it
+  intersects with `--name` instead of adding to it; a selection using it ran
+  3 of the 24 scenarios it named across 8 feature files, and none of the 3 it
+  named across a wholly and a partly affected file. And no tag is ever
+  printed: behave applies `--tags` per scenario, and the map records a
   feature file's tags as every `@word` anywhere in it, so a scenario level
   tag or the `@` of an email address in a step line would select the wrong
   scenarios or none at all. A scenario outline is selected too: behave
   substitutes the example values into the name it runs and appends its own
-  ` -- @1.1` suffix, so the pattern allows both. `--affected-format pytest`
-  prints node ids from `pytest_tests`. `--affected-depth N` is 1 to 12, and
-  the flag refuses what the tool refuses.
+  ` -- @1.1` suffix, so the pattern allows both. Past 200 scenarios each
+  feature file's names alternate inside one `--name`, because a command line
+  has a length. Two scenarios of one name in one file are one argument and
+  behave runs both, which over-selects rather than under-selects.
+  `--affected-format pytest` prints node ids from `pytest_tests`.
+  `--affected-depth N` is 1 to 12, and the flag refuses what the tool
+  refuses.
 - Every block is cut by the rules every other answer here is cut by: whole
   rows, a floor share of the budget with what nobody claims handed on in
   printing order, and a `more:aff:` handle under a block that could not print
@@ -61,7 +70,9 @@ the map and nothing read them end to end; this release starts doing that.
   A block there is no room to print at all is not dropped silently, as it is
   in `context`: it gets one line, `… 2 rows in pages; raise the budget`, with
   the handle that fetches them, because a list of rows a reader can neither
-  see nor ask for is what makes a selection wrong rather than short.
+  see nor ask for is what makes a selection wrong rather than short. Where
+  even those lines do not all fit, the one for the unreachable files is the
+  last to go, because it is the one that says the answer is partial.
 - `context`'s three budget functions are now shared with this one, with the
   handle passed in: the cut, the floor and the two allocation passes were the
   same for both. `context` is byte for byte what it was, over 224 names at 6
