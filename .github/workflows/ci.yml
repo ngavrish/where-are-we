@@ -3184,15 +3184,36 @@ jobs:
           #   where-are-we --effects --json > src/where_are_we/effects.json
           where-are-we --effects --json > /tmp/effects.json
           diff -u src/where_are_we/effects.json /tmp/effects.json
-          # And it is installed beside the code, not merely in the checkout.
+          # The class of a flag, not only its presence: a table that still
+          # holds every flag while calling --install-hook a read passes a
+          # membership check and misleads every guard that reads it.
           python - <<'EOF'
-          import importlib.resources as res, json
-          data = json.loads(res.files("where_are_we").joinpath("effects.json")
-                            .read_text(encoding="utf-8"))
+          import importlib.resources as res, json, pathlib, sys
+          from where_are_we import effects
+          named = (("--ask", "read"), ("--mcp", "read"), ("--pointer", "read"),
+                   ("--out", "writes-map-dir"), ("--html", "writes-map-dir"),
+                   ("--force", "writes-map-dir"), ("--watch", "writes-map-dir"),
+                   ("--init", "writes-repo"), ("--agent-file", "writes-repo"),
+                   ("--install-hook", "writes-config"),
+                   ("--spec-source", "network"))
+          wrong = [(f, effects.EFFECTS[f], c) for f, c in named
+                   if effects.EFFECTS[f] != c]
+          # The file in the checkout is the table, key by key, and the copy
+          # installed beside the code is that file byte for byte.
+          on_disk = pathlib.Path("src/where_are_we/effects.json").read_bytes()
+          shipped = res.files("where_are_we").joinpath("effects.json").read_bytes()
+          data = json.loads(on_disk)
+          drift = sorted(f for f in set(data["flags"]) | set(effects.EFFECTS)
+                         if data["flags"].get(f) != effects.EFFECTS.get(f))
+          print(f"classes checked: {len(named)}, wrong: {wrong}, "
+                f"flags differing from the table: {drift}, "
+                f"installed copy identical: {shipped == on_disk}")
           assert data["schema"] == "where-are-we-effects/1", data["schema"]
           assert data["order"] == ["read", "writes-map-dir", "writes-repo",
                                    "writes-config", "network"], data["order"]
-          print("effects.json ships with the package:", len(data["flags"]), "flags")
+          # A guard reading JSON is told what a read can still write.
+          assert "<out>/.wawe-ask.log" in data["notes"]["read"], data["notes"]
+          sys.exit(1 if (wrong or drift or shipped != on_disk) else 0)
           EOF
 
       - name: a command line says what it would write before it runs
@@ -3225,6 +3246,27 @@ jobs:
           grep -qx "where-are-we-effects/1" /tmp/eff/table
           where-are-we --effects --json > /tmp/eff/table.json
           grep -q '"schema": "where-are-we-effects/1"' /tmp/eff/table.json
+          # argparse takes any unambiguous prefix, so the dispatch has to as
+          # well: --effect and --eff are --effects on both sides. Before
+          # this, `--effect` was classified `read` and then built the map.
+          where-are-we --effects -- where-are-we --repo . --effect > /tmp/eff/e1
+          grep -qx "\-\-effects read" /tmp/eff/e1
+          grep -qx read /tmp/eff/e1
+          where-are-we --repo . --out /tmp/eff/abbrev --eff > /tmp/eff/e2
+          grep -qx "where-are-we-effects/1" /tmp/eff/e2
+          if test -e /tmp/eff/abbrev; then
+            echo "an abbreviated --effects built the map"; exit 1
+          fi
+          # A line that asks for help parses, and the class is still the
+          # first line: argparse writes help to stdout and leaves by the
+          # same door a broken line does.
+          where-are-we --effects -- where-are-we --help > /tmp/eff/h 2> /tmp/eff/h.err
+          test "$(wc -l < /tmp/eff/h)" -eq 2
+          test ! -s /tmp/eff/h.err
+          head -1 /tmp/eff/h | grep -qx read
+          if grep -q "does not parse" /tmp/eff/h; then
+            echo "a line asking for help was called unparseable"; exit 1
+          fi
 
       - name: --dry-run names every path it would write and writes none of them
         run: |
@@ -3243,6 +3285,38 @@ jobs:
             > /tmp/dryout/git.txt
           where-are-we --repo /tmp/dry/repo --install-hook claude --dry-run \
             > /tmp/dryout/claude.txt
+          # A preview of a fetch does not fetch: --spec-cmd is a command of
+          # the caller's, and the two files a spec run writes are named
+          # without running it.
+          where-are-we --repo /tmp/dry/repo --out /tmp/dry/specs --specs A-1 \
+            --spec-cmd "printf '{\"key\":\"A-1\"}'" --dry-run \
+            > /tmp/dryout/specs.txt
+          grep -qx "would write /tmp/dry/specs/spec_map.json" /tmp/dryout/specs.txt
+          grep -qx "would write /tmp/dry/specs/spec_map.md" /tmp/dryout/specs.txt
+          if test -e /tmp/dry/specs; then
+            echo "a previewed spec run wrote its output directory"; exit 1
+          fi
+          # A line that only reads has no paths to name, and does not answer:
+          # `--ask x --dry-run` used to print an answer and append to the
+          # answer log.
+          where-are-we --out /tmp/dry/repo/.wawe --ask charge --dry-run \
+            > /tmp/dryout/ask.txt
+          grep -qx "nothing to write: --ask only read" /tmp/dryout/ask.txt
+          if test -e /tmp/dry/repo/.wawe/.wawe-ask.log; then
+            echo "a previewed read appended to the answer log"; exit 1
+          fi
+          # --docs write does write, and its preview says which files.
+          where-are-we --repo /tmp/dry/repo --docs write --dry-run \
+            > /tmp/dryout/docs.txt
+          grep -qx "would write /tmp/dry/repo/README.md" /tmp/dryout/docs.txt
+          grep -qx "would write /tmp/dry/repo/docs/ARCHITECTURE.md" /tmp/dryout/docs.txt
+          # The two kinds that write under ~ refuse a home nobody set, and so
+          # does the preview: no path at all rather than the real user's.
+          if env -u HOME where-are-we --repo /tmp/dry/repo \
+               --install-hook claude --dry-run > /tmp/dryout/nohome.txt; then
+            echo "a preview invented a home directory"; exit 1
+          fi
+          grep -qx "HOME is not set; nothing was written" /tmp/dryout/nohome.txt
           cat /tmp/dryout/*.txt
           grep -qx "would write /tmp/dry/repo/.framework-map.json" /tmp/dryout/init.txt
           grep -qx "would write /tmp/dry/repo/AGENTS.md" /tmp/dryout/agent.txt
@@ -3263,8 +3337,9 @@ jobs:
           where-are-we --repo /tmp/dry/repo --init
           where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
             --agent-file /tmp/dry/repo/AGENTS.md --quiet --no-semantic
-          sed 's/^would write //;s/^would replace //' /tmp/dryout/*.txt \
-            | sort -u > /tmp/dryout/promised
+          sed 's/^would write //;s/^would replace //' \
+            /tmp/dryout/init.txt /tmp/dryout/agent.txt /tmp/dryout/git.txt \
+            /tmp/dryout/claude.txt | sort -u > /tmp/dryout/promised
           while read -r path; do
             if test ! -e "$path"; then
               echo "the dry run named $path and the real run did not write it"

@@ -7,11 +7,14 @@ nothing anyone cares about, or waves through `--install-hook`, which edits
 `~/.claude/settings.json`. So the answer ships with the tool: one table, and
 the functions that read it.
 
-This module imports json and nothing else. It never imports the mapper, so
-`--effects` costs an import and not a tree walk, and the same table is shipped
-beside the code as `effects.json` for a guard that would rather read JSON than
-import Python. That file is what `as_json()` prints, and a CI step fails when
-the two differ; regenerate it with
+This module imports json and nothing else, so the table drags nothing behind
+it and `--effects` costs no tree walk. That is a property of this file, not of
+the import: `import where_are_we.effects` goes through the package's
+`__init__`, which imports the mapper, so the cost of asking is the cost of
+starting the tool at all. The same table ships beside the code as
+`effects.json` for a guard that would rather read JSON than import Python;
+that file is what `as_json()` prints, and a CI step fails when the two differ.
+Regenerate it with
 `where-are-we --effects --json > src/where_are_we/effects.json`.
 """
 
@@ -89,15 +92,33 @@ EFFECTS = {
     "--runs-api": "network",
 }
 
+# What each class means, in the file as well as on the screen: a guard reading
+# `effects.json` is told what a `read` may still do, which until now only a
+# human reading the README was.
+NOTES = {
+    "read": "answers from what is already there. The flags that answer from a "
+            "map (--ask, --more, --callers, --callees, --impact, --sections) "
+            "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
+            "nothing else is written, and nothing outside <out> is.",
+    "writes-map-dir": "writes the map files and the parse cache under --out.",
+    "writes-repo": "writes into the repository being mapped: a manifest, an "
+                   "agent file, the READMEs a directory has none of.",
+    "writes-config": "writes where a tool other than this one reads: "
+                     ".git/hooks, ~/.claude/settings.json, "
+                     "~/.codex/config.toml, a Cursor rule, a Gemini setting.",
+    "network": "goes off this machine: a tracker fetch, a runs API.",
+}
+
 # The flags a run returns on before it writes any map into `--out`. A command
 # line that names none of them builds the map there, whatever else it says, so
 # the floor of its class is writes-map-dir even when every flag on it is a
 # read: `where-are-we --repo .` carries no write flag at all and writes three
-# files into the current directory.
-ANSWER_ONLY = frozenset({
+# files into the current directory. `--specs` is in the set because it returns
+# before the build: it writes spec_map.json and spec_map.md and no map.
+NO_MAP_BUILD = frozenset({
     "-h", "--help", "--effects", "--dry-run", "--ask", "--more", "--callers",
     "--callees", "--impact", "--sections", "--pointer", "--mcp", "--lsp",
-    "--init", "--install-hook",
+    "--init", "--install-hook", "--specs",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the
@@ -158,7 +179,7 @@ def classify(argv, known=None) -> tuple[str, list[tuple[str, str]]]:
     """
     flags = flags_in(argv, known if known is not None else sorted(EFFECTS))
     reasons = [(f, EFFECTS.get(f, UNKNOWN)) for f in flags]
-    if not any(f in ANSWER_ONLY for f in flags):
+    if not any(f in NO_MAP_BUILD for f in flags):
         reasons.append((BUILD, "writes-map-dir"))
     return worst(c for _f, c in reasons), reasons
 
@@ -166,13 +187,12 @@ def classify(argv, known=None) -> tuple[str, list[tuple[str, str]]]:
 def table() -> dict:
     """The manifest, exactly as `effects.json` holds it."""
     return {"schema": SCHEMA, "flags": dict(sorted(EFFECTS.items())),
-            "order": list(ORDER)}
+            "order": list(ORDER), "notes": dict(NOTES)}
 
 
 def as_json() -> str:
     """The manifest as JSON, one text for the file and for `--effects
     --json`, so the two can be compared byte for byte."""
-    import json
     return json.dumps(table(), indent=2) + "\n"
 
 
@@ -183,10 +203,9 @@ def as_text() -> str:
     lines = [SCHEMA, " < ".join(ORDER), ""]
     lines += [f"{flag:<{width}}  {cls}" for flag, cls in sorted(EFFECTS.items())]
     lines.append("")
-    lines.append("A read may append one line to <out>/.wawe-ask.log and "
-                 "touches nothing else.")
-    lines.append("A command line naming none of --ask, --sections, --pointer, "
-                 "--callers, --callees, --impact, --more, --mcp, --lsp, "
-                 "--init, --install-hook, --dry-run, --effects or --help "
-                 "builds the map into --out.")
+    lines += [f"{cls}: {NOTES[cls]}" for cls in ORDER]
+    lines.append("")
+    lines.append("A command line naming none of "
+                 + ", ".join(sorted(NO_MAP_BUILD))
+                 + " builds the map into --out.")
     return "\n".join(lines) + "\n"

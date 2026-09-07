@@ -55,17 +55,32 @@
   same JSON ships beside the code as `effects.json`. `--effects --
   <command line>` classifies one command line with this tool's own parser
   and runs nothing: `--out /tmp/m --ask x` is `writes-map-dir`,
-  `--install-hook git` is `writes-config`, `--mcp` is `read`. A line naming
-  none of the flags that answer from an existing map builds one into
-  `--out`, so its floor is `writes-map-dir` whatever else it says. The table
-  cannot drift: a CI step fails when the parser knows a flag the table does
-  not, when the table names one the parser does not, or when `effects.json`
-  differs from what the table prints.
+  `--install-hook git` is `writes-config`, `--mcp` is `read`. Flags are
+  resolved the way argparse resolves them, abbreviations and all, and the
+  dispatch of `--effects` itself goes through the same resolution, so
+  `--eff` cannot be classified as one thing and run as another. A line
+  naming none of the flags that answer from an existing map builds one into
+  `--out`, so its floor is `writes-map-dir` whatever else it says; `--specs`
+  is one of the exceptions, since it writes `spec_map.*` and returns. The
+  JSON carries a `notes` object as well, saying per class what it touches,
+  so a guard reading the file is told what a `read` may still append to.
+  The table cannot drift: a CI step fails when the parser knows a flag the
+  table does not, when the table names one the parser does not, when a named
+  flag's class is not the one documented, or when `effects.json` in the
+  checkout differs from what the table prints or from the copy installed
+  beside the code.
 - `--dry-run` prints every path a command can write, `would write` when
   nothing is there and `would replace` when a file is, and exits without
   writing any of them. The hook paths come from `hooks.paths()`, the one
   computation the installers themselves use, so a preview names the files
-  the real run touches. A CI step lists the files of the tree and their
+  the real run touches. It covers every command line and not only the three
+  that write into a repository: `--docs write` is previewed from a map built
+  with no cache, `--specs` names `spec_map.json` and `spec_map.md` without
+  running the tracker command, a line that only reads says `nothing to
+  write: --ask only read` rather than answering and appending to the answer
+  log, and `--install-hook claude` with `HOME` unset gives the refusal the
+  real install gives instead of naming the home directory of whoever the
+  passwd entry belongs to. A CI step lists the files of the tree and their
   hashes before and after a dry run of `--init`, `--agent-file`,
   `--install-hook git` and `--install-hook claude`, and then runs those
   commands for real to prove every path the preview named is a path the run

@@ -185,9 +185,54 @@ def _trigger_command(repo: str, product: str, out: str, agent_file: str) -> str:
     return " ".join(cmd) + " --quiet || true"
 
 
+def home_refusal(kind: str) -> str:
+    """The refusal `install()` hands back when `kind` writes under `~` and
+    HOME is not set, or "" when there is nothing to refuse.
+
+    `os.path.expanduser` falls back to the passwd entry when HOME is unset,
+    which is the *real* home of whoever is running this process and exactly
+    wrong for a CI job or a sandboxed harness that never set it on purpose.
+    The installer and the `--dry-run` preview ask the same question here, so
+    a preview cannot advertise a path the real run refuses to touch.
+    """
+    if kind == "agent":
+        kind = "claude"
+    if kind in ("claude", "codex") and not os.environ.get("HOME"):
+        return "HOME is not set; nothing was written"
+    return ""
+
+
+def targets(repo: str, kind: str, home: str | None = None) -> dict:
+    """The files `kind` installs, by name, in the order they are written.
+
+    Named rather than positional: an installer takes `targets(...)["mcp"]`,
+    so adding a file to a kind cannot silently redirect one of its writes.
+    """
+    if kind == "agent":
+        kind = "claude"
+    if home is None:
+        home = os.path.expanduser("~")
+    if kind == "git":
+        hooks_dir = os.path.join(repo, ".git", "hooks")
+        return {name: os.path.join(hooks_dir, name) for name in _GIT_HOOKS}
+    if kind == "claude":
+        return {"settings": os.path.join(home, ".claude", "settings.json")}
+    if kind == "cursor":
+        return {"rule": os.path.join(repo, ".cursor", "rules", "where-are-we.mdc"),
+                "mcp": os.path.join(repo, ".cursor", "mcp.json")}
+    if kind == "codex":
+        return {"agents": os.path.join(repo, "AGENTS.md"),
+                "config": os.path.join(home, ".codex", "config.toml")}
+    if kind == "gemini":
+        return {"md": os.path.join(repo, "GEMINI.md"),
+                "settings": os.path.join(repo, ".gemini", "settings.json")}
+    raise ValueError(f"unknown --install-hook kind: {kind}")
+
+
 def paths(repo: str, kind: str, home: str | None = None) -> list[str]:
     """Every file `install()` can write for `kind`, in the order it writes
-    them.
+    them: the map the three pointer kinds need first, then that kind's own
+    files.
 
     One computation, used by the installers themselves and by `--dry-run`, so
     a preview names the files the real run touches and cannot drift from
@@ -196,33 +241,18 @@ def paths(repo: str, kind: str, home: str | None = None) -> list[str]:
     """
     if kind == "agent":
         kind = "claude"
-    if home is None:
-        home = os.path.expanduser("~")
-    if kind == "git":
-        hooks_dir = os.path.join(repo, ".git", "hooks")
-        return [os.path.join(hooks_dir, name) for name in _GIT_HOOKS]
-    if kind == "claude":
-        return [os.path.join(home, ".claude", "settings.json")]
-    if kind not in ("cursor", "codex", "gemini"):
-        raise ValueError(f"unknown --install-hook kind: {kind}")
-    # The three that point at a map have to have one: `_ensure_map` builds it
-    # when `framework_map.md` is not there, and writes the .gitignore either
-    # way.
-    wawe_dir = os.path.join(repo, ".wawe")
     out = []
-    if not os.path.exists(os.path.join(wawe_dir, "framework_map.md")):
-        # A build leaves its parse cache in the directory it writes into.
-        out.append(os.path.join(wawe_dir, mapper._PARSE_CACHE_FILE))
-        out += [os.path.join(wawe_dir, name) for name in _MAP_FILES]
-    out.append(os.path.join(wawe_dir, ".gitignore"))
-    if kind == "cursor":
-        return out + [os.path.join(repo, ".cursor", "rules", "where-are-we.mdc"),
-                      os.path.join(repo, ".cursor", "mcp.json")]
-    if kind == "codex":
-        return out + [os.path.join(repo, "AGENTS.md"),
-                      os.path.join(home, ".codex", "config.toml")]
-    return out + [os.path.join(repo, "GEMINI.md"),
-                  os.path.join(repo, ".gemini", "settings.json")]
+    if kind in ("cursor", "codex", "gemini"):
+        # These three point at a map, so they have to have one: `_ensure_map`
+        # builds it when `framework_map.md` is not there, and writes the
+        # .gitignore either way.
+        wawe_dir = os.path.join(repo, ".wawe")
+        if not os.path.exists(os.path.join(wawe_dir, "framework_map.md")):
+            # A build leaves its parse cache in the directory it writes into.
+            out.append(os.path.join(wawe_dir, mapper._PARSE_CACHE_FILE))
+            out += [os.path.join(wawe_dir, name) for name in _MAP_FILES]
+        out.append(os.path.join(wawe_dir, ".gitignore"))
+    return out + list(targets(repo, kind, home).values())
 
 
 def _install_git(repo: str, line: str) -> str:
@@ -236,8 +266,7 @@ def _install_git(repo: str, line: str) -> str:
     if not os.path.isdir(hooks_dir):
         return f"{hooks_dir} does not exist -- is {repo} a git repository?"
     todo = []
-    for path in paths(repo, "git"):
-        name = os.path.basename(path)
+    for name, path in targets(repo, "git").items():
         body = ""
         if os.path.exists(path):
             try:
@@ -269,7 +298,7 @@ def _install_git(repo: str, line: str) -> str:
 def _install_claude(line: str, home: str) -> str:
     # No repository is involved in this one: the single file it writes is
     # under `home`.
-    settings = paths("", "claude", home)[0]
+    settings = targets("", "claude", home)["settings"]
     conf, error = _load_json_conf(settings, "hooks")
     if error:
         return error
@@ -288,9 +317,8 @@ def _install_claude(line: str, home: str) -> str:
 
 
 def _install_cursor(repo: str) -> str:
-    # The last two paths are this kind's own files; whatever comes before
-    # them is the map `_ensure_map` has already written.
-    rule_path, mcp_path = paths(repo, "cursor")[-2:]
+    own = targets(repo, "cursor")
+    rule_path, mcp_path = own["rule"], own["mcp"]
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
 
     # A symlinked config is refused as a symlink, not as "not valid JSON":
@@ -337,8 +365,8 @@ def _install_cursor(repo: str) -> str:
 
 
 def _install_codex(repo: str, home: str) -> str:
-    # The last two, as in _install_cursor: this kind's own files.
-    agents_path, toml_path = paths(repo, "codex", home)[-2:]
+    own = targets(repo, "codex", home)
+    agents_path, toml_path = own["agents"], own["config"]
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
     # Both targets checked before AGENTS.md is merged, so a refused toml does
     # not leave the markdown half installed.
@@ -374,8 +402,8 @@ def _install_codex(repo: str, home: str) -> str:
 
 
 def _install_gemini(repo: str) -> str:
-    # The last two, as in _install_cursor: this kind's own files.
-    md_path, settings_path = paths(repo, "gemini")[-2:]
+    own = targets(repo, "gemini")
+    md_path, settings_path = own["md"], own["settings"]
     map_path = os.path.join(repo, ".wawe", "framework_map.md")
 
     bad = _symlink_refusal(settings_path, repo)
@@ -417,12 +445,12 @@ def install(repo: str, kind: str, product: str, out: str, agent_file: str,
     if kind == "agent":
         kind = "claude"
     if home is None:
-        # claude and codex write under ~; os.path.expanduser falls back to
-        # the passwd entry when HOME is unset, which is the *real* home of
-        # whoever is running this process -- exactly wrong for a CI job or a
-        # sandboxed harness that never set it on purpose.
-        if kind in ("claude", "codex") and not os.environ.get("HOME"):
-            return "HOME is not set; nothing was written"
+        # claude and codex write under ~, and a home this process only found
+        # in the passwd entry is not one it was pointed at. `--dry-run` asks
+        # the same function, so the preview refuses where the write refuses.
+        refusal = home_refusal(kind)
+        if refusal:
+            return refusal
         home = os.path.expanduser("~")
 
     if kind == "git":

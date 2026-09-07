@@ -565,13 +565,21 @@ def _effects_command(ap: argparse.ArgumentParser, argv: list) -> int:
     if not rest:
         print(effects.as_json() if "--json" in head else effects.as_text(), end="")
         return 0
+    cls, reasons = effects.classify(rest, effects.option_strings(ap))
     refused = False
-    with contextlib.redirect_stderr(io.StringIO()):
+    # Both streams, not just stderr: `--help` is an argparse action that
+    # prints the whole help to stdout and then raises SystemExit, and the
+    # first line of this command's output is the class.
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(io.StringIO()):
         try:
             ap.parse_known_args(rest)
         except SystemExit:
             refused = True
-    cls, reasons = effects.classify(rest, effects.option_strings(ap))
+    if any(flag in ("-h", "--help") for flag, _why in reasons):
+        # A line asking for help parses; argparse simply answers it and
+        # leaves by the same door a bad line does.
+        refused = False
     print(cls)
     for name, why in reasons:
         print(f"{name} {why}")
@@ -582,22 +590,72 @@ def _effects_command(ap: argparse.ArgumentParser, argv: list) -> int:
     return 0
 
 
+def _would(path: str) -> str:
+    """One preview line for one path: `would write` when nothing is there,
+    `would replace` when a file is."""
+    return f"would {'replace' if os.path.exists(path) else 'write'} {path}"
+
+
+def _dry_run_answer(args) -> int:
+    """`--dry-run` on the command lines that answer instead of building.
+
+    Reached before the branches that serve, fetch and answer, so none of them
+    runs: a preview of `--specs` that fetched the tickets first would be the
+    write it was asked to describe, and `--spec-cmd` is a command of the
+    caller's that this tool is not going to run to find out what it writes.
+    A line that only reads has no paths to name, so it says so and prints no
+    answer: an answer is not a preview.
+    """
+    out_dir = os.path.abspath(args.out)
+    if args.specs:
+        for name in ("spec_map.json", "spec_map.md"):
+            print(_would(os.path.join(out_dir, name)))
+        return 0
+    named = [flag for flag, given in (
+        ("--mcp", args.mcp), ("--lsp", args.lsp), ("--sections", args.sections),
+        ("--pointer", args.pointer), ("--ask", args.ask),
+        ("--more", args.more_handle), ("--callers", args.callers),
+        ("--callees", args.callees), ("--impact", args.impact)) if given]
+    print(f"nothing to write: {', '.join(named)} only read")
+    return 0
+
+
 def _dry_run(args, repo: str) -> int:
     """`--dry-run`: every path this command line can write, and none of them
     written.
 
-    One line per path, `would write` when nothing is there and `would
-    replace` when a file is. The paths come from the same expressions the
-    writers use -- `hooks.paths` for the hook kinds -- so a preview names
-    what the real run names. Whether a listed file is then written depends on
-    what is already in it: a target that already says what this tool would
-    say is left as it is.
+    One line per path. The paths come from the same expressions the writers
+    use -- `hooks.paths` for the hook kinds, `propose_docs` for `--docs
+    write` -- so a preview names what the real run names. Whether a listed
+    file is then written depends on what is already in it: a target that
+    already says what this tool would say is left as it is.
+
+    The branches are in the order `main()` takes them, so a command line
+    naming two of them is previewed as the one that would run.
     """
-    if args.docs:
-        print("--docs without `write` already only says what it would write")
-        return 0
     out_dir = os.path.abspath(args.out)
-    if args.install_hook:
+    if args.docs:
+        if args.docs != "write":
+            print("nothing to write: --docs without `write` already only says "
+                  "what it would write")
+            return 0
+        # The plan comes from a map built for this preview alone:
+        # `out_dir=None` is build()'s "no cache", so previewing `--docs
+        # write` leaves nothing behind either. `propose_docs` without
+        # `apply` writes nothing and never plans a file that exists.
+        planned = propose_docs(repo, build(repo, out_dir=None), apply=False)
+        if not planned:
+            print("nothing to write: every directory already explains itself")
+            return 0
+        targets = [os.path.join(repo, rel) for rel, _text, _why in planned]
+    elif args.install_hook:
+        # The kinds that write under ~ refuse a home they only found in the
+        # passwd entry, and so does their preview: no path is better than an
+        # invented one.
+        refusal = hooks.home_refusal(args.install_hook)
+        if refusal:
+            print(refusal)
+            return 2
         targets = hooks.paths(repo, args.install_hook)
     elif args.init:
         targets = [os.path.join(repo, ".framework-map.json")]
@@ -615,7 +673,7 @@ def _dry_run(args, repo: str) -> int:
         if args.agent_file:
             targets.append(os.path.abspath(args.agent_file))
     for path in targets:
-        print(f"would {'replace' if os.path.exists(path) else 'write'} {path}")
+        print(_would(path))
     return 0
 
 
@@ -626,10 +684,24 @@ def main() -> int:
     # Read off argv rather than parsed: `--effects -- <command line>` carries
     # a command line of its own, which is not this parser's to consume, and
     # the answer is about the tool rather than about any repository.
-    if "--effects" in argv:
+    #
+    # Resolved through `flags_in`, not matched as a literal. argparse accepts
+    # any unambiguous prefix, so `--effect` and `--eff` are `--effects`, and
+    # the classifier resolves them the same way: matching the string alone
+    # let `--effect` fall through to a build while `--effects -- ... --effect`
+    # called that same line a read.
+    if "--effects" in effects.flags_in(argv, effects.option_strings(ap)):
         return _effects_command(ap, argv)
     args = ap.parse_args()
     args.repo = _resolve_repo(args.repo, args.out)
+
+    # The preview comes before the branches that serve, fetch or answer, so
+    # asking what a command line writes never runs it. What each of them
+    # would write is `_dry_run_answer`'s to say.
+    if args.dry_run and (args.mcp or args.lsp or args.specs or args.sections
+                         or args.ask or args.pointer or args.callers
+                         or args.callees or args.impact or args.more_handle):
+        return _dry_run_answer(args)
 
     # Answering from a map that already exists needs none of what follows: no
     # repository walk, no product roots, no config. It is a read.

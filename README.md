@@ -667,9 +667,11 @@ of its flags carries.
 
 The order is `read < writes-map-dir < writes-repo < writes-config < network`.
 `--effects --json` prints the same table as
-`{"schema": "where-are-we-effects/1", "flags": {...}, "order": [...]}`, and
-that JSON is installed beside the code as `effects.json`, so a guard written
-in something other than Python reads the file instead of the table.
+`{"schema": "where-are-we-effects/1", "flags": {...}, "order": [...], "notes":
+{...}}`, where `notes` says per class what it touches, including the answer
+log a `read` can append to. That JSON is installed beside the code as
+`effects.json`, so a guard written in something other than Python reads the
+file instead of the table, and reads the same caveats a human does.
 
 `--effects -- <command line>` classifies one command line with this tool's own
 parser, running nothing:
@@ -681,11 +683,14 @@ writes-map-dir
 --ask read
 ```
 
+A flag is resolved the way argparse resolves it, so `--eff` is `--effects`
+and the class of an abbreviated line is the class of the line that runs.
+
 A command line naming none of `--ask`, `--sections`, `--pointer`, `--callers`,
 `--callees`, `--impact`, `--more`, `--mcp`, `--lsp`, `--init`,
-`--install-hook`, `--dry-run`, `--effects` or `--help` builds the map into
-`--out`, so `where-are-we --repo .` is `writes-map-dir` on the strength of the
-build alone and says so as a `build writes-map-dir` line.
+`--install-hook`, `--specs`, `--dry-run`, `--effects` or `--help` builds the
+map into `--out`, so `where-are-we --repo .` is `writes-map-dir` on the
+strength of the build alone and says so as a `build writes-map-dir` line.
 
 `--dry-run` prints every path the command can write, one per line, and exits
 without writing any of them:
@@ -701,10 +706,21 @@ would write /repo/.git/hooks/post-commit
 come from the same expressions the writers use, so the preview names what the
 real run names; whether a listed file is then written depends on what is
 already in it, since a target that already says what this tool would say is
-left alone. With `--init` the path is the manifest, with `--install-hook` the
-files that kind installs, and otherwise the map files under `--out` plus the
-agent file when `--agent-file` is given. The optional semantic index adds
-`semantic_index.json` and `semantic_index.npy` to the same directory.
+left alone.
+
+It covers every command line, not only the ones that write:
+
+| the line | the preview |
+|---|---|
+| `--init` | the manifest |
+| `--install-hook KIND` | the files that kind installs, and for `claude` or `codex` with `HOME` unset, the same refusal the real install gives, exit 2 |
+| `--agent-file`, or a plain build | the map files under `--out`, the parse cache, `framework_map.html` with `--html`, and the agent file |
+| `--docs write` | the documents it would create, or `nothing to write: every directory already explains itself` |
+| `--specs` | `spec_map.json` and `spec_map.md`. The tracker command is not run |
+| `--ask`, `--mcp` and the other reads | `nothing to write: --ask only read`, and no answer, since an answer is not a preview |
+
+The optional semantic index adds `semantic_index.json` and
+`semantic_index.npy` to the same directory as the map.
 
 ## Environment
 
