@@ -2638,15 +2638,23 @@ jobs:
 
           def refund(amount):
               return -amount
+
+
+          def audit(amount):
+              return {"amount": amount}
           EOF
           cat > /tmp/rch/repo/tests/test_billing.py <<'EOF'
-          """A pytest case over the billing helper."""
+          """pytest cases over the billing helpers."""
 
-          from app.billing import charge
+          from app.billing import audit, charge
 
 
           def test_charge_returns_the_amount():
               assert charge(1) == 1
+
+
+          def test_audit_is_covered():
+              assert audit(1) == {"amount": 1}
 
 
           def test_unrelated():
@@ -2658,7 +2666,8 @@ jobs:
           #    feature file and under no other row of it.
           where-are-we --out /tmp/rch/m --reaches charge > /tmp/rch/charge.txt
           cat /tmp/rch/charge.txt
-          head -1 /tmp/rch/charge.txt | grep -qx '`charge` is declared in 1 file and reached by 2 of 3 scenarios, 1 feature file, 0 routes, through 1 step function. Walked upward over the calls rows to any depth, 12000 characters.'
+          head -1 /tmp/rch/charge.txt | grep -qx '`charge` is declared in 1 file and reached by 2 of 3 scenarios, 1 feature file, 1 pytest case, 0 routes, through 1 step function. Walked upward over the calls rows to any depth, 12000 characters.'
+          grep -qxF -- '- `tests/test_billing.py::test_charge_returns_the_amount`, 1 hop' /tmp/rch/charge.txt
           grep -qxF -- '- `app/billing.py:4-5` function' /tmp/rch/charge.txt
           grep -qxF -- '- `features/shop.feature:3` Pay with a saved card, via `they pay for the invoice` in `features/steps/shop_steps.py:step_pay`, 2 hops' /tmp/rch/charge.txt
           grep -qxF -- '  chain: `features/steps/shop_steps.py:step_pay` -> `pages/checkout.py:pay` -> `app/billing.py:charge`' /tmp/rch/charge.txt
@@ -2674,7 +2683,15 @@ jobs:
           if grep -q 'Pay with a' /tmp/rch/cat.txt; then
             echo "the catalogue helper named a checkout scenario"; exit 1
           fi
-          # 3. A class is answered by what is declared inside its span. No calls row in
+          # 3. A function no step function reaches and a pytest case does. `affected`
+          #    has named that case from `pytest_tests` since Task 1; both answers here
+          #    walk from it too, so a name a test covers is never called unreached.
+          where-are-we --out /tmp/rch/m --reaches audit > /tmp/rch/audit.txt
+          cat /tmp/rch/audit.txt
+          head -1 /tmp/rch/audit.txt | grep -qx '`audit` is declared in 1 file and reached by 0 of 3 scenarios, 0 feature files, 1 pytest case, 0 routes, through 0 step functions. Walked upward over the calls rows to any depth, 12000 characters.'
+          grep -qxF -- '## pytest cases that reach it' /tmp/rch/audit.txt
+          grep -qxF -- '- `tests/test_billing.py::test_audit_is_covered`, 1 hop' /tmp/rch/audit.txt
+          # 4. A class is answered by what is declared inside its span. No calls row in
           #    this map names `CheckoutPage` at all, because the constructor is called
           #    at module level and the graph records calls per function, so without that
           #    join the answer for a page object every step drives would be nothing.
@@ -2691,38 +2708,86 @@ jobs:
           cat /tmp/rch/class.txt
           head -1 /tmp/rch/class.txt | grep -q 'reached by 2 of 3 scenarios'
           head -1 /tmp/rch/class.txt | grep -q 'through 3 step functions'
-          grep -qxF -- '- `pages/checkout.py:6-16` class' /tmp/rch/class.txt
-          # 4. A name nothing declares says so, and says nothing else.
+          grep -qxF -- '- `pages/checkout.py:6-16` class, 3 members walked: enter_new_card, pay, select_saved_card' /tmp/rch/class.txt
+          # 5. A class whose extent the parser could not find says the counts are a
+          #    floor rather than answering nothing in silence. Same fixture, one line
+          #    `ast` cannot parse, so every span in that file loses its end and the
+          #    pattern table writes no dotted method name either.
+          rm -rf /tmp/rch/cem
+          cp -R /tmp/rch/repo /tmp/rch/cem
+          printf '\n\ndef broken(:\n    pass\n' >> /tmp/rch/cem/pages/checkout.py
+          where-are-we --repo /tmp/rch/cem --out /tmp/rch/cemm --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/rch/cemm/framework_map.json"))
+          ends = {n: [s["end"] for s in sites if s["file"].endswith("pages/checkout.py")]
+                  for n, sites in m["spans"].items()}
+          assert ends.get("CheckoutPage") == [None], ends.get("CheckoutPage")
+          assert not [n for n in m["spans"] if n.startswith("CheckoutPage.")], sorted(m["spans"])
+          print("the class has no end and spans names no method of it by name")
+          EOF
+          where-are-we --out /tmp/rch/cemm --reaches CheckoutPage > /tmp/rch/noend.txt
+          cat /tmp/rch/noend.txt
+          head -1 /tmp/rch/noend.txt | grep -qF 'The parser did not find where this class stops and `spans` records no method of it by name, so the walk covered the class'"'"'s own name and nothing declared inside it: the counts above are a floor.'
+          grep -qxF -- '- `pages/checkout.py:6-?` class, 0 members walked (its extent is unknown and `spans` names none of them)' /tmp/rch/noend.txt
+          # 6. A name nothing declares says so, and says nothing else.
           where-are-we --out /tmp/rch/m --reaches nosuchname > /tmp/rch/none.txt
           grep -qx "no declaration of 'nosuchname' in the map, so nothing here reaches it" /tmp/rch/none.txt
           test "$(wc -l < /tmp/rch/none.txt | tr -d ' ')" = "1"
-          # 5. A function called from nowhere is unreached, and the one beside it that
-          #    a step reaches is not. The first line states the graph's own resolution
-          #    rate, so the list is read as what it is and not as a coverage report.
+          # 7. A function nothing reaches at all is unreached; the one beside it a step
+          #    reaches and the one beside it only a pytest case reaches are not. The
+          #    first line states the graph's own resolution rate, so the list is read
+          #    as what it is and not as a coverage report.
           where-are-we --out /tmp/rch/m --unreached > /tmp/rch/unreached.txt
           cat /tmp/rch/unreached.txt
-          grep -q 'Unreached: 1 of 2 product definitions (function or class) has no call path up to a step function' /tmp/rch/unreached.txt
-          grep -qF 'The graph resolved 7 of 15 callee names (47 percent).' /tmp/rch/unreached.txt
-          grep -qF 'A name below can be one the walk could not place rather than one nothing tests.' /tmp/rch/unreached.txt
-          grep -qF 'Product is every file with a declaration the map does not name as suite: 1 of 6.' /tmp/rch/unreached.txt
-          grep -qxF -- '## Product definitions no step function reaches (a class counts as reached when anything inside its span is)' /tmp/rch/unreached.txt
-          grep -qxF -- '- `app/billing.py:8` refund (function), rank 0.000000000' /tmp/rch/unreached.txt
-          if grep -q 'charge' /tmp/rch/unreached.txt; then
-            echo "a function the steps reach was called unreached"; exit 1
+          head -1 /tmp/rch/unreached.txt | grep -qx 'Unreached: 1 of 3 product definitions has no path up to a test. The graph resolved 8 of 16 callee names (50 percent). A name below can be one the walk could not place rather than one nothing tests.'
+          # The first line is what a reader acts on, so it is measured rather than
+          # left to grow: 190 characters against `affected`'"'"'s 146.
+          python - <<'EOF'
+          head = open("/tmp/rch/unreached.txt").readline().rstrip("\n")
+          assert len(head) < 200, (len(head), head)
+          print("the unreached first line is", len(head), "characters")
+          EOF
+          grep -qxF -- '## Product definitions no test reaches' /tmp/rch/unreached.txt
+          sed -n '/## Product definitions no test reaches/,/^$/p' /tmp/rch/unreached.txt > /tmp/rch/defs.txt
+          grep -qxF -- '- `app/billing.py:8` refund (function), rank 0.000000000' /tmp/rch/defs.txt
+          # The two covered ones are not in it, one covered by scenarios and one by a
+          # pytest case alone. Before the pytest half of the walk existed, `audit` was
+          # a row of this block and `affected --affected-format pytest` named the very
+          # case that covers it, one command earlier, on the same map.
+          if grep -qE 'charge|audit' /tmp/rch/defs.txt; then
+            echo "a definition a test reaches was called unreached"; exit 1
           fi
-          # The suite side is never in the list: the page objects and the step module
-          # are files this map names as suite, and a page object method nothing calls
-          # is a question for `dead`, not for this one.
-          if grep -qE 'pages/|features/|tests/' /tmp/rch/unreached.txt; then
+          where-are-we --out /tmp/rch/m --affected app/billing.py --affected-format pytest \
+            | grep -qx 'tests/test_billing.py::test_audit_is_covered'
+          # The suite side is never in that block: a page object method nothing calls
+          # is a question for `dead`, not for this one. The files set aside that way
+          # are named in the answer, because the split is only as good as the map'"'"'s
+          # own suite heuristics and a module it miscalls a page object would leave
+          # this answer with nothing saying so.
+          if grep -qE 'pages/|features/|tests/' /tmp/rch/defs.txt; then
             echo "a suite file was listed as product"; exit 1
           fi
-          # 6. --limit is the number of definitions ranked, and below one is refused
+          grep -qxF -- '## Files the map names as suite, so nothing declared in them is counted above' /tmp/rch/unreached.txt
+          for f in features/shop.feature features/steps/shop_steps.py pages/catalogue.py \
+                   pages/checkout.py tests/test_billing.py; do
+            grep -qxF -- "- \`$f\`" /tmp/rch/unreached.txt
+          done
+          # How the count was made is a block of its own, so the first line can stay
+          # short and none of the rules is lost when it is cut.
+          grep -qxF -- '## How this was counted' /tmp/rch/unreached.txt
+          grep -qF -- '- entry points: 8 step functions, 3 pytest cases, 0 declarations in the files another runner holds its cases in' /tmp/rch/unreached.txt
+          grep -qF -- '- product: every file with a declaration the map does not name as suite, 1 of 6' /tmp/rch/unreached.txt
+          grep -qF -- '- not counted: a definition named main, __main__ or __init__, and any file on a test path' /tmp/rch/unreached.txt
+          grep -qF -- '- kinds counted: function and class; a const bound to an arrow function is recorded as a constant and is not one of them' /tmp/rch/unreached.txt
+          grep -qF -- '- ranked by the map'"'"'s own rank, showing 1 of 1' /tmp/rch/unreached.txt
+          # 8. --limit is the number of definitions ranked, and below one is refused
           #    at the parser the way --rank refuses it.
           where-are-we --out /tmp/rch/m --unreached --limit 1 | grep -q 'showing 1'
           if where-are-we --out /tmp/rch/m --unreached --limit 0 > /dev/null 2>&1; then
             echo "--limit 0 was accepted"; exit 1
           fi
-          # 7. The golden fixtures: one with no suite at all, one that is nothing but
+          # 9. The golden fixtures: one with no suite at all, one that is nothing but
           #    suite. Neither can be answered by listing definitions, and each says
           #    which of the two it is.
           python - <<'EOF'
@@ -2733,16 +2798,15 @@ jobs:
           EOF
           where-are-we --out /tmp/rch/golden/code/out --unreached > /tmp/rch/code.txt
           cat /tmp/rch/code.txt
-          grep -q 'This map holds no step function, so there are no steps to reach from and nothing here can be called unreached.' /tmp/rch/code.txt
-          grep -qF 'The graph resolved 0 of 7 callee names (0 percent).' /tmp/rch/code.txt
-          test "$(wc -l < /tmp/rch/code.txt | tr -d ' ')" = "1"
+          head -1 /tmp/rch/code.txt | grep -qx 'This map names no step function and no test case, so there is nothing to reach from and nothing here can be called unreached. The graph resolved 0 of 7 callee names (0 percent).'
+          grep -qF -- '- entry points: 0 step functions, 0 pytest cases, 0 declarations' /tmp/rch/code.txt
           if grep -q 'Product definitions' /tmp/rch/code.txt; then
-            echo "a map with no steps listed definitions as unreached"; exit 1
+            echo "a map with no entry point listed definitions as unreached"; exit 1
           fi
           where-are-we --out /tmp/rch/golden/suite/out --unreached > /tmp/rch/goldensuite.txt
           cat /tmp/rch/goldensuite.txt
           grep -q 'so there is no product side here to be unreached' /tmp/rch/goldensuite.txt
-          # 8. The same question walked the other way. The forward closure of every step
+          # 10. The same question walked the other way. The forward closure of every step
           #    function is computed here, with its own tables and its own order, and
           #    what it never arrives at in the product file is what the tool listed.
           #    `reaches` is checked against `affected` from the other end: the scenarios
@@ -2768,6 +2832,11 @@ jobs:
                       at_line.setdefault((s["file"], s["start"]), []).append(name)
           seeds = {(f, sorted(names, key=lambda n: (" " in n, len(n), n))[0])
                    for (f, line), names in at_line.items() if (f, line) in step_line}
+          # Every place this map says a test starts, not only the behave half: a
+          # function whose only cover is a pytest case is covered.
+          for rel, cases in m["pytest_tests"].items():
+              for case in cases:
+                  seeds.add((root + "/" + rel, case))
           seen, frontier = set(seeds), set(seeds)
           while frontier:
               nxt = set()
@@ -2793,7 +2862,103 @@ jobs:
                         ("features/shop.feature", "Pay with a saved card")], up
           print("reaches and affected name the same scenarios from different seeds:", up)
           EOF
-          # 9. A bigger copy of the same suite, so the budget rules are exercised on
+          # 11. The layout the plan's own wording names: a suite checked out beside
+          #     its product, with PRODUCT_SRC pointing at the second root. The map
+          #     walks a product root for declarations and lines only: `code_files` in
+          #     `_mapper/build.py` is a walk of `--repo` and every call extractor loops
+          #     over that list, so no `calls` row ever names a file outside the
+          #     repository root and nothing in the product is reached by anything. That
+          #     is a limit of the map rather than a fact about the tests, so both
+          #     answers say it in their first line. Pinned here as it is today, so a
+          #     later mapper change cannot move it unnoticed.
+          rm -rf /tmp/rch/split
+          mkdir -p /tmp/rch/split/suite/features/steps /tmp/rch/split/suite/pages \
+                   /tmp/rch/split/product/app
+          cat > /tmp/rch/split/suite/features/shop.feature <<'EOF'
+          Feature: Shop
+
+            Scenario: Pay with a saved card
+              Given a customer with a saved card
+              When they pay for the invoice
+          EOF
+          cat > /tmp/rch/split/suite/features/steps/shop_steps.py <<'EOF'
+          """Steps."""
+
+          from behave import given, when
+
+          from pages.checkout import CheckoutPage
+
+          checkout = CheckoutPage()
+
+
+          @given("a customer with a saved card")
+          def step_saved_card(context):
+              checkout.select_saved_card()
+
+
+          @when("they pay for the invoice")
+          def step_pay(context):
+              checkout.pay()
+          EOF
+          cat > /tmp/rch/split/suite/pages/checkout.py <<'EOF'
+          """The checkout page."""
+
+          from app.billing import charge
+
+
+          class CheckoutPage:
+              """Page object."""
+
+              def select_saved_card(self):
+                  pass
+
+              def pay(self):
+                  return charge(1)
+          EOF
+          cat > /tmp/rch/split/product/app/billing.py <<'EOF'
+          """Charging a card."""
+
+
+          def charge(amount):
+              return amount
+
+
+          def refund(amount):
+              return -amount
+          EOF
+          PRODUCT_SRC=/tmp/rch/split/product where-are-we --repo /tmp/rch/split/suite \
+            --out /tmp/rch/splitm --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/rch/splitm/framework_map.json"))
+          # The product side really was walked: it is in `indexed` and its names are in
+          # `spans`. What is missing is the edges.
+          assert m["indexed"] == {"product": 1, "suite": 3}, m["indexed"]
+          assert any(s["file"].endswith("/product/app/billing.py")
+                     for s in m["spans"]["charge"]), m["spans"]["charge"]
+          crossing = [r for r in m["xrefs"] if r["edge"] == "calls"
+                      and any("/product/" in str(p) for p in
+                              [r["file"]] + list(r["candidates"] or ()))]
+          assert crossing == [], crossing
+          print("indexed", m["indexed"], "- the product is walked for declarations, "
+                "and", len(crossing), "calls rows cross into it")
+          EOF
+          where-are-we --out /tmp/rch/splitm --unreached > /tmp/rch/split.txt
+          cat /tmp/rch/split.txt
+          head -1 /tmp/rch/split.txt | grep -qF 'No calls row names a file outside the repository root, so this walk never crosses into the product checked out beside the suite (1 file) and every name in it is below.'
+          head -1 /tmp/rch/split.txt | grep -q 'Unreached: 2 of 2 product definitions have no path up to a test'
+          grep -qF -- '- the call graph is extracted from the files under the repository root and from no other root' /tmp/rch/split.txt
+          where-are-we --out /tmp/rch/splitm --reaches charge > /tmp/rch/splitr.txt
+          cat /tmp/rch/splitr.txt
+          head -1 /tmp/rch/splitr.txt | grep -q 'reached by 0 of 1 scenarios'
+          head -1 /tmp/rch/splitr.txt | grep -qF 'This name is declared under a root of its own, and no calls row in this map names a file outside the repository root: the call graph is extracted from the files under --repo and from no other root, so nothing here can reach it whatever the tests do.'
+          # The same suite with the product inside it does cross, so the sentence is
+          # about the layout and not printed everywhere.
+          if grep -q 'under a root of its own' /tmp/rch/charge.txt; then
+            echo "the product-root sentence was printed for a product inside the repo"
+            exit 1
+          fi
+          # 12. A bigger copy of the same suite, so the budget rules are exercised on
           #    answers that do not fit: twelve more scenarios through one step, and
           #    thirty product functions nothing calls.
           cp -R /tmp/rch/repo /tmp/rch/big
@@ -2815,7 +2980,7 @@ jobs:
           where-are-we --repo /tmp/rch/big --out /tmp/rch/bigm --quiet --no-semantic
           where-are-we --out /tmp/rch/bigm --reaches charge | head -1
           where-are-we --out /tmp/rch/bigm --unreached | head -1
-          # 10. Every row of every block is reachable from the handles the answer
+          # 13. Every row of every block is reachable from the handles the answer
           #     prints, at 1500 and below it, and no answer is longer than the budget
           #     it was given.
           python - <<'EOF'
@@ -2876,7 +3041,7 @@ jobs:
           print("a handle naming a block this answer has no room for, one past the end "
                 "of the list, and one short a field are all stale")
           EOF
-          # 11. The tool and the flag are the same answer, and the server declares
+          # 14. The tool and the flag are the same answer, and the server declares
           #     fourteen tools.
           printf '%s\n%s\n%s\n%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
@@ -2902,12 +3067,12 @@ jobs:
           EOF
           grep -q '"tool": "reaches"' /tmp/rch/m/.wawe-ask.log
           grep -q '"tool": "unreached"' /tmp/rch/m/.wawe-ask.log
-          # 12. Twice over the same map is the same answer.
+          # 15. Twice over the same map is the same answer.
           where-are-we --out /tmp/rch/m --reaches charge > /tmp/rch/charge2.txt
           diff -u /tmp/rch/charge.txt /tmp/rch/charge2.txt
           where-are-we --out /tmp/rch/m --unreached > /tmp/rch/unreached2.txt
           diff -u /tmp/rch/unreached.txt /tmp/rch/unreached2.txt
-          # 13. Both flags only read.
+          # 16. Both flags only read.
           where-are-we --out /tmp/rch/m --reaches charge --dry-run | grep -qx 'nothing to write: --reaches only read'
           where-are-we --out /tmp/rch/m --unreached --dry-run | grep -qx 'nothing to write: --unreached only read'
       - name: manifest and hooks
@@ -3325,7 +3490,7 @@ jobs:
           test -f /tmp/ssnogit/.wawe/framework_map.md
           printf '%s' "$out" | grep -q "framework map"
           # The banner is the only place a session is told what the server
-          # serves, and it named ten of the twelve tools: `rank` was never
+          # serves, and it named ten of the fourteen tools: `rank` was never
           # added and `affected` would have gone the same way.
           printf '%s' "$out" > /tmp/ssnogit/banner.txt
           python - <<'EOF'
