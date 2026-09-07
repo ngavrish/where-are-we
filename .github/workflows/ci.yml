@@ -773,7 +773,7 @@ jobs:
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "defines", "find", "impact", "more",
-                           "rank", "sections"], names
+                           "rank", "reaches", "sections", "unreached"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/ctx/click_7.context").read_text()
@@ -1021,7 +1021,7 @@ jobs:
           print("tools/list:", len(names), names)
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "defines", "find", "impact", "more",
-                           "rank", "sections"], names
+                           "rank", "reaches", "sections", "unreached"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/rankout/personal.txt").read_text()
           assert mcp == cli.rstrip("\n"), (mcp, cli)
@@ -1627,7 +1627,7 @@ jobs:
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "defines", "find", "impact", "more",
-                           "rank", "sections"], names
+                           "rank", "reaches", "sections", "unreached"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -1927,7 +1927,7 @@ jobs:
             echo "a ref this checkout does not have was answered"; exit 1
           fi
           # 9. The tool and the flag are the same answer, and the server
-          #    declares twelve tools.
+          #    declares fourteen tools.
           printf '%s\n%s\n%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
             '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"affected","arguments":{"files":["pages/checkout.py"]}}}' \
@@ -1939,7 +1939,7 @@ jobs:
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "defines", "find", "impact", "more",
-                           "rank", "sections"], names
+                           "rank", "reaches", "sections", "unreached"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/aff/checkout.txt").read_text()
@@ -2519,6 +2519,397 @@ jobs:
           # The flag on the same suite is still whole, which is the point of
           # the two answering differently.
           test "$(grep -c '^--name ' /tmp/aff/huge.stdout)" = "80"
+      - name: the graph says what the tests reach and what they do not
+        run: |
+          set -o pipefail
+          rm -rf /tmp/rch
+          mkdir -p /tmp/rch/repo/features/steps /tmp/rch/repo/pages \
+                   /tmp/rch/repo/app /tmp/rch/repo/tests
+          # The suite the reviewer's `affected` step is built on, so both answers are
+          # read off one graph: three scenarios that really bind to their steps, two of
+          # them reaching the checkout page object and through it `app/billing.py:charge`,
+          # the third reaching the catalogue. `refund` beside `charge` is the control:
+          # the same file, the same shape, called from nowhere at all.
+          cat > /tmp/rch/repo/features/shop.feature <<'EOF'
+          Feature: Shop
+
+            Scenario: Pay with a saved card
+              Given a customer with a saved card
+              When they pay for the invoice
+              Then the receipt goes to "billing@example.com"
+
+            Scenario: Pay with a new card
+              Given a customer with a new card
+              When they pay for the invoice
+              Then the payment is charged
+
+            @slow
+            Scenario: Browse the catalogue
+              Given a shopper on the catalogue
+              When they open the catalogue
+              Then the catalogue lists items
+          EOF
+          cat > /tmp/rch/repo/features/steps/shop_steps.py <<'EOF'
+          """Step definitions for the shop."""
+
+          from behave import given, then, when
+
+          from pages.catalogue import CataloguePage
+          from pages.checkout import CheckoutPage
+
+          checkout = CheckoutPage()
+          catalogue = CataloguePage()
+
+
+          @given("a customer with a saved card")
+          def step_saved_card(context):
+              checkout.select_saved_card()
+
+
+          @given("a customer with a new card")
+          def step_new_card(context):
+              checkout.enter_new_card()
+
+
+          @when("they pay for the invoice")
+          def step_pay(context):
+              checkout.pay()
+
+
+          @then('the receipt goes to "{address}"')
+          def step_receipt(context, address):
+              pass
+
+
+          @then("the payment is charged")
+          def step_charged(context):
+              pass
+
+
+          @given("a shopper on the catalogue")
+          def step_shopper(context):
+              catalogue.open_catalogue()
+
+
+          @when("they open the catalogue")
+          def step_open_catalogue(context):
+              catalogue.open_catalogue()
+
+
+          @then("the catalogue lists items")
+          def step_lists_items(context):
+              pass
+          EOF
+          cat > /tmp/rch/repo/pages/checkout.py <<'EOF'
+          """The checkout page."""
+
+          from app.billing import charge
+
+
+          class CheckoutPage:
+              """Page object for the checkout flow."""
+
+              def select_saved_card(self):
+                  pass
+
+              def enter_new_card(self):
+                  pass
+
+              def pay(self):
+                  return charge(1)
+          EOF
+          cat > /tmp/rch/repo/pages/catalogue.py <<'EOF'
+          """The catalogue page."""
+
+
+          class CataloguePage:
+              """Page object for the catalogue."""
+
+              def open_catalogue(self):
+                  pass
+          EOF
+          cat > /tmp/rch/repo/app/billing.py <<'EOF'
+          """Charging a card."""
+
+
+          def charge(amount):
+              return amount
+
+
+          def refund(amount):
+              return -amount
+          EOF
+          cat > /tmp/rch/repo/tests/test_billing.py <<'EOF'
+          """A pytest case over the billing helper."""
+
+          from app.billing import charge
+
+
+          def test_charge_returns_the_amount():
+              assert charge(1) == 1
+
+
+          def test_unrelated():
+              assert True
+          EOF
+          where-are-we --repo /tmp/rch/repo --out /tmp/rch/m --quiet --no-semantic
+          # 1. A function a step reaches, named by the scenarios that use that step and
+          #    by no other, with the chain of calls under the first scenario of the
+          #    feature file and under no other row of it.
+          where-are-we --out /tmp/rch/m --reaches charge > /tmp/rch/charge.txt
+          cat /tmp/rch/charge.txt
+          head -1 /tmp/rch/charge.txt | grep -qx '`charge` is declared in 1 file and reached by 2 of 3 scenarios, 1 feature file, 0 routes, through 1 step function. Walked upward over the calls rows to any depth, 12000 characters.'
+          grep -qxF -- '- `app/billing.py:4-5` function' /tmp/rch/charge.txt
+          grep -qxF -- '- `features/shop.feature:3` Pay with a saved card, via `they pay for the invoice` in `features/steps/shop_steps.py:step_pay`, 2 hops' /tmp/rch/charge.txt
+          grep -qxF -- '  chain: `features/steps/shop_steps.py:step_pay` -> `pages/checkout.py:pay` -> `app/billing.py:charge`' /tmp/rch/charge.txt
+          grep -qF -- '- `features/shop.feature:8` Pay with a new card, via `they pay for the invoice`' /tmp/rch/charge.txt
+          if grep -q 'Browse the catalogue' /tmp/rch/charge.txt; then
+            echo "a scenario that does not reach charge was named"; exit 1
+          fi
+          test "$(grep -c 'chain: ' /tmp/rch/charge.txt)" = "1"
+          # 2. The other page object, the other scenario, and one hop rather than two.
+          where-are-we --out /tmp/rch/m --reaches open_catalogue > /tmp/rch/cat.txt
+          head -1 /tmp/rch/cat.txt | grep -q 'reached by 1 of 3 scenarios'
+          grep -qF 'Browse the catalogue, via `a shopper on the catalogue` in `features/steps/shop_steps.py:step_shopper`, 1 hop' /tmp/rch/cat.txt
+          if grep -q 'Pay with a' /tmp/rch/cat.txt; then
+            echo "the catalogue helper named a checkout scenario"; exit 1
+          fi
+          # 3. A class is answered by what is declared inside its span. No calls row in
+          #    this map names `CheckoutPage` at all, because the constructor is called
+          #    at module level and the graph records calls per function, so without that
+          #    join the answer for a page object every step drives would be nothing.
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/rch/m/framework_map.json"))
+          named = [r for r in m["xrefs"]
+                   if r["edge"] == "calls" and r["object"] == "CheckoutPage"]
+          assert named == [], named
+          print("no calls row names CheckoutPage:", len(named),
+                "- the class is reached only through the names inside its span")
+          EOF
+          where-are-we --out /tmp/rch/m --reaches CheckoutPage > /tmp/rch/class.txt
+          cat /tmp/rch/class.txt
+          head -1 /tmp/rch/class.txt | grep -q 'reached by 2 of 3 scenarios'
+          head -1 /tmp/rch/class.txt | grep -q 'through 3 step functions'
+          grep -qxF -- '- `pages/checkout.py:6-16` class' /tmp/rch/class.txt
+          # 4. A name nothing declares says so, and says nothing else.
+          where-are-we --out /tmp/rch/m --reaches nosuchname > /tmp/rch/none.txt
+          grep -qx "no declaration of 'nosuchname' in the map, so nothing here reaches it" /tmp/rch/none.txt
+          test "$(wc -l < /tmp/rch/none.txt | tr -d ' ')" = "1"
+          # 5. A function called from nowhere is unreached, and the one beside it that
+          #    a step reaches is not. The first line states the graph's own resolution
+          #    rate, so the list is read as what it is and not as a coverage report.
+          where-are-we --out /tmp/rch/m --unreached > /tmp/rch/unreached.txt
+          cat /tmp/rch/unreached.txt
+          grep -q 'Unreached: 1 of 2 product definitions (function or class) has no call path up to a step function' /tmp/rch/unreached.txt
+          grep -qF 'The graph resolved 7 of 15 callee names (47 percent).' /tmp/rch/unreached.txt
+          grep -qF 'A name below can be one the walk could not place rather than one nothing tests.' /tmp/rch/unreached.txt
+          grep -qF 'Product is every file with a declaration the map does not name as suite: 1 of 6.' /tmp/rch/unreached.txt
+          grep -qxF -- '## Product definitions no step function reaches (a class counts as reached when anything inside its span is)' /tmp/rch/unreached.txt
+          grep -qxF -- '- `app/billing.py:8` refund (function), rank 0.000000000' /tmp/rch/unreached.txt
+          if grep -q 'charge' /tmp/rch/unreached.txt; then
+            echo "a function the steps reach was called unreached"; exit 1
+          fi
+          # The suite side is never in the list: the page objects and the step module
+          # are files this map names as suite, and a page object method nothing calls
+          # is a question for `dead`, not for this one.
+          if grep -qE 'pages/|features/|tests/' /tmp/rch/unreached.txt; then
+            echo "a suite file was listed as product"; exit 1
+          fi
+          # 6. --limit is the number of definitions ranked, and below one is refused
+          #    at the parser the way --rank refuses it.
+          where-are-we --out /tmp/rch/m --unreached --limit 1 | grep -q 'showing 1'
+          if where-are-we --out /tmp/rch/m --unreached --limit 0 > /dev/null 2>&1; then
+            echo "--limit 0 was accepted"; exit 1
+          fi
+          # 7. The golden fixtures: one with no suite at all, one that is nothing but
+          #    suite. Neither can be answered by listing definitions, and each says
+          #    which of the two it is.
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/rch/golden")
+          EOF
+          where-are-we --out /tmp/rch/golden/code/out --unreached > /tmp/rch/code.txt
+          cat /tmp/rch/code.txt
+          grep -q 'This map holds no step function, so there are no steps to reach from and nothing here can be called unreached.' /tmp/rch/code.txt
+          grep -qF 'The graph resolved 0 of 7 callee names (0 percent).' /tmp/rch/code.txt
+          test "$(wc -l < /tmp/rch/code.txt | tr -d ' ')" = "1"
+          if grep -q 'Product definitions' /tmp/rch/code.txt; then
+            echo "a map with no steps listed definitions as unreached"; exit 1
+          fi
+          where-are-we --out /tmp/rch/golden/suite/out --unreached > /tmp/rch/goldensuite.txt
+          cat /tmp/rch/goldensuite.txt
+          grep -q 'so there is no product side here to be unreached' /tmp/rch/goldensuite.txt
+          # 8. The same question walked the other way. The forward closure of every step
+          #    function is computed here, with its own tables and its own order, and
+          #    what it never arrives at in the product file is what the tool listed.
+          #    `reaches` is checked against `affected` from the other end: the scenarios
+          #    that reach `charge` are the scenarios a change to the file declaring it
+          #    affects, and those two walks start from different seeds.
+          python - <<'EOF'
+          from where_are_we.graph import affected, load, reaches, unreached
+
+          m = load("/tmp/rch/m")
+          root = m["repo"]
+          out_edges = {}
+          for r in m["xrefs"]:
+              if r["edge"] == "calls":
+                  sf, _, sn = r["subject"].rpartition(":")
+                  for target in ([r["file"]] if r["file"] else r["candidates"]):
+                      out_edges.setdefault((sf, sn), set()).add((target, r["object"]))
+          step_line, at_line = set(), {}
+          for name, sites in m["spans"].items():
+              for s in sites:
+                  if s["kind"] == "step":
+                      step_line.add((s["file"], s["start"]))
+                  elif s["kind"] == "function":
+                      at_line.setdefault((s["file"], s["start"]), []).append(name)
+          seeds = {(f, sorted(names, key=lambda n: (" " in n, len(n), n))[0])
+                   for (f, line), names in at_line.items() if (f, line) in step_line}
+          seen, frontier = set(seeds), set(seeds)
+          while frontier:
+              nxt = set()
+              for node in frontier:
+                  for edge in out_edges.get(node, ()):
+                      if edge not in seen:
+                          seen.add(edge)
+                          nxt.add(edge)
+              frontier = nxt
+          billing = root + "/app/billing.py"
+          declared = {name for name, sites in m["spans"].items()
+                      for s in sites if s["file"] == billing and s["kind"] == "function"}
+          mine = sorted(declared - {n for f, n in seen if f == billing})
+          theirs = [row[2] for row in unreached(m)["definitions"]]
+          assert mine == theirs == ["refund"], (mine, theirs)
+          print("the forward closure of the steps and the walk down from them leave "
+                "the same name unreached:", mine)
+
+          up = sorted((r[0], r[1]) for r in reaches(m, "charge")["scenarios"])
+          side = sorted((r[0], r[1]) for r in affected(m, ["app/billing.py"])["scenarios"])
+          assert up == side, (up, side)
+          assert up == [("features/shop.feature", "Pay with a new card"),
+                        ("features/shop.feature", "Pay with a saved card")], up
+          print("reaches and affected name the same scenarios from different seeds:", up)
+          EOF
+          # 9. A bigger copy of the same suite, so the budget rules are exercised on
+          #    answers that do not fit: twelve more scenarios through one step, and
+          #    thirty product functions nothing calls.
+          cp -R /tmp/rch/repo /tmp/rch/big
+          python - <<'EOF'
+          import pathlib
+          rows = ["Feature: Many", ""]
+          for i in range(1, 13):
+              rows += [f"  Scenario: Pay run {i:02d}",
+                       "    Given a customer with a saved card",
+                       "    When they pay for the invoice",
+                       "    Then the payment is charged",
+                       ""]
+          pathlib.Path("/tmp/rch/big/features/many.feature").write_text("\n".join(rows))
+          body = ['"""Reports nothing calls."""', ""]
+          for i in range(1, 31):
+              body += ["", f"def report_{i:02d}(rows):", "    return len(rows)", ""]
+          pathlib.Path("/tmp/rch/big/app/reporting.py").write_text("\n".join(body))
+          EOF
+          where-are-we --repo /tmp/rch/big --out /tmp/rch/bigm --quiet --no-semantic
+          where-are-we --out /tmp/rch/bigm --reaches charge | head -1
+          where-are-we --out /tmp/rch/bigm --unreached | head -1
+          # 10. Every row of every block is reachable from the handles the answer
+          #     prints, at 1500 and below it, and no answer is longer than the budget
+          #     it was given.
+          python - <<'EOF'
+          import re
+          from where_are_we import ask
+          from where_are_we.graph import (REACHES_NAMES, UNREACHED_NAMES, load, reaches,
+                                          reaches_lines, unreached, unreached_lines)
+          HANDLE = re.compile(r"\(more:(?:rch|unr):[^)\s]+\)")
+
+
+          def rows(text):
+              return [l for l in text.splitlines()
+                      if l.startswith("- ") or l.startswith("  chain: ")]
+
+
+          def walk(map_path, text, limit):
+              seen, todo = list(rows(text)), HANDLE.findall(text)
+              while todo:
+                  handle = todo.pop()[1:-1]
+                  more = ask.more(map_path, handle, limit)
+                  assert not more.startswith("no such handle"), (handle, more)
+                  seen += rows(more)
+                  todo += HANDLE.findall(more)
+              return seen
+
+
+          total = 0
+          for out in ("/tmp/rch/m", "/tmp/rch/bigm", "/tmp/rch/golden/suite/out"):
+              mp = out + "/framework_map.md"
+              m = load(out)
+              for name in ("charge", "CheckoutPage", "open_catalogue", "refund"):
+                  whole = [l for b in REACHES_NAMES
+                           for l in reaches_lines(reaches(m, name), b)]
+                  for limit in (12000, 1500, 800, 600):
+                      answer = ask.reaches_answer(mp, name, limit)
+                      assert len(answer) <= limit, (out, name, limit, len(answer))
+                      got = set(walk(mp, answer, limit))
+                      assert not [l for l in whole if l not in got], (out, name, limit)
+                      total += len(whole)
+              whole = [l for b in UNREACHED_NAMES
+                       for l in unreached_lines(unreached(m), b)]
+              for limit in (12000, 1500, 800, 600):
+                  answer = ask.unreached_answer(mp, limit=limit)
+                  assert len(answer) <= limit, (out, limit, len(answer))
+                  got = set(walk(mp, answer, limit))
+                  assert not [l for l in whole if l not in got], (out, limit)
+                  total += len(whole)
+          print(total, "rows over 3 maps, every one of them reachable from the "
+                "answer's own handles at 12000, 1500, 800 and 600 characters")
+          # A handle for a block that does not exist, and one past the end of a list,
+          # are stale rather than a slice of some other list.
+          assert ask.more("/tmp/rch/m/framework_map.md",
+                          "more:rch:nosuchblock:charge:0").startswith("no such handle")
+          assert ask.more("/tmp/rch/m/framework_map.md",
+                          "more:unr:definitions:200:99").startswith("no such handle")
+          assert ask.more("/tmp/rch/m/framework_map.md",
+                          "more:rch:scenarios:charge").startswith("no such handle")
+          print("a handle naming a block this answer has no room for, one past the end "
+                "of the list, and one short a field are all stale")
+          EOF
+          # 11. The tool and the flag are the same answer, and the server declares
+          #     fourteen tools.
+          printf '%s\n%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"reaches","arguments":{"name":"charge"}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"unreached","arguments":{}}}' \
+            '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"unreached","arguments":{"limit":0}}}' \
+            | where-are-we --out /tmp/rch/m --mcp > /tmp/rch/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/rch/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          assert names == ["affected", "ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more", "rank", "reaches",
+                           "sections", "unreached"], names
+          print("tools/list:", len(names), names)
+          for i, path in ((1, "/tmp/rch/charge.txt"), (2, "/tmp/rch/unreached.txt")):
+              mcp = rows[i]["result"]["content"][0]["text"]
+              cli = pathlib.Path(path).read_text()
+              assert mcp == cli.rstrip("\n"), (path, mcp, cli)
+          assert rows[3]["error"]["code"] == -32602, rows[3]
+          assert rows[3]["error"]["message"] == "limit must be a positive integer", rows[3]
+          print("MCP reaches/unreached and --reaches/--unreached agree, byte for byte")
+          EOF
+          grep -q '"tool": "reaches"' /tmp/rch/m/.wawe-ask.log
+          grep -q '"tool": "unreached"' /tmp/rch/m/.wawe-ask.log
+          # 12. Twice over the same map is the same answer.
+          where-are-we --out /tmp/rch/m --reaches charge > /tmp/rch/charge2.txt
+          diff -u /tmp/rch/charge.txt /tmp/rch/charge2.txt
+          where-are-we --out /tmp/rch/m --unreached > /tmp/rch/unreached2.txt
+          diff -u /tmp/rch/unreached.txt /tmp/rch/unreached2.txt
+          # 13. Both flags only read.
+          where-are-we --out /tmp/rch/m --reaches charge --dry-run | grep -qx 'nothing to write: --reaches only read'
+          where-are-we --out /tmp/rch/m --unreached --dry-run | grep -qx 'nothing to write: --unreached only read'
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
@@ -4988,7 +5379,7 @@ jobs:
           print("tools/list:", len(names), names)
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "defines", "find", "impact", "more",
-                           "rank", "sections"], names
+                           "rank", "reaches", "sections", "unreached"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
