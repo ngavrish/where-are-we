@@ -379,6 +379,11 @@ def summary(result: dict, limit: int) -> str:
     the depth the walk ran to and the ceiling it was cut against, and then the
     one caveat a count of zero needs: how many scenarios hold no step this map
     can bind to a step function at all.
+
+    A `limit` of zero is the `--affected-format` answer, which has no ceiling
+    at all: a runner's selection is a machine artefact rather than prose, and
+    a selection cut in half is a test run that misses tests. The line says
+    "printed whole" there rather than a number nothing was measured against.
     """
     files = result["files"]
     named = ", ".join(files) if len(files) <= 3 else _plural(len(files), "file")
@@ -388,7 +393,8 @@ def summary(result: dict, limit: int) -> str:
             f"{_plural(len(result['routes']), 'route')}, "
             f"{_plural(len(result['pages']), 'page object')}, "
             f"{_plural(len(result['steps']), 'step function')}. Depth "
-            f"{result['depth']}, {limit} characters.")
+            f"{result['depth']}, "
+            + (f"{limit} characters." if limit else "printed whole."))
     if result["unbound"]:
         head += (f" {result['unbound']} of {result['total_scenarios']} "
                  "scenarios hold no step this map binds to a step function.")

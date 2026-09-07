@@ -70,6 +70,10 @@ EFFECTS = {
     # built from, which reads that checkout and writes nothing in it.
     "--affected-format": "read",
     "--affected-depth": "read",
+    # `--affected-out` writes the selection at whatever path the caller
+    # named, which is the same arbitrary-path property `--export` has and
+    # gets the same class.
+    "--affected-out": "writes-repo",
     "--sections": "read",
     "--cost": "read",
     "--pointer": "read",
@@ -126,8 +130,8 @@ NOTES = {
     "writes-map-dir": "writes the map files and the parse cache under --out.",
     "writes-repo": "writes into the repository being mapped: a manifest, an "
                    "agent file, the READMEs a directory has none of, and the "
-                   "file --export was told to write, which is at whatever "
-                   "path the caller named.",
+                   "files --export and --affected-out were told to write, "
+                   "which are at whatever path the caller named.",
     "writes-config": "writes where a tool other than this one reads: "
                      ".git/hooks, ~/.claude/settings.json, "
                      "~/.codex/config.toml, a Cursor rule, a Gemini setting.",

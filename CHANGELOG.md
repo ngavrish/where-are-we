@@ -62,6 +62,20 @@ the map and nothing read them end to end; this release starts doing that.
   `--affected-format pytest` prints node ids from `pytest_tests`.
   `--affected-depth N` is 1 to 12, and the flag refuses what the tool
   refuses.
+- A selection is exempt from the answer budget. The budget is there because
+  prose lands in a conversation and is re-read on every turn after it; a
+  runner's selection is a machine artefact that goes to `xargs` or to a file,
+  and half of one is a test run that quietly misses tests. So
+  `--affected-format` prints its list whole, with no tail and no handle,
+  however large: measured on 80 feature files of 30 scenarios, 2400 of 2400
+  selected as 80 patterns and 56 KB, with behave running every one. The prose
+  blocks keep the budget rules they had.
+- `--affected-out FILE` writes that selection, and nothing else, to FILE, and
+  prints the blocks a person reads to stdout, so a pipeline parses a file it
+  asked for rather than an answer it has to cut a head off. The write is
+  atomic, the flag is classed `writes-repo` because the path is the caller's,
+  and `--dry-run` names the file and the directories it would create without
+  writing either.
 - Every block is cut by the rules every other answer here is cut by: whole
   rows, a floor share of the budget with what nobody claims handed on in
   printing order, and a `more:aff:` handle under a block that could not print

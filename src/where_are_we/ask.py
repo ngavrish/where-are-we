@@ -2568,6 +2568,21 @@ def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
     return "\n\n".join(out)
 
 
+def selection_lines(map_path: str, files, depth: int = DEFAULT_DEPTH,
+                    fmt: str = "") -> str:
+    """The runner's selection alone: no first line, no head, no ceiling.
+
+    What `--affected-out` writes, so `xargs behave < that file` is the whole
+    of a pipeline's parsing. The prose answer goes to stdout for a person to
+    read, and nothing has to be cut out of it again by a script.
+    """
+    named = [f for f in files if f]
+    if not named or fmt not in AFFECTED_FORMATS:
+        return ""
+    result = affected(load_map(os.path.dirname(map_path) or "."), named, depth)
+    return "\n".join(block_lines(result, fmt)) + "\n"
+
+
 # What one `affected` answer may take, in characters. The same ceiling
 # `ask()` and `context` print at, so a selection read off the command line
 # and a selection read off the MCP tool are the same answer at the same size.
@@ -2588,10 +2603,16 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
 
     A block with nothing in it is not printed at all: the first line has
     already said the count, and five heads over five empty lists are five
-    rows of a budget spent saying nothing twice. `fmt` replaces the blocks
-    with the one list a runner takes, `behave` or `pytest`, which is then the
-    whole answer and is printed even when it is empty, because there the
-    empty list is the answer.
+    rows of a budget spent saying nothing twice.
+
+    `fmt` replaces the blocks with the one list a runner takes, `behave` or
+    `pytest`, and that answer is not cut: no ceiling, no tail, no handle. The
+    budget exists because prose lands in a conversation and is re-read on
+    every turn after; a selection is a machine artefact that goes to `xargs`
+    or to a file, and a selection cut in half is a test run that quietly
+    misses tests. It is printed even when it is empty, because there the
+    empty list is the answer. `selection_lines` is the same list without the
+    first line or the head, which is what `--affected-out` writes.
 
     A block there is no room to print at all still gets a line: `… 2 rows in
     pages; raise the budget (more:aff:pages:...)`. `context` drops such a
@@ -2621,17 +2642,8 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
         return lambda got: f"more:aff:{block}:{field}:{walked}:{got}"
 
     if fmt:
-        room = limit - len(head) - 2
-        chunk = ""
-        if room > 0:
-            chunk, _reached = _block_chunk(format_head(result, fmt),
-                                           block_lines(result, fmt), room,
-                                           handle_for(fmt), 0)
-        out = [head] + ([chunk] if chunk else [])
-        if not chunk:
-            out += _left_out([fmt], {fmt: block_lines(result, fmt)},
-                             handle_for, limit - len(head) - 2)
-        return "\n\n".join(out)
+        return "\n\n".join([summary(result, 0), format_head(result, fmt)
+                            + "\n" + "\n".join(block_lines(result, fmt))])
 
     lines = {block: block_lines(result, block) for block in AFFECTED_NAMES}
     blocks = tuple(entry for entry in AFFECTED_BLOCKS if lines[entry[0]])

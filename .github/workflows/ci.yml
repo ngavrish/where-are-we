@@ -2344,6 +2344,96 @@ jobs:
           grep -q '0 scenarios passed, 0 failed, 0 skipped, 240 untested' /tmp/aff/many.dry
           echo "behave runs 24 of 24 over 8 files, 3 of 4 across a mixed pair, "\
                "and 240 of 240 through 8 combined patterns"
+          # 17. A runner's selection is a machine artefact, not prose, so it
+          #     is exempt from the answer budget: printed whole, with no tail
+          #     and no handle, however large. 80 feature files of 30
+          #     scenarios is 2400 of them, which is 56 KB of selection.
+          python - <<'EOF'
+          import pathlib
+          r = pathlib.Path("/tmp/aff/huge")
+          (r / "features" / "steps").mkdir(parents=True, exist_ok=True)
+          (r / "pages").mkdir(parents=True, exist_ok=True)
+          for f in range(1, 81):
+              body = [f"Feature: Area {f}", ""]
+              for s in range(1, 31):
+                  body += [f"  Scenario: Area {f} scenario {s}",
+                           "    Given a customer with a saved card",
+                           "    When they pay", ""]
+              (r / "features" / f"area{f}.feature").write_text("\n".join(body))
+          (r / "features" / "steps" / "shop_steps.py").write_text(
+              '"""Steps."""\n\nfrom behave import given, when\n\n'
+              'from pages.checkout import CheckoutPage\n\ncheckout = CheckoutPage()\n\n\n'
+              '@given("a customer with a saved card")\ndef step_saved_card(context):\n'
+              '    checkout.select_saved_card()\n\n\n'
+              '@when("they pay")\ndef step_pay(context):\n    checkout.pay()\n')
+          (r / "pages" / "checkout.py").write_text(
+              '"""The checkout page."""\n\n\nclass CheckoutPage:\n    """Page object."""\n\n'
+              '    def select_saved_card(self):\n        pass\n\n'
+              '    def pay(self):\n        pass\n')
+          EOF
+          where-are-we --repo /tmp/aff/huge --out /tmp/aff/huge/.m --quiet --no-semantic
+          where-are-we --out /tmp/aff/huge/.m --affected pages/checkout.py \
+            --affected-format behave > /tmp/aff/huge.stdout
+          head -1 /tmp/aff/huge.stdout | grep -qx \
+            'Affected by a change to pages/checkout.py: 2400 of 2400 scenarios, 80 feature files, 0 routes, 1 page object, 2 step functions. Depth 6, printed whole.'
+          test "$(grep -c '^--name ' /tmp/aff/huge.stdout)" = "80"
+          # No tail anywhere in it: a pipeline that reads the selection and
+          # not the prose around it must not be handed a prefix of the list.
+          if grep -q '…' /tmp/aff/huge.stdout; then
+            echo "the selection was cut; a pipeline would under-select"; exit 1
+          fi
+          # The file form: the selection alone, no first line and no head, and
+          # the same bytes the stdout form carries. The answer a person reads
+          # goes to stdout instead, so nothing has to parse it.
+          where-are-we --out /tmp/aff/huge/.m --affected pages/checkout.py \
+            --affected-format behave --affected-out /tmp/aff/huge.sel \
+            > /tmp/aff/huge.prose
+          test "$(wc -l < /tmp/aff/huge.sel | tr -d ' ')" = "80"
+          if grep -q '…' /tmp/aff/huge.sel; then
+            echo "the file form was cut"; exit 1
+          fi
+          if grep -q 'Affected by a change' /tmp/aff/huge.sel; then
+            echo "the file form carries prose"; exit 1
+          fi
+          grep -E '^(--name|-i) ' /tmp/aff/huge.stdout > /tmp/aff/huge.sel2
+          diff -u /tmp/aff/huge.sel /tmp/aff/huge.sel2
+          head -1 /tmp/aff/huge.prose | grep -q '2400 of 2400 scenarios'
+          grep -q '## Scenarios' /tmp/aff/huge.prose
+          # And behave runs every one of the 2400.
+          (cd /tmp/aff/huge && PYTHONPATH=/tmp/aff/huge xargs behave --dry-run \
+             < /tmp/aff/huge.sel > /tmp/aff/huge.dry)
+          grep -q '0 scenarios passed, 0 failed, 0 skipped, 2400 untested' /tmp/aff/huge.dry
+          # The flag that writes is classed as one, names its path before it
+          # runs, and writes nothing when previewed.
+          where-are-we --effects -- where-are-we --out /tmp/aff/huge/.m \
+            --affected pages/checkout.py --affected-format behave \
+            --affected-out /tmp/aff/nested/deep/sel.txt > /tmp/aff/huge.eff
+          cat /tmp/aff/huge.eff
+          head -1 /tmp/aff/huge.eff | grep -qx 'writes-repo'
+          grep -qx -- '--affected-out writes-repo' /tmp/aff/huge.eff
+          where-are-we --out /tmp/aff/huge/.m --affected pages/checkout.py \
+            --affected-format behave --affected-out /tmp/aff/nested/deep/sel.txt \
+            --dry-run > /tmp/aff/huge.dryrun
+          grep -qx 'would create /tmp/aff/nested' /tmp/aff/huge.dryrun
+          grep -qx 'would write /tmp/aff/nested/deep/sel.txt' /tmp/aff/huge.dryrun
+          if test -e /tmp/aff/nested; then
+            echo "a previewed selection wrote its directory"; exit 1
+          fi
+          # It needs both halves of what it is for: a selection to write, and
+          # a form to write it in.
+          if where-are-we --out /tmp/aff/huge/.m --affected pages/checkout.py \
+               --affected-out /tmp/aff/none.txt > /dev/null 2>&1; then
+            echo "--affected-out without a format was accepted"; exit 1
+          fi
+          if where-are-we --out /tmp/aff/huge/.m --affected-format behave \
+               --affected-out /tmp/aff/none.txt > /dev/null 2>&1; then
+            echo "--affected-out without a selection was accepted"; exit 1
+          fi
+          if test -e /tmp/aff/none.txt; then
+            echo "a refused command line wrote its file"; exit 1
+          fi
+          echo "2400 scenarios: 80 patterns whole on stdout and in the file, "\
+               "behave runs all 2400"
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json

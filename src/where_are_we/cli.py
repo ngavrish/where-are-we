@@ -31,7 +31,7 @@ try:
     from .ask import (AFFECTED_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
                        affected_answer, ask, at, callees_line, callers,
                        context, file_list, impact, log_answer, map_heads,
-                       rank_lines, spans_for)
+                       rank_lines, selection_lines, spans_for)
     from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
                                  changed_since, cost, ctags, digest, export,
@@ -54,7 +54,8 @@ except ImportError:  # run as a plain file, with no package around it
     from ask import (AFFECTED_BUDGET,  # type: ignore[no-redef]
                      IMPACT_MAX_DEPTH, RANK_LIMIT, affected_answer, ask, at,
                      callees_line, callers, context, file_list, impact,
-                     log_answer, map_heads, rank_lines, spans_for)
+                     log_answer, map_heads, rank_lines, selection_lines,
+                     spans_for)
     from _mapper.build import (build,  # type: ignore[no-redef]
                                declares_rows, sort_xrefs)
     from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
@@ -623,6 +624,14 @@ def build_parser() -> argparse.ArgumentParser:
                          "line for -i, or the tags where the map holds a tag "
                          "on the affected feature files alone; `pytest` the "
                          "node ids of the reached cases")
+    ap.add_argument("--affected-out", dest="affected_out", default="",
+                    metavar="FILE",
+                    help="write the --affected-format selection, and nothing "
+                         "else, to FILE, and print the answer a person reads "
+                         "to stdout. One argument pair or node id per line, "
+                         "no first line and no head, so `xargs behave < FILE` "
+                         "is all the parsing a pipeline does. Needs "
+                         "--affected-format")
     ap.add_argument("--affected-depth", type=_affected_depth,
                     default=graph.DEFAULT_DEPTH, metavar="N",
                     help="how many call hops --affected follows upward, 1 to "
@@ -793,6 +802,15 @@ def _dry_run_answer(args) -> int:
         for name in ("spec_map.json", "spec_map.md"):
             print(_would(os.path.join(out_dir, name)))
         return 0
+    if args.affected_out:
+        # The other read that writes, and the same rule as `--export`: the
+        # path is the caller's, so it is named rather than described, and so
+        # are the directories that would have to exist first.
+        target = os.path.abspath(args.affected_out)
+        for missing in _missing_parents(target):
+            print(f"would create {missing}")
+        print(_would(target))
+        return 0
     if args.export is not None:
         # The one read that writes. The path is the caller's, so it is named
         # rather than described, and so are the directories that would have
@@ -817,6 +835,7 @@ def _dry_run_answer(args) -> int:
         ("--callees", args.callees), ("--impact", args.impact),
         ("--defines", args.defines), ("--at", args.at_place),
         ("--context", args.context_name), ("--affected", args.affected),
+        ("--affected-out", args.affected_out),
         ("--changed", args.changed is not None),
         ("--rank", args.rank_files is not None),
         ("--cost", args.cost is not None)) if given]
@@ -900,6 +919,19 @@ def main() -> int:
         return _effects_command(ap, argv)
     args = ap.parse_args()
     args.repo = _resolve_repo(args.repo, args.out)
+
+    # Said before anything is previewed or answered, because both branches
+    # would otherwise take a line that cannot mean what it says: a file to
+    # write a selection into, and no selection asked for and no format to
+    # write it in.
+    if args.affected_out and not (args.affected or args.changed is not None):
+        print("--affected-out needs --affected or --changed: it writes the "
+              "selection they produce", file=sys.stderr)
+        return 2
+    if args.affected_out and not args.affected_format:
+        print("--affected-out needs --affected-format behave or pytest: a "
+              "selection is a runner's own list", file=sys.stderr)
+        return 2
 
     # The preview comes before the branches that serve, fetch or answer, so
     # asking what a command line writes never runs it. What each of them
@@ -1107,8 +1139,22 @@ def main() -> int:
                     # is what says so.
                     print(f"nothing changed since {args.changed}")
                     return 0
+            if args.affected_out:
+                # The selection to the file, the answer a person reads to
+                # stdout. A pipeline then parses a file it asked for rather
+                # than an answer it has to cut a head off, and the two cannot
+                # disagree: both come from one walk of the same map.
+                target = os.path.abspath(args.affected_out)
+                try:
+                    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                    _write_atomic(target, selection_lines(
+                        map_path, chosen, args.affected_depth,
+                        args.affected_format))
+                except OSError as exc:
+                    return _write_error(exc, target)
             answer = affected_answer(map_path, chosen, args.affected_depth,
-                                     args.affected_format)
+                                     args.affected_format
+                                     if not args.affected_out else "")
             log_answer(out_dir, "affected", ",".join(chosen), answer,
                        AFFECTED_BUDGET)
             print(answer)
