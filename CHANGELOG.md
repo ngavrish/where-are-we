@@ -45,6 +45,32 @@
   is stored under its own kind, so upgrading re-parses the call graph rather
   than serving 1.4.0 answers from a warm cache.
 
+- An effects manifest, so a command guard can tell this tool's reads from
+  its writes. `src/where_are_we/effects.py` holds one table: every flag the
+  command line parser knows against one of `read`, `writes-map-dir`,
+  `writes-repo`, `writes-config` and `network`, in that order, and a
+  command's class is the highest class any of its flags carries.
+  `where-are-we --effects` prints the table, `--effects --json` prints
+  `{"schema": "where-are-we-effects/1", "flags": ..., "order": ...}`, and the
+  same JSON ships beside the code as `effects.json`. `--effects --
+  <command line>` classifies one command line with this tool's own parser
+  and runs nothing: `--out /tmp/m --ask x` is `writes-map-dir`,
+  `--install-hook git` is `writes-config`, `--mcp` is `read`. A line naming
+  none of the flags that answer from an existing map builds one into
+  `--out`, so its floor is `writes-map-dir` whatever else it says. The table
+  cannot drift: a CI step fails when the parser knows a flag the table does
+  not, when the table names one the parser does not, or when `effects.json`
+  differs from what the table prints.
+- `--dry-run` prints every path a command can write, `would write` when
+  nothing is there and `would replace` when a file is, and exits without
+  writing any of them. The hook paths come from `hooks.paths()`, the one
+  computation the installers themselves use, so a preview names the files
+  the real run touches. A CI step lists the files of the tree and their
+  hashes before and after a dry run of `--init`, `--agent-file`,
+  `--install-hook git` and `--install-hook claude`, and then runs those
+  commands for real to prove every path the preview named is a path the run
+  creates.
+
 ## 1.4.0
 
 - Honest edges. A cross-file call graph edge is written `charge (a.ts)` when

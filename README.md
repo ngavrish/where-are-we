@@ -215,6 +215,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | The servers stay up | MCP and LSP answer malformed `params`, `arguments` or `limit` with a JSON-RPC error and keep serving; both exit quietly when stdout closes (CI steps `mcp malformed params...`, `lsp malformed params...`, `mcp and lsp exit 0 quietly when stdout closes early`) |
 | `--html` escapes repository content | A docstring or a file name holding markup renders as text on the page (CI step `--html escapes repository content instead of interpolating it`) |
 | `--install-hook` is one unit | Every target is checked before any is written; a refusal installs nothing and names its cause, a rerun finishes the job (CI step `install-hook git refuses a symlinked hook file`) |
+| A guard can tell a read from a write | `--effects` ships the class of every flag this tool's parser knows, `--effects -- <command line>` classifies one line without running it, and `--dry-run` names every path a write would touch and touches none of them. The table cannot drift from the parser or from the `effects.json` in the wheel: a CI step compares all three (CI steps `every flag the parser knows is in the effects table, and nothing else is`, `a command line says what it would write before it runs`, `--dry-run names every path it would write and writes none of them`) |
 | A source in UTF-16 is read | A file with a byte order mark is decoded, indexed and answerable; a binary that merely starts with one is not (CI step `a UTF-16 source file is decoded, indexed and answerable`) |
 | An edge the map is guessing at says so | A cross-file callee several files declare is written `charge (a.ts\|c.ts)?`: every candidate, sorted, and a question mark, which is the map declining to pass a choice off as a lookup. A call to a name the calling file declares is no edge at all, and an import that names one file settles it without the mark. The mark is about the name: a call through a variable to a name one file declares is written plain, because what the map does not know there is the receiver rather than the name. Every `impact` reply states the rule (CI step `an ambiguous edge names every file that declares the callee, and is matched without the mark`) |
 | The graph says what it looked at and what it wrote | `call_graph_stats` counts, per language, the callee names the walk looked at, how many of them some indexed file declares and how many several declare, which is a measure of the tree rather than of the graph, and beside them the cross-file edges written and the ones written with a `?`, which is the graph. Over the whole walk, not the 60 keys that survive the cap. `wawe-eval --map OUT --graph` prints them, and with tree-sitter installed prints what a real parse makes of the same code beside them (CI step `wawe-eval --graph: the map says how much of its call tree it resolved`) |
@@ -649,6 +650,62 @@ notebooks.
   hooks: [{id: where-are-we}]
 ```
 
+## What writes and what only reads
+
+A pre-execution guard sees an argv and has to decide. This tool ships the
+answer instead of leaving it to guess: `where-are-we --effects` prints what
+every flag does to the disk, and a command's class is the highest class any
+of its flags carries.
+
+| class | what it touches | flags |
+|---|---|---|
+| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
+| `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--force`, `--watch`, `--diff` |
+| `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of | `--init`, `--agent-file`, `--docs` |
+| `writes-config` | where a tool other than this one reads: `.git/hooks`, `~/.claude/settings.json`, `~/.codex/config.toml`, a Cursor rule, a Gemini setting | `--install-hook` |
+| `network` | off this machine: a tracker fetch, a runs API | `--specs`, `--spec-cmd`, `--spec-source`, `--spec-depth`, `--spec-limit`, `--runs-api` |
+
+The order is `read < writes-map-dir < writes-repo < writes-config < network`.
+`--effects --json` prints the same table as
+`{"schema": "where-are-we-effects/1", "flags": {...}, "order": [...]}`, and
+that JSON is installed beside the code as `effects.json`, so a guard written
+in something other than Python reads the file instead of the table.
+
+`--effects -- <command line>` classifies one command line with this tool's own
+parser, running nothing:
+
+```console
+$ where-are-we --effects -- where-are-we --out /tmp/m --ask x
+writes-map-dir
+--out writes-map-dir
+--ask read
+```
+
+A command line naming none of `--ask`, `--sections`, `--pointer`, `--callers`,
+`--callees`, `--impact`, `--more`, `--mcp`, `--lsp`, `--init`,
+`--install-hook`, `--dry-run`, `--effects` or `--help` builds the map into
+`--out`, so `where-are-we --repo .` is `writes-map-dir` on the strength of the
+build alone and says so as a `build writes-map-dir` line.
+
+`--dry-run` prints every path the command can write, one per line, and exits
+without writing any of them:
+
+```console
+$ where-are-we --repo . --install-hook git --dry-run
+would write /repo/.git/hooks/post-checkout
+would write /repo/.git/hooks/post-merge
+would write /repo/.git/hooks/post-commit
+```
+
+`would write` when nothing is there, `would replace` when a file is. The paths
+come from the same expressions the writers use, so the preview names what the
+real run names; whether a listed file is then written depends on what is
+already in it, since a target that already says what this tool would say is
+left alone. With `--init` the path is the manifest, with `--install-hook` the
+files that kind installs, and otherwise the map files under `--out` plus the
+agent file when `--agent-file` is given. The optional semantic index adds
+`semantic_index.json` and `semantic_index.npy` to the same directory.
+
 ## Environment
 
 Every variable the tool reads. A flag always wins over the variable it
@@ -809,6 +866,10 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --force                      rebuild even when nothing moved, reading
                              nothing from the parse cache
 --quiet                      no summary line
+--dry-run                    print every path this command would write, and
+                             write none of them
+--effects [--json]           what every flag does to the disk; with
+                             `-- <command line>`, the class of that line
 ```
 
 </details>

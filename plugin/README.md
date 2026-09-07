@@ -50,6 +50,11 @@ is idempotent and merges into whatever is already in those files. If any of
 them - or `.git/hooks/*` for `--install-hook git` - is a symlink, the write is
 refused and nothing is touched: the message names the path.
 
+`where-are-we --effects` prints what every flag of the command does to the
+disk (read, writes-map-dir, writes-repo, writes-config, network) for a guard
+that checks a command before it runs, and `--dry-run` names every path a write
+would touch without touching it.
+
 ## Try it without installing
 
     claude --plugin-dir /path/to/where-are-we/plugin
