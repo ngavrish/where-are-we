@@ -937,10 +937,23 @@ jobs:
           # Every row is a declaration site the map holds, with the same
           # file, line, kind and end line; every site the map holds has a
           # row unless its name or its path cannot go in the format at all;
-          # and the rows are in the byte order the header promises.
+          # the rows are in the byte order the header promises; and every row
+          # whose name is an identifier points at a line of that file that
+          # holds the name.
+          #
+          # Identifier kinds only, for that last one. A `kind:step` row's name
+          # is a Gherkin phrase and its line is the `def` of the function the
+          # decorator above it wraps, and a `kind:scenario` or `kind:feature`
+          # row's name is a sentence from a `.feature` file that the map
+          # already stripped its keyword off. Both jump where an editor should
+          # jump; neither has its own name spelled on the line it points at. A
+          # dotted `Class.method` name is checked by its last component, which
+          # is what the `def` line actually says.
           cat > /tmp/ct/check.py <<'EOF'
           import json, os, sys
           out, repo = os.environ["OUT"], os.environ["REPO"]
+          IDENTIFIER = {"function", "class", "constant", "type", "interface",
+                        "method", "variable", "module"}
           m = json.load(open(os.path.join(out, "framework_map.json")))
           rows = [l.rstrip("\n") for l in open(os.path.join(out, "tags"))
                   if not l.startswith("!_TAG_")]
@@ -961,10 +974,31 @@ jobs:
           missing = sorted(want - set(rows))
           extra = sorted(set(rows) - want)
           unsorted = rows != sorted(rows, key=str.encode)
+          # `sed -n '<line>p' <file>` on every identifier row, in one pass.
+          offline, checked = [], 0
+          for row in rows:
+              f = row.split("\t")
+              kind = next(x[5:] for x in f if x.startswith("kind:"))
+              if kind not in IDENTIFIER:
+                  continue
+              checked += 1
+              line = int(f[2].rstrip(';"'))
+              try:
+                  with open(os.path.join(repo, f[1]), encoding="utf-8",
+                            errors="replace") as fh:
+                      src = fh.read().splitlines()
+              except OSError as exc:
+                  offline.append((f[0], f[1], str(exc)))
+                  continue
+              if line > len(src):
+                  offline.append((f[0], f[1], f"line {line} past the end"))
+              elif f[0].rsplit(".", 1)[-1] not in src[line - 1]:
+                  offline.append((f[0], f[1], line, src[line - 1][:60]))
           print(f"{out}: {len(rows)} rows in tags, {len(want)} sites in spans, "
                 f"missing: {missing[:5]}, not in the map: {extra[:5]}, "
-                f"out of byte order: {unsorted}")
-          sys.exit(1 if (missing or extra or unsorted) else 0)
+                f"out of byte order: {unsorted}; {checked} identifier rows "
+                f"checked against their line, off: {offline[:3]}")
+          sys.exit(1 if (missing or extra or unsorted or offline) else 0)
           EOF
           R=/tmp/ct/code/repo
           where-are-we --repo $R --out /tmp/ct/one --product none --ctags \
@@ -979,8 +1013,8 @@ jobs:
           # The format's own requirement, in the locale the format means.
           LC_ALL=C sort -c /tmp/ct/one/tags
           OUT=/tmp/ct/one REPO=$R python /tmp/ct/check.py
-          # A known symbol's row names the file and the line the map holds
-          # for it, and that line of that file really does declare it.
+          # And the same property once through `sed`, on a named symbol, so
+          # the shape of the check is readable without the loop above.
           ROW=$(awk -F'\t' '$1 == "charge" { print; exit }' /tmp/ct/one/tags)
           echo "$ROW"
           FILE=$(printf '%s\n' "$ROW" | cut -f2)
@@ -1041,105 +1075,241 @@ jobs:
           build_fixtures.build_all("/tmp/cost")
           EOF
           M=/tmp/cost/suite/out
-          where-are-we --out $M --cost --json > /tmp/cost/all.json
-          where-are-we --out $M --cost > /tmp/cost/all.txt
-          where-are-we --out $M --cost 500 > /tmp/cost/big.txt
-          head -12 /tmp/cost/all.txt
-          python - <<'EOF'
+          # The whole check, over the two files on disk rather than over
+          # anything the tool assembled from them. It splits `framework_map.md`
+          # and the brief independently, asserts that each file's header plus
+          # every section in it is exactly what `wc -c` says that file is, and
+          # then asserts the report's per-section bytes and rows against that
+          # split, section by section. Written to a file because it is run
+          # three times: once on the real output, which must pass, and once on
+          # each of two mutants, which must fail.
+          cat > /tmp/cost/verify.py <<'EOF'
           import json, os, sys
-          M = "/tmp/cost/suite/out"
-          d = json.load(open("/tmp/cost/all.json"))
+          out, prefix = sys.argv[1], sys.argv[2]
+          d = json.load(open(prefix + ".json"))
           bad = []
-          if d["schema"] != "where-are-we-cost/1":
-              bad.append("schema: " + d["schema"])
-          # Every line of the measured text is in the header or in exactly
-          # one section, so this is an identity and the slack is zero.
-          summed = d["header_bytes"] + sum(r["bytes"] for r in d["sections"])
-          if summed != d["total"]["bytes"]:
-              bad.append(f'{summed} summed against {d["total"]["bytes"]} total')
-          # And what was measured is the file plus the sections of the brief
-          # the file does not already have, so it is at least the map itself
-          # (less up to 8 bytes of trailing newline the join trims) and at
-          # most the map and the whole brief (plus the 4 bytes that join).
-          on_disk = os.path.getsize(os.path.join(M, "framework_map.md"))
-          brief = os.path.getsize(os.path.join(M, "framework_map_brief.md"))
-          if not on_disk - 8 <= d["total"]["bytes"] <= on_disk + brief + 4:
-              bad.append(f'{d["total"]["bytes"]} outside [{on_disk - 8}, '
-                         f'{on_disk + brief + 4}]')
-          sizes = [r["bytes"] for r in d["sections"]]
-          if sizes != sorted(sizes, reverse=True):
-              bad.append("not sorted heaviest first")
-          if d["tokens"]["label"] != "estimate":
-              bad.append("token label: " + d["tokens"]["label"])
-          if any(r["tokens"] != r["bytes"] // 4 for r in d["sections"]):
-              bad.append("a token count is not the estimate it claims to be")
-          if d["hidden"] or d["threshold"]:
-              bad.append(f'--cost with no threshold hid {d["hidden"]}')
-          print(f'{len(d["sections"])} sections, {d["total"]["bytes"]} bytes '
-                f'({on_disk} map + {brief} brief on disk), '
+
+          def split(path):
+              """(size, header_bytes, [(heading, bytes, rows)]) for one file."""
+              with open(path, encoding="utf-8", newline="") as fh:
+                  text = fh.read()
+              header, rows, cur = 0, [], None
+              for line in text.splitlines(keepends=True):
+                  n = len(line.encode("utf-8"))
+                  if line.startswith("## "):
+                      cur = [line.strip(), n, 0]
+                      rows.append(cur)
+                  elif cur is None:
+                      header += n
+                  else:
+                      cur[1] += n
+                      cur[2] += 1 if (line.strip() and not line.startswith("**")) else 0
+              return len(text.encode("utf-8")), header, rows
+
+          map_md = os.path.join(out, "framework_map.md")
+          brief_md = os.path.join(out, "framework_map_brief.md")
+          want_files, want = [], []
+          for path in (map_md, brief_md):
+              size, header, rows = split(path)
+              on_disk = os.path.getsize(path)
+              if size != on_disk:
+                  bad.append(f"{path}: read {size} bytes, wc -c says {on_disk}")
+              if header + sum(r[1] for r in rows) != on_disk:
+                  bad.append(f"{path}: {header} header + "
+                             f"{sum(r[1] for r in rows)} sections != {on_disk}")
+              want_files.append({"file": path, "bytes": on_disk,
+                                 "header_bytes": header,
+                                 "section_bytes": sum(r[1] for r in rows),
+                                 "sections": len(rows)})
+              # The map's sections all count; the brief's count only where
+              # the map has no section of that heading, which is the rule
+              # every read composes the two files by.
+              seen = {h for h, _n, _r in want}
+              want += [r for r in rows if path == map_md or r[0] not in seen]
+
+          got_files = [{k: v for k, v in e.items() if k != "counted"}
+                       for e in d["measured"]]
+          if got_files != want_files:
+              bad.append(f"measured files differ:\n  got  {got_files}\n  want {want_files}")
+          got = {r["section"]: (r["bytes"], r["rows"]) for r in d["sections"]}
+          exp = {h: (n, rows) for h, n, rows in want}
+          if d["threshold"] == 0 and got != exp:
+              off = sorted(h for h in set(got) | set(exp) if got.get(h) != exp.get(h))
+              bad.append(f"{len(off)} sections priced differently: "
+                         + str([(h, got.get(h), exp.get(h)) for h in off[:4]]))
+          if d["total"]["bytes"] != sum(n for _h, n, _r in want):
+              bad.append(f'total {d["total"]["bytes"]} against an independent '
+                         f'{sum(n for _h, n, _r in want)}')
+          if d["total"]["sections"] != len(want):
+              bad.append(f'{d["total"]["sections"]} sections against {len(want)}')
+          # The map's own sections are in the report. A measurement that
+          # dropped `framework_map.md` would still be internally consistent.
+          map_heads_only = [h for h, _n, _r in split(map_md)[2]]
+          missing = [h for h in map_heads_only if h not in got]
+          if missing:
+              bad.append(f"framework_map.md sections missing from the report: {missing}")
+          # The section list the export prints, and the one --sections prints,
+          # are the same list in the same order.
+          sections = [l.rstrip("\n") for l in open(prefix + ".sections")]
+          parsed, seen = [], False
+          for line in open(prefix + ".export"):
+              line = line.rstrip("\n")
+              if line == "**Sections**":
+                  seen = True
+              elif seen and line.startswith("- `## "):
+                  parsed.append(line[3:line.index("` - ")])
+              elif seen and line.startswith("- total:"):
+                  break
+          if parsed != sections:
+              bad.append(f"the export prices {len(parsed)} sections and "
+                         f"--sections prints {len(sections)}")
+          if parsed != [h for h, _n, _r in want]:
+              bad.append("the export's order is not the order of the files")
+          print(f'{d["total"]["sections"]} sections, {d["total"]["bytes"]} bytes '
+                f'over {len(d["measured"])} files, '
                 f'{d["total"]["tokens"]} tokens {d["tokens"]["label"]}, '
                 f'{d["total"]["rows"]} rows')
-          print("\n".join(bad) or "the table adds up, is sorted, and says it estimates")
+          print("\n".join(bad) or "every section is priced as its own file has it")
           sys.exit(1 if bad else 0)
           EOF
+          where-are-we --out $M --cost --json > /tmp/cost/all.json
+          where-are-we --out $M --sections > /tmp/cost/all.sections
+          where-are-we --out $M --export /tmp/cost/all.export
+          where-are-we --out $M --cost > /tmp/cost/all.txt
+          where-are-we --out $M --cost 500 > /tmp/cost/big.txt
+          cat /tmp/cost/all.txt
+          python /tmp/cost/verify.py $M /tmp/cost/all
+          # Two mutants, each of which the check must catch. Without them the
+          # arithmetic above is a partition identity over whatever the tool
+          # produced, and a measurement that forgot `framework_map.md`
+          # entirely would pass it.
+          for DROP in costs text; do
+            rm -rf /tmp/cost/mutant-$DROP
+            mkdir -p /tmp/cost/mutant-$DROP
+            cp -r src/where_are_we /tmp/cost/mutant-$DROP/where_are_we
+            DROP=$DROP python - <<'EOF'
+          import os, pathlib
+          root = pathlib.Path("/tmp/cost/mutant-" + os.environ["DROP"])
+          if os.environ["DROP"] == "costs":
+              # the report stops measuring framework_map.md
+              p = root / "where_are_we" / "_mapper" / "render.py"
+              old = ('    files = [_file_costs(map_path)]\n'
+                     '    counted = list(files[0]["sections"])\n'
+                     '    have = {row["section"] for row in counted}\n')
+              new = '    files, counted, have = [], [], set()\n'
+          else:
+              # the text every read composes stops including the map
+              p = root / "where_are_we" / "ask.py"
+              old = ('    with open(map_path, encoding="utf-8") as fh:\n'
+                     '        text = fh.read()\n')
+              new = ('    with open(map_path, encoding="utf-8") as fh:\n'
+                     '        fh.read()\n    text = ""\n')
+          t = p.read_text()
+          assert old in t, "the mutant no longer patches anything"
+          p.write_text(t.replace(old, new, 1))
+          EOF
+            MUT=/tmp/cost/mutant-$DROP/where_are_we/mapper.py
+            python $MUT --out $M --cost --json > /tmp/cost/m$DROP.json || true
+            python $MUT --out $M --sections > /tmp/cost/m$DROP.sections || true
+            python $MUT --out $M --export /tmp/cost/m$DROP.export || true
+            if python /tmp/cost/verify.py $M /tmp/cost/m$DROP; then
+              echo "the check passed on a build that dropped the map from $DROP"
+              exit 1
+            fi
+          done
           # The text table says the same thing, and says which it is.
           grep -q "tokens are an estimate: bytes / 4" /tmp/cost/all.txt
           grep -q "^total: .* tokens (estimate), " /tmp/cost/all.txt
+          # Every file it read, with the arithmetic wc -c can check.
+          python - <<'EOF'
+          import os, re, sys
+          M = "/tmp/cost/suite/out"
+          bad = []
+          seen = 0
+          for line in open("/tmp/cost/all.txt"):
+              m = re.match(r"^measured: (\S+) is (\d+) bytes, (\d+) of header "
+                           r"and (\d+) in (\d+) sections?", line.rstrip("\n"))
+              if not m:
+                  continue
+              seen += 1
+              path, size, header, secs, n = m.group(1), *map(int, m.groups()[1:])
+              if size != os.path.getsize(path):
+                  bad.append(f"{path}: says {size}, wc -c says {os.path.getsize(path)}")
+              if header + secs != size:
+                  bad.append(f"{path}: {header} + {secs} != {size}")
+          if seen != 2:
+              bad.append(f"{seen} measured lines, expected 2")
+          print(f"{seen} files measured; " + ("\n".join(bad) or "each adds up to its own size"))
+          sys.exit(1 if bad else 0)
+          EOF
           # A threshold hides the small sections and says how many.
           ALL=$(grep -c '  ## ' /tmp/cost/all.txt)
           BIG=$(grep -c '  ## ' /tmp/cost/big.txt)
           echo "$ALL rows at --cost 0, $BIG rows at --cost 500"
           test "$BIG" -lt "$ALL"
           grep -q "under 500 bytes not shown" /tmp/cost/big.txt
+          # A map with no brief beside it does not promise one.
+          rm -rf /tmp/cost/lonely && mkdir -p /tmp/cost/lonely
+          cp $M/framework_map.md /tmp/cost/lonely/
+          where-are-we --out /tmp/cost/lonely --cost | head -1 \
+            | tee /tmp/cost/lonely.txt
+          if grep -q "brief" /tmp/cost/lonely.txt; then
+            echo "--cost named a brief that is not there"; exit 1
+          fi
           # The export stands on its own: the notice, the counts, the section
           # list with what each costs, then the brief.
-          where-are-we --out $M --export /tmp/cost/export.md
-          head -20 /tmp/cost/export.md
-          grep -qx "# where-are-we export" /tmp/cost/export.md
-          grep -q '`where-are-we-export/1`' /tmp/cost/export.md
-          grep -qxF "**Incomplete**" /tmp/cost/export.md
-          grep -qxF "**Indexed**" /tmp/cost/export.md
-          grep -qxF "**Sections**" /tmp/cost/export.md
-          grep -qE "^- suite: [0-9]+ files$" /tmp/cost/export.md
-          grep -qxF "# Framework map (brief)" /tmp/cost/export.md
-          # It parses back into the same section list the map answers with.
-          where-are-we --out $M --sections > /tmp/cost/sections.txt
-          awk '/^\*\*Sections\*\*$/ {f = 1; next}
-               f && /^- total:/ {exit}
-               f && /^- `## / {sub(/^- `/, ""); sub(/` - .*$/, ""); print}' \
-            /tmp/cost/export.md > /tmp/cost/parsed.txt
-          diff -u /tmp/cost/sections.txt /tmp/cost/parsed.txt
-          wc -l < /tmp/cost/parsed.txt
-          # And the byte counts in it are the ones --cost reports.
-          python - <<'EOF'
-          import json, re, sys
-          d = json.load(open("/tmp/cost/all.json"))
-          want = {r["section"]: (r["bytes"], r["rows"]) for r in d["sections"]}
-          got = {}
-          for line in open("/tmp/cost/export.md"):
-              m = re.match(r"^- `(## .*)` - (\d+) bytes, (\d+) rows?$", line.rstrip("\n"))
-              if m:
-                  got[m.group(1)] = (int(m.group(2)), int(m.group(3)))
-          print(f"{len(got)} sections priced in the export, {len(want)} in --cost")
-          sys.exit(0 if got == want else 1)
-          EOF
+          head -20 /tmp/cost/all.export
+          grep -qx "# where-are-we export" /tmp/cost/all.export
+          grep -q '`where-are-we-export/1`' /tmp/cost/all.export
+          grep -qxF "**Incomplete**" /tmp/cost/all.export
+          grep -qxF "**Indexed**" /tmp/cost/all.export
+          grep -qxF "**Sections**" /tmp/cost/all.export
+          grep -qE "^- suite: [0-9]+ files$" /tmp/cost/all.export
+          grep -qxF "# Framework map (brief)" /tmp/cost/all.export
+          # `-` is stdout, and it is byte for byte the file.
+          where-are-we --out $M --export - > /tmp/cost/stdout.export
+          diff -u /tmp/cost/all.export /tmp/cost/stdout.export
+          if test -e ./-; then
+            echo "--export - wrote a file called -"; exit 1
+          fi
+          # An empty path is refused rather than falling through to a build.
+          if where-are-we --out $M --export "" > /tmp/cost/empty.txt 2>&1; then
+            echo "--export '' was accepted"; exit 1
+          fi
+          cat /tmp/cost/empty.txt
+          grep -q "needs a path" /tmp/cost/empty.txt
           # Twice over the same map is the same answer, and the same file.
           where-are-we --out $M --cost > /tmp/cost/all.again.txt
           where-are-we --out $M --cost --json > /tmp/cost/all.again.json
           where-are-we --out $M --export /tmp/cost/export.again.md
           diff -u /tmp/cost/all.txt /tmp/cost/all.again.txt
           diff -u /tmp/cost/all.json /tmp/cost/all.again.json
-          diff -u /tmp/cost/export.md /tmp/cost/export.again.md
+          diff -u /tmp/cost/all.export /tmp/cost/export.again.md
           # --cost only reads; --export writes the one file it was given, and
-          # the preview names it.
+          # the preview names it and every directory it would have to create.
           where-are-we --out $M --cost --dry-run > /tmp/cost/dry.txt
           grep -qx "nothing to write: --cost only read" /tmp/cost/dry.txt
-          where-are-we --out $M --export /tmp/cost/preview.md --dry-run \
+          where-are-we --out $M --export /tmp/cost/deep/a/b/preview.md --dry-run \
             > /tmp/cost/dry-export.txt
-          grep -qx "would write /tmp/cost/preview.md" /tmp/cost/dry-export.txt
-          if test -e /tmp/cost/preview.md; then
-            echo "a preview of --export wrote the file"; exit 1
+          cat /tmp/cost/dry-export.txt
+          grep -qx "would create /tmp/cost/deep" /tmp/cost/dry-export.txt
+          grep -qx "would create /tmp/cost/deep/a" /tmp/cost/dry-export.txt
+          grep -qx "would create /tmp/cost/deep/a/b" /tmp/cost/dry-export.txt
+          grep -qx "would write /tmp/cost/deep/a/b/preview.md" /tmp/cost/dry-export.txt
+          if test -e /tmp/cost/deep; then
+            echo "a preview of --export created a directory"; exit 1
           fi
+          where-are-we --out $M --export - --dry-run > /tmp/cost/dry-stdout.txt
+          grep -qx "nothing to write: --export - writes to stdout" /tmp/cost/dry-stdout.txt
+          # And the preview is not a fiction: the real run creates all four.
+          where-are-we --out $M --export /tmp/cost/deep/a/b/preview.md
+          for path in $(sed 's/^would create //;s/^would write //' \
+                            /tmp/cost/dry-export.txt); do
+            if test ! -e "$path"; then
+              echo "the dry run named $path and the real run did not create it"
+              exit 1
+            fi
+          done
           where-are-we --effects -- where-are-we --cost > /tmp/cost/eff-cost.txt
           where-are-we --effects -- where-are-we --export /tmp/x.md \
             > /tmp/cost/eff-export.txt

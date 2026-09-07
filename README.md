@@ -141,9 +141,9 @@ as estimates.
 | `--diff` | What changed since the map already in `--out`, naming the files whose content hash moved, were added or are gone before the map keys that moved with them. It reads the parse cache and does not write it, so that everything it prints is measured against the map on disk and the same command over the same tree answers the same way twice | the pointer names what moved since the last session; CI step "pointer says what changed since the last session" proves it | — |
 | `--watch SECONDS` | Rebuild whenever the tree moves, by the fingerprint and the content root together, the same two questions a one-shot build asks: a full rebuild each time, writing every artefact a one-shot build writes, and an iteration that raises is printed and the loop carries on | Not measured | CI step `--watch rebuilds whole, writes every file, and survives a failure`: twenty files added while watching all reach the map, a deleted name leaves it, `framework_map.md` and `--html` are written, and replacing the output directory with a plain file prints `rebuild failed, still watching` without ending the watcher |
 | `--html` | The brief as a page | Not measured | — |
-| `--ctags` → `<out>/tags` | Every declaration the map holds, in universal-ctags format: name, file, the line as the EX command, `kind:`, `line:` and `end:` where a parser knew it. Sorted as bytes, so the binary search the header promises works. vim, emacs, helix, kakoune and `readtags` open it with no server running, on a checkout mounted read only, in a language whose server is not installed | Measured 2026-09-07 on this repository: 647 rows over 585 names, 51,865 bytes, written in the same build that writes the map | CI step `--ctags writes a sorted, correct tags file`: the pseudo tags are present, `LC_ALL=C sort -c` passes, every row is a declaration site the map holds and every site has a row, `charge` names `app/billing.py:4` and that line declares it, two builds are byte identical, and `readtags` reads it where the runner can install universal-ctags |
-| `--cost [THRESHOLD]`, `--cost --json` | What each section of the map costs to carry: rows, bytes and tokens, heaviest first, with a total and a threshold that hides the small ones. Tokens are `bytes / 4` and the output says `estimate`, because no extra this project has carries a tokenizer that can be reached without downloading a model | Measured 2026-09-07 on this repository: 75 sections, 38,632 bytes, 9,658 tokens, 438 rows; the heaviest section is `## Defined here` at 7,520 bytes and 53 sections are under 500 bytes | CI step `the map says what each of its sections costs` |
-| `--export FILE` | The map as one self-contained file for a channel with no filesystem (a PR comment, a paste): the incompleteness notice, the `indexed:` counts, every section with what it costs, then the brief | Measured 2026-09-07 on this repository: 41,994 bytes against 2,158,336 of `framework_map.json` | CI step `the map says what each of its sections costs`: the file parses back into the section list `--sections` prints, with the byte counts `--cost` reports |
+| `--ctags` → `<out>/tags` | Every declaration the map holds, in universal-ctags format: name, file, the line as the EX command, `kind:`, `line:` and `end:` where a parser knew it. Sorted as bytes, so the binary search the header promises works. vim, emacs, helix, kakoune and `readtags` open it with no server running, on a checkout mounted read only, in a language whose server is not installed. A build without the flag leaves whatever `tags` is already in `--out` alone, exactly as a build without `--html` leaves `framework_map.html`: the file may be one real ctags wrote, and this tool does not delete files it was not asked to write | Measured 2026-09-07 on this repository: 651 rows over 589 names, 52,174 bytes, written in the same build that writes the map | CI step `--ctags writes a sorted, correct tags file`: the pseudo tags are present, `LC_ALL=C sort -c` passes, every row is a declaration site the map holds and every site has a row, `charge` names `app/billing.py:4` and that line declares it, two builds are byte identical, and `readtags` reads it where the runner can install universal-ctags |
+| `--cost [THRESHOLD]`, `--cost --json` | What each section costs to carry: rows, bytes and tokens, heaviest first, with a total and a threshold that hides the small ones. A section is a `## ` heading, and the sections are the ones a reader carries: every one in `framework_map.md`, then every one in `framework_map_brief.md` beside it whose heading the map does not already have, which is the rule every read composes the two files by. Each is measured on its own file, so its byte count is what `wc -c` would give for those lines, and the report ends with a `measured:` line per file whose header plus sections is that file's size. Tokens are `bytes / 4` and the output says `estimate`, because no extra this project has carries a tokenizer that can be reached without downloading a model | Measured 2026-09-07 on this repository: 75 sections over the two files, 38,409 bytes, 9,578 tokens, 438 rows. `wc -c` agrees: `framework_map.md` is 1,351 bytes (161 of header, 1,190 in 3 sections) and `framework_map_brief.md` is 37,441 (222 of header, 37,219 in 72 sections). The heaviest section is `## Defined here` at 7,510 bytes and 53 sections are under 500 | CI step `the map says what each of its sections costs`, which splits both files independently and asserts every section against that split, and fails on a build that stops measuring `framework_map.md` |
+| `--export FILE` | The map as one self-contained file for a channel with no filesystem (a PR comment, a paste): the incompleteness notice, the `indexed:` counts, every section of `framework_map.md` and of the brief beside it with what each costs, then the brief itself. `--export -` writes it to stdout; an empty path is refused | Measured 2026-09-07 on this repository: 42,004 bytes against 1,351 of `framework_map.md`, 37,441 of the brief and 2,172,714 of `framework_map.json` | CI step `the map says what each of its sections costs`: the file parses back into the section list `--sections` prints, in the same order, with the byte counts `--cost` reports |
 | `--init` → `.framework-map.json` manifest | A starter manifest the map reads `stated` facts from | Not measured | — |
 
 ### What an agent carries vs what it asks
@@ -728,8 +728,8 @@ sixty-four thousand, every turn.
 | `--ask "words" --files a.py,b.py` | the same answer with the rows about those files first in every section; `--files -` reads the list on stdin |
 | `--mcp` | serve the map over MCP on stdin/stdout instead of answering once |
 | `--sections` | the section headings |
-| `--cost [N]` | what each section costs: rows, bytes and estimated tokens, heaviest first, hiding what is under N bytes |
-| `--export FILE` | the whole map as one file to paste: the notice, the counts, the priced section list, then the brief |
+| `--cost [N]` | what each section of `framework_map.md` and of the brief beside it costs: rows, bytes and estimated tokens, heaviest first, hiding what is under N bytes |
+| `--export FILE` | the map and its brief as one file to paste: the notice, the counts, the priced section list, then the brief. `-` for stdout |
 
 `WAWE_EMBED_CACHE=<file>` caches the semantic index's embeddings in one sqlite
 file keyed by model and text, so a rebuild does not recompute vectors it already
@@ -832,8 +832,9 @@ and the class of an abbreviated line is the class of the line that runs.
 A command line naming none of `--ask`, `--sections`, `--cost`, `--export`,
 `--pointer`, `--callers`, `--callees`, `--impact`, `--more`, `--mcp`,
 `--lsp`, `--init`, `--install-hook`, `--specs`, `--dry-run`, `--effects` or
-`--help` builds the map into `--out`, so `where-are-we --repo .` is `writes-map-dir` on the
-strength of the build alone and says so as a `build writes-map-dir` line.
+`--help` builds the map into `--out`, so `where-are-we --repo .` is
+`writes-map-dir` on the strength of the build alone and says so as a
+`build writes-map-dir` line.
 
 `--dry-run` prints every path the command can write, one per line, and exits
 without writing any of them:
@@ -1041,9 +1042,10 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --files FILE[,FILE]          on --ask: those files' rows first in every
                              section; `-` reads the list on stdin
 --limit N                    how many rows --rank prints (default 200)
---cost [THRESHOLD]           what each section of the map costs: rows, bytes
-                             and tokens, heaviest first
---export FILE                the map as one self-contained file to paste
+--cost [THRESHOLD]           what the map and its brief cost per section:
+                             rows, bytes and tokens, heaviest first
+--export FILE                the map as one self-contained file to paste,
+                             or `-` for stdout
 --effects [--json]           what every flag does to the disk; with
                              `-- <command line>`, the class of that line
 ```

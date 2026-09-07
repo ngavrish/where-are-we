@@ -78,7 +78,8 @@ try:
     from ._mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
                                  _cap_sections, brief, changed_since, cost,
                                  ctags, digest, export, for_audience,
-                                 meaning_tail, pointer, section_costs)
+                                 map_costs, meaning_tail, pointer,
+                                 section_costs)
     from ._mapper.build import _layer_line, build
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
@@ -104,7 +105,8 @@ except ImportError:  # run as a plain file, with no package around it
     from _mapper.render import (_PRODUCT_SIDE, _TEST_SIDE, _as_dict, _as_list,
                                 _cap_sections, brief, changed_since, cost,
                                 ctags, digest, export, for_audience,
-                                meaning_tail, pointer, section_costs)
+                                map_costs, meaning_tail, pointer,
+                                section_costs)
     from _mapper.build import _layer_line, build
 
 __version__ = state.__version__
@@ -173,9 +175,9 @@ __all__ = [
     "changed_since", "content_hash", "content_pairs", "content_root",
     "context", "cost", "ctags", "declarations_in", "definitions_for",
     "digest", "export", "file_list", "find_text", "fingerprint",
-    "for_audience", "index_declarations", "index_lines", "meaning_tail",
-    "more", "pointer", "rank_lines", "record_span", "redact",
-    "section_costs", "spans_for", "spans_index",
+    "for_audience", "index_declarations", "index_lines", "map_costs",
+    "meaning_tail", "more", "pointer", "rank_lines", "record_span",
+    "redact", "section_costs", "spans_for", "spans_index",
 ]
 
 

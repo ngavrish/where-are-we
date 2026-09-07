@@ -624,13 +624,15 @@ def build_parser() -> argparse.ArgumentParser:
                          "a total. THRESHOLD hides every section under that "
                          "many bytes. With --json, the same table as JSON. "
                          "Reads framework_map.md under --out")
-    ap.add_argument("--export", default="", metavar="FILE",
+    ap.add_argument("--export", default=None, metavar="FILE",
                     help="write the map as one self-contained file: what it "
                          "admits it is missing, what it indexed, its sections "
                          "and what each costs, then the brief. For a channel "
-                         "with no filesystem - a PR comment, a paste. FILE is "
-                         "wherever the caller says, which is why the effects "
-                         "table calls this flag writes-repo")
+                         "with no filesystem - a PR comment, a paste. `-` "
+                         "writes it to stdout, which is where a paste usually "
+                         "comes from. Any other FILE is wherever the caller "
+                         "says, which is why the effects table calls this "
+                         "flag writes-repo")
     ap.add_argument("--corpus", action="append", default=[], metavar="NAME=PATH",
                     help="an extra corpus for the semantic index: a markdown "
                          "file or a directory of md/mdc/txt (a rules corpus, a "
@@ -704,6 +706,31 @@ def _would(path: str) -> str:
     return f"would {'replace' if os.path.exists(path) else 'write'} {path}"
 
 
+# What `--export` says when it is given a path that is not one. An empty
+# string used to be indistinguishable from the flag not being there at all,
+# so `--export ""` fell through every read branch and built the map, which is
+# the opposite of what the line asked for.
+EXPORT_EMPTY = ("--export needs a path, or `-` for stdout; "
+                "an empty one names no file")
+
+
+def _missing_parents(path: str) -> list:
+    """The directories a write to `path` would have to create, outermost
+    first, and nothing when every one of them is already there.
+
+    A preview that names the file and not the two directories under it is
+    describing half of what the run does.
+    """
+    missing, base = [], os.path.dirname(os.path.abspath(path))
+    while base and not os.path.exists(base):
+        missing.append(base)
+        parent = os.path.dirname(base)
+        if parent == base:
+            break
+        base = parent
+    return list(reversed(missing))
+
+
 def _dry_run_answer(args) -> int:
     """`--dry-run` on the command lines that answer instead of building.
 
@@ -719,10 +746,22 @@ def _dry_run_answer(args) -> int:
         for name in ("spec_map.json", "spec_map.md"):
             print(_would(os.path.join(out_dir, name)))
         return 0
-    if args.export:
-        # The one read that writes: the path is the caller's, so it is named
-        # rather than described.
-        print(_would(os.path.abspath(args.export)))
+    if args.export is not None:
+        # The one read that writes. The path is the caller's, so it is named
+        # rather than described, and so are the directories that would have
+        # to exist first: `--export docs/pack/map.md` creates them, and a
+        # preview that named only the file would be describing half the
+        # write. `-` creates nothing and writes nothing: it is stdout.
+        if args.export == "-":
+            print("nothing to write: --export - writes to stdout")
+            return 0
+        if not args.export.strip():
+            print(EXPORT_EMPTY, file=sys.stderr)
+            return 2
+        target = os.path.abspath(args.export)
+        for missing in _missing_parents(target):
+            print(f"would create {missing}")
+        print(_would(target))
         return 0
     named = [flag for flag, given in (
         ("--mcp", args.mcp), ("--lsp", args.lsp), ("--sections", args.sections),
@@ -821,7 +860,7 @@ def main() -> int:
                          or args.ask or args.pointer or args.callers
                          or args.callees or args.impact or args.more_handle
                          or args.defines or args.at_place
-                         or args.context_name or args.export
+                         or args.context_name or args.export is not None
                          or args.rank_files is not None
                          or args.cost is not None):
         return _dry_run_answer(args)
@@ -881,7 +920,7 @@ def main() -> int:
     if (args.sections or args.ask or args.pointer or args.callers
             or args.callees or args.impact or args.more_handle
             or args.defines or args.at_place or args.context_name
-            or args.export or args.rank_files is not None
+            or args.export is not None or args.rank_files is not None
             or args.cost is not None):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
@@ -914,7 +953,7 @@ def main() -> int:
                              or args.callees or args.impact
                              or args.more_handle or args.defines
                              or args.at_place or args.context_name
-                             or args.export
+                             or args.export is not None
                              or args.rank_files is not None
                              or args.cost is not None):
             # These three read the code map and only the code map, so for
@@ -944,11 +983,22 @@ def main() -> int:
             log_answer(out_dir, "cost", str(args.cost), answer, len(answer))
             print(answer, end="")
             return 0
-        if args.export:
+        if args.export is not None:
+            text = export(map_path)
+            if args.export == "-":
+                # `-` is stdout, the way every tool that writes a file spells
+                # it. The destination for this flag is a PR comment or a
+                # paste, so the pipe is the common case and a file literally
+                # named `-` in the current directory is never what was meant.
+                print(text, end="")
+                return 0
+            if not args.export.strip():
+                print(EXPORT_EMPTY, file=sys.stderr)
+                return 2
             target = os.path.abspath(args.export)
             try:
                 os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
-                _write_atomic(target, export(map_path))
+                _write_atomic(target, text)
             except OSError as exc:
                 return _write_error(exc, target)
             print(f"wrote {target}")

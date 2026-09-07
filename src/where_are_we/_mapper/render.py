@@ -20,10 +20,11 @@ from .walk import _write_atomic
 VOCAB_CAP = int(os.getenv("WAWE_VOCAB", "0")) or 10 ** 9
 
 try:
-    from ..ask import BRIEF_NAME, _blocks, fit_lines, map_heads, map_text
+    from ..ask import (BRIEF_NAME, _blocks, fit_lines, is_row, map_heads,
+                       map_text)
 except ImportError:  # run as a plain file, with no package around it
     from ask import (BRIEF_NAME, _blocks,  # type: ignore[no-redef]
-                     fit_lines, map_heads, map_text)
+                     fit_lines, is_row, map_heads, map_text)
 
 
 def digest(m: dict) -> str:
@@ -1172,22 +1173,13 @@ EXPORT_SCHEMA = "where-are-we-export/1"
 BYTES_PER_TOKEN = 4
 
 
-def _is_row(line: str) -> bool:
-    """Whether a line under a heading counts as a row.
-
-    The same rule `ask` counts by when it says "N rows do not mention these
-    words": a blank line is spacing and a bold line is a subhead, so neither
-    is something a reader asked for.
-    """
-    return bool(line.strip()) and not line.startswith("**")
-
-
 def section_costs(text: str) -> tuple[int, list[dict]]:
-    """`(header_bytes, sections)` for one map text.
+    """`(header_bytes, sections)` for one text.
 
     One dict per `## ` heading, in the order the text has them, carrying the
     heading, the row count, the size in UTF-8 bytes and the section's own
-    text. `header_bytes + sum(bytes)` is the size of the whole text.
+    text. Every line is in the header or in exactly one section, so
+    `header_bytes + sum(bytes)` is the size of the whole text.
     """
     header, sections, current = 0, [], None
     for line in text.splitlines(keepends=True):
@@ -1200,9 +1192,54 @@ def section_costs(text: str) -> tuple[int, list[dict]]:
             header += size
         else:
             current["bytes"] += size
-            current["rows"] += 1 if _is_row(line) else 0
+            current["rows"] += 1 if is_row(line) else 0
             current["text"] += line
     return header, sections
+
+
+def _file_costs(path: str) -> dict:
+    """One file on disk, split into its header and its `## ` sections.
+
+    Read with `newline=""` so nothing is translated on the way in: the sum of
+    the header and every section is the size `wc -c` reports for the file,
+    exactly, which is the only version of this arithmetic a reader can check
+    without running the tool.
+    """
+    with open(path, encoding="utf-8", newline="") as fh:
+        text = fh.read()
+    header, sections = section_costs(text)
+    for row in sections:
+        row["file"] = os.path.basename(path)
+    return {"file": path, "bytes": len(text.encode("utf-8")),
+            "header_bytes": header, "sections": sections}
+
+
+def map_costs(map_path: str) -> tuple[list[dict], list[dict]]:
+    """`(files, sections)`: what a map costs, measured on the files it is in.
+
+    `files` is one entry per file read, with its size, its header and every
+    section it holds, whether or not that section is counted. `sections` is
+    what a reader actually carries, in the order `--sections` prints: every
+    section of `framework_map.md`, then every section of the brief beside it
+    whose heading the map does not already have, which is the rule `map_text`
+    reads them by.
+
+    Measured per file rather than over `map_text`'s concatenation, because
+    the concatenation rejoins sections with a blank line and so reported
+    every brief section one byte heavier than it is on disk. A number a
+    reader is meant to check against `wc -c` has to be the number `wc -c`
+    gives.
+    """
+    files = [_file_costs(map_path)]
+    counted = list(files[0]["sections"])
+    have = {row["section"] for row in counted}
+    brief = os.path.join(os.path.dirname(map_path) or ".", BRIEF_NAME)
+    if os.path.exists(brief):
+        entry = _file_costs(brief)
+        files.append(entry)
+        counted += [row for row in entry["sections"]
+                    if row["section"] not in have]
+    return files, counted
 
 
 def _token_counter():
@@ -1232,24 +1269,25 @@ def cost(map_path: str, threshold: int = 0, as_json: bool = False) -> str:
     tokens, sorted by bytes, with `threshold` hiding every section under that
     many bytes.
 
-    Measured over the same text `ask` reads: `framework_map.md` plus every
+    Priced over what `ask` reads, which is `framework_map.md` plus every
     section of the brief beside it whose heading the map does not have. A
     report over the map file alone would say a plain code repository's map
     costs three empty headings, which is true of that file and false of what
-    anybody carries.
+    anybody carries. Each section is measured on its own file, so its byte
+    count is the one `wc -c` would give for those lines, and the report names
+    every file it read with that file's total, its header and how many of its
+    sections were counted.
     """
-    text = map_text(map_path)
-    total_bytes = len(text.encode("utf-8"))
-    header_bytes, sections = section_costs(text)
+    files, sections = map_costs(map_path)
 
     counter = _token_counter()
     label = "estimate" if counter is None else counter[0]
-    for row in sections:
-        body = row.pop("text")
-        row["tokens"] = (row["bytes"] // BYTES_PER_TOKEN if counter is None
-                         else counter[1](body))
-    total_tokens = (total_bytes // BYTES_PER_TOKEN if counter is None
-                    else counter[1](text))
+    for entry in files:
+        for row in entry["sections"]:
+            row["tokens"] = (row["bytes"] // BYTES_PER_TOKEN if counter is None
+                             else counter[1](row["text"]))
+    total_bytes = sum(r["bytes"] for r in sections)
+    total_tokens = sum(r["tokens"] for r in sections)
 
     # Heaviest first, ties by heading, so the same map always prints the same
     # table.
@@ -1258,16 +1296,28 @@ def cost(map_path: str, threshold: int = 0, as_json: bool = False) -> str:
     hidden = len(sections) - len(shown)
     total = {"sections": len(sections), "rows": sum(r["rows"] for r in sections),
              "bytes": total_bytes, "tokens": total_tokens}
+    # By identity, not by value: `sections` holds the very dicts `files`
+    # holds, and two sections of one map can carry the same heading, rows and
+    # bytes without being the same section.
+    kept = {id(r) for r in sections}
+    measured = [{"file": e["file"], "bytes": e["bytes"],
+                 "header_bytes": e["header_bytes"],
+                 "section_bytes": sum(r["bytes"] for r in e["sections"]),
+                 "sections": len(e["sections"]),
+                 "counted": sum(1 for r in e["sections"] if id(r) in kept)}
+                for e in files]
     if as_json:
         return json.dumps({
             "schema": COST_SCHEMA,
             "map": map_path,
+            "measured": measured,
             "tokens": {"label": label,
                        "bytes_per_token": BYTES_PER_TOKEN if counter is None else None},
             "threshold": threshold,
-            "header_bytes": header_bytes,
+            "header_bytes": sum(e["header_bytes"] for e in files),
             "hidden": hidden,
-            "sections": shown,
+            "sections": [{k: v for k, v in r.items() if k != "text"}
+                         for r in shown],
             "total": total,
         }, indent=2) + "\n"
 
@@ -1276,9 +1326,9 @@ def cost(map_path: str, threshold: int = 0, as_json: bool = False) -> str:
            if counter is None else f"tokens are exact, counted by {label}.")
     heads = ("bytes", "tokens", "rows")
     widths = [max([len(h)] + [len(str(r[h])) for r in shown]) for h in heads]
+    where = map_path + (" and the brief beside it" if len(files) > 1 else "")
     lines = [
-        f"{len(sections)} sections in {map_path} and the brief beside it, "
-        "heaviest first.",
+        f"{len(sections)} sections in {where}, heaviest first.",
         how,
         "",
         f"{'bytes':>{widths[0]}}  {'tokens':>{widths[1]}}  "
@@ -1288,11 +1338,21 @@ def cost(map_path: str, threshold: int = 0, as_json: bool = False) -> str:
         lines.append(f"{r['bytes']:>{widths[0]}}  {r['tokens']:>{widths[1]}}  "
                      f"{r['rows']:>{widths[2]}}  {r['section']}")
     lines += ["", f"total: {total['sections']} sections, {total['bytes']} bytes, "
-                  f"{total['tokens']} tokens ({label}), {total['rows']} rows, "
-                  f"and {header_bytes} bytes of header before the first section"]
+                  f"{total['tokens']} tokens ({label}), {total['rows']} rows"]
     if hidden:
         lines.append(f"{hidden} section{'' if hidden == 1 else 's'} under "
                      f"{threshold} bytes not shown")
+    # Every file that was read, with the arithmetic a reader can check
+    # against `wc -c`: the header plus every section in it, counted or not,
+    # is that file's size.
+    for e, m in zip(files, measured):
+        skipped = m["sections"] - m["counted"]
+        lines.append(
+            f"measured: {e['file']} is {m['bytes']} bytes, "
+            f"{m['header_bytes']} of header and {m['section_bytes']} in "
+            f"{m['sections']} section{'' if m['sections'] == 1 else 's'}"
+            + (f", {skipped} of which the map already has and this does not "
+               "count twice" if skipped else ""))
     return "\n".join(lines) + "\n"
 
 
@@ -1311,7 +1371,9 @@ def export(map_path: str) -> str:
     """
     out_dir = os.path.dirname(map_path) or "."
     text = map_text(map_path)
-    _header_bytes, sections = section_costs(text)
+    # The same measurement `--cost` prints, so the two never disagree about
+    # what a section costs.
+    _files, sections = map_costs(map_path)
 
     incomplete = []
     for head, body in _blocks(text):
@@ -1352,5 +1414,5 @@ def export(map_path: str) -> str:
     lines += [f"- `{r['section']}` - {r['bytes']} bytes, {r['rows']} "
               f"row{'' if r['rows'] == 1 else 's'}" for r in sections]
     lines += ["", f"- total: {len(sections)} sections, "
-                  f"{len(text.encode('utf-8'))} bytes", ""]
+                  f"{sum(r['bytes'] for r in sections)} bytes", ""]
     return "\n".join(lines) + "\n" + brief_text

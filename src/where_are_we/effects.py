@@ -84,9 +84,11 @@ EFFECTS = {
     "--watch": "writes-map-dir",
     "--agent-file": "writes-repo",
     # `--export` answers out of a map already on disk, which would make it a
-    # read; the file it writes is at whatever path the caller named, which
-    # can be anywhere in the repository or outside it. A flag has one class
-    # and it is the highest one the flag can reach, so this one is a write.
+    # read; the file it writes is at whatever path the caller named. That is
+    # the same arbitrary-path property `--agent-file` and `--docs` have, and
+    # it gets the same class they do. Not `writes-config`, which is for the
+    # flags that write where another tool reads by convention: this one
+    # writes exactly where it was told and nowhere else.
     "--export": "writes-repo",
     "--init": "writes-repo",
     # `--docs` alone only says what it would write; `--docs write` creates the

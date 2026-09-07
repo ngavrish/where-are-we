@@ -687,14 +687,24 @@ def _split_rows(body: list, terms: list) -> tuple:
     return matching, len(other)
 
 
+def is_row(line: str) -> bool:
+    """Whether one line under a heading is a row a reader asked for.
+
+    A blank line is spacing and a bold line is a subhead, so neither counts.
+    Public and used from two places: this module says "N rows do not mention
+    these words" and `render.cost` says how many rows a section costs, and
+    the two have to mean the same thing by a row or the second is describing
+    a file nobody reads.
+    """
+    return bool(line.strip()) and not line.startswith("**")
+
+
 def _rows_by_match(body: list, terms: list) -> tuple:
     """The same split as `_split_rows`, with the rows that did not match kept
     rather than counted: `more:unmatched:` has to print them."""
     matching, other = [], []
     for line in body:
-        if not line.strip():
-            continue
-        if line.startswith("**"):
+        if not is_row(line):
             continue
         if any(t in line.lower() for t in terms):
             matching.append(line)
