@@ -10,8 +10,8 @@
   no longer do or no longer guess: a plain call to a name the calling file
   declares itself is a local call and is left out of a cross-file graph; a
   call through a module this tree does not declare, which is what
-  `ast.walk(...)` and `os.walk(...)` are, is not in the tree at all and is
-  left out too; and a call the caller's own `from MOD import name` (or
+  `ast.walk(...)` is, and what `from os import path` followed by
+  `path.join(...)` is, is not in the tree at all and is left out too; and a call the caller's own `from MOD import name` (or
   `import { name } from "./mod"`) settles is written plain. `callers`, `callees` and `impact` match
   on the name alone, so a marked edge is found exactly as an unmarked one is,
   and print the mark as they find it. Every `impact` reply now ends its rules
@@ -32,7 +32,7 @@
   first-party a tree's calls are: builtins, methods and standard library
   names are in its denominator and a same-file call is in its numerator, so
   it is a fact about the code rather than a score for the graph. On this
-  repository it is 0.2377 over 2221 Python sites, with 145 edges and 36 of
+  repository it is 0.239 over 2230 Python sites, with 145 edges and 36 of
   them marked. `wawe-eval --map OUT --graph` prints all of it, and `--json`
   carries it. With the `precise` extra installed it parses the TypeScript,
   JavaScript and Go again with tree-sitter and prints the delta, which is
