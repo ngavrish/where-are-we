@@ -2817,6 +2817,81 @@ jobs:
           print("poly: unique edges carry no mark")
           EOF
 
+      - name: a re-export resolves to the file that declares the name
+        run: |
+          set -o pipefail
+          # A facade is a file that carries a name it does not declare.
+          # `facade.py` has no `def build`; it has `from impl import build`,
+          # so `facade.build(...)` runs `impl.py`'s `build` and the edge says
+          # so, even though `other.py` declares a `build` of its own.
+          rm -rf /tmp/reex
+          mkdir -p /tmp/reex/repo
+          printf 'def build(x):\n    return x\n' > /tmp/reex/repo/impl.py
+          printf 'def build(x):\n    return x\n' > /tmp/reex/repo/other.py
+          printf 'from impl import build\n' > /tmp/reex/repo/facade.py
+          printf 'import facade\n\n\ndef go(u):\n    return facade.build(u)\n' > /tmp/reex/repo/caller.py
+          # A facade in front of a facade: two hops, and the answer is still
+          # the file with the `def`.
+          printf 'from facade import build\n' > /tmp/reex/repo/outer.py
+          printf 'import outer\n\n\ndef go2(u):\n    return outer.build(u)\n' > /tmp/reex/repo/caller2.py
+          # A pair of files that take the name from each other and neither
+          # declares it. The walk ends at the file it has already visited and
+          # the candidate list stands, which is what the map knows.
+          printf 'from b import f\n' > /tmp/reex/repo/a.py
+          printf 'from a import f\n' > /tmp/reex/repo/b.py
+          printf 'def f(x):\n    return x\n' > /tmp/reex/repo/c.py
+          printf 'def f(x):\n    return x\n' > /tmp/reex/repo/d.py
+          printf 'import a\n\n\ndef spin(u):\n    return a.f(u)\n' > /tmp/reex/repo/caller3.py
+          where-are-we --repo /tmp/reex/repo --out /tmp/reex/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/reex/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph["caller.py:go"] == ["build (impl.py)"], graph
+          assert graph["caller2.py:go2"] == ["build (impl.py)"], graph
+          assert graph["caller3.py:spin"] == ["f (c.py|d.py)?"], graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 2 and stats["marked"] == 1, stats
+          print("re-export:", graph, stats)
+          EOF
+          # A package is no different: `pkg/mod.py` is a file, and a file that
+          # re-exports resolves whether it is reached as `pkg.mod` or as a
+          # module beside the caller.
+          rm -rf /tmp/reexpkg
+          mkdir -p /tmp/reexpkg/repo/pkg
+          printf 'def build(x):\n    return x\n' > /tmp/reexpkg/repo/deep.py
+          printf 'def build(x):\n    return x\n' > /tmp/reexpkg/repo/other.py
+          : > /tmp/reexpkg/repo/pkg/__init__.py
+          printf 'from deep import build\n' > /tmp/reexpkg/repo/pkg/mod.py
+          printf 'from pkg import mod\n\n\ndef go(u):\n    return mod.build(u)\n' > /tmp/reexpkg/repo/caller.py
+          where-are-we --repo /tmp/reexpkg/repo --out /tmp/reexpkg/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/reexpkg/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph == {"caller.py:go": ["build (deep.py)"]}, graph
+          assert m["call_graph_stats"]["python"]["marked"] == 0, m["call_graph_stats"]
+          print("re-export through a package:", graph)
+          EOF
+          # And this repository's own facade. `mapper.py` re-exports `build`
+          # from `_mapper/build.py` and `digest` from `_mapper/render.py`, so
+          # the hook that builds a map names the two files that do the work.
+          rm -rf /tmp/reexself
+          where-are-we --repo . --out /tmp/reexself \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          graph = json.load(open("/tmp/reexself/framework_map.json"))["call_graph_files"]
+          edges = graph["hooks.py:_ensure_map"]
+          assert "build (build.py)" in edges, edges
+          assert "digest (render.py)" in edges, edges
+          print("this repository:", edges)
+          EOF
+          where-are-we --out /tmp/reexself --callers build > /tmp/reexself-callers.txt
+          grep -qx "hooks.py:_ensure_map" /tmp/reexself-callers.txt
+
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"
         run: |
           set -o pipefail

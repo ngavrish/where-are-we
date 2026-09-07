@@ -1884,7 +1884,7 @@ def build(repo: str, out_dir: str | None = None,
                 tree = ast.parse(_read(rel))
             except (SyntaxError, ValueError):
                 return {"defs": [], "calls": {}, "names": {}, "imports": {},
-                        "mods": {}}
+                        "mods": {}, "refrom": {}}
             # What this file says it means by a name. `imports` is every
             # `from MOD import name`; `aliases` is what an import binds that a
             # `NAME.attr()` call can be read through, recorded as
@@ -1896,7 +1896,16 @@ def build(repo: str, out_dir: str | None = None,
             # settings` is then left alone, because what it binds may be an
             # object rather than a module and an object's method is not
             # something this pass can place.
-            imports, aliases = {}, {}
+            # `refrom` is the third table and the narrowest: every module a
+            # `from MOD import name` line takes `name` from, under the name it
+            # binds, and only where the line renames nothing. It is what says
+            # where a file that carries a name but does not declare it got it
+            # from, so `mapper.py`'s `from ._mapper.build import build` leads
+            # to the file that has the `def`. Every such line is kept, because
+            # a module written twice in a `try`/`except ImportError` pair (this
+            # package writes each of its own imports both ways) offers two
+            # spellings and either may be the one that resolves.
+            imports, aliases, refrom = {}, {}, {}
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
                     package = node.module or ""
@@ -1905,6 +1914,11 @@ def build(repo: str, out_dir: str | None = None,
                         aliases[alias.asname or alias.name] = [
                             f"{package}.{alias.name}" if package else alias.name,
                             node.level, package]
+                        if alias.asname is None:
+                            line = [package, node.level]
+                            lines = refrom.setdefault(alias.name, [])
+                            if line not in lines:
+                                lines.append(line)
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
                         if alias.asname:
@@ -1935,7 +1949,7 @@ def build(repo: str, out_dir: str | None = None,
                 if said:
                     mods[node.name] = {k: sorted(v) for k, v in said.items()}
             return {"defs": defs, "calls": calls, "names": names,
-                    "imports": imports, "mods": mods}
+                    "imports": imports, "mods": mods, "refrom": refrom}
 
         _stats("python")
         func_info = _cached(full, "func_edges", _func_calls_of)
@@ -1947,6 +1961,41 @@ def build(repo: str, out_dir: str | None = None,
     # a caller imported is a module of this tree at all. `ast`, `os` and
     # `requests` name no file here; `where_are_we.mapper` names one.
     py_files = set(raw_calls_by_rel)
+
+    def _reexport_home(start: str, name: str, where: set) -> set:
+        """The file a facade takes `name` from, following its import lines.
+
+        `hooks.py` calls `mapper.build(...)`; `mapper.py` is a file of this
+        tree that declares no `build` and carries
+        `from ._mapper.build import build`, so the call reaches
+        `_mapper/build.py` and the edge names that one file rather than every
+        file with a `def build`.
+
+        Three hops, so a facade in front of a facade resolves and a longer
+        chain gives up rather than walking a repository. A module that names
+        several homes, a module that names none, and a hop back to a file
+        already visited each end the walk with the empty set, which is the
+        caller's signal to keep the candidate list it already had.
+        """
+        seen, at = {start}, start
+        for _hop in range(3):
+            lines = ((raw_calls_by_rel.get(at) or {}).get("refrom") or {}).get(name)
+            if not lines:
+                return set()
+            declares, carries = set(), set()
+            for mod, lvl in lines:
+                declares |= _module_homes(mod, lvl, at, where)
+                carries |= _module_homes(mod, lvl, at, py_files)
+            if declares:
+                return declares if len(declares) == 1 else set()
+            if len(carries) != 1:
+                return set()
+            at = next(iter(carries))
+            if at in seen:
+                return set()
+            seen.add(at)
+        return set()
+
     for rel, info in raw_calls_by_rel.items():
         imports = info.get("imports") or {}
         mods_by_func = info.get("mods") or {}
@@ -1999,6 +2048,19 @@ def build(repo: str, out_dir: str | None = None,
                         hits |= _module_homes(mod, lvl, rel, where)
                     if len(hits) == 1:
                         where, mark = hits, ""
+                    elif not hits:
+                        # None of the modules the caller named declares the
+                        # name, and one of them may still be a facade that
+                        # re-exports it. One module, one file, and that file's
+                        # own import lines say where the name comes from.
+                        carriers: set = set()
+                        for mod, lvl, _pkg in said:
+                            carriers |= _module_homes(mod, lvl, rel, py_files)
+                        if len(carriers) == 1:
+                            through = _reexport_home(next(iter(carriers)),
+                                                     name, where)
+                            if len(through) == 1:
+                                where, mark = through, ""
                 targets.add(_edge("python", name, where, mark))
             if targets:
                 func_calls[f"{os.path.basename(rel)}:{func_name}"] = sorted(targets)[:8]
