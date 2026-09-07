@@ -344,11 +344,16 @@ says which rule placed it.
 - What a file quotes is not what it declares. The lines inside a Python string
   literal, docstrings included, and the body of a `<<EOF` heredoc in a shell
   script or a workflow are text this file hands to something else, so they are
-  no longer read for declarations. On this repository that is three names
-  gone: `refund`, a `def` inside the string `tests/golden/build_fixtures.py`
-  writes out; `build`, a `def` inside a `python - <<'EOF'` block in the CI
-  workflow, which used to outrank the real `build` in `rank`; and `of`, from
-  the phrase "the class of that command line" in a docstring. The heredoc rule
+  no longer read for declarations. On this repository that is 40 names gone,
+  measured on the 1.5.0 tree by building it twice, once with the rule off:
+  29 declared inside `python - <<'EOF'` blocks in the CI workflow, 11 inside
+  the string fixtures `tests/golden/build_fixtures.py` writes out and one in
+  a docstring, which sums to 41 because `refund` is written in both files.
+  The three worth naming: `refund`, a `def` inside a fixture string; `build`, a `def` inside a CI
+  heredoc, which used to outrank the real `build` in `rank`; and `of`, from
+  the phrase "the class of that command line" in a docstring. The count is a
+  property of this tree rather than of the rule, and it moves with the
+  workflow: the same A/B on the 1.6.0 tree gives 67. The heredoc rule
   is applied to `.sh`, `.bash`, `.zsh`, `.ksh`, `.yml` and `.yaml` and nowhere
   else, because `a << b` at the end of a line is a shift in the languages that
   have no heredocs. An unterminated heredoc masks the rest of its own file and
