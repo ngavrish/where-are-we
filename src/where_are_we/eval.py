@@ -32,6 +32,10 @@ import random
 import re
 import sys
 
+# Read once, at import, like every other knob this project reads: the check
+# happens under --agent, but where the value comes from is one named place.
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
 try:
     from . import ask as _ask
 except ImportError:  # run as a plain file, with no package around it
@@ -807,7 +811,7 @@ def _one_arm(client, model: str, tools: list, run_tool, question: dict,
 def run_agent(out_dir: str, repo: str, n: int, seed: int, model: str,
               json_path: str, max_turns: int) -> int:
     """The A/B: the same questions asked with the map tools and with grep."""
-    if not os.environ.get("ANTHROPIC_API_KEY"):
+    if not ANTHROPIC_API_KEY:
         print("wawe-eval --agent calls the Claude API and found no key: set "
               "ANTHROPIC_API_KEY in the environment and run it again. Nothing "
               "was sent.", file=sys.stderr)
