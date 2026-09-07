@@ -17,9 +17,9 @@ puts the definitions the repository is built around at the top.
 
 returns one line per definition, best first:
 
-    0.061401976 find_text /repo/src/where_are_we/_mapper/declare.py:135
-    0.060292945 build /repo/src/where_are_we/_mapper/build.py:283
-    0.047732816 build /repo/src/where_are_we/ask.py:835
+    0.061419466 find_text /repo/src/where_are_we/_mapper/declare.py:135
+    0.060390690 build /repo/src/where_are_we/_mapper/build.py:283
+    0.047834365 build /repo/src/where_are_we/ask.py:835
 
 ## Use it two ways
 

@@ -153,7 +153,8 @@ says which rule placed it.
   Measured on this repository, 260 indexed files, the last two of those
   changes take `.wawe-cache.json` from 590,653 to 501,718 bytes, 15 percent:
   the entries from 516,359 to 449,253 across the two sections and the hashes
-  from 74,236 to 52,396. A file written by an earlier schema is read for its
+  from 74,236 to 52,396. Against 1.4.1 the file is larger, not smaller, since
+  1.4.1 kept no hashes and fewer kinds at all. A file written by an earlier schema is read for its
   hashes, since a sha means the same thing in every release, and dropped for
   its entries, so the build after an upgrade re-parses the tree once and every
   build after that is warm.
