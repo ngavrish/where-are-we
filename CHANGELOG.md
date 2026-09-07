@@ -1,5 +1,36 @@
 # Changelog
 
+## 1.4.1
+
+- Receivers the syntax settles. A call written `NAME.callee(...)` used to be
+  placed by the callee's name alone, so every file with a `def add` was a
+  candidate for `out.add(key)`. Three shapes of receiver are now read, none
+  of them needing a type checker. A receiver that resolves to one indexed
+  file which does not declare the name is a facade, and that file's own
+  `from M import name` line is followed, up to three hops, to the file with
+  the `def`: `mapper.build(...)` in `hooks.py` is `_mapper/build.py`'s
+  `build`, not a choice between two files. A receiver the function itself
+  bound to a builtin (a literal, a comprehension, an f-string, one of the
+  builtin constructors, or `defaultdict`, `Counter`, `deque` and
+  `OrderedDict` through an import from outside the tree) is not a
+  first-party object, so `out = set()` followed by `out.add(key)` is
+  `set.add` and no edge at all; a name the function also bound to something
+  else keeps the candidate list it had, and so does a receiver that is not a
+  plain name. And `self.name(...)` and `cls.name(...)` go to the class the
+  method is in: declared there or by a base in the same file, the call is
+  local and no cross-file edge; declared by exactly one base in another
+  file, the edge names that file.
+- The numbers after those three rules. On this repository the marks under
+  the same 60 keys go from 20 to 3, and the three that stay are all a call
+  on something that is not a name, such as
+  `homes.setdefault(g, {}).setdefault(n, set()).add(path)`. Mapping the
+  previous release's own checkout with both releases, the marks under the
+  same 60 keys go from 20 to 2. `call_graph_stats` for this repository is
+  now 0.2398 over 2277 Python sites, with 156 edges and 6 of them marked,
+  against 145 and 36 before. Only the names something was actually called
+  on are kept in the parse cache, so this costs `.wawe-cache.json` 248 KB
+  against 172 KB and a full build of this tree 1.93s against 1.83s.
+
 ## 1.4.0
 
 - Honest edges. A cross-file call graph edge is written `charge (a.ts)` when
