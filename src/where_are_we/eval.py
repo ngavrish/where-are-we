@@ -46,6 +46,16 @@ try:
 except ImportError:  # run as a plain file, with no package around it
     import mapper as _mapper  # type: ignore[no-redef]
 
+# Three names the facade holds but does not publish, taken from the modules
+# that define them: the optional tree-sitter parser factory, and the bounded
+# reader every other pass over a tree reads through, with its cap.
+try:
+    from ._mapper.declare import _tree_sitter
+    from ._mapper.walk import AST_LIMIT, _slurp
+except ImportError:  # run as a plain file, with no package around it
+    from _mapper.declare import _tree_sitter  # type: ignore[no-redef]
+    from _mapper.walk import AST_LIMIT, _slurp  # type: ignore[no-redef]
+
 # The MCP server is the shape an agent actually asks in, so `--agent` splits
 # its budget with the server's own helpers rather than a second copy of the
 # arithmetic. Optional because eval.py has to import on a tree where mcp.py
@@ -494,12 +504,20 @@ def _rate(part: int, whole: int) -> float:
 
 
 def _graph_row(lang: str, counts: dict) -> dict:
-    """One language's line: what the walk looked at and what it placed."""
+    """One language's line: what the walk looked at, and what it wrote.
+
+    `sites`, `resolved` and `ambiguous` describe the tree that was read;
+    `edges` and `marked` describe the graph that came out of it, and are 0 in
+    a row computed from a parse rather than read out of a map, because a
+    second opinion on the counts writes no edges.
+    """
     sites = int(counts.get("sites") or 0)
     resolved = int(counts.get("resolved") or 0)
     ambiguous = int(counts.get("ambiguous") or 0)
     return {"language": lang, "sites": sites, "resolved": resolved,
             "ambiguous": ambiguous,
+            "edges": int(counts.get("edges") or 0),
+            "marked": int(counts.get("marked") or 0),
             "resolution_rate": _rate(resolved, sites),
             "ambiguous_share": _rate(ambiguous, sites)}
 
@@ -507,15 +525,25 @@ def _graph_row(lang: str, counts: dict) -> dict:
 def _walk_source(repo: str) -> list:
     """Every TypeScript, JavaScript and Go file under `repo`, sorted.
 
-    The map's own walk, minus everything that would make this answer depend
-    on the map: no size cap, no file cap, no manifest. It is a second opinion
-    on the same tree, so it reads the tree.
+    The map's own walk, minus the manifest: it is a second opinion on the same
+    tree, so it reads the tree. It keeps the map's two bounds, `MAX_FILES`
+    entries and a bounded read per file, because a pass over a tree that
+    stops for nothing is a pass that never ends on a large one, and this pass
+    runs from a command line the same person runs the build from.
+
+    Entries are counted, not matches: a tree of a million files with three
+    `.ts` in it is the case the cap is for. Directories and names are sorted
+    before the cap applies, so which files a capped walk keeps is the same on
+    every filesystem.
     """
-    out = []
+    out, seen = [], 0
     for root, dirs, files in os.walk(repo):
         dirs[:] = sorted(d for d in dirs if d not in _mapper.SKIP_DIRS
                          and not d.startswith("."))
         for name in sorted(files):
+            seen += 1
+            if seen > _mapper.MAX_FILES:
+                return sorted(out)
             if os.path.splitext(name)[1] in _GROUP_BY_EXT:
                 out.append(os.path.join(root, name))
     return sorted(out)
@@ -586,7 +614,7 @@ def tree_sitter_stats(repo: str) -> dict:
         return {"skipped": f"the map's repository is not readable here: {repo!r}"}
     grammars = {}
     for ext, lang in sorted(_GRAMMAR_BY_EXT.items()):
-        parser = _mapper._tree_sitter(lang)
+        parser = _tree_sitter(lang)
         if parser is not None:
             grammars[ext] = parser
     if not grammars:
@@ -601,9 +629,9 @@ def tree_sitter_stats(repo: str) -> dict:
         if parser is None:
             continue
         try:
-            with open(path, "rb") as fh:
-                source = fh.read()
-            tree = parser.parse(source)
+            # The same bounded read the map parses through, to the same cap:
+            # a parser is handed at most `AST_LIMIT` bytes of any one file.
+            tree = parser.parse(_slurp(path, AST_LIMIT).encode("utf-8"))
         except Exception:  # noqa: BLE001 - an optional third-party parser over
             # a file this package did not write; a file it cannot read counts
             # as a file with no functions in it.
@@ -633,10 +661,16 @@ def graph_report(out_dir: str) -> dict:
     """How much of its call tree the map resolved, per language.
 
     Reads `call_graph_stats`, which `build()` writes from the same walk that
-    writes `call_graph_files`, and turns the three counters into the two
-    fractions a reader asks for: the share of callee names the walk could
-    place in a file, and the share it could place in more than one, which are
-    the edges the map marks `?`.
+    writes `call_graph_files`, and turns its counters into the two fractions a
+    reader asks for: the share of callee names some indexed file declares, and
+    the share several files declare, which are the edges the map marks `?`.
+
+    `resolution_rate` is a property of the tree rather than of the graph. Its
+    denominator holds every name a function calls, builtins, methods and the
+    standard library included, and its numerator holds a call to a name the
+    caller's own file declares, which is never an edge. `edges` and `marked`
+    are the graph: how many cross-file edges came out of the walk, and how
+    many of them name more than one file.
 
     Where the `precise` extra is installed the same numbers are computed from
     a tree-sitter parse of the TypeScript, JavaScript and Go the map read by
@@ -689,8 +723,8 @@ def graph_report(out_dir: str) -> dict:
     return report
 
 
-_GRAPH_COLUMNS = ("language", "sites", "resolved", "ambiguous",
-                  "resolution_rate", "ambiguous_share")
+_GRAPH_COLUMNS = ("language", "sites", "resolved", "ambiguous", "edges",
+                  "marked", "resolution_rate", "ambiguous_share")
 
 
 def print_graph(report: dict) -> None:
@@ -709,9 +743,14 @@ def print_graph(report: dict) -> None:
     for row in rows:
         print("  ".join(str(row[c]).rjust(widths[c]) for c in _GRAPH_COLUMNS))
     print(f"map: {report['map']}  sites are callee names the walk looked at, "
-          "one per function per name; resolved are the ones it could place in "
-          "a file; ambiguous are the ones several files define, the edges "
-          "written with a trailing ?")
+          "one per function per name; resolved are the ones some indexed file "
+          "declares; ambiguous are the ones several files declare; edges and "
+          "marked are the cross-file edges written, plain and with a ?")
+    print("resolution_rate is the share of a function's distinct callee names "
+          "that are declared somewhere in the tree, so builtins, methods and "
+          "the standard library are in the denominator and a call inside the "
+          "caller's own file is in the numerator: it says how first-party the "
+          "calls are, and the graph itself is edges and marked")
     ts = report.get("tree_sitter") or {}
     if ts.get("skipped"):
         print(f"regex vs tree-sitter: not compared, {ts['skipped']}")
