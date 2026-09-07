@@ -1653,99 +1653,87 @@ jobs:
         run: |
           set -o pipefail
           rm -rf /tmp/aff
-          mkdir -p /tmp/aff/repo/features /tmp/aff/repo/steps \
-                   /tmp/aff/repo/pages /tmp/aff/repo/app \
-                   /tmp/aff/repo/helpers /tmp/aff/repo/tests
-          # A suite whose scenarios really bind to its steps, so a change to
-          # one page object selects one scenario and leaves the others. The
-          # `suite` golden fixture is asked the same question below, and its
-          # answer is nothing: its step phrases and its feature files do not
-          # meet, which is a fact about that fixture the answer has to state
-          # rather than round to "safe".
-          cat > /tmp/aff/repo/features/checkout.feature <<'EOF'
-          @cart
-          Feature: Checkout
+          mkdir -p /tmp/aff/repo/features/steps /tmp/aff/repo/pages \
+                   /tmp/aff/repo/app /tmp/aff/repo/tests
+          # behave itself, so the selection this prints is run rather than
+          # only read. --dry-run loads the suite, applies the selectors and
+          # reports what it would run, without running a step.
+          pip install -q behave
+          # A suite whose scenarios really bind to its steps: two of the
+          # three reach the checkout page object, the third reaches a
+          # different one. Two shapes are in it on purpose, because both used
+          # to break the behave selection: a scenario level tag (`@slow`) on
+          # the one scenario a checkout change does not reach, and an email
+          # address in a step line, whose `@` the map records as a tag of the
+          # whole file.
+          cat > /tmp/aff/repo/features/shop.feature <<'EOF'
+          Feature: Shop
 
             Scenario: Pay with a saved card
               Given a customer with a saved card
-              When they pay
-              Then the receipt is emailed
+              When they pay for the invoice
+              Then the receipt goes to "billing@example.com"
 
-            Scenario: Refund an order
-              Given a paid order
-              When they ask for a refund
-              Then the refund is confirmed
-          EOF
-          cat > /tmp/aff/repo/features/login.feature <<'EOF'
-          Feature: Log in
+            Scenario: Pay with a new card
+              Given a customer with a new card
+              When they pay for the invoice
+              Then the payment is charged
 
-            Scenario: Log in with a password
-              Given a registered user
-              When they log in
-              Then they see the dashboard
+            @slow
+            Scenario: Browse the catalogue
+              Given a shopper on the catalogue
+              When they open the catalogue
+              Then the catalogue lists items
           EOF
-          cat > /tmp/aff/repo/steps/checkout_steps.py <<'EOF'
-          """Step definitions for the checkout flow."""
+          cat > /tmp/aff/repo/features/steps/shop_steps.py <<'EOF'
+          """Step definitions for the shop."""
 
           from behave import given, then, when
 
+          from pages.catalogue import CataloguePage
           from pages.checkout import CheckoutPage
-          from helpers.money import refund_helper
 
-          page = CheckoutPage()
+          checkout = CheckoutPage()
+          catalogue = CataloguePage()
 
 
           @given("a customer with a saved card")
           def step_saved_card(context):
-              page.open_cart()
+              checkout.select_saved_card()
 
 
-          @when("they pay")
+          @given("a customer with a new card")
+          def step_new_card(context):
+              checkout.enter_new_card()
+
+
+          @when("they pay for the invoice")
           def step_pay(context):
-              page.pay()
+              checkout.pay()
 
 
-          @then("the receipt is emailed")
-          def step_receipt(context):
+          @then('the receipt goes to "{address}"')
+          def step_receipt(context, address):
               pass
 
 
-          @given("a paid order")
-          def step_paid_order(context):
+          @then("the payment is charged")
+          def step_charged(context):
               pass
 
 
-          @when("they ask for a refund")
-          def step_ask_refund(context):
-              refund_helper()
+          @given("a shopper on the catalogue")
+          def step_shopper(context):
+              catalogue.open_catalogue()
 
 
-          @then("the refund is confirmed")
-          def step_refund_confirmed(context):
-              pass
-          EOF
-          cat > /tmp/aff/repo/steps/login_steps.py <<'EOF'
-          """Step definitions for logging in."""
-
-          from behave import given, then, when
-
-          from pages.login import LoginPage
-
-          page = LoginPage()
+          @when("they open the catalogue")
+          def step_open_catalogue(context):
+              catalogue.open_catalogue()
 
 
-          @given("a registered user")
-          def step_registered_user(context):
-              pass
-
-
-          @when("they log in")
-          def step_log_in(context):
-              page.sign_in()
-
-
-          @then("they see the dashboard")
-          def step_dashboard(context):
+          @then("the catalogue lists items")
+          def step_lists_items(context):
               pass
           EOF
           cat > /tmp/aff/repo/pages/checkout.py <<'EOF'
@@ -1757,28 +1745,24 @@ jobs:
           class CheckoutPage:
               """Page object for the checkout flow."""
 
-              def open_cart(self):
+              def select_saved_card(self):
+                  pass
+
+              def enter_new_card(self):
                   pass
 
               def pay(self):
                   return charge(1)
           EOF
-          cat > /tmp/aff/repo/pages/login.py <<'EOF'
-          """The login page."""
+          cat > /tmp/aff/repo/pages/catalogue.py <<'EOF'
+          """The catalogue page."""
 
 
-          class LoginPage:
-              """Page object for the login form."""
+          class CataloguePage:
+              """Page object for the catalogue."""
 
-              def sign_in(self):
+              def open_catalogue(self):
                   pass
-          EOF
-          cat > /tmp/aff/repo/helpers/money.py <<'EOF'
-          """Money helpers the steps call directly."""
-
-
-          def refund_helper():
-              return "refunded"
           EOF
           cat > /tmp/aff/repo/app/billing.py <<'EOF'
           """Charging a card."""
@@ -1797,29 +1781,47 @@ jobs:
               assert charge(1) == 1
 
 
-          def test_nothing_to_do_with_billing():
+          def test_unrelated():
               assert True
           EOF
           where-are-we --repo /tmp/aff/repo --out /tmp/aff/m --quiet --no-semantic
-          # 1. One page object, one scenario: the one whose steps call it.
+          # The map really does hold both poison shapes under this file's
+          # tags, which is why no tag is ever emitted as a selector.
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/aff/m/framework_map.json"))
+          tags = m["features"]["features/shop.feature"]["tags"]
+          assert tags == ["example.com", "slow"], tags
+          print("features[...].tags holds", tags,
+                "- a scenario tag and half an email address, neither of them "
+                "a tag of the file")
+          EOF
+          # 1. One page object, the two scenarios whose steps call it.
           where-are-we --out /tmp/aff/m --affected pages/checkout.py \
             > /tmp/aff/checkout.txt
           cat /tmp/aff/checkout.txt
           head -1 /tmp/aff/checkout.txt | grep -qx \
-            'Affected by a change to pages/checkout.py: 1 of 3 scenarios, 1 feature file, 0 routes, 1 page object, 2 step functions. Depth 6, 12000 characters.'
-          grep -qF -- '- `features/checkout.feature:4` Pay with a saved card, via `a customer with a saved card` in `steps/checkout_steps.py:step_saved_card`, 1 hop' \
+            'Affected by a change to pages/checkout.py: 2 of 3 scenarios, 1 feature file, 0 routes, 1 page object, 3 step functions. Depth 6, 12000 characters.'
+          grep -qF -- '- `features/shop.feature:3` Pay with a saved card, via `a customer with a saved card` in `features/steps/shop_steps.py:step_saved_card`, 1 hop' \
             /tmp/aff/checkout.txt
-          grep -qF -- '- `features/checkout.feature`' /tmp/aff/checkout.txt
+          grep -qF -- '- `features/shop.feature:8` Pay with a new card, via `a customer with a new card` in `features/steps/shop_steps.py:step_new_card`, 1 hop' \
+            /tmp/aff/checkout.txt
           grep -qF -- '- `pages/checkout.py`' /tmp/aff/checkout.txt
-          if grep -q 'Refund an order' /tmp/aff/checkout.txt; then
+          if grep -q 'Browse the catalogue' /tmp/aff/checkout.txt; then
             echo "a scenario that does not reach the change was named"; exit 1
           fi
-          if grep -q 'Log in with a password' /tmp/aff/checkout.txt; then
-            echo "another feature's scenario was named"; exit 1
+          # 2. The other page object, the other scenario.
+          where-are-we --out /tmp/aff/m --affected pages/catalogue.py \
+            > /tmp/aff/catalogue.txt
+          head -1 /tmp/aff/catalogue.txt | grep -q '1 of 3 scenarios'
+          grep -qF 'Browse the catalogue, via `a shopper on the catalogue`' \
+            /tmp/aff/catalogue.txt
+          if grep -q 'Pay with a' /tmp/aff/catalogue.txt; then
+            echo "the catalogue change named a checkout scenario"; exit 1
           fi
-          # 2. Two hops through the page object, and the depth cap holds.
+          # 3. Two hops through the page object, and the depth cap holds.
           where-are-we --out /tmp/aff/m --affected app/billing.py > /tmp/aff/billing.txt
-          grep -qF 'Pay with a saved card, via `they pay` in `steps/checkout_steps.py:step_pay`, 2 hops' \
+          grep -qF 'Pay with a saved card, via `they pay for the invoice` in `features/steps/shop_steps.py:step_pay`, 2 hops' \
             /tmp/aff/billing.txt
           where-are-we --out /tmp/aff/m --affected app/billing.py --affected-depth 1 \
             > /tmp/aff/billing1.txt
@@ -1831,7 +1833,7 @@ jobs:
                --affected-depth 0 > /dev/null 2>&1; then
             echo "--affected-depth 0 was accepted"; exit 1
           fi
-          # 3. A file the graph holds no row for is named as unreachable, and
+          # 4. A file the graph holds no row for is named as unreachable, and
           #    said so in the first line, which is the block a small budget
           #    gives up first.
           where-are-we --out /tmp/aff/m --affected pages/checkout.py,docs/nothing.md \
@@ -1841,27 +1843,70 @@ jobs:
           grep -qF '## Unreachable from the graph (no xrefs row names them)' \
             /tmp/aff/unreach.txt
           grep -qF -- '- `docs/nothing.md`' /tmp/aff/unreach.txt
-          # 4. The two selections a runner takes. `checkout.feature` carries a
-          #    tag no other feature file has, so that branch prints tags;
-          #    `login.feature` carries none, so that one prints the include
-          #    patterns and says why.
+          # 5. The behave selection is run by behave. No tag is ever emitted:
+          #    behave applies --tags per scenario, and this file's recorded
+          #    tags are a scenario tag and an email address.
           where-are-we --out /tmp/aff/m --affected pages/checkout.py \
             --affected-format behave > /tmp/aff/behave.txt
-          grep -qx '@cart' /tmp/aff/behave.txt
-          grep -qF '## behave tags, one per line: these are on every affected feature file and on no other' \
+          cat /tmp/aff/behave.txt
+          grep -qF '## behave selection, one argument pair per line for `xargs behave`: --name per affected scenario, and -i for a feature file only where every scenario in it is affected' \
             /tmp/aff/behave.txt
-          where-are-we --out /tmp/aff/m --affected pages/login.py \
-            --affected-format behave > /tmp/aff/behave2.txt
-          grep -qxF -- '(^|/)features/login\.feature$' /tmp/aff/behave2.txt
-          grep -qF 'the map records tags per feature file rather than per scenario' \
-            /tmp/aff/behave2.txt
+          if grep -qE '^@|(^|[[:space:]])--tags' /tmp/aff/behave.txt; then
+            echo "a tag selector was emitted"; exit 1
+          fi
+          grep -E '^(--name|-i) ' /tmp/aff/behave.txt > /tmp/aff/sel-checkout.txt
+          test "$(wc -l < /tmp/aff/sel-checkout.txt | tr -d ' ')" = "2"
+          where-are-we --out /tmp/aff/m --affected pages/catalogue.py \
+            --affected-format behave | grep -E '^(--name|-i) ' \
+            > /tmp/aff/sel-catalogue.txt
+          cd /tmp/aff/repo
+          export PYTHONPATH=/tmp/aff/repo
+          # The whole suite is three scenarios; the checkout selection runs
+          # the two that reach it and skips the third, and the catalogue
+          # selection is the other way round.
+          xargs behave --dry-run < /tmp/aff/sel-checkout.txt > /tmp/aff/dry1.txt
+          cat /tmp/aff/dry1.txt
+          grep -q '0 scenarios passed, 0 failed, 1 skipped, 2 untested' /tmp/aff/dry1.txt
+          xargs behave --dry-run < /tmp/aff/sel-catalogue.txt > /tmp/aff/dry2.txt
+          grep -q '0 scenarios passed, 0 failed, 2 skipped, 1 untested' /tmp/aff/dry2.txt
+          # The control: the tag this suite carries selects the one scenario
+          # the change does not reach, which is what the tag branch used to
+          # hand a pipeline.
+          behave --dry-run --tags=@slow > /tmp/aff/dry3.txt
+          grep -q '0 scenarios passed, 0 failed, 2 skipped, 1 untested' /tmp/aff/dry3.txt
+          grep -q 'Browse the catalogue' /tmp/aff/dry3.txt || \
+            behave --dry-run --tags=@slow -f plain | grep -q 'Browse the catalogue'
+          cd "$GITHUB_WORKSPACE"
+          # 6. pytest node ids, and only the case the change reaches.
           where-are-we --out /tmp/aff/m --affected app/billing.py \
             --affected-format pytest > /tmp/aff/pytest.txt
           grep -qx 'tests/test_billing.py::test_charge_returns_the_amount' /tmp/aff/pytest.txt
-          if grep -q 'test_nothing_to_do_with_billing' /tmp/aff/pytest.txt; then
+          if grep -q 'test_unrelated' /tmp/aff/pytest.txt; then
             echo "a case the change does not reach was selected"; exit 1
           fi
-          # 5. --changed reads git and answers exactly as --affected does.
+          # 7. A feature file is a test, not something a test calls: changing
+          #    one selects its own scenarios, at no hops, and it never lands
+          #    in unreachable.
+          where-are-we --out /tmp/aff/m --affected features/shop.feature \
+            > /tmp/aff/feature.txt
+          cat /tmp/aff/feature.txt
+          head -1 /tmp/aff/feature.txt | grep -q '3 of 3 scenarios'
+          grep -qF -- '- `features/shop.feature:3` Pay with a saved card, the feature file itself changed' \
+            /tmp/aff/feature.txt
+          grep -qF -- '- `features/shop.feature:14` Browse the catalogue, the feature file itself changed' \
+            /tmp/aff/feature.txt
+          if grep -q 'Unreachable from the graph' /tmp/aff/feature.txt; then
+            echo "a feature file the map holds landed in unreachable"; exit 1
+          fi
+          # Every scenario of the file, so the selection is the file itself
+          # in one argument rather than one --name each, and behave runs all
+          # three.
+          where-are-we --out /tmp/aff/m --affected features/shop.feature \
+            --affected-format behave | grep -E '^(--name|-i) ' > /tmp/aff/sel-feature.txt
+          grep -qxF -- "-i '(^|/)features/shop\.feature\$'" /tmp/aff/sel-feature.txt
+          (cd /tmp/aff/repo && PYTHONPATH=/tmp/aff/repo xargs behave --dry-run \
+             < /tmp/aff/sel-feature.txt | grep -q '0 scenarios passed, 0 failed, 0 skipped, 3 untested')
+          # 8. --changed reads git and answers exactly as --affected does.
           git -C /tmp/aff/repo init -q
           git -C /tmp/aff/repo add -A
           git -C /tmp/aff/repo -c user.email=ci@example.com -c user.name=ci \
@@ -1874,7 +1919,7 @@ jobs:
           if where-are-we --out /tmp/aff/m --changed nosuchref > /dev/null 2>&1; then
             echo "a ref this checkout does not have was answered"; exit 1
           fi
-          # 6. The tool and the flag are the same answer, and the server
+          # 9. The tool and the flag are the same answer, and the server
           #    declares twelve tools.
           printf '%s\n%s\n%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
@@ -1897,11 +1942,11 @@ jobs:
           print("MCP affected and --affected agree, byte for byte")
           EOF
           grep -q '"tool": "affected"' /tmp/aff/m/.wawe-ask.log
-          # 7. The same question walked the other way. This computes the
-          #    expected scenarios forward, from every step function outward
-          #    until it reaches something the changed file declares, which is
-          #    the opposite order to the one the tool walks, and asserts the
-          #    two agree on both fixtures.
+          # 10. The same question walked the other way. This computes the
+          #     expected scenarios forward, from every step function outward
+          #     until it reaches something the changed file declares, which is
+          #     the opposite order to the one the tool walks, and asserts the
+          #     two agree on this fixture and on the golden `suite` one.
           python - <<'EOF'
           import re, sys
           sys.path.insert(0, "tests/golden")
@@ -1968,13 +2013,13 @@ jobs:
               return sorted(wanted)
 
           cases = [("/tmp/aff/m", "pages/checkout.py",
-                    [("features/checkout.feature", "Pay with a saved card")]),
+                    [("features/shop.feature", "Pay with a new card"),
+                     ("features/shop.feature", "Pay with a saved card")]),
                    ("/tmp/aff/m", "app/billing.py",
-                    [("features/checkout.feature", "Pay with a saved card")]),
-                   ("/tmp/aff/m", "helpers/money.py",
-                    [("features/checkout.feature", "Refund an order")]),
-                   ("/tmp/aff/m", "pages/login.py",
-                    [("features/login.feature", "Log in with a password")]),
+                    [("features/shop.feature", "Pay with a new card"),
+                     ("features/shop.feature", "Pay with a saved card")]),
+                   ("/tmp/aff/m", "pages/catalogue.py",
+                    [("features/shop.feature", "Browse the catalogue")]),
                    ("/tmp/aff/golden/suite/out", "pages/checkout.py", []),
                    ("/tmp/aff/golden/suite/out", "steps/login_steps.py",
                     [("features/login.feature", "Failed login"),
@@ -1988,16 +2033,17 @@ jobs:
           print("the forward walk from the steps and the upward walk from the "
                 "change name the same scenarios, on both fixtures")
           EOF
-          # 8. On the `suite` golden fixture the answer is nothing, and it
-          #    says why rather than reading as an all clear: none of its
-          #    three checkout scenarios holds a step any module binds.
+          # 11. On the `suite` golden fixture the answer is nothing, and it
+          #     says why rather than reading as an all clear: none of its
+          #     three checkout scenarios holds a step any module binds.
           where-are-we --out /tmp/aff/golden/suite/out --affected pages/checkout.py \
             > /tmp/aff/golden.txt
           cat /tmp/aff/golden.txt
           head -1 /tmp/aff/golden.txt | grep -qx \
             'Affected by a change to pages/checkout.py: 0 of 5 scenarios, 0 feature files, 0 routes, 1 page object, 40 step functions. Depth 6, 12000 characters. 3 of 5 scenarios hold no step this map binds to a step function.'
-          # 9. Every row of every block is reachable from the handles the
-          #    answer prints, at the budgets an agent actually asks at.
+          # 12. Every row of every block is reachable from the handles the
+          #     answer prints, and a block there is no room for at all still
+          #     gets a line with a handle rather than vanishing.
           python - <<'EOF'
           import re
           from where_are_we import ask
@@ -2021,11 +2067,11 @@ jobs:
 
           rows = 0
           for files in (["pages/checkout.py"], ["app/billing.py"],
-                        ["helpers/money.py"], ["pages/", "app/", "nope.py"],
-                        ["app/billing.py", "pages/login.py"]):
+                        ["features/shop.feature"], ["pages/", "app/", "nope.py"],
+                        ["app/billing.py", "pages/catalogue.py"]):
               result = affected(load(M), files)
               whole = [l for block in NAMES for l in block_lines(result, block)]
-              for limit in (1500, 800):
+              for limit in (12000, 1500, 800, 600):
                   answer = ask.affected_answer(MP, files, limit=limit)
                   assert len(answer) <= limit, (files, limit, len(answer))
                   got = set(walk(answer, limit))
@@ -2036,12 +2082,101 @@ jobs:
                   assert len(answer) <= 1500
                   got = set(walk(answer, 1500))
                   assert not [l for l in block_lines(result, fmt) if l not in got], (files, fmt)
+          # Below the floor a block is not printed and is not silent either.
+          small = ask.affected_answer(MP, ["pages/", "app/", "nope.py"], limit=500)
+          assert "raise the budget" in small, small
+          assert len(HANDLE.findall(small)) >= 1, small
+          assert set(walk(small, 12000)) >= set(
+              block_lines(affected(load(M), ["pages/", "app/", "nope.py"]),
+                          "scenarios")), small
           print(f"{rows} rows over 5 file sets, every one of them reachable "
-                "from the answer's own handles at 1500 and 800 characters")
+                "from the answer's own handles at 12000, 1500, 800 and 600 "
+                "characters; at 500 the blocks that do not fit say so and "
+                "hand back a handle")
           EOF
-          # 10. Twice over the same map is the same answer.
+          # 13. Twice over the same map is the same answer.
           where-are-we --out /tmp/aff/m --affected pages/checkout.py > /tmp/aff/again.txt
           diff -u /tmp/aff/checkout.txt /tmp/aff/again.txt
+          # 14. A commit that adds a scenario: the map is rebuilt, git names
+          #     the feature file, and the new scenario is in the selection.
+          cat >> /tmp/aff/repo/features/shop.feature <<'EOF'
+
+            Scenario: Pay with a voucher
+              Given a customer with a saved card
+              When they pay for the invoice
+              Then the payment is charged
+          EOF
+          where-are-we --repo /tmp/aff/repo --out /tmp/aff/m --force --quiet --no-semantic
+          where-are-we --out /tmp/aff/m --changed > /tmp/aff/newscenario.txt
+          cat /tmp/aff/newscenario.txt
+          head -1 /tmp/aff/newscenario.txt | grep -q '4 of 4 scenarios'
+          grep -qF 'Pay with a voucher, the feature file itself changed' \
+            /tmp/aff/newscenario.txt
+          # 15. A scenario outline is selected rather than skipped by its own
+          #     selector: behave substitutes the example values into the name
+          #     it runs and appends its own suffix, so the pattern allows both.
+          mkdir -p /tmp/aff/outline/features/steps /tmp/aff/outline/pages
+          cat > /tmp/aff/outline/features/pay.feature <<'EOF'
+          Feature: Pay
+
+            Scenario Outline: Pay in <currency>
+              Given a customer with a saved card
+              When they pay
+
+              Examples:
+                | currency |
+                | GBP      |
+                | EUR      |
+
+            Scenario: Read the help page
+              Given a shopper reading help
+          EOF
+          cat > /tmp/aff/outline/features/steps/pay_steps.py <<'EOF'
+          """Steps for paying."""
+
+          from behave import given, when
+
+          from pages.checkout import CheckoutPage
+
+          checkout = CheckoutPage()
+
+
+          @given("a customer with a saved card")
+          def step_saved_card(context):
+              checkout.select_saved_card()
+
+
+          @when("they pay")
+          def step_pay(context):
+              checkout.pay()
+
+
+          @given("a shopper reading help")
+          def step_help(context):
+              pass
+          EOF
+          cat > /tmp/aff/outline/pages/checkout.py <<'EOF'
+          """The checkout page."""
+
+
+          class CheckoutPage:
+              """Page object."""
+
+              def select_saved_card(self):
+                  pass
+
+              def pay(self):
+                  pass
+          EOF
+          where-are-we --repo /tmp/aff/outline --out /tmp/aff/outmap --quiet --no-semantic
+          where-are-we --out /tmp/aff/outmap --affected pages/checkout.py \
+            --affected-format behave | grep -E '^(--name|-i) ' > /tmp/aff/sel-outline.txt
+          cat /tmp/aff/sel-outline.txt
+          grep -qxF -- "--name '^Pay\ in\ .*( -- @|\$)'" /tmp/aff/sel-outline.txt
+          (cd /tmp/aff/outline && PYTHONPATH=/tmp/aff/outline xargs behave --dry-run \
+             < /tmp/aff/sel-outline.txt > /tmp/aff/dry-outline.txt)
+          cat /tmp/aff/dry-outline.txt
+          grep -q '0 scenarios passed, 0 failed, 1 skipped, 2 untested' /tmp/aff/dry-outline.txt
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
@@ -2456,6 +2591,21 @@ jobs:
           out=$(printf '{"cwd":"%s"}' /tmp/ssnogit | sh plugin/scripts/session-start.sh)
           test -f /tmp/ssnogit/.wawe/framework_map.md
           printf '%s' "$out" | grep -q "framework map"
+          # The banner is the only place a session is told what the server
+          # serves, and it named ten of the twelve tools: `rank` was never
+          # added and `affected` would have gone the same way.
+          printf '%s' "$out" > /tmp/ssnogit/banner.txt
+          python - <<'EOF'
+          import pathlib, sys
+          from where_are_we.mcp import TOOLS
+          banner = pathlib.Path("/tmp/ssnogit/banner.txt").read_text()
+          line = [l for l in banner.splitlines() if "tools" in l and "MCP" in l]
+          assert line, banner
+          missing = sorted(t["name"] for t in TOOLS if t["name"] not in line[0])
+          print(f"{len(TOOLS)} tools on the server, missing from the session "
+                f"banner: {missing}")
+          sys.exit(1 if missing else 0)
+          EOF
       - name: "plugin session-start.sh rebuilds only when HEAD moves"
         run: |
           rm -rf /tmp/ssgit

@@ -54,4 +54,4 @@ ptr=$(cd "$cwd" && where-are-we --repo . --out .wawe --pointer 2>/dev/null || tr
 [ -n "$ptr" ] || exit 0
 emit "$ptr
 
-The same map is on MCP in this session (server where-are-we): tools ask, find, defines, at, context, sections, callers, callees, impact, more. Prefer them to the CLI and to grep: one call, a list of words or names, and only the rows that mention them come back. Where an answer says it left something out it ends with a handle like (more:rows:...); pass that to more rather than asking again for a bigger answer."
+The same map is on MCP in this session (server where-are-we): tools ask, find, defines, at, context, rank, affected, sections, callers, callees, impact, more. Prefer them to the CLI and to grep: one call, a list of words or names, and only the rows that mention them come back. Where an answer says it left something out it ends with a handle like (more:rows:...); pass that to more rather than asking again for a bigger answer."
