@@ -476,7 +476,7 @@ def build_parser() -> argparse.ArgumentParser:
                     help="cap the brief at this many lines; the map itself is untouched")
     ap.add_argument("--diff", action="store_true",
                     help="print what changed since the map already in --out: "
-                         "the files whose content moved, then the keys, and exit")
+                         "the files that moved, then the keys, and exit")
     ap.add_argument("--also", default="",
                     help="other repositories to fold into the same map, comma separated")
     ap.add_argument("--docs", nargs="?", const="plan", choices=["plan", "write"],
@@ -1047,12 +1047,26 @@ def main() -> int:
 
     if args.watch:
         import time as _t
-        last = ""
+        last, last_root = "", None
         print(f"watching {repo}, every {args.watch}s — Ctrl-C to stop")
         while True:
             try:
                 now_fp = fingerprint(repo)
-                if now_fp != last:
+                # The same two questions the one-shot path asks, in the same
+                # order and for the same reason. The fingerprint is the cheap
+                # one; when it says nothing has moved, the content root is
+                # what catches a rewrite that put its timestamp back. A
+                # watcher that asked only the first went on serving the old
+                # parse for as long as it ran, which is worse than the
+                # one-shot case it was fixed for: nothing else was ever going
+                # to look.
+                now_root = last_root
+                if now_fp == last:
+                    if os.path.isdir(out_dir):
+                        _load_parse_cache(out_dir)
+                    state.HASH_MARK = state.HASH_COUNT
+                    now_root = content_root(repo)
+                if now_fp != last or now_root != last_root:
                     last = now_fp
                     # Before the build, same reasoning as the primary path:
                     # build() only saves the parse cache into a directory that
@@ -1064,6 +1078,7 @@ def main() -> int:
                     # since the last one and forgets names deleted since.
                     m2 = redact(build(repo, out_dir=out_dir, force=args.force))
                     m2["fingerprint"] = now_fp
+                    last_root = m2.get("content_root")
                     _write_artifacts(out_dir, m2, args)
                     c2 = m2["counts"]
                     print(f"rebuilt: {c2['steps']} steps, {c2['scenarios']} scenarios")
@@ -1077,7 +1092,7 @@ def main() -> int:
                 # and keep watching. Ctrl-C is a BaseException and still stops.
                 print(f"rebuild failed, still watching: {type(exc).__name__}: {exc}",
                       file=sys.stderr, flush=True)
-                last = ""
+                last, last_root = "", None
             _t.sleep(args.watch)
 
     if args.install_hook:
@@ -1109,6 +1124,10 @@ def main() -> int:
         # compare against and is trusted on the fingerprint alone.
         if prev.get("fingerprint") == stamp_now:
             _load_parse_cache(out_dir)
+            # What is hashed answering this question belongs to the build it
+            # decides on, so `hashed N files` covers the whole invocation and
+            # not only the half of it that happened after this line.
+            state.HASH_MARK = state.HASH_COUNT
             prev_root = prev.get("content_root")
             unchanged = prev_root is None or prev_root == content_root(repo)
         else:
@@ -1128,15 +1147,28 @@ def main() -> int:
         except (OSError, ValueError):
             print("no previous map in " + out_dir)
             return 1
+        # Every line this prints is measured against the map already in
+        # --out, and the hashes beside that map in the parse cache are the
+        # record of what it was built from. So this build reads that record
+        # and does not write over it: a --diff that rewrote the cache moved
+        # its own baseline, and the same command over the same tree named the
+        # files that moved the first time and nothing the second, while the
+        # `content_root:` row went on saying the root had moved. The build
+        # after this one writes the cache as usual.
+        state.PARSE_CACHE_WRITES = False
         now = build(repo, out_dir=out_dir)
         changed = []
         # Which files moved, before which keys did. The map's `content_root`
         # says the tree is not the tree it was; these are the files that made
         # that true, and they are what a reader actually wants named.
-        if state.HASHES_MOVED:
-            shown = state.HASHES_MOVED[:20]
-            more_files = len(state.HASHES_MOVED) - len(shown)
-            changed.append("files whose content moved: " + ", ".join(shown)
+        for label, names in (("files whose content moved", state.HASHES_MOVED),
+                             ("files added", state.HASHES_ADDED),
+                             ("files gone", state.HASHES_GONE)):
+            if not names:
+                continue
+            shown = names[:20]
+            more_files = len(names) - len(shown)
+            changed.append(f"{label}: " + ", ".join(shown)
                            + (f", and {more_files} more" if more_files > 0 else ""))
         for key in sorted((set(prev) | set(now)) - {"fingerprint", "repo"}):
             a, b = prev.get(key), now.get(key)

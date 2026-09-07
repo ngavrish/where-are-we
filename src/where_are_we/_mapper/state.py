@@ -126,10 +126,40 @@ _HASH_CACHE: dict = {}
 HASH_COUNT = 0
 
 
+# Where this invocation's hashing started, for a caller that hashes before it
+# builds. The command line asks for a content root before deciding whether to
+# build at all, and those hashes are part of what the run cost; a build that
+# counted from its own entry would report only the hashes it took itself and
+# the debug line would say half. None means "count from build entry", which is
+# every other caller.
+HASH_MARK: int | None = None
+
+
+# What the cache file on disk says each file hashed to, as it was read, before
+# anything this process took is merged over the top. That is the record of the
+# tree the map in the same directory was built from, and it is the baseline
+# `--diff` measures against, so it has to be kept apart from the live cache:
+# the command line hashes a changed file on its way to deciding whether to
+# build, and the live cache therefore already holds the new answer by the time
+# `build()` looks.
+HASHES_AT_LOAD: dict = {}
+
+
+# The files this build has already hashed, so `--force` can distrust the hash
+# cache without reading a file twice. `--force` means nothing on disk from a
+# previous run is believed; it does not mean the same file is read once for
+# its parse and again for the content root.
+_HASHED_THIS_BUILD: set = set()
+
+
 # The files whose content hash differs from the one the loaded cache holds for
-# them, relative to the repository, filled by `build()` and read by `--diff`.
-# The map's `content_root` says the tree moved; this says which files moved it.
+# them, which files are in the tree that the cache had never hashed, and which
+# the cache had hashed and are no longer there. All relative to the repository,
+# filled by `build()` and read by `--diff`. The map's `content_root` says the
+# tree moved; these say what moved it.
 HASHES_MOVED: list[str] = []
+HASHES_ADDED: list[str] = []
+HASHES_GONE: list[str] = []
 
 
 # Whether this build may answer from the parse cache, as opposed to only
@@ -141,6 +171,26 @@ HASHES_MOVED: list[str] = []
 # did, and that also stops the cache being written, so the next build paid for
 # a cold parse too.
 PARSE_CACHE_READS = True
+
+
+# Whether this build may write the parse cache back. `--diff` sets it False: it
+# builds a whole map only to compare it against the one already in `--out`, and
+# the cache beside that map is the record of what the map was built from. A
+# `--diff` that rewrote it moved its own baseline, so the same command run
+# twice over the same tree answered differently the second time. Set back to
+# True at the end of every build, the way `PARSE_CACHE_READS` is: both are one
+# build's setting and not the process's.
+PARSE_CACHE_WRITES = True
+
+
+# Whether `index_lines` redacts a file's lines as it records them, so that
+# `build()` returns the same text every consumer of the published map reads.
+# `tests/golden/build_fixtures.py` turns it off through `build(redact_lines=
+# False)`, for the reason written there: a fixture holds nothing to protect,
+# and the base64-like rule occasionally matches a stretch of a real temporary
+# path, which would make the pinned maps depend on what the OS named that
+# run's directory.
+REDACT_LINES = True
 
 
 # Incremented on every parse actually done: an ast.parse, a tree-sitter parse,
@@ -213,6 +263,9 @@ def reset(keep_indexes: bool = False) -> None:
     nothing and hashes nothing.
     """
     HASHES_MOVED.clear()
+    HASHES_ADDED.clear()
+    HASHES_GONE.clear()
+    _HASHED_THIS_BUILD.clear()
     _WALK_CACHE.clear()
     _IGNORE_CACHE.clear()
     _TRACKED_CACHE.clear()

@@ -184,14 +184,26 @@ def _load_parse_cache(out_dir: str) -> None:
             doc = json.load(fh)
         if (doc.get("schema") != state.CACHE_SCHEMA
                 or doc.get("version") != state.__version__):
+            # Only the parse entries go. What a kind stores is what a schema
+            # bump changes; the sha256 of a file's bytes means the same thing
+            # in every release, and the hashes this process took itself are
+            # not on disk to be distrusted in the first place.
             state._PARSE_CACHE = {}
-            state._HASH_CACHE = {}
+            state.HASHES_AT_LOAD = doc.get("hashes") or {}
             return
         state._PARSE_CACHE = doc.get("entries") or {}
-        state._HASH_CACHE = doc.get("hashes") or {}
+        state.HASHES_AT_LOAD = doc.get("hashes") or {}
+        # Under, not over: a hash this process took describes the file as it
+        # is, and one read off disk describes it as it was when that file was
+        # last saved. The command line hashes on its way to deciding whether
+        # to build at all, and a load that replaced the dict threw those away
+        # and had `build()` read every one of those files a second time.
+        # Nothing can be served stale by keeping them, because `content_hash`
+        # validates every entry against the file's current stat block anyway.
+        state._HASH_CACHE = {**(doc.get("hashes") or {}), **state._HASH_CACHE}
     except (OSError, ValueError):
         state._PARSE_CACHE = {}
-        state._HASH_CACHE = {}
+        state.HASHES_AT_LOAD = {}
 
 
 def _save_parse_cache(out_dir: str) -> None:
@@ -238,13 +250,19 @@ def content_hash(path: str) -> str | None:
     Read `state._HASH_CACHE` for why the ctime is in the pre-filter: without
     it, the one case content addressing exists to catch (a same-size rewrite
     with the timestamp put back) is the one case the pre-filter would skip.
+
+    `--force` distrusts this cache the way it distrusts the parse cache, so
+    that one command exists that recomputes a content root from the bytes
+    rather than from a stat block. It costs one read per file and not two:
+    a file this build has already hashed is not hashed again for the root.
     """
     try:
         st = os.stat(path)
     except OSError:
         return None
     entry = state._HASH_CACHE.get(path)
-    if (entry is not None and entry.get("mtime") == st.st_mtime_ns
+    trusted = state.PARSE_CACHE_READS or path in state._HASHED_THIS_BUILD
+    if (trusted and entry is not None and entry.get("mtime") == st.st_mtime_ns
             and entry.get("size") == st.st_size
             and entry.get("ctime") == st.st_ctime_ns):
         return entry.get("sha")
@@ -260,6 +278,7 @@ def content_hash(path: str) -> str | None:
         return None
     sha = digest.hexdigest()
     state.HASH_COUNT += 1
+    state._HASHED_THIS_BUILD.add(path)
     state._HASH_CACHE[path] = {"mtime": st.st_mtime_ns, "size": st.st_size,
                                "ctime": st.st_ctime_ns, "sha": sha}
     return sha
@@ -294,9 +313,12 @@ def content_root(repo: str) -> str:
     moves this and not that. Both are kept, because the mtime is what makes
     the check cheap and this is what makes it true.
 
-    Deterministic by construction: the pairs are sorted, the separators cannot
-    occur in a hex digest, and a path is written as it reads relative to the
-    repository root with forward slashes on every platform.
+    Deterministic by construction: the pairs are sorted, and a path is written
+    as it reads relative to the repository root with forward slashes on every
+    platform. The encoding is unambiguous because of the NUL after the path: a
+    filename may legally contain a newline, so the newline between records
+    would not separate them on its own, while a NUL cannot appear in a path on
+    any filesystem this runs on and never appears in a hex digest.
     """
     return _root_of(content_pairs(repo))
 

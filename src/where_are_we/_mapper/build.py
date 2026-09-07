@@ -241,7 +241,8 @@ def _bound_shapes(node) -> list:
 
 
 def build(repo: str, out_dir: str | None = None,
-          keep_indexes: bool = False, force: bool = False) -> dict:
+          keep_indexes: bool = False, force: bool = False,
+          redact_lines: bool = True) -> dict:
     # Nothing this build accumulates may come from the build before it. Read
     # `state.reset` for what that covers and why `--also` is the one caller
     # that passes keep_indexes.
@@ -262,6 +263,11 @@ def build(repo: str, out_dir: str | None = None,
     # again. That is the difference from WAWE_NO_CACHE=1, which also stops
     # the cache being written and so makes the next build cold as well.
     state.PARSE_CACHE_READS = not force
+    # Every line this build records is the line the published map holds, so
+    # anything computed here over `lines` and anything a reader asks the map
+    # for are the same text. `tests/golden/build_fixtures.py` is the one
+    # caller that says no, and says why where it says it.
+    state.REDACT_LINES = redact_lines
     if out_dir is not None:
         # Before anything is written: a build killed mid-write leaves a
         # temporary behind, and _stage_atomic only ever sweeps the one name it
@@ -271,12 +277,19 @@ def build(repo: str, out_dir: str | None = None,
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT
-    hashes_before = state.HASH_COUNT
-    # What the last build hashed each file to, taken before this build hashes
-    # anything, so `content_root` can say which files moved and not only that
-    # the tree did. Empty on a cold build, where "everything moved" is true
-    # and says nothing, so nothing is reported as moved there.
-    hashes_before_map = {k: v.get("sha") for k, v in state._HASH_CACHE.items()}
+    # From where a caller that hashed on its way here started, not from this
+    # line: the command line asks for a content root before it decides whether
+    # to build, and those reads are part of what this run cost.
+    hashes_before = state.HASH_COUNT if state.HASH_MARK is None else state.HASH_MARK
+    state.HASH_MARK = None
+    # What the cache on disk says the last build hashed each file to, so
+    # `content_root` can say which files moved and not only that the tree did.
+    # From `HASHES_AT_LOAD` rather than from the live cache, which by now may
+    # already hold this run's own answer for a file the command line hashed on
+    # its way here. Empty on a cold build, where "everything moved" is true and
+    # says nothing, so nothing is reported as moved there.
+    hashes_before_map = ({} if no_cache else
+                         {k: v.get("sha") for k, v in state.HASHES_AT_LOAD.items()})
 
     steps: dict[str, list[str]] = {}
     for p in _walk(repo, ".py"):
@@ -3091,14 +3104,29 @@ def build(repo: str, out_dir: str | None = None,
     # One sha256 over every indexed file's path and content hash. The
     # fingerprint says when the tree was last written to; this says what it
     # holds, and the two disagree exactly where an mtime can be put back.
-    # Computed here, at the end, so that the files this build read are already
-    # hashed and the walk is the only cost left.
+    #
+    # Computed here, at the end, so that every file a parser was handed is
+    # already hashed and only the walk is left. The files no parser touched
+    # are hashed here for the first time, and on a cold build they are most
+    # of the reading this does.
     pairs = content_pairs(repo)
     if hashes_before_map:
-        state.HASHES_MOVED[:] = sorted(
-            rel for rel, sha in pairs
-            if hashes_before_map.get(os.path.join(repo, rel.replace("/", os.sep)))
-            not in (sha, None))
+        moved, added = [], []
+        for rel, sha in pairs:
+            was = hashes_before_map.get(os.path.join(repo, rel.replace("/", os.sep)))
+            if was is None:
+                added.append(rel)
+            elif was != sha:
+                moved.append(rel)
+        state.HASHES_MOVED[:] = sorted(moved)
+        state.HASHES_ADDED[:] = sorted(added)
+        # A path the last build hashed and nothing holds now. The saved cache
+        # drops a file that had already gone by the time it was written, so
+        # what is left here is what went since.
+        state.HASHES_GONE[:] = sorted(
+            os.path.relpath(full, repo).replace(os.sep, "/")
+            for full in hashes_before_map
+            if full.startswith(repo + os.sep) and not os.path.exists(full))
 
     result = {
         "schema": "where-are-we/1",
@@ -3300,8 +3328,13 @@ def build(repo: str, out_dir: str | None = None,
         if note not in TRUNCATED:
             TRUNCATED.append(note)
 
-    if not no_cache:
+    if not no_cache and state.PARSE_CACHE_WRITES:
         _save_parse_cache(out_dir)
+    # Both are one build's settings, not the process's: a caller that turned
+    # either off for its own build must not decide the next one's behaviour.
+    state.PARSE_CACHE_READS = True
+    state.PARSE_CACHE_WRITES = True
+    state.REDACT_LINES = True
     if state.DEBUG_PARSES:
         print(f"parsed {state.PARSE_COUNT - parses_before} files", file=sys.stderr)
         # The pre-filter's own number. A tree nobody touched parses nothing
