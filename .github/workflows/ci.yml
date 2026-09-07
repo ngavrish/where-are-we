@@ -4979,10 +4979,11 @@ jobs:
               pages
           assert "click_pay" in alsop["spans"], sorted(alsop["spans"])
           # And the other artefact derived from `spans` says the same thing
-          # about those files. A `tags` row is repo-relative, an `xrefs` row
-          # is absolute, and joining the first onto the map's root gives the
-          # second: one spelling in the key, one rule per consumer, and no
-          # file named two ways by two artefacts of one build.
+          # about those files. A `tags` row names its file from the directory
+          # the tags file is in, an `xrefs` row is absolute, and joining the
+          # first onto that directory gives the second: one spelling in the
+          # key, one rule per consumer, and no file named two ways by two
+          # artefacts of one build.
           sites = {(r["subject"], r["object"], r["line"])
                    for r in alsop["xrefs"] if r["edge"] == "declares"}
           tags = set()
@@ -4990,7 +4991,8 @@ jobs:
               if row.startswith("!_TAG_"):
                   continue
               f = row.rstrip("\n").split("\t")
-              tags.add((os.path.normpath(os.path.join(alsop["repo"], f[1])),
+              tags.add((os.path.normpath(
+                            os.path.join("/tmp/xref/alsop-out", f[1])),
                         f[0], int(f[2].rstrip(';"'))))
           untagged = sorted(s for s in sites if s not in tags)
           assert not untagged, untagged[:5]
