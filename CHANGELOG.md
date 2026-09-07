@@ -87,10 +87,32 @@
 - `--rank` reads `--files` too, so the flag that means "the files I am working
   in" means it on both tools. `--limit` is refused below 1 rather than sliced
   from the end, which is what the MCP tool already did.
-- The parse cache schema is 2. A 1.4 cache is not read: `ts:<lang>` stored a
+- The parse cache is keyed on content. An entry is now `(path, kind, sha256 of
+  the file's bytes)` rather than `(path, kind, mtime, size)`, so a rewrite that
+  kept its byte count and had its timestamp put back (rsync --times, cp -p,
+  tar -p, a restore from a build cache, a `git checkout` of a line the same
+  length) is re-parsed without `--force`. That was the one staleness hole the
+  README named out loud, and it is closed.
+- Hashing stays affordable because it is pre-filtered: a file whose mtime,
+  size and inode change time are what they were when its hash was last taken
+  is not read at all. A rebuild of a tree nobody touched hashes nothing and
+  parses nothing, and `WAWE_DEBUG_PARSES=1` now prints `hashed N files` beside
+  `parsed N files` so both halves of that claim can be checked. The inode
+  change time is in the pre-filter because the mtime and the size alone are
+  exactly the case content addressing exists to catch, and nothing in
+  userland can put a ctime back.
+- New map key `content_root`: one sha256 over the sorted `(path relative to
+  the repository, hash)` pairs of every indexed file. `fingerprint` keeps its
+  documented `<commit>:<newest mtime in nanoseconds>` format and its meaning;
+  the root is the sibling that says what the tree holds rather than when it
+  was last written to. A build is now skipped only when both agree.
+- `--diff` names the files whose content moved before it names the map keys
+  that moved with them.
+- The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a
-  string.
+  string. Neither is a 1.5.0 cache written before the key changed shape, since
+  an entry validated by hash has no hash in it.
 - Upgrading does not add `spans` to a map that is already on disk. A build
   skips a tree that has not moved, so run `where-are-we --repo . --out ...
   --force` once after upgrading, or wait for the next commit. Until then
