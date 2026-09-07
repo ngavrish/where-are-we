@@ -588,6 +588,7 @@ defaults from.
 | `WAWE_EMBED_CACHE` | `semantic.py` | a directory to keep embeddings in between runs | unset: no cache |
 | `WAWE_STRICT` | the Claude Code plugin, not `src/` | set to `1` and the plugin's PreToolUse hook refuses `Grep`, `Glob` and `Bash` searches over the repository, so the map is asked instead | unset: searches are allowed |
 | `PYTHONIOENCODING` | the interpreter | a codec narrower than the map's text no longer fails: characters it cannot carry are replaced | unset: the locale's codec |
+| `ANTHROPIC_API_KEY` | `eval.py`, only under `wawe-eval --agent` | the Claude API key the agent A/B calls with; without it the command refuses and sends nothing | unset |
 
 Each variable is read in one place, and named there. `WAWE_NO_CACHE`,
 `WAWE_DEBUG_PARSES` and `WAWE_POINTER_MAX` are read once when
