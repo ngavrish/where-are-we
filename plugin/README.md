@@ -6,9 +6,10 @@ grepped.
 - **SessionStart hook** builds `.wawe/framework_map.md` (or rebuilds it after a
   commit) and puts the map's ~600-byte pointer into the session's context. The
   map itself stays on disk.
-- **MCP server** `where-are-we` exposes the map as twelve tools: `ask`, `find`,
-  `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`,
-  `impact`, `affected`, and `more`, which takes the handle an answer printed
+- **MCP server** `where-are-we` exposes the map as fourteen tools: `ask`,
+  `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
+  `callees`, `impact`, `affected`, `reaches`, `unreached`,
+  and `more`, which takes the handle an answer printed
   where it was cut and returns the part that was left out. `defines` names
   every file that declares a name, with the line each declaration ends on,
   `at` takes the `file:line` a stack trace gives you and returns the whole
@@ -30,6 +31,16 @@ grepped.
   larger one comes back as its count, its first selectors and the
   `--affected-out FILE` command line that writes all of it to a file, which is
   where a large selection belongs.
+  `reaches` is that question from the other end: hand it one function or
+  class and it names the scenarios and routes that reach it, grouped by
+  feature file, with the chain of calls under the first scenario of each, and
+  with no depth cap. A class is answered by what is declared inside its span,
+  because `spans` links a method to its class through nothing but the line it
+  sits on. `unreached` names the product functions and classes no step
+  function reaches, ranked, and its first line states how much of the call
+  graph resolved, so the list is read as what it is rather than as a coverage
+  report; a map with no step function says there are no steps to reach from
+  and lists nothing.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

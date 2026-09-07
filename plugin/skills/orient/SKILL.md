@@ -37,6 +37,10 @@ message after you open it.
    - `affected(files=[...])` - which tests a change to those files reaches:
      scenarios, feature files, routes, page objects, and the files the graph
      holds no row for.
+   - `reaches(name="charge")` - which scenarios and routes reach one
+     function or class, grouped by feature file, with the chain of calls.
+   - `unreached()` - the product definitions no step function reaches,
+     ranked, under a first line saying how much of the call graph resolved.
    - `sections()` - the section headings.
    - `rank(files=[...])` - what the repository is built around, and what is
      worth reading given the files you are editing. Ask this first in a tree

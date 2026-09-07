@@ -51,6 +51,13 @@ line), and `find`'s hits past its limit (`more:find:`).
   one reply comes back as its count and its first selectors, with the
   `where-are-we --affected ... --affected-out FILE` command that writes the
   whole of it to a file; run that rather than asking again.
+- **Before changing or deleting a function, ask what reaches it.**
+  `reaches(name="charge")` names the scenarios and routes that reach one
+  function or class, grouped by feature file, with the chain of calls under
+  the first scenario of each and no depth cap. `unreached()` is the other
+  half: the product definitions no step function reaches at all, ranked, with
+  the graph's own resolution rate in the first line, because that is how much
+  of the list is untested rather than unknown.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

@@ -108,6 +108,42 @@ the map and nothing read them end to end; this release starts doing that.
   handle passed in: the cut, the floor and the two allocation passes were the
   same for both. `context` is byte for byte what it was, over 224 names at 6
   budgets.
+- Which tests reach one name: `reaches` (MCP), `--reaches NAME`. The other
+  direction of `affected`, over the same walk and with no depth cap, because
+  the question is whether anything reaches this at all and a cap would answer
+  "nothing" for a function seven hops under a step. The answer names where
+  the name is declared, the scenarios that reach it grouped by feature file
+  with the chain of calls under the first scenario of each, and the routes
+  reached. A class is answered by what is declared inside its span: `spans`
+  records the range of a class and the line of each method and links them to
+  nothing, so a method's line inside a class's range is the only join the map
+  holds, and without it `reaches CheckoutPage` answers nothing for a page
+  object every step drives, because the constructor call sits at module level
+  and no `calls` row is written for it.
+- What the suite never reaches: `unreached` (MCP), `--unreached`, with
+  `--limit N` for how many definitions are ranked (200 by default). One walk
+  down from every step function, to exhaustion, and every product function
+  and class it never arrives at, grouped by file and ranked by the map's own
+  `rank`. Product is every file that declares something and that the map does
+  not name as suite, read off the keys the map already writes (`features`,
+  `steps`, `page_objects`, `drivers`, `behave_environment_files`,
+  `pytest_tests`, `js_tests`, `fixtures`, `perf_suites`, `helpers`,
+  `api_tests`, `other_suites`, `more_suites`), so a product under a root of
+  its own and a product beside its suite are answered the same way. A class
+  counts as reached when anything declared inside its span is.
+- The first line of `unreached` states the graph's own resolution rate, from
+  `call_graph_stats`: how many of the callee names the walk looked at some
+  indexed file declares. A graph that placed half its names calls half the
+  product unreached whatever the suite covers, and a list of names under a
+  head that does not say so reads as a coverage report. A map with no step
+  function at all says there are no steps to reach from and prints no list,
+  rather than naming every definition it holds.
+- The three graph answers are cut by one function rather than three. The
+  handle kinds `more:rch:<block>:<name>:<offset>` and
+  `more:unr:<block>:<rows>:<offset>` join `more:aff:`, resolved the same way:
+  what to walk is in the handle, the walk is run again over the map on disk,
+  and nothing is stored between the two calls.
+- The MCP server serves fourteen tools.
 
 ## 1.5.0
 
