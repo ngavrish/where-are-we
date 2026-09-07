@@ -1,6 +1,6 @@
 ---
 name: where-defined
-description: Use when you need the file and line where a function, class, constant, type, step phrase or scenario is defined, or the whole definition around a line a stack trace named - instead of grep -rn; the map holds every declared name with every place it is declared, first line to last.
+description: Use when you need the file and line where a function, class, constant, type, step phrase or scenario is defined, the whole definition around a line a stack trace named, or everything the map holds about one name at once - instead of grep -rn; the map holds every declared name with every place it is declared, first line to last.
 ---
 
 # Where is it defined
@@ -48,6 +48,26 @@ returns the innermost definition enclosing that line, whole:
 - When nothing encloses the line the answer says so and names the nearest
   declarations, rather than handing you a definition that is not the one you
   are standing in.
+
+When you have landed on a name and want all of that at once, `context` is the
+five calls in one:
+
+    context(name="charge")
+
+returns, in this order and each under its own head: every home of the name with
+its span, the rows of the map that mention it, its callers, its callees, and
+its impact one hop out. The first line says so and names the share of the
+budget each block was given (15 percent declared, 35 map rows, 15 callers, 15
+callees, 20 impact).
+
+- Reach for it first when a name is new to you. `defines`, `ask`, `callers`,
+  `callees` and `impact` are five round trips for the same map; this is one.
+- Reach for the single tools when you already know which of the five you want,
+  or when you want a block wider than its share.
+- A block that could not print all of itself ends in `… N more lines
+  (more:ctx:...)`. Pass that handle to `more` for the rest of that block; do
+  not ask `context` again at the same budget, which returns the part you have.
+- `name` takes a list, and `limit` sets the budget in characters.
 
 Once you know where a name is defined, `callers(name=["click_pay"])` says who
 calls it: every `<file>:<func>` from the call graph, exact and case-sensitive.

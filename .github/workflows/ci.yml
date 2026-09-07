@@ -392,6 +392,192 @@ jobs:
             --quiet --no-semantic
           diff -u /tmp/spans/m/framework_map.json /tmp/spans/m2/framework_map.json
           diff -u /tmp/spans/m/framework_map.md /tmp/spans/m2/framework_map.md
+      - name: context returns in one call what five calls return
+        run: |
+          set -o pipefail
+          rm -rf /tmp/ctx
+          python - <<'EOF'
+          import sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/ctx")
+          EOF
+          M=/tmp/ctx/suite/out
+          rm -f $M/.wawe-ask.log
+          # The first line says how the answer was composed: one hop of
+          # impact, and the share of the budget each block was cut to.
+          where-are-we --out $M --context click_7 > /tmp/ctx/click_7.context
+          head -1 /tmp/ctx/click_7.context | grep -qx \
+            'Context for `click_7`: declared, map rows, callers, callees, impact to depth 1. Fixed shares of 12000 bytes: 15/35/15/15/20 percent.'
+          # Three names between them fill and empty every block: click_7 has
+          # callers and no callees, step_pay_7 the other way round, login is
+          # a word the map mentions in four sections.
+          for N in click_7 step_pay_7 login; do
+            where-are-we --out $M --defines $N > /tmp/ctx/$N.defines
+            where-are-we --out $M --ask $N > /tmp/ctx/$N.ask
+            where-are-we --out $M --callers $N > /tmp/ctx/$N.callers
+            where-are-we --out $M --callees $N > /tmp/ctx/$N.callees
+            where-are-we --out $M --impact $N --impact-depth 1 > /tmp/ctx/$N.impact
+            where-are-we --out $M --context $N > /tmp/ctx/$N.context
+          done
+          where-are-we --out $M --defines CheckoutPage > /tmp/ctx/CheckoutPage.defines
+          where-are-we --out $M --context CheckoutPage > /tmp/ctx/CheckoutPage.context
+          python - <<'EOF'
+          import pathlib, sys
+          from where_are_we.ask import CONTEXT_BUDGET, more
+          from where_are_we.eval import handles, ordered_rows
+
+          M = "/tmp/ctx/suite/out/framework_map.md"
+          read = lambda n: pathlib.Path(f"/tmp/ctx/{n}").read_text()
+
+          def rows_of(text):
+              """Every row an answer holds, however that answer spells one.
+
+              `ordered_rows` is the eval harness's own parser: it takes the
+              `- ` rows and puts the directory grouping back. The second loop
+              takes the answers that are not made of `- ` rows at all --
+              `--defines`, `--callers`, `--impact` -- whose every line is a
+              row. Heads, tails and the first line are the answer talking
+              about itself, not content, and are not rows.
+              """
+              out = {r[2:] if r.startswith("- ") else r
+                     for r in ordered_rows(text)}
+              for line in text.splitlines():
+                  line = line.strip()
+                  if line and not line.startswith(("...", "…", "## ",
+                                                   "- ", "Context for `")):
+                      out.add(line)
+              return out
+
+          def five(name):
+              want = set()
+              for suffix in ("defines", "ask", "callers", "impact"):
+                  want |= rows_of(read(f"{name}.{suffix}"))
+              # `--callees` prints one line naming every callee; the block
+              # prints one row each, so a cut can take whole rows.
+              line = read(f"{name}.callees").strip()
+              want |= ({c.strip() for c in line.split(": ", 1)[1].split(", ")}
+                       if ": " in line else {line})
+              return want
+
+          for name in ("click_7", "step_pay_7", "login"):
+              answer = read(f"{name}.context")
+              assert len(answer.rstrip("\n")) <= CONTEXT_BUDGET, len(answer)
+              missing = sorted(five(name) - rows_of(answer))
+              assert not missing, (name, missing[:3])
+              print(f"{name}: {len(five(name))} rows from five calls, all of "
+                    f"them in one {len(answer.rstrip(chr(10)))} byte answer")
+
+          # A block whose share its own answer does not fit is the other
+          # half of the promise: `CheckoutPage` is declared 41 times and the
+          # declared block holds 1778 characters, so the rest is behind the
+          # handle on its tail rather than nowhere.
+          answer = read("CheckoutPage.context")
+          assert len(answer.rstrip("\n")) <= CONTEXT_BUDGET, len(answer)
+          want = rows_of(read("CheckoutPage.defines"))
+          cut = sorted(want - rows_of(answer))
+          assert cut, "the declared block was not cut; pick a wider name"
+          reachable, pending = set(), [h for h in handles(answer)
+                                       if h.startswith("more:ctx:spans:")]
+          assert pending, handles(answer)
+          seen = set(pending)
+          while pending:
+              reply = more(M, pending.pop(0), CONTEXT_BUDGET)
+              reachable |= rows_of(reply)
+              for nxt in handles(reply):
+                  if nxt not in seen and nxt.startswith("more:ctx:"):
+                      seen.add(nxt)
+                      pending.append(nxt)
+          still = sorted(set(cut) - reachable)
+          assert not still, still[:3]
+          print(f"CheckoutPage: {len(cut)} rows over the declared block's "
+                f"share, every one of them behind its handle")
+          EOF
+          # At 1500 characters every block that could not print itself ends
+          # in a tail carrying a handle, and following the handles returns
+          # every row the whole answer holds. The budget comes through the
+          # MCP tool's own `limit`, which is the only way to ask for one.
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context","arguments":{"name":"click_7","limit":1500}}}' \
+            | where-are-we --out $M --mcp > /tmp/ctx/small.jsonl
+          python - <<'EOF'
+          import json, sys
+          from where_are_we.ask import CONTEXT_BLOCKS, context, more
+          from where_are_we.eval import handles, ordered_rows
+
+          M = "/tmp/ctx/suite/out/framework_map.md"
+          row = json.load(open("/tmp/ctx/small.jsonl"))
+          small = row["result"]["content"][0]["text"]
+          assert small == context(M, "click_7", 1500), "MCP limit is not the budget"
+          assert len(small) <= 1500, len(small)
+
+          # A block is `## Head`, its lines, and a tail when it was cut. The
+          # tail is the last line of the block and carries the handle.
+          blocks = {}
+          for chunk in small.split("\n\n")[1:]:
+              lines = chunk.splitlines()
+              blocks[lines[0]] = lines
+          for _name, head, _pct in CONTEXT_BLOCKS:
+              lines = blocks.get(head)
+              if lines is None or not lines[-1].startswith("…"):
+                  continue
+              assert "(more:ctx:" in lines[-1], lines[-1]
+          cut = [h for h, lines in blocks.items()
+                 if lines[-1].startswith("…")]
+          assert cut, sorted(blocks)
+
+          whole = {r for r in ordered_rows(context(M, "click_7", 10 ** 9))}
+          got, pending = set(ordered_rows(small)), list(handles(small))
+          seen = set(pending)
+          while pending:
+              reply = more(M, pending.pop(0), 1500)
+              got |= set(ordered_rows(reply))
+              for nxt in handles(reply):
+                  if nxt not in seen:
+                      seen.add(nxt)
+                      pending.append(nxt)
+          missing = sorted(whole - got)
+          assert not missing, missing[:3]
+          print(f"at 1500 bytes: {len(cut)} block(s) cut, every tail carries "
+                f"a handle, {len(whole)} rows all reachable")
+          EOF
+          # The same measurement over a hundred names, by the harness that
+          # measures `ask`: no row a handle should have returned is lost.
+          wawe-eval --map $M --tool context --questions 100 \
+            --budgets 1500,12000 --json > /tmp/ctx/eval.json
+          python - <<'EOF'
+          import json, sys
+          report = json.load(open("/tmp/ctx/eval.json"))
+          assert report["tool"] == "context", report["tool"]
+          for row in report["budgets"]:
+              assert row["recall_with_handles"] == 1.0, row
+          print("wawe-eval --tool context: recall with handles",
+                [r["recall_with_handles"] for r in report["budgets"]],
+                "at budgets", [r["budget"] for r in report["budgets"]])
+          EOF
+          # Every tool the server declares, and the flag and the tool as one
+          # answer.
+          printf '%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"context","arguments":{"name":"click_7"}}}' \
+            | where-are-we --out $M --mcp > /tmp/ctx/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/ctx/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more",
+                           "sections"], names
+          print("tools/list:", len(names), names)
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/ctx/click_7.context").read_text()
+          assert mcp == cli.rstrip("\n"), "MCP context and --context disagree"
+          print("MCP context and --context agree, byte for byte")
+          EOF
+          grep -q '"tool": "context"' $M/.wawe-ask.log
+          # Twice over the same map is the same answer.
+          where-are-we --out $M --context login > /tmp/ctx/login.again
+          diff -u /tmp/ctx/login.context /tmp/ctx/login.again
       - name: who calls X
         run: |
           mkdir -p /tmp/wc
@@ -568,8 +754,9 @@ jobs:
           import json, pathlib
           rows = [json.loads(l) for l in open("/tmp/imp/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
-          assert names == ["ask", "at", "callees", "callers", "defines",
-                           "find", "impact", "more", "sections"], names
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more",
+                           "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -2860,8 +3047,9 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/more/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
-          assert names == ["ask", "at", "callees", "callers", "defines",
-                           "find", "impact", "more", "sections"], names
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more",
+                           "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"

@@ -31,6 +31,8 @@ message after you open it.
      last.
    - `at(place=["file.py:147"])` - the whole definition enclosing a line, for
      a stack trace or a failure you were handed.
+   - `context(name=[...])` - everything the map holds about one name:
+     declared, map rows, callers, callees, impact one hop out.
    - `find(phrase=[...])` - where a phrase (a step, a string) lives.
    - `sections()` - the section headings.
    All take lists: ask for everything you need in one call.

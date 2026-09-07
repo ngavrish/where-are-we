@@ -26,6 +26,22 @@
   else: which names those files declare, and on which line, is the pattern
   table's answer either way, so `definitions` is the same map with the extra
   installed and without it.
+- `--context NAME` and the MCP `context` tool answer in one call what five
+  calls answered before: where the name is declared and how far each
+  declaration runs, the rows of the map that mention it, who calls it, what it
+  calls, and its blast radius one hop out. Nothing new is parsed and nothing
+  new is stored; it is `defines`, `ask`, `callers`, `callees` and `impact`
+  over the same map, so an agent that lands on a name pays one round trip
+  rather than five. Each block gets a fixed share of the budget - 15 percent
+  for the declarations, 35 for the map's rows, 15 for the callers, 15 for the
+  callees, 20 for the impact - and a block that does not spend its share does
+  not hand it to the next one, so the same name at the same budget is always
+  the same answer. Whole rows; a block that could not print all of itself ends
+  in a tail carrying a `more:ctx:` handle that `more` resolves like any other.
+- `wawe-eval --tool context` measures the new tool with the harness that
+  measures `ask`: over 100 names of the suite fixture, recall with handles is
+  1.0 at 1500 and at 12000 bytes, which the CI step `context returns in one
+  call what five calls return` asserts.
 - The parse cache schema is 2. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a
