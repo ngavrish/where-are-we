@@ -1654,7 +1654,9 @@
     "python": {
       "sites": 85,
       "resolved": 40,
-      "ambiguous": 0
+      "ambiguous": 0,
+      "edges": 40,
+      "marked": 0
     }
   },
   "data_flow": {},

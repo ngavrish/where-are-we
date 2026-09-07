@@ -287,7 +287,9 @@
     "python": {
       "sites": 7,
       "resolved": 0,
-      "ambiguous": 0
+      "ambiguous": 0,
+      "edges": 0,
+      "marked": 0
     }
   },
   "data_flow": {

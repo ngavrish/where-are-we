@@ -1759,36 +1759,82 @@ def build(repo: str, out_dir: str | None = None,
     # in a second, parse-free pass below.
     func_calls: dict[str, list] = {}
     defined_at: dict[str, str] = {}
-    # How many indexed files declare each name, per language group. A name a
-    # single file declares has one home and the `(file)` half of an edge is a
-    # fact; a name two files declare has as many, and which one an edge points
-    # at is whichever the walk reached first. That second case is what the
-    # trailing `?` on an edge says out loud.
+    # Every indexed file that declares a name, per language group. A name one
+    # file declares has one home and the `(file)` half of an edge is a fact; a
+    # name two files declare has two homes, the edge names both of them and
+    # the trailing `?` says the map is choosing between them.
     homes_py: dict[str, set] = {}
     homes_tsjs: dict[str, set] = {}
     homes_go: dict[str, set] = {}
     # Per language: how many callee names the walk looked at, how many it
-    # could place in a file at all, and how many of those had more than one
-    # file to choose from. `call_graph_stats` below; the ratio of the second
-    # to the first is what the graph resolved, and it is a number rather than
-    # a claim.
+    # could place in a file at all, how many of those had more than one file
+    # to choose from, and how many cross-file edges it wrote, plain and
+    # marked. `call_graph_stats` below. The first three are properties of the
+    # tree that was read; `edges` and `marked` are properties of the graph
+    # that was written.
     call_stats: dict[str, dict] = {}
+
+    def _stats(lang: str) -> dict:
+        """One language's counter row, created the first time it is asked for."""
+        return call_stats.setdefault(lang, {"sites": 0, "resolved": 0,
+                                            "ambiguous": 0, "edges": 0,
+                                            "marked": 0})
 
     def _count(lang: str, name: str, homes: dict) -> str:
         """Record one callee name against `lang`, and return its edge mark.
 
-        `""` where exactly one file declares the name, `"?"` where several do
-        and the file an edge names is therefore a guess.
+        `""` where at most one file declares the name, `"?"` where several do
+        and an edge to it therefore names all of them.
         """
-        row = call_stats.setdefault(lang, {"sites": 0, "resolved": 0, "ambiguous": 0})
+        row = _stats(lang)
         row["sites"] += 1
-        where = homes.get(name) or set()
+        where = homes.get(name) or ()
         if where:
             row["resolved"] += 1
         if len(where) > 1:
             row["ambiguous"] += 1
             return "?"
         return ""
+
+    def _edge(lang: str, name: str, where, mark: str) -> str:
+        """One cross-file edge: its text, and the counter that records it.
+
+        Every file in `where` is named, by basename and sorted, so the edge a
+        tree produces is the same string whatever order the walk read the
+        files in. `os.walk` returns entries in directory order, so naming one
+        file out of several made the byte a property of the filesystem.
+        """
+        _stats(lang)["marked" if mark else "edges"] += 1
+        files = "|".join(sorted({os.path.basename(w) for w in where}))
+        return f"{name} ({files}){mark}"
+
+    def _module_homes(module: str, level: int, rel: str, where) -> set:
+        """Which of `where` a module imported by `rel` names.
+
+        A dotted module is a path: `_mapper.build`, imported at level 1 from
+        `src/where_are_we/cli.py`, is `src/where_are_we/_mapper/build`, and a
+        home is that module when its path is that path, either as the file
+        itself or as the package's `__init__.py`.
+        """
+        parts = [p for p in (module or "").split(".") if p]
+        if level:
+            here = rel.replace(os.sep, "/").split("/")[:-1]
+            up = level - 1
+            if up > len(here):
+                return set()
+            parts = here[:len(here) - up] + parts
+        target = "/".join(parts)
+        if not target:
+            return set()
+        hits = set()
+        for home in where:
+            stem = home.replace(os.sep, "/")
+            if stem.endswith(".py"):
+                stem = stem[:-3]
+            if stem in (target, f"{target}/__init__") \
+                    or stem.endswith((f"/{target}", f"/{target}/__init__")):
+                hits.add(home)
+        return hits
 
     raw_calls_by_rel: dict[str, dict] = {}
     for rel in code_files:
@@ -1800,32 +1846,84 @@ def build(repo: str, out_dir: str | None = None,
             try:
                 tree = ast.parse(_read(rel))
             except (SyntaxError, ValueError):
-                return {"defs": [], "calls": {}}
-            defs = []
-            calls = {}
+                return {"defs": [], "calls": {}, "names": {}, "imports": {},
+                        "mods": {}}
+            # What this file says it means by a name. `imports` is every
+            # `from MOD import name`; `aliases` is what `import MOD` binds,
+            # read back off the receiver of a `MOD.name()` call below into
+            # `mods`. A name two modules both offer through a receiver has no
+            # preference and is dropped, because a coin toss stated as a fact
+            # is what the `?` exists to avoid.
+            imports, aliases = {}, {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom):
+                    for alias in node.names:
+                        imports[alias.asname or alias.name] = [node.module or "",
+                                                               node.level]
+                elif isinstance(node, ast.Import):
+                    for alias in node.names:
+                        if alias.asname:
+                            aliases[alias.asname] = alias.name
+                        elif "." not in alias.name:
+                            aliases[alias.name] = alias.name
+            defs, calls, names, mods = [], {}, {}, {}
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 defs.append(node.name)
-                targets = sorted({getattr(c.func, "id", "") or getattr(c.func, "attr", "")
-                                   for c in ast.walk(node) if isinstance(c, ast.Call)})
-                calls[node.name] = [t for t in targets if t]
-            return {"defs": defs, "calls": calls}
+                targets, bare = set(), set()
+                for c in ast.walk(node):
+                    if not isinstance(c, ast.Call):
+                        continue
+                    if isinstance(c.func, ast.Name):
+                        targets.add(c.func.id)
+                        bare.add(c.func.id)
+                    elif isinstance(c.func, ast.Attribute):
+                        targets.add(c.func.attr)
+                        module = aliases.get(getattr(c.func.value, "id", ""))
+                        if module:
+                            said = [module, 0]
+                            mods[c.func.attr] = (said if mods.get(c.func.attr, said)
+                                                 == said else None)
+                calls[node.name] = sorted(t for t in targets if t)
+                names[node.name] = sorted(b for b in bare if b)
+            return {"defs": defs, "calls": calls, "names": names,
+                    "imports": imports, "mods": mods}
 
-        call_stats.setdefault("python", {"sites": 0, "resolved": 0, "ambiguous": 0})
-        func_info = _cached(full, "func_calls", _func_calls_of)
-        raw_calls_by_rel[rel] = func_info["calls"]
+        _stats("python")
+        func_info = _cached(full, "func_graph", _func_calls_of)
+        raw_calls_by_rel[rel] = func_info
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
             homes_py.setdefault(name, set()).add(rel)
-    for rel, calls in raw_calls_by_rel.items():
-        for func_name, raw_targets in calls.items():
+    for rel, info in raw_calls_by_rel.items():
+        imports = info.get("imports") or {}
+        mods = info.get("mods") or {}
+        bare_by_func = info.get("names") or {}
+        for func_name, raw_targets in (info.get("calls") or {}).items():
+            bare = set(bare_by_func.get(func_name) or ())
             targets = set()
             for name in raw_targets:
+                where = homes_py.get(name) or set()
                 mark = _count("python", name, homes_py)
-                home = defined_at.get(name)
-                if home and home != rel:
-                    targets.add(f"{name} ({os.path.basename(home)}){mark}")
+                if not where:
+                    continue
+                if rel in where and (name in bare or len(where) == 1):
+                    # A call inside the file that declares the name, and the
+                    # graph is the cross-file one. Either this file is the
+                    # name's only home, or the call is a plain name and a
+                    # plain name reaches the local definition. An attribute
+                    # call to a name other files also declare keeps its edge:
+                    # what the receiver holds is not known here.
+                    continue
+                if mark:
+                    # The caller named the module it meant. One home under
+                    # that module is an answer, not a guess.
+                    said = imports.get(name) if name in bare else mods.get(name)
+                    hits = _module_homes(said[0], said[1], rel, where) if said else set()
+                    if len(hits) == 1:
+                        where, mark = hits, ""
+                targets.add(_edge("python", name, where, mark))
             if targets:
                 func_calls[f"{os.path.basename(rel)}:{func_name}"] = sorted(targets)[:8]
 
@@ -1874,19 +1972,49 @@ def build(repo: str, out_dir: str | None = None,
                 break
         return "\n".join(out)
 
-    defined_tsjs: dict[str, str] = {}
-    defined_go: dict[str, str] = {}
+    def _tsjs_imports(body: str) -> dict:
+        """Which module each name in this file was imported from.
+
+        `import { charge } from "./a"`, `import charge from "./a"`, and the
+        several names one clause can carry. The specifier is kept as written
+        and resolved against the importing file in `_spec_homes`.
+        """
+        out: dict[str, str] = {}
+        for m in re.finditer(r"^\s*import\s+([^;'\"]+?)\s+from\s+['\"]([^'\"]+)['\"]",
+                              body, re.M):
+            for part in re.findall(r"\w+", m.group(1)):
+                out.setdefault(part, m.group(2))
+        return out
+
+    def _spec_homes(spec: str, rel: str, where) -> set:
+        """Which of `where` a module specifier written in `rel` names.
+
+        Relative specifiers only: `./a` next to `b.ts` is `a.ts` or
+        `a/index.ts`, while `lodash` is a package this walk never read.
+        """
+        if not spec.startswith("."):
+            return set()
+        base = os.path.dirname(rel.replace(os.sep, "/"))
+        target = os.path.normpath(os.path.join(base, spec)).replace(os.sep, "/")
+        hits = set()
+        for home in where:
+            stem = home.replace(os.sep, "/")
+            head, dot, _ext = stem.rpartition(".")
+            if dot and "/" not in _ext:
+                stem = head
+            if stem in (target, f"{target}/index"):
+                hits.add(home)
+        return hits
+
     defs_by_file: dict[str, list] = {}
     for rel in code_files:
         if rel.endswith(ts_js_ext):
-            table, finder, homes = defined_tsjs, _tsjs_def_names, homes_tsjs
-            lang = "ts_js"
+            finder, homes, lang = _tsjs_def_names, homes_tsjs, "ts_js"
         elif rel.endswith(".go"):
-            table, finder, homes = defined_go, _go_def_names, homes_go
-            lang = "go"
+            finder, homes, lang = _go_def_names, homes_go, "go"
         else:
             continue
-        call_stats.setdefault(lang, {"sites": 0, "resolved": 0, "ambiguous": 0})
+        _stats(lang)
         body = _read(rel)
         if not body:
             continue
@@ -1894,26 +2022,34 @@ def build(repo: str, out_dir: str | None = None,
         if defs:
             defs_by_file[rel] = defs
         for name, _ in defs:
-            table.setdefault(name, rel)
             homes.setdefault(name, set()).add(rel)
 
     for rel, defs in defs_by_file.items():
         is_tsjs = rel.endswith(ts_js_ext)
-        table = defined_tsjs if is_tsjs else defined_go
         homes = homes_tsjs if is_tsjs else homes_go
         lang = "ts_js" if is_tsjs else "go"
         body = _read(rel)
         if not body:
             continue
+        imported = _tsjs_imports(body) if is_tsjs else {}
         lines = body.splitlines()
         for name, line_idx in defs:
             fn_body = _brace_body(lines, line_idx)
             targets = set()
             for callee in sorted(set(re.findall(r"\b(\w+)\s*\(", fn_body))):
+                where = homes.get(callee) or set()
                 mark = _count(lang, callee, homes)
-                home = table.get(callee)
-                if home and home != rel:
-                    targets.add(f"{callee} ({os.path.basename(home)}){mark}")
+                if not where or rel in where:
+                    # This file declares the callee itself. There is no
+                    # receiver to read here, and the body scan starts at the
+                    # signature line, so a function's own name reads as a
+                    # call: an edge out of this file would be that misread.
+                    continue
+                if mark:
+                    hits = _spec_homes(imported.get(callee) or "", rel, where)
+                    if len(hits) == 1:
+                        where, mark = hits, ""
+                targets.add(_edge(lang, callee, where, mark))
             if targets:
                 func_calls[f"{os.path.basename(rel)}:{name}"] = sorted(targets)[:8]
 

@@ -211,12 +211,16 @@
     "go": {
       "sites": 5,
       "resolved": 5,
-      "ambiguous": 0
+      "ambiguous": 0,
+      "edges": 0,
+      "marked": 0
     },
     "ts_js": {
       "sites": 3,
       "resolved": 3,
-      "ambiguous": 0
+      "ambiguous": 0,
+      "edges": 1,
+      "marked": 0
     }
   },
   "data_flow": {},
