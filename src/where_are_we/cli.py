@@ -26,7 +26,8 @@ import sys
 # `src/where_are_we` is itself the import root.
 try:
     from . import ask as _ask, hooks, lsp, mcp, specs
-    from .ask import ask, callers, log_answer, map_heads
+    from .ask import (IMPACT_MAX_DEPTH, ask, callees_line, callers, impact,
+                       log_answer, map_heads)
     from ._mapper.build import build
     from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
                                  digest, for_audience, meaning_tail, pointer)
@@ -40,7 +41,8 @@ except ImportError:  # run as a plain file, with no package around it
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import ask, callers, log_answer, map_heads  # type: ignore[no-redef]
+    from ask import (IMPACT_MAX_DEPTH, ask,  # type: ignore[no-redef]
+                     callees_line, callers, impact, log_answer, map_heads)
     from _mapper.build import build  # type: ignore[no-redef]
     from _mapper.render import (_as_dict, _cap_sections, brief,  # type: ignore[no-redef]
                                 changed_since, digest, for_audience,
@@ -302,6 +304,26 @@ def install_hook(repo: str, kind: str, product: str, out: str, agent_file: str) 
 
 
 
+def _impact_depth(text: str) -> int:
+    """`--impact-depth`, refused at the parser rather than answered.
+
+    A depth of 0, 7 or -1 used to reach `impact()`, which printed its
+    complaint on stdout and exited 0, with the complaint logged as though it
+    were an answer. A caller checking $? believed it, the same way `--callers`
+    on a directory with no map used to report an empty result for a search
+    that never happened. argparse's own failure is exit 2 and stderr.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a whole number") from None
+    if not 1 <= value <= IMPACT_MAX_DEPTH:
+        raise argparse.ArgumentTypeError(
+            f"must be from 1 to {IMPACT_MAX_DEPTH}, not {value}")
+    return value
+
+
 def _resolve_repo(given, out):
     """The repository a run is about, when --repo was not spelled out.
 
@@ -440,6 +462,20 @@ def main() -> int:
                          "line, from the call graphs already in the map. "
                          "Case-sensitive, like the identifier itself. Reads "
                          "framework_map.json under --out")
+    ap.add_argument("--callees", default="", metavar="NAME",
+                    help="print what NAME calls, the other direction of "
+                         "--callers: every callee with the file it is defined "
+                         "in, from the same graphs. Cross-file only. Reads "
+                         "framework_map.json under --out")
+    ap.add_argument("--impact", default="", metavar="NAME",
+                    help="print the blast radius of NAME: every `file:func` "
+                         "that reaches it, grouped by how many calls away it "
+                         "is. Cycles are walked once. Reads "
+                         "framework_map.json under --out")
+    ap.add_argument("--impact-depth", type=_impact_depth, default=3,
+                    metavar="N",
+                    help="how many hops back --impact follows, 1 to 6 "
+                         "(default 3)")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
@@ -542,7 +578,7 @@ def main() -> int:
         return 0
 
     if (args.sections or args.ask or args.pointer or args.callers
-            or args.more_handle):
+            or args.callees or args.impact or args.more_handle):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -571,6 +607,7 @@ def main() -> int:
         # say --ask" let it answer "nothing in the map calls foo" from a
         # directory with no code map in it at all.
         if not have_map and (args.pointer or args.sections or args.callers
+                             or args.callees or args.impact
                              or args.more_handle):
             # These three read the code map and only the code map, so for
             # them the spec map beside it is not an answer. Say which file is
@@ -605,6 +642,21 @@ def main() -> int:
             answer = ("\n".join(hits) if hits
                       else f"nothing in the map calls {args.callers}")
             log_answer(out_dir, "callers", args.callers, answer, len(answer))
+            print(answer)
+            return 0
+        if args.callees:
+            # The same call the MCP `callees` tool makes, formatted by the
+            # same function, so a name asked here and asked there comes back
+            # byte for byte the same.
+            json_path = os.path.join(out_dir, "framework_map.json")
+            answer = callees_line(json_path, args.callees)
+            log_answer(out_dir, "callees", args.callees, answer, len(answer))
+            print(answer)
+            return 0
+        if args.impact:
+            json_path = os.path.join(out_dir, "framework_map.json")
+            answer = impact(json_path, args.impact, args.impact_depth)
+            log_answer(out_dir, "impact", args.impact, answer, len(answer))
             print(answer)
             return 0
         # `--ask` answers from a map already on disk and never builds one, so
