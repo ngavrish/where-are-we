@@ -154,8 +154,8 @@ as estimates.
 | `--ask` synonyms and stemming | "login" also searches "signin", "auth"; "invoices" also searches "invoice"; a synonym or a stem scores at half the weight of the literal word, so it never outranks an exact hit; the first line says `(also matched: signin, auth)` when an expansion found something the literal words did not; `.wawe.toml`'s `[synonyms]` table adds a project's own words to the built-in groups | Not measured | — |
 | Rows under one directory printed once | `- \`features/checkout/\`` then the files | Not measured | Bytes of an answer before/after on a 40-row directory |
 | `## Defined here` (`defines`, `_definitions_for`) | A name → file:line, every declared name in every walked file | Not measured as turns saved; the README's claim is one question instead of `grep -rn` | Count `Grep` calls per session before/after (the run's call events) |
-| Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. Two calls are no edge at all: one to a name the calling file declares itself, and one made through a module this tree does not declare, which is what `ast.walk(...)` and `from os import path` then `path.join(...)` are. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 20 of the edges under them carry the mark, and the ones the caller's own import decides are written plain, among them `cli.py:main -> build (build.py)`, which the release before this one named `build (ask.py)?` | Count `Grep` calls spent chasing a callee across files before/after |
-| `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2230 sites, 533 first-party, rate 0.239, 105 ambiguous names (share 0.0471), 145 edges and 36 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
+| Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. Three calls are no edge at all: one to a name the calling file declares itself, one made through a module this tree does not declare, which is what `ast.walk(...)` and `from os import path` then `path.join(...)` are, and one on a receiver the function built out of a builtin, which is what `out = set()` then `out.add(key)` is. A parameter's default counts as what the function bound, `None` excepted; `*args` and `**kwargs` are a tuple and a dict; a name a nested function never binds is the one written around it; and `d.setdefault(k, set())` is a set whatever `d` is. Two more are read further: a receiver that is a file of this tree carrying a name it does not declare is followed through its own import lines to the file with the `def`, and `self.name(...)` goes to the class the method is in or to the one base that declares it, where the file says where that base came from. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 1 of the edges under them carries the mark, and it is a call on `d[k]`, which is the shape nothing written in the file settles. Mapping the previous release's own checkout with both releases, the same tree and the same 60 keys, the count goes from 20 marks to 1 | Count `Grep` calls spent chasing a callee across files before/after |
+| `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2308 sites, 561 first-party, rate 0.2431, 107 ambiguous names (share 0.0464), 156 edges and 4 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
 | `callees` (MCP), `--callees` | What a name calls, the other direction of `callers`: every callee with the file it is defined in, from the same two graphs, cross-file only | Not measured as turns saved; the claim is one lookup instead of reading the function to find out what it reaches | Count `Read` calls spent opening a function to list its calls before/after |
 | `impact` (MCP), `--impact NAME [--impact-depth N]` | The blast radius of a name: every `file:func` that reaches it within N hops (1 to 6, 3 by default), grouped by hop and sorted inside each. A visited set walks a cycle once, and the keys defining the name itself are the change rather than its radius. The first line of every reply states the rules the answer was built under, unconditionally: hops are followed by name, so where several files define one name their callers are unioned; only cross-file calls are in the graph; and the map keeps at most 60 cross-file and 120 step graph keys, so on a large repository the radius is a floor. Where the key data shows the clash a `note:` names up to five of the keys and how many more. Capped at 200 `file:func` entries in the whole reply, note keys included, with a line naming how many are left and at which depth; no handle to fetch them, because the tool already takes a depth and narrowing is the reader's move. A depth outside 1 to 6 is refused: exit 2 on the command line, JSON-RPC -32602 on the tool | Not measured as turns saved; the claim is one lookup instead of running `callers` outward by hand, hop after hop | Count `callers` calls per session before/after |
@@ -215,6 +215,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | The servers stay up | MCP and LSP answer malformed `params`, `arguments` or `limit` with a JSON-RPC error and keep serving; both exit quietly when stdout closes (CI steps `mcp malformed params...`, `lsp malformed params...`, `mcp and lsp exit 0 quietly when stdout closes early`) |
 | `--html` escapes repository content | A docstring or a file name holding markup renders as text on the page (CI step `--html escapes repository content instead of interpolating it`) |
 | `--install-hook` is one unit | Every target is checked before any is written; a refusal installs nothing and names its cause, a rerun finishes the job (CI step `install-hook git refuses a symlinked hook file`) |
+| A guard can tell a read from a write | `--effects` ships the class of every flag this tool's parser knows, `--effects -- <command line>` classifies one line without running it, and `--dry-run` names every path a write would touch and touches none of them. The table cannot drift from the parser or from the `effects.json` in the wheel: a CI step compares all three (CI steps `every flag the parser knows is in the effects table, and nothing else is`, `a command line says what it would write before it runs`, `--dry-run names every path it would write and writes none of them`) |
 | A source in UTF-16 is read | A file with a byte order mark is decoded, indexed and answerable; a binary that merely starts with one is not (CI step `a UTF-16 source file is decoded, indexed and answerable`) |
 | An edge the map is guessing at says so | A cross-file callee several files declare is written `charge (a.ts\|c.ts)?`: every candidate, sorted, and a question mark, which is the map declining to pass a choice off as a lookup. A call to a name the calling file declares is no edge at all, and an import that names one file settles it without the mark. The mark is about the name: a call through a variable to a name one file declares is written plain, because what the map does not know there is the receiver rather than the name. Every `impact` reply states the rule (CI step `an ambiguous edge names every file that declares the callee, and is matched without the mark`) |
 | The graph says what it looked at and what it wrote | `call_graph_stats` counts, per language, the callee names the walk looked at, how many of them some indexed file declares and how many several declare, which is a measure of the tree rather than of the graph, and beside them the cross-file edges written and the ones written with a `?`, which is the graph. Over the whole walk, not the 60 keys that survive the cap. `wawe-eval --map OUT --graph` prints them, and with tree-sitter installed prints what a real parse makes of the same code beside them (CI step `wawe-eval --graph: the map says how much of its call tree it resolved`) |
@@ -366,7 +367,7 @@ and this repository mapped with `--product none --no-semantic`:
 | code fixture | python | 7 | 0 | 0 | 0 | 0 | 0.0 | 0.0 |
 | poly fixture | ts_js | 3 | 3 | 0 | 1 | 0 | 1.0 | 0.0 |
 | poly fixture | go | 5 | 5 | 0 | 0 | 0 | 1.0 | 0.0 |
-| where-are-we | python | 2230 | 533 | 105 | 145 | 36 | 0.239 | 0.0471 |
+| where-are-we | python | 2308 | 561 | 107 | 156 | 4 | 0.2431 | 0.0464 |
 | where-are-we | ts_js | 2 | 2 | 0 | 0 | 0 | 1.0 | 0.0 |
 | where-are-we | go | 3 | 2 | 0 | 0 | 0 | 0.6667 | 0.0 |
 
@@ -377,23 +378,27 @@ together, though. The poly fixture scores 1.0 in both languages and holds one
 edge, because a rate of 1.0 says every name it calls is declared nearby, not
 that a graph was drawn; `edges` is the half that says a graph was drawn.
 
-This repository's 0.239 is what a Python tree looks like when most of what
+This repository's 0.2431 is what a Python tree looks like when most of what
 a function calls is a builtin, a method on an object or a standard library
-name. Of its 2230 sites, 576 are Python builtins and 646 are `str`, `list`,
-`dict` and `set` method names, so more than half the denominator is
-unreachable by any name graph, and 283 of the 533 first-party names have the
-calling file as their only home, which is a call the cross-file graph does
-not hold either. The graph under it is 145 edges, 36 of them marked.
+name. Of its 2308 sites, 605 are Python builtins and 664 are `str`, `list`,
+`dict` and `set` method names no file here declares, so more than half the
+denominator is unreachable by any name graph, and 309 of the 561 first-party
+names have the calling file as their only home, which is a call the
+cross-file graph does not hold either. The graph under it is 156 edges, 4 of
+them marked.
 
-Of the 60 keys the map keeps, 20 edges carry the mark, and every one of them
-is a call through a receiver the map cannot name: `out.add(key)` where a
-nested `add` exists in two files, or `mapper.build(...)` where the module
-that re-exports `build` is not the file that declares it. Mapping the
-previous release's own checkout with both releases, the same tree and the
-same 60 keys, the count goes from 40 marks to 17. Some of those edges did
-not vanish, they were corrected: `cli.py:main -> build (ask.py)?` is now
-`build (build.py)`, read off `from ._mapper.build import build` at the top
-of the calling file.
+Of the 60 keys the map keeps, 1 edge carries the mark. It is `pool[kind]
+.add(word)` in `eval.py`, a call on a subscript: nothing written in that
+file says what the container holds, so the map names both files with a
+`def add` and says it is choosing. Mapping the previous release's own
+checkout with both releases, the same tree and the same 60 keys, the count
+goes from 20 marks to 1. Some of those edges did not vanish, they were
+corrected: the edge `hooks.py:_ensure_map` used to carry for `build` named
+two candidate files, and is now `build (build.py)`, read off `mapper.py`'s
+own `from ._mapper.build import build`. The rest are gone from the graph
+rather than corrected: `out.add(key)` in a function that wrote
+`out = set()` two lines up is `set.add`, and no `def add` in this tree is
+what runs.
 
 With `pip install "where-are-we[precise]"` the same numbers are computed
 again for the TypeScript, JavaScript and Go from a tree-sitter parse and
@@ -645,6 +650,78 @@ notebooks.
   hooks: [{id: where-are-we}]
 ```
 
+## What writes and what only reads
+
+A pre-execution guard sees an argv and has to decide. This tool ships the
+answer instead of leaving it to guess: `where-are-we --effects` prints what
+every flag does to the disk, and a command's class is the highest class any
+of its flags carries.
+
+| class | what it touches | flags |
+|---|---|---|
+| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
+| `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--force`, `--watch`, `--diff` |
+| `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of | `--init`, `--agent-file`, `--docs` |
+| `writes-config` | where a tool other than this one reads: `.git/hooks`, `~/.claude/settings.json`, `~/.codex/config.toml`, a Cursor rule, a Gemini setting | `--install-hook` |
+| `network` | off this machine: a tracker fetch, a runs API | `--specs`, `--spec-cmd`, `--spec-source`, `--spec-depth`, `--spec-limit`, `--runs-api` |
+
+The order is `read < writes-map-dir < writes-repo < writes-config < network`.
+`--effects --json` prints the same table as
+`{"schema": "where-are-we-effects/1", "flags": {...}, "order": [...], "notes":
+{...}}`, where `notes` says per class what it touches, including the answer
+log a `read` can append to. That JSON is installed beside the code as
+`effects.json`, so a guard written in something other than Python reads the
+file instead of the table, and reads the same caveats a human does.
+
+`--effects -- <command line>` classifies one command line with this tool's own
+parser, running nothing:
+
+```console
+$ where-are-we --effects -- where-are-we --out /tmp/m --ask x
+writes-map-dir
+--out writes-map-dir
+--ask read
+```
+
+A flag is resolved the way argparse resolves it, so `--eff` is `--effects`
+and the class of an abbreviated line is the class of the line that runs.
+
+A command line naming none of `--ask`, `--sections`, `--pointer`, `--callers`,
+`--callees`, `--impact`, `--more`, `--mcp`, `--lsp`, `--init`,
+`--install-hook`, `--specs`, `--dry-run`, `--effects` or `--help` builds the
+map into `--out`, so `where-are-we --repo .` is `writes-map-dir` on the
+strength of the build alone and says so as a `build writes-map-dir` line.
+
+`--dry-run` prints every path the command can write, one per line, and exits
+without writing any of them:
+
+```console
+$ where-are-we --repo . --install-hook git --dry-run
+would write /repo/.git/hooks/post-checkout
+would write /repo/.git/hooks/post-merge
+would write /repo/.git/hooks/post-commit
+```
+
+`would write` when nothing is there, `would replace` when a file is. The paths
+come from the same expressions the writers use, so the preview names what the
+real run names; whether a listed file is then written depends on what is
+already in it, since a target that already says what this tool would say is
+left alone.
+
+It covers every command line, not only the ones that write:
+
+| the line | the preview |
+|---|---|
+| `--init` | the manifest |
+| `--install-hook KIND` | the files that kind installs, and for `claude` or `codex` with `HOME` unset, the same refusal the real install gives, exit 2 |
+| `--agent-file`, or a plain build | the map files under `--out`, the parse cache, `framework_map.html` with `--html`, and the agent file |
+| `--docs write` | the documents it would create, or `nothing to write: every directory already explains itself` |
+| `--specs` | `spec_map.json` and `spec_map.md`. The tracker command is not run |
+| `--ask`, `--mcp` and the other reads | `nothing to write: --ask only read`, and no answer, since an answer is not a preview |
+
+The optional semantic index adds `semantic_index.json` and
+`semantic_index.npy` to the same directory as the map.
+
 ## Environment
 
 Every variable the tool reads. A flag always wins over the variable it
@@ -805,6 +882,10 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --force                      rebuild even when nothing moved, reading
                              nothing from the parse cache
 --quiet                      no summary line
+--dry-run                    print every path this command would write, and
+                             write none of them
+--effects [--json]           what every flag does to the disk; with
+                             `-- <command line>`, the class of that line
 ```
 
 </details>

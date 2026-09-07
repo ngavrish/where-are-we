@@ -15,7 +15,9 @@ imports now.
 """
 
 import argparse
+import contextlib
 import html as html_mod
+import io
 import json
 import os
 import re
@@ -25,18 +27,19 @@ import sys
 # package around this file, plain when `mapper.py` is being run by path and
 # `src/where_are_we` is itself the import root.
 try:
-    from . import ask as _ask, hooks, lsp, mcp, specs
+    from . import ask as _ask, effects, hooks, lsp, mcp, specs
     from .ask import (IMPACT_MAX_DEPTH, ask, callees_line, callers, impact,
                        log_answer, map_heads)
     from ._mapper.build import build
     from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
                                  digest, for_audience, meaning_tail, pointer)
     from ._mapper.state import DEFINITIONS, INDEXED
-    from ._mapper.walk import (SKIP_DIRS, _config, _product_roots,
-                               _write_atomic, _write_atomic_group, fingerprint,
-                               redact)
+    from ._mapper.walk import (SKIP_DIRS, _PARSE_CACHE_FILE, _config,
+                               _product_roots, _write_atomic,
+                               _write_atomic_group, fingerprint, redact)
 except ImportError:  # run as a plain file, with no package around it
     import ask as _ask  # type: ignore[no-redef]
+    import effects  # type: ignore[no-redef]
     import hooks  # type: ignore[no-redef]
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
@@ -48,9 +51,10 @@ except ImportError:  # run as a plain file, with no package around it
                                 changed_since, digest, for_audience,
                                 meaning_tail, pointer)
     from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
-    from _mapper.walk import (SKIP_DIRS, _config,  # type: ignore[no-redef]
-                              _product_roots, _write_atomic,
-                              _write_atomic_group, fingerprint, redact)
+    from _mapper.walk import (SKIP_DIRS,  # type: ignore[no-redef]
+                              _PARSE_CACHE_FILE, _config, _product_roots,
+                              _write_atomic, _write_atomic_group, fingerprint,
+                              redact)
 
 
 def _write_error(exc: OSError, fallback: str = "") -> int:
@@ -369,8 +373,14 @@ def _reconfigure_streams() -> None:
             pass
 
 
-def main() -> int:
-    _reconfigure_streams()
+def build_parser() -> argparse.ArgumentParser:
+    """The whole command line, in one place.
+
+    `main()` parses argv with it and `--effects` classifies a command line
+    with it, so what a guard is told about this tool is what this tool
+    accepts; a CI step compares the flags this parser knows against the
+    effects table and fails on either half of the difference.
+    """
     ap = argparse.ArgumentParser(
         prog="framework_map",
         description="Index a test framework into a map an agent can read: layers, "
@@ -522,8 +532,176 @@ def main() -> int:
     ap.add_argument("--no-semantic", action="store_true",
                     help="skip building the semantic index even when fastembed "
                          "is available")
+    ap.add_argument("--effects", action="store_true",
+                    help="print what every flag of this tool does to the disk: "
+                         "read, writes-map-dir, writes-repo, writes-config or "
+                         "network. With --json, the same table as JSON, which "
+                         "is also installed beside the code as effects.json. "
+                         "With `-- <command line>`, the class of that command "
+                         "line and the flags that gave it")
+    ap.add_argument("--json", action="store_true",
+                    help="with --effects: print the table as JSON")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="print every path this command line would write, one "
+                         "per line, and exit without writing any of them")
+    return ap
+
+
+def _effects_command(ap: argparse.ArgumentParser, argv: list) -> int:
+    """`--effects`: what this tool does to the disk, before it does it.
+
+    Without arguments it prints the table `effects.py` holds; with `--json`
+    the manifest that also ships as `effects.json`; with `-- <argv...>` the
+    class of that command line and the flag that gave it each class.
+
+    A command line is classified by the parser above, in the one mode that
+    runs nothing: `parse_known_args` fills a namespace and stops, so no
+    repository is walked and no file is opened. argparse's own complaint
+    about a line it cannot parse is caught rather than printed, because a
+    command line a guard asks about is one it has not run.
+    """
+    cut = argv.index("--") if "--" in argv else len(argv)
+    head, rest = argv[:cut], argv[cut + 1:]
+    if not rest:
+        print(effects.as_json() if "--json" in head else effects.as_text(), end="")
+        return 0
+    cls, reasons = effects.classify(rest, effects.option_strings(ap))
+    refused = False
+    # Both streams, not just stderr: `--help` is an argparse action that
+    # prints the whole help to stdout and then raises SystemExit, and the
+    # first line of this command's output is the class.
+    with contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(io.StringIO()):
+        try:
+            ap.parse_known_args(rest)
+        except SystemExit:
+            refused = True
+    if any(flag in ("-h", "--help") for flag, _why in reasons):
+        # A line asking for help parses; argparse simply answers it and
+        # leaves by the same door a bad line does.
+        refused = False
+    print(cls)
+    for name, why in reasons:
+        print(f"{name} {why}")
+    if refused:
+        # Said last, so the first line is still the class: this command line
+        # would not run as written, and its class is what its flags carry.
+        print("this command line does not parse")
+    return 0
+
+
+def _would(path: str) -> str:
+    """One preview line for one path: `would write` when nothing is there,
+    `would replace` when a file is."""
+    return f"would {'replace' if os.path.exists(path) else 'write'} {path}"
+
+
+def _dry_run_answer(args) -> int:
+    """`--dry-run` on the command lines that answer instead of building.
+
+    Reached before the branches that serve, fetch and answer, so none of them
+    runs: a preview of `--specs` that fetched the tickets first would be the
+    write it was asked to describe, and `--spec-cmd` is a command of the
+    caller's that this tool is not going to run to find out what it writes.
+    A line that only reads has no paths to name, so it says so and prints no
+    answer: an answer is not a preview.
+    """
+    out_dir = os.path.abspath(args.out)
+    if args.specs:
+        for name in ("spec_map.json", "spec_map.md"):
+            print(_would(os.path.join(out_dir, name)))
+        return 0
+    named = [flag for flag, given in (
+        ("--mcp", args.mcp), ("--lsp", args.lsp), ("--sections", args.sections),
+        ("--pointer", args.pointer), ("--ask", args.ask),
+        ("--more", args.more_handle), ("--callers", args.callers),
+        ("--callees", args.callees), ("--impact", args.impact)) if given]
+    print(f"nothing to write: {', '.join(named)} only read")
+    return 0
+
+
+def _dry_run(args, repo: str) -> int:
+    """`--dry-run`: every path this command line can write, and none of them
+    written.
+
+    One line per path. The paths come from the same expressions the writers
+    use -- `hooks.paths` for the hook kinds, `propose_docs` for `--docs
+    write` -- so a preview names what the real run names. Whether a listed
+    file is then written depends on what is already in it: a target that
+    already says what this tool would say is left as it is.
+
+    The branches are in the order `main()` takes them, so a command line
+    naming two of them is previewed as the one that would run.
+    """
+    out_dir = os.path.abspath(args.out)
+    if args.docs:
+        if args.docs != "write":
+            print("nothing to write: --docs without `write` already only says "
+                  "what it would write")
+            return 0
+        # The plan comes from a map built for this preview alone:
+        # `out_dir=None` is build()'s "no cache", so previewing `--docs
+        # write` leaves nothing behind either. `propose_docs` without
+        # `apply` writes nothing and never plans a file that exists.
+        planned = propose_docs(repo, build(repo, out_dir=None), apply=False)
+        if not planned:
+            print("nothing to write: every directory already explains itself")
+            return 0
+        targets = [os.path.join(repo, rel) for rel, _text, _why in planned]
+    elif args.install_hook:
+        # The kinds that write under ~ refuse a home they only found in the
+        # passwd entry, and so does their preview: no path is better than an
+        # invented one.
+        refusal = hooks.home_refusal(args.install_hook)
+        if refusal:
+            print(refusal)
+            return 2
+        targets = hooks.paths(repo, args.install_hook)
+    elif args.init:
+        targets = [os.path.join(repo, ".framework-map.json")]
+    else:
+        # A build, whether it was asked for by itself, by --agent-file or by
+        # --watch: the parse cache, the three map files, and the two optional
+        # ones. The semantic index adds semantic_index.json and .npy to the
+        # same directory when the optional extra is installed.
+        targets = [os.path.join(out_dir, _PARSE_CACHE_FILE),
+                   os.path.join(out_dir, "framework_map.json"),
+                   os.path.join(out_dir, "framework_map_brief.md"),
+                   os.path.join(out_dir, "framework_map.md")]
+        if args.html:
+            targets.append(os.path.join(out_dir, "framework_map.html"))
+        if args.agent_file:
+            targets.append(os.path.abspath(args.agent_file))
+    for path in targets:
+        print(_would(path))
+    return 0
+
+
+def main() -> int:
+    _reconfigure_streams()
+    ap = build_parser()
+    argv = sys.argv[1:]
+    # Read off argv rather than parsed: `--effects -- <command line>` carries
+    # a command line of its own, which is not this parser's to consume, and
+    # the answer is about the tool rather than about any repository.
+    #
+    # Resolved through `flags_in`, not matched as a literal. argparse accepts
+    # any unambiguous prefix, so `--effect` and `--eff` are `--effects`, and
+    # the classifier resolves them the same way: matching the string alone
+    # let `--effect` fall through to a build while `--effects -- ... --effect`
+    # called that same line a read.
+    if "--effects" in effects.flags_in(argv, effects.option_strings(ap)):
+        return _effects_command(ap, argv)
     args = ap.parse_args()
     args.repo = _resolve_repo(args.repo, args.out)
+
+    # The preview comes before the branches that serve, fetch or answer, so
+    # asking what a command line writes never runs it. What each of them
+    # would write is `_dry_run_answer`'s to say.
+    if args.dry_run and (args.mcp or args.lsp or args.specs or args.sections
+                         or args.ask or args.pointer or args.callers
+                         or args.callees or args.impact or args.more_handle):
+        return _dry_run_answer(args)
 
     # Answering from a map that already exists needs none of what follows: no
     # repository walk, no product roots, no config. It is a read.
@@ -705,6 +883,12 @@ def main() -> int:
     if not os.path.isdir(repo):
         print(f"framework_map: {repo} is not a directory", file=sys.stderr)
         return 2
+
+    # Before the first write of any path below, and after the manifest has
+    # had its say about --out and --agent-file, so the preview names the
+    # paths this same command line would write.
+    if args.dry_run:
+        return _dry_run(args, repo)
 
     # Build when there is no map, or when the repository has moved since the one
     # that is there was built. Otherwise the map on disk is the map that would

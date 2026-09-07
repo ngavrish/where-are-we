@@ -114,6 +114,131 @@ def _layer_line(paths: list, what: str) -> str:
     return f"{what} — {len(paths)} files under {where}"
 
 
+# The names whose result is a value of a builtin type, whatever a caller
+# passes them, and the three `collections` factories a repository reaches for
+# often enough to be worth naming. A receiver holding one of these is not a
+# first-party object, so a method call on it is not a first-party call: `out =
+# set()` followed by `out.add(key)` is `set.add`, and every `def add` in the
+# tree is somebody else's. Only the shape is recorded here; whether the name
+# really means the builtin, or has been shadowed by a definition or an import
+# of this tree, is decided later, where the tree's own names are known.
+_MAKES_A_BUILTIN = {"bool", "bytearray", "bytes", "complex", "dict",
+                    "enumerate", "float", "frozenset", "int", "list",
+                    "memoryview", "object", "range", "reversed", "set",
+                    "sorted", "str", "tuple", "zip"}
+_MAKES_A_STDLIB_CONTAINER = {"Counter", "OrderedDict", "defaultdict", "deque"}
+
+# The shape of a value that is a builtin whatever else is in the file: a
+# literal, a comprehension, an f-string. Nothing has to be looked up to know
+# what `{}` is.
+_LITERAL_NODES = (ast.Constant, ast.Dict, ast.DictComp, ast.GeneratorExp,
+                  ast.JoinedStr, ast.List, ast.ListComp, ast.Set,
+                  ast.SetComp, ast.Tuple)
+
+
+def _value_shape(value) -> str:
+    """What a name was bound to, as one token the resolving pass can judge.
+
+    `""` for a value that is a builtin on sight, `n:NAME` for a call to a
+    bare name, `a:RECV.ATTR` for a call to an attribute of a bare name, and
+    `?` for everything else, which is every value this pass cannot place.
+
+    `None` is `?` rather than `""`. It is an `ast.Constant` like `0` and
+    `""` are, but a parameter defaulting to `None` says nothing about what a
+    caller passes, and `x = None` before a branch that fills `x` in says
+    nothing about what `x` holds at the call.
+    """
+    if isinstance(value, ast.Constant):
+        return "?" if value.value is None else ""
+    if isinstance(value, _LITERAL_NODES):
+        return ""
+    if isinstance(value, ast.Call):
+        if isinstance(value.func, ast.Name):
+            return f"n:{value.func.id}"
+        if isinstance(value.func, ast.Attribute) \
+                and isinstance(value.func.value, ast.Name):
+            return f"a:{value.func.value.id}.{value.func.attr}"
+    return "?"
+
+
+def _receiver_token(value) -> str:
+    """What a call was made on, as one token.
+
+    A bare name is that name, and the function's own bindings say what it
+    holds. `d.setdefault(k, set())` is a set whatever `d` is, because that is
+    what `dict.setdefault` returns when the key is missing and what the key
+    holds when it is not, so the token is `=` and the shape of the second
+    argument. Everything else is `?`: an attribute, a subscript, or any other
+    call is a receiver nothing written here places.
+    """
+    if isinstance(value, ast.Name):
+        return value.id
+    if isinstance(value, ast.Call) and isinstance(value.func, ast.Attribute) \
+            and value.func.attr == "setdefault" and len(value.args) == 2 \
+            and not value.keywords:
+        shape = _value_shape(value.args[1])
+        if shape != "?":
+            return f"={shape}"
+    return "?"
+
+
+def _bound_shapes(node) -> list:
+    """Every `(name, shape)` one statement binds in the function around it.
+
+    Assignments, walrus, annotated assignments, `for` targets, `with ... as`
+    and `except ... as`, plus the parameters of every function and lambda,
+    whose default is what a parameter is known to hold and whose absence is
+    not. A tuple target against a tuple value of the same length is taken
+    apart, because `targets, bare, said = set(), set(), {}` is how a function
+    that builds three containers at once is written.
+    """
+    out = []
+
+    def _target(where, value):
+        if isinstance(where, ast.Name):
+            out.append((where.id, _value_shape(value)))
+        elif isinstance(where, (ast.Tuple, ast.List)):
+            parts = getattr(value, "elts", None) if isinstance(
+                value, (ast.Tuple, ast.List)) else None
+            for i, part in enumerate(where.elts):
+                _target(part, parts[i] if parts and len(parts) == len(where.elts)
+                        else None)
+
+    if isinstance(node, ast.Assign):
+        for target in node.targets:
+            _target(target, node.value)
+    elif isinstance(node, (ast.AnnAssign, ast.NamedExpr)):
+        _target(node.target, node.value)
+    elif isinstance(node, (ast.For, ast.AsyncFor)):
+        _target(node.target, None)
+    elif isinstance(node, (ast.With, ast.AsyncWith)):
+        for item in node.items:
+            if item.optional_vars is not None:
+                _target(item.optional_vars, None)
+    elif isinstance(node, ast.ExceptHandler):
+        if node.name:
+            out.append((node.name, "?"))
+    elif isinstance(node, ast.Global):
+        # A name declared global is the module's, not the enclosing
+        # function's, whatever the enclosing function bound by that name.
+        out.extend((name, "?") for name in node.names)
+    args = getattr(node, "args", None)
+    if isinstance(args, ast.arguments):
+        positional = list(getattr(args, "posonlyargs", [])) + list(args.args)
+        first = len(positional) - len(args.defaults)
+        for i, arg in enumerate(positional):
+            out.append((arg.arg, _value_shape(args.defaults[i - first])
+                        if i >= first else "?"))
+        for arg, default in zip(args.kwonlyargs, args.kw_defaults):
+            out.append((arg.arg, _value_shape(default) if default is not None
+                        else "?"))
+        # `*args` is a tuple and `**kwargs` is a dict, always.
+        for extra in (args.vararg, args.kwarg):
+            if extra is not None:
+                out.append((extra.arg, ""))
+    return out
+
+
 def build(repo: str, out_dir: str | None = None,
           keep_indexes: bool = False, force: bool = False) -> dict:
     # Nothing this build accumulates may come from the build before it. Read
@@ -1764,6 +1889,10 @@ def build(repo: str, out_dir: str | None = None,
     # name two files declare has two homes, the edge names both of them and
     # the trailing `?` says the map is choosing between them.
     homes_py: dict[str, set] = {}
+    # The same for classes, which is what a base name in a `class D(Base)`
+    # line has to be looked up in: `self.add(...)` inside `D` reaches `Base`,
+    # and `Base` lives in a file.
+    class_homes_py: dict[str, set] = {}
     homes_tsjs: dict[str, set] = {}
     homes_go: dict[str, set] = {}
     # Per language: how many callee names the walk looked at, how many it
@@ -1852,13 +1981,22 @@ def build(repo: str, out_dir: str | None = None,
                 hits.add(home)
         return hits
 
-    def _module_is_here(module: str, level: int, rel: str, files) -> bool:
+    def _module_is_here(module: str, level: int, rel: str, files,
+                        homes=None) -> bool:
         """Whether the module `rel` imported is a module of this tree.
 
         A file that is the module, a package `__init__.py`, or a directory
         with indexed files under it, because a package this walk read is
         first-party whether or not it carries an `__init__.py`. `os`,
         `requests` and `datetime` are none of those.
+
+        The directory is the weak half: it matches on the last part of the
+        path at any depth, so `tests/fixtures/logging/` makes `import
+        logging` look first-party. Where `homes` is given, the callee's
+        candidate homes, a directory only counts when one of those homes is
+        under it. A vendored `requests/__init__.py` declaring `get` matches
+        as a file and never reaches this, and a `logging/` directory that
+        declares no `info` no longer speaks for `logging.info(...)`.
         """
         target = _module_target(module, level, rel)
         if target is None:
@@ -1870,8 +2008,14 @@ def build(repo: str, out_dir: str | None = None,
         if _module_homes(module, level, rel, files):
             return True
         inside = f"{target}/"
-        return any(f.replace(os.sep, "/").startswith(inside)
-                   or f"/{inside}" in f.replace(os.sep, "/") for f in files)
+
+        def _under(path: str) -> bool:
+            here = path.replace(os.sep, "/")
+            return here.startswith(inside) or f"/{inside}" in here
+
+        if not any(_under(f) for f in files):
+            return False
+        return homes is None or any(_under(h) for h in homes)
 
     raw_calls_by_rel: dict[str, dict] = {}
     for rel in code_files:
@@ -1884,7 +2028,8 @@ def build(repo: str, out_dir: str | None = None,
                 tree = ast.parse(_read(rel))
             except (SyntaxError, ValueError):
                 return {"defs": [], "calls": {}, "names": {}, "imports": {},
-                        "mods": {}}
+                        "mods": {}, "refrom": {}, "aliases": {}, "recv": {},
+                        "made": {}, "classes": {}, "owner": {}}
             # What this file says it means by a name. `imports` is every
             # `from MOD import name`; `aliases` is what an import binds that a
             # `NAME.attr()` call can be read through, recorded as
@@ -1896,7 +2041,16 @@ def build(repo: str, out_dir: str | None = None,
             # settings` is then left alone, because what it binds may be an
             # object rather than a module and an object's method is not
             # something this pass can place.
-            imports, aliases = {}, {}
+            # `refrom` is the third table and the narrowest: every module a
+            # `from MOD import name` line takes `name` from, under the name it
+            # binds, and only where the line renames nothing. It is what says
+            # where a file that carries a name but does not declare it got it
+            # from, so `mapper.py`'s `from ._mapper.build import build` leads
+            # to the file that has the `def`. Every such line is kept, because
+            # a module written twice in a `try`/`except ImportError` pair (this
+            # package writes each of its own imports both ways) offers two
+            # spellings and either may be the one that resolves.
+            imports, aliases, refrom = {}, {}, {}
             for node in ast.walk(tree):
                 if isinstance(node, ast.ImportFrom):
                     package = node.module or ""
@@ -1905,19 +2059,75 @@ def build(repo: str, out_dir: str | None = None,
                         aliases[alias.asname or alias.name] = [
                             f"{package}.{alias.name}" if package else alias.name,
                             node.level, package]
+                        if alias.asname in (None, alias.name):
+                            # `from M import name` and the redundant
+                            # `from M import name as name`, which is how a
+                            # typed package spells a deliberate re-export.
+                            line = [package, node.level]
+                            lines = refrom.setdefault(alias.name, [])
+                            if line not in lines:
+                                lines.append(line)
                 elif isinstance(node, ast.Import):
                     for alias in node.names:
                         if alias.asname:
                             aliases[alias.asname] = [alias.name, 0, alias.name]
                         elif "." not in alias.name:
                             aliases[alias.name] = [alias.name, 0, alias.name]
-            defs, calls, names, mods = [], {}, {}, {}
+            # What each class in the file holds, and which class a method
+            # name belongs to, so `self.name(...)` can be answered by the
+            # class the method is in. A method name two classes in one file
+            # both declare belongs to neither as far as this table is
+            # concerned: `?` is what "the file says two things" looks like.
+            classes, owner = {}, {}
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ClassDef):
+                    continue
+                # How the base was written, kept rather than flattened to
+                # a name: `class D(Base)` is answered by what this file
+                # imports as `Base`, `class D(other.Base)` by what it imports
+                # as `other`, and `class D(Generic[T])` by nothing at all.
+                bases = []
+                for b in node.bases:
+                    if isinstance(b, ast.Name):
+                        bases.append(["n", b.id])
+                    elif isinstance(b, ast.Attribute) \
+                            and isinstance(b.value, ast.Name):
+                        bases.append(["a", b.value.id, b.attr])
+                    else:
+                        bases.append(["?"])
+                methods = sorted({k.name for k in node.body if isinstance(
+                    k, (ast.FunctionDef, ast.AsyncFunctionDef))})
+                classes[node.name] = {"bases": bases, "methods": methods}
+                for method in methods:
+                    owner[method] = ("?" if owner.get(method, node.name)
+                                     != node.name else node.name)
+            # Which function each function is written inside, so a nested one
+            # can be told what the name it never binds itself holds: `seen =
+            # set()` in the enclosing function is what `seen.add(word)` inside
+            # the nested `add` is calling. An explicit stack rather than
+            # recursion, because the depth here is the depth of the file's
+            # syntax tree.
+            holder_of = {}
+            todo = [(tree, None)]
+            while todo:
+                node, holder = todo.pop()
+                for child in ast.iter_child_nodes(node):
+                    if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        holder_of[child] = holder
+                        todo.append((child, child))
+                    else:
+                        todo.append((child, holder))
+
+            defs, calls, names, mods, recv, made = [], {}, {}, {}, {}, {}
+            built_of, recv_of = {}, {}
             for node in ast.walk(tree):
                 if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     continue
                 defs.append(node.name)
-                targets, bare, said = set(), set(), {}
+                targets, bare, said, on_what, built = set(), set(), {}, {}, {}
                 for c in ast.walk(node):
+                    for bound, shape in _bound_shapes(c):
+                        built.setdefault(bound, set()).add(shape)
                     if not isinstance(c, ast.Call):
                         continue
                     if isinstance(c.func, ast.Name):
@@ -1925,6 +2135,11 @@ def build(repo: str, out_dir: str | None = None,
                         bare.add(c.func.id)
                     elif isinstance(c.func, ast.Attribute):
                         targets.add(c.func.attr)
+                        # What the call was made on: a bare name, the shape
+                        # a `setdefault` handed back, or `?` for a receiver
+                        # nothing written here places.
+                        on_what.setdefault(c.func.attr, set()).add(
+                            _receiver_token(c.func.value))
                         through = aliases.get(getattr(c.func.value, "id", ""))
                         if through:
                             on = said.setdefault(c.func.attr, [])
@@ -1934,26 +2149,238 @@ def build(repo: str, out_dir: str | None = None,
                 names[node.name] = sorted(b for b in bare if b)
                 if said:
                     mods[node.name] = {k: sorted(v) for k, v in said.items()}
+                # Unconditionally, like `calls` and `names` above: two
+                # functions of one name share a key here, and a later one
+                # must replace an earlier one's tables rather than leave them
+                # standing to be read beside its own calls.
+                recv[node.name] = {k: sorted(v) for k, v in on_what.items()}
+                built_of[node] = built
+                recv_of[node] = on_what
+            for node, built in built_of.items():
+                # A name the function never binds is the enclosing function's,
+                # so a nested `def add(word)` calling `seen.add(word)` is
+                # calling the `seen = set()` written around it. A name it does
+                # bind is its own, and the enclosing one is out of reach.
+                whole, holder = dict(built), holder_of.get(node)
+                while holder is not None:
+                    for bound, shapes in built_of.get(holder, {}).items():
+                        whole.setdefault(bound, shapes)
+                    holder = holder_of.get(holder)
+                # Only the names something was actually called on are kept.
+                # The rest is every local variable in the file, which this
+                # pass has no question about and the parse cache would carry
+                # around from build to build.
+                asked = {r for group in recv_of.get(node, {}).values()
+                         for r in group}
+                made[node.name] = {k: sorted(v) for k, v in whole.items()
+                                   if k in asked}
             return {"defs": defs, "calls": calls, "names": names,
-                    "imports": imports, "mods": mods}
+                    "imports": imports, "mods": mods, "refrom": refrom,
+                    "aliases": aliases, "recv": recv, "made": made,
+                    "classes": classes, "owner": owner}
 
         _stats("python")
-        func_info = _cached(full, "func_edges", _func_calls_of)
+        # `func_edges_2`, because the record under this key holds six tables
+        # where 1.4.0's held five. The kind is part of the cache key, so a
+        # record whose shape changed is a record this build recomputes; the
+        # alternative, waiting for the version in the cache file's header to
+        # change, makes the correctness of a stored record depend on a
+        # release number moving in the same commit that changed its shape.
+        func_info = _cached(full, "func_edges_2", _func_calls_of)
         raw_calls_by_rel[rel] = func_info
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
             homes_py.setdefault(name, set()).add(rel)
+        for class_name in func_info.get("classes") or ():
+            class_homes_py.setdefault(class_name, set()).add(rel)
     # Every Python file the walk indexed, which is what says whether a module
     # a caller imported is a module of this tree at all. `ast`, `os` and
     # `requests` name no file here; `where_are_we.mapper` names one.
     py_files = set(raw_calls_by_rel)
+
+    # Which indexed file a module names, answered once per build. The scan
+    # behind it reads every Python file the walk indexed, and the answer
+    # depends only on the module, the level and the directory the importing
+    # file sits in, so a thousand callers of one facade ask it once between
+    # them rather than a thousand times each, at each hop.
+    _carrier_memo: dict = {}
+
+    def _carriers(module: str, level: int, rel: str) -> set:
+        """The indexed files a module named from `rel` resolves to."""
+        key = (module, level, os.path.dirname(rel))
+        hit = _carrier_memo.get(key)
+        if hit is None:
+            hit = _carrier_memo[key] = _module_homes(module, level, rel, py_files)
+        return hit
+
+    # And the walk over those files, per facade and name. Every caller of
+    # `mapper.build(...)` asks the same question of `mapper.py`.
+    _reexport_memo: dict = {}
+
+    def _reexport_home(start: str, name: str, where: set,
+                       flavour: str = "def") -> set:
+        """The file a facade takes `name` from, following its import lines.
+
+        `hooks.py` calls `mapper.build(...)`; `mapper.py` is a file of this
+        tree that declares no `build` and carries
+        `from ._mapper.build import build`, so the call reaches
+        `_mapper/build.py` and the edge names that one file rather than every
+        file with a `def build`.
+
+        Three steps: the facade, a facade behind it, and one behind that, so
+        `F -> G -> H -> I` resolves and a longer chain gives up rather than
+        walking a repository. A module that names several homes, a module
+        that names none, and a hop back to a file already visited each end
+        the walk with the empty set, which is the caller's signal to keep the
+        candidate list it already had.
+
+        `where` is the name's homes, so it is a function of `name` and of
+        which table those homes came from, and the answer is memoised on
+        `(start, name, flavour)`. `flavour` is what keeps a class named
+        `Store` and a function named `Store` from sharing an answer.
+        """
+        key = (start, name, flavour)
+        if key in _reexport_memo:
+            return _reexport_memo[key]
+        seen, at = {start}, start
+        answer: set = set()
+        for _step in range(3):
+            lines = ((raw_calls_by_rel.get(at) or {}).get("refrom") or {}).get(name)
+            if not lines:
+                break
+            declares, carries = set(), set()
+            for mod, lvl in lines:
+                declares |= _module_homes(mod, lvl, at, where)
+                carries |= _carriers(mod, lvl, at)
+            if declares:
+                if len(declares) == 1:
+                    answer = declares
+                break
+            if len(carries) != 1:
+                break
+            at = next(iter(carries))
+            if at in seen:
+                break
+            seen.add(at)
+        _reexport_memo[key] = answer
+        return answer
+
+    def _is_builtin_here(rel: str, shape: str, aliases: dict) -> bool:
+        """Whether one recorded binding shape really means a builtin here.
+
+        A literal always does. A call to a bare name does when the name is
+        one of the builtins and this tree has neither a definition nor an
+        import of its own by that name, so a repository with a `def list` is
+        believed about its own `list`. A call to `NAME.attr` does when `attr`
+        is one of the container factories and `NAME` is bound to a module
+        outside this tree, which is what makes `collections.defaultdict(...)`
+        the standard library's and `models.Counter(...)` not.
+        """
+        if shape == "":
+            return True
+        if shape.startswith("n:"):
+            name = shape[2:]
+            bound = aliases.get(name)
+            if name in _MAKES_A_BUILTIN:
+                return name not in homes_py and bound is None
+            return (name in _MAKES_A_STDLIB_CONTAINER and bound is not None
+                    and not _module_is_here(bound[2], bound[1], rel, py_files))
+        if shape.startswith("a:"):
+            through, _, attr = shape[2:].partition(".")
+            bound = aliases.get(through)
+            return (attr in _MAKES_A_STDLIB_CONTAINER | _MAKES_A_BUILTIN
+                    and bound is not None
+                    and not _module_is_here(bound[2], bound[1], rel, py_files))
+        return False
+
+    def _class_homes(rel: str, info: dict, binder: str, class_name: str):
+        """Which indexed files the base class `rel` named could be in.
+
+        `None` where the file offers no evidence at all: a bare `Base` it
+        never imported, or `other.Base` where nothing binds `other`. A name
+        that matches a class somewhere in the tree is not evidence, and an
+        edge written off one would be the map passing a guess off as a
+        lookup.
+
+        The module the import names is resolved the way a receiver is: the
+        files it names that declare the class, and failing that, the one file
+        it names read as a facade that re-exports it.
+        """
+        where = class_homes_py.get(class_name) or set()
+        if binder == class_name:
+            line = (info.get("imports") or {}).get(class_name)
+            module, level = (line[0], line[1]) if line else (None, 0)
+        else:
+            bound = (info.get("aliases") or {}).get(binder)
+            module, level = (bound[0], bound[1]) if bound else (None, 0)
+        if module is None:
+            return None
+        hits = _module_homes(module, level, rel, where)
+        if hits:
+            return hits
+        carriers = _carriers(module, level, rel)
+        if len(carriers) == 1:
+            return _reexport_home(next(iter(carriers)), class_name, where,
+                                  "class")
+        return set()
+
+    def _self_home(rel: str, func_name: str, name: str):
+        """Where `self.name(...)` or `cls.name(...)` inside a method goes.
+
+        `None` where the class the method is in declares `name`, or a base of
+        it declared in the same file does: the call stays inside the file and
+        this graph is the cross-file one. Otherwise the files whose class of
+        that base name declares it, one hop up, which is an answer when there
+        is exactly one and the caller's cue to keep the candidate list
+        otherwise.
+
+        A base the file gives no import evidence for ends the whole question
+        with the empty set. An unplaceable base may be the one that declares
+        the name, so "exactly one of the bases declares it" is not something
+        this can say once one of them is unreadable.
+        """
+        info = raw_calls_by_rel.get(rel) or {}
+        classes = info.get("classes") or {}
+        holder = (info.get("owner") or {}).get(func_name)
+        mine = classes.get(holder) if holder and holder != "?" else None
+        if mine is None:
+            return set()
+        if name in mine["methods"]:
+            return None
+        hits = set()
+        for base in mine["bases"]:
+            if base[0] == "n":
+                beside = classes.get(base[1])
+                if beside is not None:
+                    if name in beside["methods"]:
+                        return None
+                    continue
+                homes = _class_homes(rel, info, base[1], base[1])
+            elif base[0] == "a":
+                homes = _class_homes(rel, info, base[1], base[2])
+            else:
+                homes = None
+            if homes is None:
+                return set()
+            for home in homes:
+                there = ((raw_calls_by_rel.get(home) or {}).get("classes")
+                         or {}).get(base[-1])
+                if there and name in there["methods"]:
+                    hits.add(home)
+        return hits
+
     for rel, info in raw_calls_by_rel.items():
         imports = info.get("imports") or {}
         mods_by_func = info.get("mods") or {}
         bare_by_func = info.get("names") or {}
+        recv_by_func = info.get("recv") or {}
+        made_by_func = info.get("made") or {}
+        aliases_here = info.get("aliases") or {}
         for func_name, raw_targets in (info.get("calls") or {}).items():
             bare = set(bare_by_func.get(func_name) or ())
             mods = mods_by_func.get(func_name) or {}
+            on_what = recv_by_func.get(func_name) or {}
+            built = made_by_func.get(func_name) or {}
             targets = set()
             for name in raw_targets:
                 where = homes_py.get(name) or set()
@@ -1979,7 +2406,8 @@ def build(repo: str, out_dir: str | None = None,
                     said = [[from_mod[0], from_mod[1], from_mod[0]]] if from_mod else []
                 else:
                     said = mods.get(name) or []
-                if said and not any(_module_is_here(pkg, lvl, rel, py_files)
+                if said and not any(_module_is_here(pkg, lvl, rel, py_files,
+                                                    where)
                                     for _mod, lvl, pkg in said):
                     # `ast.walk(...)`, `os.walk(...)`, `requests.get(...)`,
                     # `from os import path` and then `path.join(...)`: the
@@ -1991,6 +2419,45 @@ def build(repo: str, out_dir: str | None = None,
                     # name (`mapper.build`, defined in `_mapper/build.py`) is
                     # a file here and its edge is real.
                     continue
+                # What the call was made on, when every site in this function
+                # agrees and the function never calls the name plainly.
+                on = set(on_what.get(name) or ()) if name not in bare else set()
+
+                def _built(token, rel=rel, built=built):
+                    """Whether one receiver token is a builtin here.
+
+                    A token beginning `=` carries its own shape, from a
+                    `setdefault` whose second argument said what comes back.
+                    Any other token is a name, and the shapes the function
+                    bound it to are what answer, all of them.
+                    """
+                    if token.startswith("="):
+                        return _is_builtin_here(rel, token[1:], aliases_here)
+                    shapes = built.get(token)
+                    return bool(shapes) and all(
+                        _is_builtin_here(rel, shape, aliases_here)
+                        for shape in shapes)
+
+                if on and all(_built(r) for r in on):
+                    # `out = set()` and then `out.add(key)`, `text = ""` and
+                    # then `text.strip()`, `d.setdefault(k, set()).add(v)`:
+                    # the function built the receiver itself, out of a
+                    # builtin, so the method is the builtin's and no `def add`
+                    # in this tree is what runs. A name the function also
+                    # binds to something else is not this case, because one of
+                    # its shapes is not a builtin.
+                    continue
+                if on and on <= {"self", "cls"}:
+                    inherited = _self_home(rel, func_name, name)
+                    if inherited is None:
+                        # The class the method is in declares the name, or a
+                        # base of it in the same file does. The call stays in
+                        # the file and this graph is the cross-file one.
+                        continue
+                    if len(inherited) == 1:
+                        # One base, in one other file, declares it. That is
+                        # where the call lands.
+                        where, mark = inherited, ""
                 if mark:
                     # The caller named the module it meant. One home under the
                     # modules it named is an answer, not a guess.
@@ -1999,6 +2466,19 @@ def build(repo: str, out_dir: str | None = None,
                         hits |= _module_homes(mod, lvl, rel, where)
                     if len(hits) == 1:
                         where, mark = hits, ""
+                    elif not hits:
+                        # None of the modules the caller named declares the
+                        # name, and one of them may still be a facade that
+                        # re-exports it. One module, one file, and that file's
+                        # own import lines say where the name comes from.
+                        carriers: set = set()
+                        for mod, lvl, _pkg in said:
+                            carriers |= _carriers(mod, lvl, rel)
+                        if len(carriers) == 1:
+                            through = _reexport_home(next(iter(carriers)),
+                                                     name, where)
+                            if len(through) == 1:
+                                where, mark = through, ""
                 targets.add(_edge("python", name, where, mark))
             if targets:
                 func_calls[f"{os.path.basename(rel)}:{func_name}"] = sorted(targets)[:8]

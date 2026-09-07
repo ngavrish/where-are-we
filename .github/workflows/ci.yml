@@ -1951,7 +1951,7 @@ jobs:
           rm -rf /tmp/dip
           mkdir -p /tmp/dip/repo
           printf 'def charge(x):\n    return x\n' > /tmp/dip/repo/billing.py
-          # 22 modules, no cycle. On the old layout `mapper` re-exported the
+          # 24 modules, no cycle. On the old layout `mapper` re-exported the
           # command line, which imported `ask`, `hooks`, `lsp` and `mcp`, each
           # of which imported `mapper` back, and eleven imports had to be
           # written inside functions to keep Python from tripping over it.
@@ -2796,6 +2796,39 @@ jobs:
           assert graph == {"keeps.py:k": ["f (p.py|q.py)?"]}, graph
           print("from-import receiver:", graph)
           EOF
+          # A directory named after an imported module is the weakest
+          # evidence there is: it matches on the last part of the path at any
+          # depth. `tests/fixtures/logging/` declaring no `info` does not
+          # speak for `logging.info(...)`, and the two first-party `info`
+          # functions are not what that line calls. A vendored
+          # `requests/__init__.py` that does declare `get` is a file and
+          # still answers for `requests.get(...)`, and a package with no
+          # `__init__.py` whose own files declare the callee still counts.
+          rm -rf /tmp/markdir
+          mkdir -p /tmp/markdir/log/tests/fixtures/logging /tmp/markdir/vend/vendor/requests /tmp/markdir/pkg/mypkg
+          printf 'def info(x):\n    return x\n' > /tmp/markdir/log/a.py
+          printf 'def info(x):\n    return x\n' > /tmp/markdir/log/b.py
+          printf 'HELPER = 1\n' > /tmp/markdir/log/tests/fixtures/logging/x.py
+          printf 'import logging\n\n\ndef go(u):\n    return logging.info(u)\n' > /tmp/markdir/log/caller.py
+          printf 'def get(url):\n    return url\n' > /tmp/markdir/vend/vendor/requests/__init__.py
+          printf 'def get(url):\n    return url\n' > /tmp/markdir/vend/mine.py
+          printf 'import requests\n\n\ndef fetch(u):\n    return requests.get(u)\n' > /tmp/markdir/vend/caller.py
+          printf 'def helper(x):\n    return x\n' > /tmp/markdir/pkg/mypkg/impl.py
+          printf 'def helper(x):\n    return x\n' > /tmp/markdir/pkg/elsewhere.py
+          printf 'import mypkg\n\n\ndef go(u):\n    return mypkg.helper(u)\n' > /tmp/markdir/pkg/caller.py
+          for d in log vend pkg; do
+            where-are-we --repo "/tmp/markdir/$d" --out "/tmp/markdir/$d-out" \
+              --product none --force --quiet --no-semantic
+          done
+          python - <<'EOF'
+          import json
+          def graph(name):
+              return json.load(open(f"/tmp/markdir/{name}-out/framework_map.json"))["call_graph_files"]
+          assert graph("log") == {}, graph("log")
+          assert graph("vend") == {"caller.py:fetch": ["get (__init__.py)"]}, graph("vend")
+          assert graph("pkg") == {"caller.py:go": ["helper (elsewhere.py|impl.py)?"]}, graph("pkg")
+          print("directory evidence:", graph("log"), graph("vend"), graph("pkg"))
+          EOF
           # A name exactly one file defines keeps a bare edge: the poly
           # fixture's `charge` is declared once, and its edge carries no mark.
           rm -rf /tmp/markpoly
@@ -2815,6 +2848,252 @@ jobs:
           assert all(row["marked"] == 0 for row in m["call_graph_stats"].values()), \
               m["call_graph_stats"]
           print("poly: unique edges carry no mark")
+          EOF
+
+      - name: a re-export resolves to the file that declares the name
+        run: |
+          set -o pipefail
+          # A facade is a file that carries a name it does not declare.
+          # `facade.py` has no `def build`; it has `from impl import build`,
+          # so `facade.build(...)` runs `impl.py`'s `build` and the edge says
+          # so, even though `other.py` declares a `build` of its own.
+          rm -rf /tmp/reex
+          mkdir -p /tmp/reex/repo
+          printf 'def build(x):\n    return x\n' > /tmp/reex/repo/impl.py
+          printf 'def build(x):\n    return x\n' > /tmp/reex/repo/other.py
+          printf 'from impl import build\n' > /tmp/reex/repo/facade.py
+          printf 'import facade\n\n\ndef go(u):\n    return facade.build(u)\n' > /tmp/reex/repo/caller.py
+          # A facade in front of a facade: two hops, and the answer is still
+          # the file with the `def`.
+          printf 'from facade import build\n' > /tmp/reex/repo/outer.py
+          printf 'import outer\n\n\ndef go2(u):\n    return outer.build(u)\n' > /tmp/reex/repo/caller2.py
+          # A pair of files that take the name from each other and neither
+          # declares it. The walk ends at the file it has already visited and
+          # the candidate list stands, which is what the map knows.
+          printf 'from b import f\n' > /tmp/reex/repo/a.py
+          printf 'from a import f\n' > /tmp/reex/repo/b.py
+          printf 'def f(x):\n    return x\n' > /tmp/reex/repo/c.py
+          printf 'def f(x):\n    return x\n' > /tmp/reex/repo/d.py
+          printf 'import a\n\n\ndef spin(u):\n    return a.f(u)\n' > /tmp/reex/repo/caller3.py
+          where-are-we --repo /tmp/reex/repo --out /tmp/reex/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/reex/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph["caller.py:go"] == ["build (impl.py)"], graph
+          assert graph["caller2.py:go2"] == ["build (impl.py)"], graph
+          assert graph["caller3.py:spin"] == ["f (c.py|d.py)?"], graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 2 and stats["marked"] == 1, stats
+          print("re-export:", graph, stats)
+          EOF
+          # A package is no different: `pkg/mod.py` is a file, and a file that
+          # re-exports resolves whether it is reached as `pkg.mod` or as a
+          # module beside the caller.
+          rm -rf /tmp/reexpkg
+          mkdir -p /tmp/reexpkg/repo/pkg
+          printf 'def build(x):\n    return x\n' > /tmp/reexpkg/repo/deep.py
+          printf 'def build(x):\n    return x\n' > /tmp/reexpkg/repo/other.py
+          : > /tmp/reexpkg/repo/pkg/__init__.py
+          printf 'from deep import build\n' > /tmp/reexpkg/repo/pkg/mod.py
+          printf 'from pkg import mod\n\n\ndef go(u):\n    return mod.build(u)\n' > /tmp/reexpkg/repo/caller.py
+          where-are-we --repo /tmp/reexpkg/repo --out /tmp/reexpkg/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/reexpkg/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph == {"caller.py:go": ["build (deep.py)"]}, graph
+          assert m["call_graph_stats"]["python"]["marked"] == 0, m["call_graph_stats"]
+          print("re-export through a package:", graph)
+          EOF
+          # And this repository's own facade. `mapper.py` re-exports `build`
+          # from `_mapper/build.py` and `digest` from `_mapper/render.py`, so
+          # the hook that builds a map names the two files that do the work.
+          rm -rf /tmp/reexself
+          where-are-we --repo . --out /tmp/reexself \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          graph = json.load(open("/tmp/reexself/framework_map.json"))["call_graph_files"]
+          edges = graph["hooks.py:_ensure_map"]
+          assert "build (build.py)" in edges, edges
+          assert "digest (render.py)" in edges, edges
+          print("this repository:", edges)
+          EOF
+          where-are-we --out /tmp/reexself --callers build > /tmp/reexself-callers.txt
+          grep -qx "hooks.py:_ensure_map" /tmp/reexself-callers.txt
+          # The walk is three steps, and the fixture says where the cap
+          # falls: `g3 -> g2 -> g1 -> okimpl` resolves, `h1 -> h2 -> h3 -> h4
+          # -> deepimpl` is one step too far and the candidate list stands.
+          # `from impl import build as build` is the redundant rename a typed
+          # package writes to mean a deliberate re-export, and it is followed;
+          # `from impl import build as made` is a real rename and is not.
+          rm -rf /tmp/reexhops
+          mkdir -p /tmp/reexhops/repo
+          printf 'def pow3(x):\n    return x\n' > /tmp/reexhops/repo/okimpl.py
+          printf 'def pow3(x):\n    return x\n' > /tmp/reexhops/repo/otherpow.py
+          printf 'from okimpl import pow3\n' > /tmp/reexhops/repo/g1.py
+          printf 'from g1 import pow3\n' > /tmp/reexhops/repo/g2.py
+          printf 'from g2 import pow3\n' > /tmp/reexhops/repo/g3.py
+          printf 'import g3\n\n\ndef three(u):\n    return g3.pow3(u)\n' > /tmp/reexhops/repo/callerthree.py
+          printf 'def zap(x):\n    return x\n' > /tmp/reexhops/repo/deepimpl.py
+          printf 'def zap(x):\n    return x\n' > /tmp/reexhops/repo/otherzap.py
+          printf 'from deepimpl import zap\n' > /tmp/reexhops/repo/h4.py
+          printf 'from h4 import zap\n' > /tmp/reexhops/repo/h3.py
+          printf 'from h3 import zap\n' > /tmp/reexhops/repo/h2.py
+          printf 'from h2 import zap\n' > /tmp/reexhops/repo/h1.py
+          printf 'import h1\n\n\ndef deep(u):\n    return h1.zap(u)\n' > /tmp/reexhops/repo/callerdeep.py
+          printf 'def build(x):\n    return x\n' > /tmp/reexhops/repo/impl.py
+          printf 'def build(x):\n    return x\n' > /tmp/reexhops/repo/otherbuild.py
+          printf 'from impl import build as build\n' > /tmp/reexhops/repo/facade.py
+          printf 'import facade\n\n\ndef go(u):\n    return facade.build(u)\n' > /tmp/reexhops/repo/caller.py
+          printf 'from impl import build as made\n' > /tmp/reexhops/repo/renamer.py
+          printf 'import renamer\n\n\ndef go2(u):\n    return renamer.made(u)\n' > /tmp/reexhops/repo/caller2.py
+          where-are-we --repo /tmp/reexhops/repo --out /tmp/reexhops/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          graph = json.load(open("/tmp/reexhops/out/framework_map.json"))["call_graph_files"]
+          assert graph["callerthree.py:three"] == ["pow3 (okimpl.py)"], graph
+          assert graph["callerdeep.py:deep"] == ["zap (deepimpl.py|otherzap.py)?"], graph
+          assert graph["caller.py:go"] == ["build (impl.py)"], graph
+          assert "caller2.py:go2" not in graph, graph
+          print("hops and renames:", graph)
+          EOF
+
+      - name: a receiver the function itself built is not a first-party call
+        run: |
+          set -o pipefail
+          # `out = set()` and then `out.add(1)` is `set.add`, whatever this
+          # tree declares by that name, so there is no edge and nothing to
+          # mark. `out = make()` says nothing about what `out` holds, so that
+          # edge stands with its candidate list.
+          rm -rf /tmp/rcv
+          mkdir -p /tmp/rcv/repo
+          printf 'def add(x):\n    return x\n' > /tmp/rcv/repo/a.py
+          printf 'def add(x):\n    return x\n' > /tmp/rcv/repo/b.py
+          printf 'def make():\n    return []\n\n\ndef g():\n    out = set()\n    out.add(1)\n    return out\n' > /tmp/rcv/repo/built.py
+          printf 'from built import make\n\n\ndef h():\n    out = make()\n    out.add(1)\n    return out\n' > /tmp/rcv/repo/opaque.py
+          # The two container factories, under both spellings of the import.
+          printf 'from collections import Counter\nimport collections\n\n\ndef tally(rows):\n    seen = Counter()\n    seen.add(1)\n    box = collections.defaultdict(list)\n    box.add(2)\n    return seen, box\n' > /tmp/rcv/repo/tally.py
+          # A name a nested function never binds is the one written around it.
+          printf 'def nested():\n    seen = set()\n\n    def inner(word):\n        seen.add(word)\n\n    inner("x")\n    return seen\n' > /tmp/rcv/repo/closure.py
+          where-are-we --repo /tmp/rcv/repo --out /tmp/rcv/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/rcv/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph == {"opaque.py:h": ["add (a.py|b.py)?",
+                                           "make (built.py)"]}, graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 1 and stats["marked"] == 1, stats
+          print("built receivers:", graph, stats)
+          EOF
+          # `self.add(...)` in a class that declares `add` is a call inside
+          # the file. `self.add(...)` in a class whose one base lives in
+          # another file is a call to that file. A base this tree never
+          # declares settles nothing, and the candidate list stands.
+          rm -rf /tmp/selfcls
+          mkdir -p /tmp/selfcls/repo
+          printf 'def add(x):\n    return x\n' > /tmp/selfcls/repo/a.py
+          printf 'def add(x):\n    return x\n' > /tmp/selfcls/repo/b.py
+          printf 'class C:\n    def add(self, x):\n        return x\n\n    def g(self):\n        return self.add(1)\n\n    @classmethod\n    def k(cls):\n        return cls.add(None, 2)\n' > /tmp/selfcls/repo/c.py
+          printf 'class Base:\n    def add(self, x):\n        return x\n' > /tmp/selfcls/repo/base.py
+          printf 'from base import Base\n\n\nclass D(Base):\n    def go(self):\n        return self.add(1)\n' > /tmp/selfcls/repo/d.py
+          printf 'class Mystery(Whatever):\n    def run(self):\n        return self.add(1)\n' > /tmp/selfcls/repo/e.py
+          where-are-we --repo /tmp/selfcls/repo --out /tmp/selfcls/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/selfcls/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert "c.py:g" not in graph and "c.py:k" not in graph, graph
+          assert graph["d.py:go"] == ["add (base.py)"], graph
+          assert graph["e.py:run"] == ["add (a.py|b.py|base.py|c.py)?"], graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 1 and stats["marked"] == 1, stats
+          print("self and cls:", graph, stats)
+          EOF
+          # And the three rules together on this repository: every surviving
+          # mark is a call on a receiver that is not a plain name, so there is
+          # nothing left for a rule of this kind to settle.
+          rm -rf /tmp/rcvself
+          where-are-we --repo . --out /tmp/rcvself \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/rcvself/framework_map.json"))
+          graph = m["call_graph_files"]
+          marked = [(k, e) for k, v in sorted(graph.items()) for e in v
+                    if e.endswith("?")]
+          assert len(graph) == 60, len(graph)
+          assert len(marked) <= 1, marked
+          assert all(e.startswith("add ") for _k, e in marked), marked
+          print("this repository:", len(graph), "keys", len(marked), "marked",
+                marked)
+          EOF
+          # What the rule does not claim. A parameter defaulting to `None`
+          # says nothing about what a caller passes, so that edge stands. A
+          # `setdefault` whose second argument is a builtin says what comes
+          # back, so `d.setdefault(k, set()).add(v)` is `set.add`; `d[k]` says
+          # nothing and keeps its mark. Two functions of one name in a file
+          # share a graph key, and the second one's receiver is its own: the
+          # first one's `out = set()` does not settle it.
+          rm -rf /tmp/rcvedge
+          mkdir -p /tmp/rcvedge/repo
+          printf 'def add(x):\n    return x\n' > /tmp/rcvedge/repo/a.py
+          printf 'def add(x):\n    return x\n' > /tmp/rcvedge/repo/b.py
+          printf 'def f(store=None, count=0, label=""):\n    store.add(1)\n    return count, label\n' > /tmp/rcvedge/repo/nonedef.py
+          printf 'def sd(d, k, v):\n    d.setdefault(k, set()).add(v)\n    return d\n' > /tmp/rcvedge/repo/sd.py
+          printf 'def sub(d, k, v):\n    d[k].add(v)\n    return d\n' > /tmp/rcvedge/repo/sub.py
+          printf 'out = None\n\n\ndef f():\n    out = set()\n    out.add(1)\n    return out\n\n\ndef f():\n    out.add(2)\n    return out\n' > /tmp/rcvedge/repo/dup.py
+          where-are-we --repo /tmp/rcvedge/repo --out /tmp/rcvedge/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/rcvedge/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph["nonedef.py:f"] == ["add (a.py|b.py)?"], graph
+          assert graph["sub.py:sub"] == ["add (a.py|b.py)?"], graph
+          assert graph["dup.py:f"] == ["add (a.py|b.py)?"], graph
+          assert "sd.py:sd" not in graph, graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 0 and stats["marked"] == 3, stats
+          print("what the rule does not claim:", graph, stats)
+          EOF
+          # A base class is followed only where the file says where it comes
+          # from. `class D(other.Base)` where `other.py` has no `Base`, and
+          # `class E(Base)` with no import at all, both keep the candidate
+          # list; the three spellings that do carry evidence resolve, the last
+          # of them through a facade that re-exports the class.
+          rm -rf /tmp/attrbase
+          mkdir -p /tmp/attrbase/repo
+          printf 'def add(x):\n    return x\n' > /tmp/attrbase/repo/a.py
+          printf 'class Base:\n    def add(self, x):\n        return x\n' > /tmp/attrbase/repo/base.py
+          printf 'class Other:\n    pass\n' > /tmp/attrbase/repo/other.py
+          printf 'import other\n\n\nclass D(other.Base):\n    def go(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/d.py
+          printf 'class E(Base):\n    def run(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/e.py
+          printf 'from base import Base\n\n\nclass G(Base):\n    def go2(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/g.py
+          printf 'import base\n\n\nclass H(base.Base):\n    def go3(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/h.py
+          printf 'from base import Base\n' > /tmp/attrbase/repo/facade.py
+          printf 'from facade import Base\n\n\nclass K(Base):\n    def go4(self):\n        return self.add(1)\n' > /tmp/attrbase/repo/k.py
+          where-are-we --repo /tmp/attrbase/repo --out /tmp/attrbase/out \
+            --product none --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/attrbase/out/framework_map.json"))
+          graph = m["call_graph_files"]
+          assert graph["d.py:go"] == ["add (a.py|base.py)?"], graph
+          assert graph["e.py:run"] == ["add (a.py|base.py)?"], graph
+          assert graph["g.py:go2"] == ["add (base.py)"], graph
+          assert graph["h.py:go3"] == ["add (base.py)"], graph
+          assert graph["k.py:go4"] == ["add (base.py)"], graph
+          stats = m["call_graph_stats"]["python"]
+          assert stats["edges"] == 3 and stats["marked"] == 2, stats
+          print("a base is followed on evidence:", graph, stats)
           EOF
 
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"
@@ -2881,3 +3160,190 @@ jobs:
               print(fixture, stats)
           EOF
 
+      - name: every flag the parser knows is in the effects table, and nothing else is
+        run: |
+          set -o pipefail
+          # A guard classifies this tool by its flags. A flag the parser
+          # grows and the table does not is a write nobody was told about.
+          python - <<'EOF'
+          import sys
+          from where_are_we import effects
+          from where_are_we.cli import build_parser
+          known = set(effects.option_strings(build_parser()))
+          table = set(effects.EFFECTS)
+          missing, extra = sorted(known - table), sorted(table - known)
+          unclassed = sorted(f for f, c in effects.EFFECTS.items()
+                             if c not in effects.ORDER)
+          print(f"{len(known)} flags on the parser, {len(table)} in the table, "
+                f"not in the table: {missing}, not on the parser: {extra}, "
+                f"with a class the order does not know: {unclassed}")
+          sys.exit(1 if (missing or extra or unclassed) else 0)
+          EOF
+          # The file in the wheel is the table, byte for byte. Regenerate
+          # it with the same command when the table moves:
+          #   where-are-we --effects --json > src/where_are_we/effects.json
+          where-are-we --effects --json > /tmp/effects.json
+          diff -u src/where_are_we/effects.json /tmp/effects.json
+          # The class of a flag, not only its presence: a table that still
+          # holds every flag while calling --install-hook a read passes a
+          # membership check and misleads every guard that reads it.
+          python - <<'EOF'
+          import importlib.resources as res, json, pathlib, sys
+          from where_are_we import effects
+          named = (("--ask", "read"), ("--mcp", "read"), ("--pointer", "read"),
+                   ("--out", "writes-map-dir"), ("--html", "writes-map-dir"),
+                   ("--force", "writes-map-dir"), ("--watch", "writes-map-dir"),
+                   ("--init", "writes-repo"), ("--agent-file", "writes-repo"),
+                   ("--install-hook", "writes-config"),
+                   ("--spec-source", "network"))
+          wrong = [(f, effects.EFFECTS[f], c) for f, c in named
+                   if effects.EFFECTS[f] != c]
+          # The file in the checkout is the table, key by key, and the copy
+          # installed beside the code is that file byte for byte.
+          on_disk = pathlib.Path("src/where_are_we/effects.json").read_bytes()
+          shipped = res.files("where_are_we").joinpath("effects.json").read_bytes()
+          data = json.loads(on_disk)
+          drift = sorted(f for f in set(data["flags"]) | set(effects.EFFECTS)
+                         if data["flags"].get(f) != effects.EFFECTS.get(f))
+          print(f"classes checked: {len(named)}, wrong: {wrong}, "
+                f"flags differing from the table: {drift}, "
+                f"installed copy identical: {shipped == on_disk}")
+          assert data["schema"] == "where-are-we-effects/1", data["schema"]
+          assert data["order"] == ["read", "writes-map-dir", "writes-repo",
+                                   "writes-config", "network"], data["order"]
+          # A guard reading JSON is told what a read can still write.
+          assert "<out>/.wawe-ask.log" in data["notes"]["read"], data["notes"]
+          sys.exit(1 if (wrong or drift or shipped != on_disk) else 0)
+          EOF
+
+      - name: a command line says what it would write before it runs
+        run: |
+          set -o pipefail
+          rm -rf /tmp/eff
+          mkdir -p /tmp/eff
+          where-are-we --effects -- where-are-we --out /tmp/eff/m --ask x > /tmp/eff/a
+          where-are-we --effects -- where-are-we --install-hook git > /tmp/eff/b
+          where-are-we --effects -- where-are-we --mcp > /tmp/eff/c
+          where-are-we --effects -- where-are-we --repo . > /tmp/eff/d
+          cat /tmp/eff/a /tmp/eff/b /tmp/eff/c /tmp/eff/d
+          grep -qx writes-map-dir /tmp/eff/a
+          grep -qx "\-\-out writes-map-dir" /tmp/eff/a
+          grep -qx "\-\-ask read" /tmp/eff/a
+          grep -qx writes-config /tmp/eff/b
+          grep -qx read /tmp/eff/c
+          # Nothing on that last line says "write", and it still writes: with
+          # no flag that answers from an existing map, the run builds one.
+          grep -qx writes-map-dir /tmp/eff/d
+          grep -qx "build writes-map-dir" /tmp/eff/d
+          # Classifying runs nothing, so the directory in the command line
+          # that was classified does not exist afterwards.
+          if test -e /tmp/eff/m; then
+            echo "--effects built something"; exit 1
+          fi
+          where-are-we --effects > /tmp/eff/table
+          head -2 /tmp/eff/table
+          grep -q "^--install-hook  *writes-config$" /tmp/eff/table
+          grep -qx "where-are-we-effects/1" /tmp/eff/table
+          where-are-we --effects --json > /tmp/eff/table.json
+          grep -q '"schema": "where-are-we-effects/1"' /tmp/eff/table.json
+          # argparse takes any unambiguous prefix, so the dispatch has to as
+          # well: --effect and --eff are --effects on both sides. Before
+          # this, `--effect` was classified `read` and then built the map.
+          where-are-we --effects -- where-are-we --repo . --effect > /tmp/eff/e1
+          grep -qx "\-\-effects read" /tmp/eff/e1
+          grep -qx read /tmp/eff/e1
+          where-are-we --repo . --out /tmp/eff/abbrev --eff > /tmp/eff/e2
+          grep -qx "where-are-we-effects/1" /tmp/eff/e2
+          if test -e /tmp/eff/abbrev; then
+            echo "an abbreviated --effects built the map"; exit 1
+          fi
+          # A line that asks for help parses, and the class is still the
+          # first line: argparse writes help to stdout and leaves by the
+          # same door a broken line does.
+          where-are-we --effects -- where-are-we --help > /tmp/eff/h 2> /tmp/eff/h.err
+          test "$(wc -l < /tmp/eff/h)" -eq 2
+          test ! -s /tmp/eff/h.err
+          head -1 /tmp/eff/h | grep -qx read
+          if grep -q "does not parse" /tmp/eff/h; then
+            echo "a line asking for help was called unparseable"; exit 1
+          fi
+
+      - name: --dry-run names every path it would write and writes none of them
+        run: |
+          set -o pipefail
+          rm -rf /tmp/dry /tmp/dryout
+          mkdir -p /tmp/dry/repo /tmp/dry/home /tmp/dryout
+          export HOME=/tmp/dry/home
+          printf 'def f():\n    pass\n' > /tmp/dry/repo/a.py
+          git -C /tmp/dry/repo init -q
+          find /tmp/dry -type f | sort > /tmp/dryout/files.before
+          xargs sha256sum < /tmp/dryout/files.before | sha256sum > /tmp/dryout/hash.before
+          where-are-we --repo /tmp/dry/repo --init --dry-run > /tmp/dryout/init.txt
+          where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
+            --agent-file /tmp/dry/repo/AGENTS.md --dry-run > /tmp/dryout/agent.txt
+          where-are-we --repo /tmp/dry/repo --install-hook git --dry-run \
+            > /tmp/dryout/git.txt
+          where-are-we --repo /tmp/dry/repo --install-hook claude --dry-run \
+            > /tmp/dryout/claude.txt
+          # A preview of a fetch does not fetch: --spec-cmd is a command of
+          # the caller's, and the two files a spec run writes are named
+          # without running it.
+          where-are-we --repo /tmp/dry/repo --out /tmp/dry/specs --specs A-1 \
+            --spec-cmd "printf '{\"key\":\"A-1\"}'" --dry-run \
+            > /tmp/dryout/specs.txt
+          grep -qx "would write /tmp/dry/specs/spec_map.json" /tmp/dryout/specs.txt
+          grep -qx "would write /tmp/dry/specs/spec_map.md" /tmp/dryout/specs.txt
+          if test -e /tmp/dry/specs; then
+            echo "a previewed spec run wrote its output directory"; exit 1
+          fi
+          # A line that only reads has no paths to name, and does not answer:
+          # `--ask x --dry-run` used to print an answer and append to the
+          # answer log.
+          where-are-we --out /tmp/dry/repo/.wawe --ask charge --dry-run \
+            > /tmp/dryout/ask.txt
+          grep -qx "nothing to write: --ask only read" /tmp/dryout/ask.txt
+          if test -e /tmp/dry/repo/.wawe/.wawe-ask.log; then
+            echo "a previewed read appended to the answer log"; exit 1
+          fi
+          # --docs write does write, and its preview says which files.
+          where-are-we --repo /tmp/dry/repo --docs write --dry-run \
+            > /tmp/dryout/docs.txt
+          grep -qx "would write /tmp/dry/repo/README.md" /tmp/dryout/docs.txt
+          grep -qx "would write /tmp/dry/repo/docs/ARCHITECTURE.md" /tmp/dryout/docs.txt
+          # The two kinds that write under ~ refuse a home nobody set, and so
+          # does the preview: no path at all rather than the real user's.
+          if env -u HOME where-are-we --repo /tmp/dry/repo \
+               --install-hook claude --dry-run > /tmp/dryout/nohome.txt; then
+            echo "a preview invented a home directory"; exit 1
+          fi
+          grep -qx "HOME is not set; nothing was written" /tmp/dryout/nohome.txt
+          cat /tmp/dryout/*.txt
+          grep -qx "would write /tmp/dry/repo/.framework-map.json" /tmp/dryout/init.txt
+          grep -qx "would write /tmp/dry/repo/AGENTS.md" /tmp/dryout/agent.txt
+          grep -qx "would write /tmp/dry/repo/.wawe/framework_map.md" /tmp/dryout/agent.txt
+          for hook in post-checkout post-merge post-commit; do
+            grep -qx "would write /tmp/dry/repo/.git/hooks/$hook" /tmp/dryout/git.txt
+          done
+          grep -qx "would write /tmp/dry/home/.claude/settings.json" /tmp/dryout/claude.txt
+          # The tree is the tree it was: same files, same contents.
+          find /tmp/dry -type f | sort > /tmp/dryout/files.after
+          xargs sha256sum < /tmp/dryout/files.after | sha256sum > /tmp/dryout/hash.after
+          diff /tmp/dryout/files.before /tmp/dryout/files.after
+          diff /tmp/dryout/hash.before /tmp/dryout/hash.after
+          # And a preview is not a fiction: the same commands, run for real,
+          # create every path it named.
+          where-are-we --repo /tmp/dry/repo --install-hook git
+          where-are-we --repo /tmp/dry/repo --install-hook claude
+          where-are-we --repo /tmp/dry/repo --init
+          where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
+            --agent-file /tmp/dry/repo/AGENTS.md --quiet --no-semantic
+          sed 's/^would write //;s/^would replace //' \
+            /tmp/dryout/init.txt /tmp/dryout/agent.txt /tmp/dryout/git.txt \
+            /tmp/dryout/claude.txt | sort -u > /tmp/dryout/promised
+          while read -r path; do
+            if test ! -e "$path"; then
+              echo "the dry run named $path and the real run did not write it"
+              exit 1
+            fi
+          done < /tmp/dryout/promised
+          wc -l < /tmp/dryout/promised

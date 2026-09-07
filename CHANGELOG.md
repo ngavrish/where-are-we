@@ -1,27 +1,115 @@
 # Changelog
 
+## 1.4.1
+
+- Receivers the syntax settles. A call written `NAME.callee(...)` used to be
+  placed by the callee's name alone, so every file with a `def add` was a
+  candidate for `out.add(key)`. Three shapes of receiver are now read, none
+  of them needing a type checker. A receiver that resolves to one indexed
+  file which does not declare the name is a facade, and that file's own
+  `from M import name` line is followed, three steps at most, to the file
+  with the `def`: `mapper.build(...)` in `hooks.py` is `_mapper/build.py`'s
+  `build`, not a choice between two files. A receiver the function itself
+  bound to a builtin (a literal, a comprehension, an f-string, one of the
+  builtin constructors, or `defaultdict`, `Counter`, `deque` and
+  `OrderedDict` through an import from outside the tree) is not a
+  first-party object, so `out = set()` followed by `out.add(key)` is
+  `set.add` and no edge at all. A parameter's default counts as what the
+  function bound and `None` does not, `*args` and `**kwargs` are a tuple and
+  a dict, a name a nested function never binds is the one written around it,
+  and `d.setdefault(k, set())` is a set whatever `d` is; a name the function
+  also bound to something else, and a receiver that is not a name such as
+  `d[k]`, keep the candidate list. And `self.name(...)` and `cls.name(...)`
+  go to the class the method is in: declared there or by a base in the same
+  file, the call is local and no cross-file edge; declared by exactly one
+  base in another file, the edge names that file. A base is followed only
+  where the file says where it came from, so `class D(Base)` with no import
+  of `Base` and `class D(other.Base)` where nothing binds `other` keep the
+  mark rather than matching a class name anywhere in the tree.
+- A directory named after an imported module no longer speaks for it on its
+  own. `_module_is_here` counts a directory whose last path part matches the
+  module, at any depth, which made `tests/fixtures/logging/` enough for
+  `logging.info(...)` to reach a first-party `info`. The directory now has to
+  hold one of the callee's candidate homes. A vendored
+  `requests/__init__.py` that declares `get` is a file and still answers for
+  `requests.get(...)`.
+- The numbers after those rules. On this repository the marks under the same
+  60 keys go from 20 to 1, and the one that stays is `pool[kind].add(word)`,
+  a call on a subscript. Mapping the previous release's own checkout with
+  both releases, the marks under the same 60 keys go from 20 to 1 as well.
+  `call_graph_stats` for this repository is now 0.2431 over 2308 Python
+  sites, with 156 edges and 4 of them marked, against 145 and 36 before.
+  Only the names something was actually called on are kept in the parse
+  cache, so this costs `.wawe-cache.json` 241 KB against 159 KB and a full
+  build of this tree 2.11s against 1.97s. The cache record these rules read
+  is stored under its own kind, so upgrading re-parses the call graph rather
+  than serving 1.4.0 answers from a warm cache.
+
+- An effects manifest, so a command guard can tell this tool's reads from
+  its writes. `src/where_are_we/effects.py` holds one table: every flag the
+  command line parser knows against one of `read`, `writes-map-dir`,
+  `writes-repo`, `writes-config` and `network`, in that order, and a
+  command's class is the highest class any of its flags carries.
+  `where-are-we --effects` prints the table, `--effects --json` prints
+  `{"schema": "where-are-we-effects/1", "flags": ..., "order": ...}`, and the
+  same JSON ships beside the code as `effects.json`. `--effects --
+  <command line>` classifies one command line with this tool's own parser
+  and runs nothing: `--out /tmp/m --ask x` is `writes-map-dir`,
+  `--install-hook git` is `writes-config`, `--mcp` is `read`. Flags are
+  resolved the way argparse resolves them, abbreviations and all, and the
+  dispatch of `--effects` itself goes through the same resolution, so
+  `--eff` cannot be classified as one thing and run as another. A line
+  naming none of the flags that answer from an existing map builds one into
+  `--out`, so its floor is `writes-map-dir` whatever else it says; `--specs`
+  is one of the exceptions, since it writes `spec_map.*` and returns. The
+  JSON carries a `notes` object as well, saying per class what it touches,
+  so a guard reading the file is told what a `read` may still append to.
+  The table cannot drift: a CI step fails when the parser knows a flag the
+  table does not, when the table names one the parser does not, when a named
+  flag's class is not the one documented, or when `effects.json` in the
+  checkout differs from what the table prints or from the copy installed
+  beside the code.
+- `--dry-run` prints every path a command can write, `would write` when
+  nothing is there and `would replace` when a file is, and exits without
+  writing any of them. The hook paths come from `hooks.paths()`, the one
+  computation the installers themselves use, so a preview names the files
+  the real run touches. It covers every command line and not only the three
+  that write into a repository: `--docs write` is previewed from a map built
+  with no cache, `--specs` names `spec_map.json` and `spec_map.md` without
+  running the tracker command, a line that only reads says `nothing to
+  write: --ask only read` rather than answering and appending to the answer
+  log, and `--install-hook claude` with `HOME` unset gives the refusal the
+  real install gives instead of naming the home directory of whoever the
+  passwd entry belongs to. A CI step lists the files of the tree and their
+  hashes before and after a dry run of `--init`, `--agent-file`,
+  `--install-hook git` and `--install-hook claude`, and then runs those
+  commands for real to prove every path the preview named is a path the run
+  creates.
+
 ## 1.4.0
 
 - Honest edges. A cross-file call graph edge is written `charge (a.ts)` when
   one indexed file declares the callee, and `charge (a.ts|c.ts)?` when
   several do: the edge names every file that declares the name, sorted, and
   the question mark says the map is choosing between them rather than letting
-  the reader take one file for a fact. Three calls that used to produce an edge
-  no longer do or no longer guess: a plain call to a name the calling file
-  declares itself is a local call and is left out of a cross-file graph; a
-  call through a module this tree does not declare, which is what
+  the reader take one file for a fact. Three calls that used to produce an
+  edge no longer do or no longer guess: a plain call to a name the calling
+  file declares itself is a local call and is left out of a cross-file
+  graph; a call through a module this tree does not declare, which is what
   `ast.walk(...)` is, and what `from os import path` followed by
-  `path.join(...)` is, is not in the tree at all and is left out too; and a call the caller's own `from MOD import name` (or
-  `import { name } from "./mod"`) settles is written plain. `callers`, `callees` and `impact` match
-  on the name alone, so a marked edge is found exactly as an unmarked one is,
-  and print the mark as they find it. Every `impact` reply now ends its rules
-  line with "an edge ending in ? names every file that declares the callee,
-  because more than one does". Mapping the previous release's checkout with
-  both releases, the marks under the same 60 keys go from 40 to 17, and
-  `cli.py:main -> build (ask.py)?`, which pointed at the wrong `build`, is
-  now `build (build.py)`. `--callers walk` on this repository's own map
-  used to answer with eleven callers of `ast.walk` and `os.walk` and not one
-  caller of a `walk` this tree declares.
+  `path.join(...)` is, is not in the tree at all and is left out too; and a
+  call the caller's own `from MOD import name` (or
+  `import { name } from "./mod"`) settles is written plain. `callers`,
+  `callees` and `impact` match on the name alone, so a marked edge is found
+  exactly as an unmarked one is, and print the mark as they find it. Every
+  `impact` reply now ends its rules line with "an edge ending in ? names
+  every file that declares the callee, because more than one does". Mapping
+  the previous release's checkout with both releases, the marks under the
+  same 60 keys go from 40 to 17, and `cli.py:main -> build (ask.py)?`, which
+  pointed at the wrong `build`, is now `build (build.py)`. `--callers walk`
+  on this repository's own map used to answer with eleven callers of
+  `ast.walk` and `os.walk` and not one caller of a `walk` this tree
+  declares.
 - Numbers for the call graph, and for the tree it was read from. The build
   records `call_graph_stats` in `framework_map.json`: per language group
   (`python`, `ts_js`, `go`) how many callee names the walk looked at
