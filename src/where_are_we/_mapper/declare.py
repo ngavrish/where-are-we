@@ -11,8 +11,9 @@ import json
 import os
 import re
 
+from . import state
 from .state import DEFINITIONS, INDEXED, LINES, SPANS
-from .walk import SLURP_LIMIT, _cached, _slurp
+from .walk import SLURP_LIMIT, _cached, _redact_lines, _slurp
 
 try:
     from ..ask import _encode
@@ -78,8 +79,43 @@ DECLARATIONS["*"] = (
 
 
 def index_lines(path: str, body: str) -> None:
-    """Keep this file's lines, for a phrase search that does not touch disk."""
-    LINES[path] = body.splitlines()
+    """Keep this file's lines, redacted, for a phrase search that does not
+    touch disk.
+
+    Redacted here rather than only on the way out, so that one text exists.
+    The map on disk has always been redacted, but `build()` used to hand its
+    own callers the raw lines and leave redaction to whoever wrote the file,
+    which meant anything computed inside the build over `lines` was computed
+    over text no reader of the map will ever see. A ranking that cites an
+    identifier the published `lines` no longer contain is a map disagreeing
+    with itself, and the base64-like rule matching a stretch of a path is
+    exactly how that happens.
+
+    What is cached is the difference, not the text. Redaction runs a dozen
+    patterns over every line of every file and finds nothing in almost all of
+    them, so the entry is the handful of `[index, replacement]` pairs that did
+    change, keyed by the file's sha like every other entry: a rebuild of a
+    tree nobody touched applies nothing and matches nothing. Keeping the
+    redacted lines themselves would put every line of the repository in the
+    cache file.
+
+    The whole-map `redact()` the writers run still covers these lines. It is
+    idempotent, so a second pass over them changes nothing; it is what covers
+    every other key.
+    """
+    lines = body.splitlines()
+    if not state.REDACT_LINES:
+        LINES[path] = lines
+        return
+
+    def _diff():
+        return [[i, new] for i, (old, new)
+                in enumerate(zip(lines, _redact_lines(lines))) if old != new]
+
+    for i, replacement in _cached(path, "redactions", _diff):
+        if i < len(lines):
+            lines[i] = replacement
+    LINES[path] = lines
 
 
 # At most this many lines from any one file. A generated table that matches

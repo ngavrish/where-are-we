@@ -339,6 +339,13 @@ def build_all(root: str) -> dict:
     for `redact()` to protect, and skipping it keeps the absolute paths that
     land in `## Defined here` intact and equally easy to normalise away in
     `check.py`/`regen.py`.
+
+    `redact_lines=False` says the same thing one layer in. `build()` now
+    redacts each file's lines as it records them, so that what it returns is
+    what the published map holds and anything computed over `lines` inside
+    the build is computed over that same text. A fixture wants the raw lines
+    for the reason above, and says so here rather than being an exception the
+    default quietly makes for it.
     """
     saved_env = {k: os.environ.get(k)
                  for k in ("AGENT_REPO", "PRODUCT_SRC", "WAWE_JUNIT_DIRS")}
@@ -369,7 +376,7 @@ def build_all(root: str) -> dict:
             # (main() creates out_dir the same way, before its own build()
             # call, for the same reason).
             os.makedirs(out_dir, exist_ok=True)
-            m = mapper.build(repo, out_dir=out_dir)
+            m = mapper.build(repo, out_dir=out_dir, redact_lines=False)
             with open(os.path.join(out_dir, "framework_map.json"), "w",
                       encoding="utf-8") as fh:
                 json.dump(m, fh, indent=2)
