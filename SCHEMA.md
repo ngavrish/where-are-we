@@ -10,7 +10,7 @@ saying what the tree holds rather than when it was last written to.
 |---|---|---|
 | `schema` | string | `where-are-we/<major>` |
 | `repo` | string | absolute path indexed |
-| `content_root` | string | sha256 over the sorted `(path relative to the repository, sha256 of its bytes)` pairs of every file the map indexes. `fingerprint` says when the tree was last written to; this says what it says, and the two differ exactly where a timestamp can be put back: a rewrite of the same byte count with its mtime restored moves this and not that. New in 1.5.0 and written by `build()`, unlike `fingerprint` |
+| `content_root` | string | sha256 over the sorted `(path relative to the repository, sha256 of its bytes)` pairs of every file the map indexes. `fingerprint` says when the tree was last written to; this says what it says, and the two differ exactly where a timestamp can be put back: a rewrite of the same byte count with its mtime restored moves this and not that. The hash of a file is retaken when its mtime, size or inode change time moved, so on a filesystem where `st_ctime` is a creation time rather than an inode change time (Windows) that case is missed until something else about the file moves. New in 1.5.0 and written by `build()`, unlike `fingerprint` |
 | `stated` | object | what `.framework-map.json` declared, verbatim |
 | `layers` | {layer: string} | one sentence per layer (features, steps, page objects, driver, environment) naming where it lives, with anything the manifest stated replacing the guess. Absent when the manifest states a `layers` that is not an object |
 | `public_api` | {file: [signatures]} | what a step may call: the methods page objects and helpers expose |

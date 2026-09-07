@@ -101,13 +101,39 @@
   change time is in the pre-filter because the mtime and the size alone are
   exactly the case content addressing exists to catch, and nothing in
   userland can put a ctime back.
+- A tree whose timestamps all moved while its content did not now re-parses
+  nothing, where it used to re-parse everything: a CI cache restored over a
+  fresh checkout, a `cp -r`, a `tar x`, a container rebuild. Measured on this
+  repository, 667 parses before and 0 after.
 - New map key `content_root`: one sha256 over the sorted `(path relative to
   the repository, hash)` pairs of every indexed file. `fingerprint` keeps its
   documented `<commit>:<newest mtime in nanoseconds>` format and its meaning;
   the root is the sibling that says what the tree holds rather than when it
-  was last written to. A build is now skipped only when both agree.
-- `--diff` names the files whose content moved before it names the map keys
-  that moved with them.
+  was last written to. A build is now skipped only when both agree, and
+  `--watch` asks both questions on every tick rather than only the first.
+  Two limits worth knowing: the root is compared only when the map already in
+  `--out` has one, so the first build after upgrading an existing `--out` from
+  1.4.x still decides on the fingerprint alone and can serve one more stale
+  answer; and where `st_ctime` is a creation time rather than an inode change
+  time (Windows), the pre-filter cannot see a same-size rewrite that put its
+  mtime back, and neither can the root.
+- `--force` distrusts the content hashes as well as the parses, so there is
+  one command that recomputes a content root from the bytes. It still reads
+  each file once, not twice.
+- `--diff` names the files whose content moved, were added or are gone before
+  it names the map keys that moved with them. It reads the parse cache and no
+  longer writes it: everything it prints is measured against the map already
+  in `--out`, and a `--diff` that rewrote the cache moved its own baseline and
+  answered differently the second time it was run over the same tree.
+- `build()` returns redacted lines. The map on disk has always been redacted;
+  what changes is that the value `build()` hands a library caller is now the
+  same text, so anything computed inside the build over `lines` and anything
+  a reader asks the map for agree. Redaction runs once per file as the lines
+  are recorded and what it changed is cached under the file's hash, so a
+  rebuild of a tree nobody touched redacts nothing. The whole-map pass the
+  writers run is unchanged and idempotent, so the published map is byte for
+  byte what it was. `build(redact_lines=False)` is for a caller that wants the
+  raw lines, which is the golden fixture builder and nothing else.
 - The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a
