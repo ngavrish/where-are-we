@@ -641,7 +641,7 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/ctx/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more",
+                           "defines", "find", "impact", "more", "rank",
                            "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
@@ -653,6 +653,152 @@ jobs:
           # Twice over the same map is the same answer.
           where-are-we --out $M --context CheckoutPage > /tmp/ctx/again.txt
           diff -u /tmp/ctx/3.context /tmp/ctx/again.txt
+      - name: rank puts the file everything calls above the file nothing calls
+        run: |
+          set -o pipefail
+          rm -rf /tmp/rank /tmp/rankout /tmp/rankmap /tmp/rankmap2
+          mkdir -p /tmp/rank /tmp/rankout
+          python - <<'EOF'
+          import pathlib
+          r = pathlib.Path("/tmp/rank")
+          (r / "billing").mkdir(parents=True, exist_ok=True)
+          (r / "many").mkdir(exist_ok=True)
+          (r / "one").mkdir(exist_ok=True)
+          # The file everything calls, and the file nothing calls.
+          (r / "core.py").write_text("def charge(amount):\n    return amount\n")
+          (r / "orphan.py").write_text("def unused(amount):\n    return amount\n")
+          # Ten callers of charge, one of them the file the ranking is personalised on
+          # and one of them under the directory --files scopes to.
+          for i in range(1, 9):
+              (r / f"caller{i}.py").write_text(
+                  f"from core import charge\n\n\ndef use{i}(amount):\n    return charge(amount)\n")
+          (r / "billing.py").write_text(
+              "from core import charge\n\n\ndef bill(amount):\n    return charge(amount)\n")
+          (r / "billing" / "refund.py").write_text(
+              "from core import charge\n\n\ndef refund(amount):\n    return charge(amount)\n")
+          # One name declared in six files, one declared in one, used the same way by
+          # the same file: the x0.1 for a name more than five files declare, on its own.
+          for i in range(1, 7):
+              (r / "many" / f"m{i}.py").write_text("def spread_helper_name(amount):\n    return amount\n")
+          (r / "one" / "o1.py").write_text("def single_helper_name(amount):\n    return amount\n")
+          (r / "user.py").write_text(
+              "from many.m1 import spread_helper_name\n"
+              "from one.o1 import single_helper_name\n\n\n"
+              "def both(amount):\n"
+              "    return spread_helper_name(amount) + single_helper_name(amount)\n")
+          EOF
+          where-are-we --repo /tmp/rank --out /tmp/rankmap --product none --quiet --no-semantic
+          # 1. The file everything calls is above the file nothing calls.
+          where-are-we --out /tmp/rankmap --rank billing.py | tee /tmp/rankout/personal.txt
+          python - <<'EOF'
+          import pathlib
+          rows = [l.split() for l in pathlib.Path("/tmp/rankout/personal.txt").read_text().splitlines()]
+          names = [name for _score, name, _where in rows]
+          assert names.index("charge") < names.index("unused"), names
+          by = {name: float(score) for score, name, _w in rows}
+          assert by["charge"] > 0 and by["unused"] == 0, by
+          # 3. The same name declared six times ranks under the one declared once.
+          assert names.index("single_helper_name") < names.index("spread_helper_name"), names
+          assert abs(by["single_helper_name"] - by["spread_helper_name"] * 10) < 1e-8, by
+          print("rank: charge over unused, one declarer over six")
+          EOF
+          # 2. With no files, --rank is the ranking the build stored.
+          where-are-we --out /tmp/rankmap --rank > /tmp/rankout/global.txt
+          python - <<'EOF'
+          import json, pathlib
+          m = json.load(open("/tmp/rankmap/framework_map.json"))
+          stored = "\n".join(f"{r['score']:.9f} {r['name']} {r['file']}:{r['line']}"
+                             for r in m["rank"])
+          got = pathlib.Path("/tmp/rankout/global.txt").read_text().rstrip("\n")
+          assert got == stored, (got[:400], stored[:400])
+          print(f"--rank with no files is the stored key, {len(m['rank'])} rows")
+          EOF
+          # 4 and 5. Two runs, two builds and both Pythons of the matrix agree: the
+          # order is written out here, so each job compares against the same bytes
+          # rather than against itself.
+          where-are-we --out /tmp/rankmap --rank > /tmp/rankout/again.txt
+          diff -u /tmp/rankout/global.txt /tmp/rankout/again.txt
+          where-are-we --repo /tmp/rank --out /tmp/rankmap2 --product none --quiet --no-semantic
+          where-are-we --out /tmp/rankmap2 --rank > /tmp/rankout/rebuilt.txt
+          diff -u /tmp/rankout/global.txt /tmp/rankout/rebuilt.txt
+          sed 's#^[0-9.]* ##; s#:[0-9]*$##; s#/tmp/rank/##' /tmp/rankout/global.txt > /tmp/rankout/order.txt
+          cat > /tmp/rankout/order-want.txt <<'EOF'
+          charge core.py
+          single_helper_name one/o1.py
+          spread_helper_name many/m1.py
+          spread_helper_name many/m2.py
+          spread_helper_name many/m3.py
+          spread_helper_name many/m4.py
+          spread_helper_name many/m5.py
+          spread_helper_name many/m6.py
+          bill billing.py
+          refund billing/refund.py
+          use1 caller1.py
+          use2 caller2.py
+          use3 caller3.py
+          use4 caller4.py
+          use5 caller5.py
+          use6 caller6.py
+          use7 caller7.py
+          use8 caller8.py
+          unused orphan.py
+          both user.py
+          EOF
+          diff -u /tmp/rankout/order-want.txt /tmp/rankout/order.txt
+          # 6. --files puts the rows about those files first, and leaves the rest.
+          where-are-we --out /tmp/rankmap --ask charge > /tmp/rankout/ask.txt
+          where-are-we --out /tmp/rankmap --ask charge --files billing/ > /tmp/rankout/ask-billing.txt
+          printf 'billing/\n' | where-are-we --out /tmp/rankmap --ask charge --files - > /tmp/rankout/ask-stdin.txt
+          diff -u /tmp/rankout/ask-billing.txt /tmp/rankout/ask-stdin.txt
+          python - <<'EOF'
+          import pathlib
+
+          def section(path, head):
+              rows, inside = [], False
+              for line in pathlib.Path(path).read_text().splitlines():
+                  if line.startswith("## "):
+                      inside = line.strip() == head
+                      continue
+                  if inside and line.startswith("- "):
+                      rows.append(line)
+              return rows
+
+          head = "## Who calls whom, across files"
+          plain = section("/tmp/rankout/ask.txt", head)
+          scoped = section("/tmp/rankout/ask-billing.txt", head)
+          assert plain and scoped, (plain, scoped)
+          assert sorted(plain) == sorted(scoped), "--files changed which rows the section has"
+          assert "refund.py:refund" in scoped[0], scoped[0]
+          assert "refund.py:refund" not in plain[0], plain[0]
+          print("--files billing/ puts the billing row first and keeps the rest")
+          EOF
+          grep -q 'more:unmatched:who-calls-whom' /tmp/rankout/ask-billing.txt
+          # 7. The tool and the flag are the same answer, and the server declares it.
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"rank","arguments":{"files":["billing.py"]}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"rank","arguments":{"limit":0}}}' \
+            | where-are-we --out /tmp/rankmap --mcp > /tmp/rankout/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/rankout/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          print("tools/list:", len(names), names)
+          assert names == ["ask", "at", "callees", "callers", "context",
+                           "defines", "find", "impact", "more", "rank",
+                           "sections"], names
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/rankout/personal.txt").read_text()
+          assert mcp == cli.rstrip("\n"), (mcp, cli)
+          assert rows[2]["error"]["code"] == -32602, rows[2]
+          assert rows[2]["error"]["message"] == "limit must be a positive integer", rows[2]
+          print("MCP rank and --rank agree, byte for byte")
+          EOF
+          grep -q '"tool": "rank"' /tmp/rankmap/.wawe-ask.log
+          # 8. --rank and --files are reads: naming them builds nothing.
+          where-are-we --effects -- --rank billing.py | head -1 | grep -qx 'read'
+          where-are-we --effects -- --ask charge --files billing/ | head -1 | grep -qx 'read'
+          where-are-we --effects --json | diff -u src/where_are_we/effects.json -
       - name: who calls X
         run: |
           mkdir -p /tmp/wc
@@ -830,7 +976,7 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/imp/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more",
+                           "defines", "find", "impact", "more", "rank",
                            "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
@@ -3123,7 +3269,7 @@ jobs:
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
           assert names == ["ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more",
+                           "defines", "find", "impact", "more", "rank",
                            "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()

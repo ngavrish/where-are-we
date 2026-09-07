@@ -6,18 +6,19 @@ grepped.
 - **SessionStart hook** builds `.wawe/framework_map.md` (or rebuilds it after a
   commit) and puts the map's ~600-byte pointer into the session's context. The
   map itself stays on disk.
-- **MCP server** `where-are-we` exposes the map as ten tools: `ask`, `find`,
-  `defines`, `at`, `context`, `sections`, `callers`, `callees`, `impact`, and
-  `more`, which takes the handle an answer printed where it was cut and
-  returns the part that was left out. `defines` names every file that declares
-  a name, with the line each declaration ends on, and `at` takes the
+- **MCP server** `where-are-we` exposes the map as eleven tools: `ask`, `find`,
+  `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`,
+  `impact`, and `more`, which takes the handle an answer printed where it was
+  cut and returns the part that was left out. `defines` names every file that
+  declares a name, with the line each declaration ends on, `at` takes the
   `file:line` a stack trace gives you and returns the whole definition around
-  it. `callees` is the other direction of `callers`, and `impact` walks that
-  graph back several hops at once: every `file:func` that reaches a name,
-  grouped by how far away it is. `context` is those five answers about one
-  name in a single call, each block on a fixed share of the budget with a
-  handle for what it cut.
-- **Skills**: `orient`, `ask`, `where-defined`, `spec-map`, `readmes`.
+  it, and `rank` says which definitions the repository is built around,
+  personalised on the files you are editing when you name them. `callees` is
+  the other direction of `callers`, and `impact` walks that graph back several
+  hops at once: every `file:func` that reaches a name, grouped by how far away
+  it is. `context` is those five answers about one name in a single call, each
+  block on a fixed share of the budget with a handle for what it cut.
+- **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are
   refused with the map's tools named instead - what a headless agent wants,

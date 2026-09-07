@@ -156,6 +156,8 @@ as estimates.
 | `## Defined here` (`defines`, `_definitions_for`) | A name → file:line, every declared name in every walked file | Not measured as turns saved; the README's claim is one question instead of `grep -rn` | Count `Grep` calls per session before/after (the run's call events) |
 | `defines` (MCP), `--defines NAME`, the map's `spans` key | Every home of a name, not the first one walked: `charge: a.py:10-24 (function), b.py:88-91 (function)`, sorted by file then start, with the kind of each. The end line is exact where a parser knew it (`ast` for Python, a tree-sitter node with the `precise` extra) and `?` where the pattern table read the language, which sees where a declaration starts and not where it stops. `definitions` keeps its one-home shape, so nothing that reads it moves | Measured 2026-09-07 on this repository's own map: 544 names over 605 declaration sites, 37 of the names declared in more than one place, and before this those 37 answered with one file chosen by walk order. 130 of the 605 sites carry no end, which is every site the pattern table found. The map grew from 1,908,459 to 2,029,477 bytes and a cold build from 2.21 to 2.32 seconds | Count the names your own map declares twice: `jq '[.spans[]|select(length>1)]|length' framework_map.json` |
 | `at` (MCP), `--at FILE:LINE` | The whole definition enclosing a line, the way a stack trace names it: the innermost one, whole lines, from the map's own line index rather than the file. Cut to the answer budget with a `more:at:` handle for the rest. A line nothing encloses is answered `no definition encloses FILE:LINE` with the nearest declarations, never with the wrong function | Not measured as turns saved; the claim is one lookup instead of a `Read` at a guessed offset and a second one when the guess cut the function in half | Count `Read` calls that follow a stack trace before/after |
+| `rank` (MCP), `--rank [FILE,...]`, the map's `rank` key | What the repository is built around, best first, by PageRank over its own file graph: nodes are files, an edge runs from a file that uses a name to the file that declares it weighted `sqrt(uses)`, and aider's four multipliers apply (x10 a long snake/kebab/camel name, x10 a name the question asked about, x0.1 a leading underscore, x0.1 a name more than five files declare). Given files it is personalised on them, which answers "what should I read given that I am editing these" rather than "what mentions this word". 100 power iterations at damping 0.85, scores rounded to 9 digits before sorting, ties by path: the same order on every machine and both supported Pythons | Measured 2026-09-07 on this repository's own map: the top four are `find_text`, `build`, `build` again in the CI workflow's own Python, and `ask.py`'s inner `build`, which is where the answer budget is spent; `--rank src/where_are_we/ask.py` moves `find_text` to first by a third. A cold build goes from 2.49 to 2.78 seconds and the map from 2,029,201 to 2,104,844 bytes | Compare the top ten to the files you would name yourself: `where-are-we --rank --limit 10` |
+| `--files a.py,b.py`, `files` on MCP `ask` | The files you are working in: inside every section the rows naming one of them are printed first and the rest follow with the section's usual tail and handle. A path or a directory prefix, relative to the repository root, and `--files -` reads a newline list on stdin, which is what `git diff --name-only` hands over. A row that names only a basename, which is how both call graphs write a key, is resolved through the files the map indexed | Not measured as turns saved; the claim is that the half of the answer about your own directory is at the top of it rather than under the cut | Diff `--ask X` against `--ask X --files <your dir>` at a small `limit` |
 | Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. Three calls are no edge at all: one to a name the calling file declares itself, one made through a module this tree does not declare, which is what `ast.walk(...)` and `from os import path` then `path.join(...)` are, and one on a receiver the function built out of a builtin, which is what `out = set()` then `out.add(key)` is. A parameter's default counts as what the function bound, `None` excepted; `*args` and `**kwargs` are a tuple and a dict; a name a nested function never binds is the one written around it; and `d.setdefault(k, set())` is a set whatever `d` is. Two more are read further: a receiver that is a file of this tree carrying a name it does not declare is followed through its own import lines to the file with the `def`, and `self.name(...)` goes to the class the method is in or to the one base that declares it, where the file says where that base came from. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 1 of the edges under them carries the mark, and it is a call on `d[k]`, which is the shape nothing written in the file settles. Mapping the previous release's own checkout with both releases, the same tree and the same 60 keys, the count goes from 20 marks to 1 | Count `Grep` calls spent chasing a callee across files before/after |
 | `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2308 sites, 561 first-party, rate 0.2431, 107 ambiguous names (share 0.0464), 156 edges and 4 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
@@ -203,7 +205,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | GitHub Action (`ngavrish/where-are-we@v1`): inputs `repo`, `product`, `out`, `agent-file`, `comment`; outputs `brief`, `summary` | Map on CI, optional PR comment | Not measured | — |
 | pre-commit hook | Rebuild on commit so a map is never stale | Not measured | — |
 | `--install-hook git|claude|cursor|codex|gemini` | `git`: post-checkout/merge/commit hooks that rebuild; `claude` (`agent` is the same thing): a SessionStart hook for an agent harness (distinct from `--agent-file`, which writes the brief into a file); `cursor`: a Cursor rule at `.cursor/rules/where-are-we.mdc` plus `.cursor/mcp.json`; `codex`: an `AGENTS.md` block plus `~/.codex/config.toml`; `gemini`: a `GEMINI.md` block plus `.gemini/settings.json`. `cursor`, `codex` and `gemini` build the map into `.wawe` first if it is not already there; `git` and `claude` do not, since they already build into whatever `--out` was passed on their own first trigger, and a pre-build for them would be a second map in a different place. Each kind installs all of its files or none: every target is checked before the first write, and a refusal names the cause | Not measured | — |
-| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the ten tools over MCP (`ask`, `find`, `defines`, `at`, `context`, `sections`, `callers`, `callees`, `impact`, `more`); skills `orient`, `ask`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,context,sections,callers,callees,impact,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
+| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the eleven tools over MCP (`ask`, `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`, `impact`, `more`); skills `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,context,rank,sections,callers,callees,impact,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
 | Packages: PyPI wheel + sdist, deb (apt repo with key), rpm, Homebrew tap, GitHub release with SBOM (SPDX) and sigstore signatures | Install anywhere | — | — |
 
 ### Honesty features (not savings, guarantees)
@@ -491,6 +493,36 @@ When a name is not there, the answer says what was indexed rather than declaring
 the absence real. A map that overstates its reach turns "I did not look" into
 "it is not there".
 
+Both of those answer "where is this name". The question before it is which names
+are worth knowing at all, and no amount of word matching answers that, because
+importance is a property of the graph rather than of the text. `--rank` runs
+PageRank over the graph the map already holds: files are nodes, an edge runs
+from a file that uses a name to the file that declares it, and the weight is
+the square root of how often. Aider's repo map is where the idea and the four
+multipliers come from.
+
+```console
+$ where-are-we --rank --limit 3
+
+0.047997605 find_text /repo/src/where_are_we/_mapper/declare.py:97
+0.040994790 build /repo/src/where_are_we/_mapper/build.py:243
+0.032522282 build /repo/src/where_are_we/ask.py:438
+```
+
+Name the files you are working in and the walk is personalised on them, which
+turns "what matters here" into the question actually worth asking: what should I
+read given that I am editing this.
+
+```console
+$ where-are-we --rank billing/refund.py --limit 3
+```
+
+The same files bias `--ask` without changing what it found: `--ask charge
+--files billing/` prints the `billing/` rows first inside every section and the
+rest after them, with the section's usual tail and the same handle. `--files -`
+reads the list on stdin, so `git diff --name-only | where-are-we --ask charge
+--files -` asks the map about the branch you are on.
+
 Landing on a name usually raises all five questions at once, and `--context`
 answers them together:
 
@@ -669,6 +701,8 @@ sixty-four thousand, every turn.
 | `--defines NAME` | every place that name is declared, each as `file:start-end (kind)`, in path order |
 | `--at FILE:LINE` | the whole definition that encloses that line, with a handle for the rest of it |
 | `--context NAME` | the five answers about a name in one: declared, map rows, callers, callees, impact one hop out |
+| `--rank [FILE,...]` | the definitions this repository is built around, best first; given files, what to read while editing them |
+| `--ask "words" --files a.py,b.py` | the same answer with the rows about those files first in every section; `--files -` reads the list on stdin |
 | `--mcp` | serve the map over MCP on stdin/stdout instead of answering once |
 | `--sections` | the section headings |
 
@@ -972,6 +1006,11 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --at FILE:LINE               the whole definition that encloses that line
 --context NAME               declared, map rows, callers, callees and
                              impact one hop out, in one answer
+--rank [FILE,...]            the definitions the repository is built around,
+                             personalised on the files you name
+--files FILE[,FILE]          on --ask: those files' rows first in every
+                             section; `-` reads the list on stdin
+--limit N                    how many rows --rank prints (default 200)
 --effects [--json]           what every flag does to the disk; with
                              `-- <command line>`, the class of that line
 ```
@@ -984,13 +1023,16 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 where-are-we --mcp --out /path/to/the/map
 ```
 
-Ten tools over JSON-RPC on stdin and stdout: `ask`, `defines`, `at`, `context`,
-`find`, `sections`, `callers`, `callees`, `impact` and `more`. `defines` answers
-where a name is declared, in every file that declares it, with the line each
-declaration ends on; `at` takes the `file:line` a stack trace names and returns
-the whole definition around it; `context` answers all five questions about a
-name at once, so landing on one costs a single round trip; `find` answers where
-a phrase appears, which is the other half of what a grep was for.
+Eleven tools over JSON-RPC on stdin and stdout: `ask`, `defines`, `at`,
+`context`, `rank`, `find`, `sections`, `callers`, `callees`, `impact` and
+`more`. `defines` answers where a name is declared, in every file that declares
+it, with the line each declaration ends on; `at` takes the `file:line` a stack
+trace names and returns the whole definition around it; `context` answers all
+five questions about a name at once, so landing on one costs a single round
+trip; `rank` answers what the repository is built around, and takes the files
+you are editing so the answer is about them; `find` answers where a phrase
+appears, which is the other half of what a grep was for. `ask` takes `files`
+for the same reason `--files` exists.
 The same index answering the same questions; what changes is that the question is
 an argument and the answer is a tool result, rather than a shell command and its
 output sitting in the conversation to be re-read on every turn after.

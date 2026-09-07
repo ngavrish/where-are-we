@@ -47,6 +47,32 @@
   measures `ask`: over 100 names of the suite fixture, recall with handles is
   1.0 at 1500 and at 12000 bytes, which the CI step `context returns in one
   call what five calls return` asserts.
+- What the repository is built around, ranked. The map gains a key `rank`:
+  the top 200 definitions as `{name, file, line, score}`, best first, from
+  PageRank over the graph the map already describes. Files are the nodes; an
+  edge runs from a file that uses a name to the file that declares it,
+  weighted by the square root of how often it uses it; aider's four
+  multipliers apply, x10 for a long snake, kebab or camel name and x0.1 for a
+  leading underscore or a name more than five files declare. A hundred
+  iterations of power iteration at damping 0.85, nodes walked in sorted
+  order, scores rounded to nine digits before they are sorted and ties broken
+  by path, so two builds of one tree and both supported Pythons write the
+  same bytes. No dependency: the iteration is forty lines of arithmetic.
+- `--rank [FILE,...]` and the MCP `rank` tool answer the same question with
+  the walk personalised on the files you name, which is the one worth asking:
+  what should I read given that I am editing these. `--ask WORDS` alongside
+  it, or the tool's `words`, weighs the identifiers in the question ten
+  times. `--limit N` says how many rows; with no files and no words the
+  answer is the stored key, which is what the CI step compares.
+- `--files a.py,b.py` on `--ask`, and `files` on the MCP `ask` tool: inside
+  every section the rows naming one of those files come first and the rest
+  follow with the tail and the handle they had. A directory prefix counts,
+  paths are read relative to the repository root, and a row that names only a
+  basename is resolved through the files the map indexed, so `--files
+  billing/` reaches `refund.py:refund` in the call graph. `--files -` reads a
+  newline separated list on stdin, which is where `git diff --name-only`
+  goes. Without it no answer moves: every golden expected file was recorded
+  before this and none of them changed.
 - The parse cache schema is 2. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a

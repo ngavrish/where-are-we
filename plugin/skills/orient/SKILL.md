@@ -35,7 +35,13 @@ message after you open it.
      declared, map rows, callers, callees, impact one hop out.
    - `find(phrase=[...])` - where a phrase (a step, a string) lives.
    - `sections()` - the section headings.
-   All take lists: ask for everything you need in one call.
+   - `rank(files=[...])` - what the repository is built around, and what is
+     worth reading given the files you are editing. Ask this first in a tree
+     you do not know; `ask` tells you where a word is, this tells you which
+     names matter.
+   All take lists: ask for everything you need in one call. `ask` also takes
+   `files=[...]`, which puts the rows about those files first in every
+   section.
 3. `grep` on `.wawe/framework_map.md` is fine; `Read` of the whole file is not.
 4. If the map says `## This map is incomplete`, believe it: a bound was hit
    (file count, depth), and what is below the bound is not mapped. Raise
