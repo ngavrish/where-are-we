@@ -11,7 +11,7 @@ import json
 import os
 import re
 
-from .state import DEFINITIONS, INDEXED, LINES
+from .state import DEFINITIONS, INDEXED, LINES, SPANS
 from .walk import _cached, _slurp
 
 try:
@@ -319,9 +319,12 @@ def _declared_names(body: str, ext: str, path: str = "") -> list:
         return regex_hits
     if _tree_sitter(ts_lang) is None:
         return regex_hits
-    ts_names = _ts_symbols(path, ts_lang)
-    if not ts_names:
+    ts_rows = _ts_symbols(path, ts_lang)
+    if not ts_rows:
         return regex_hits
+    # Names only, deduplicated and in name order, which is the list this
+    # returned before the rows carried a span as well.
+    ts_names = sorted({row[0] for row in ts_rows})
     lines = body.splitlines()
     seen = set()
     out = []
@@ -330,6 +333,166 @@ def _declared_names(body: str, ext: str, path: str = "") -> list:
             continue
         seen.add(name)
         out.append((name, _line_for_name(lines, name, regex_hits)))
+    return out
+
+
+# What word introduced a declaration, and what that makes it. The closed set of
+# kinds is the values on the right; SCHEMA.md lists them beside the `spans` row.
+#
+# `static` is deliberately absent: it introduces a declaration in Rust and is a
+# modifier in C#, so reading it as a kind called `public static void Charge()` a
+# constant. A word that means two things is worth less than the fallback below.
+_KIND_BY_WORD = {
+    "class": "class", "object": "class", "record": "class",
+    "interface": "interface", "trait": "trait", "struct": "struct",
+    "enum": "enum", "type": "type", "typedef": "type",
+    "def": "function", "fn": "function", "func": "function",
+    "function": "function", "fun": "function", "method": "function",
+    "mod": "module", "module": "module", "namespace": "module",
+    "package": "module",
+    "const": "constant", "val": "constant",
+    "let": "variable", "var": "variable",
+    "scenario": "scenario", "feature": "feature",
+}
+_WORDS = re.compile(r"[A-Za-z_]+")
+_CONSTANT_NAME = re.compile(r"^[A-Z][A-Z0-9_]{2,}$")
+
+
+def _kind_of(text: str, name: str) -> str:
+    """What kind of thing this line declares, from the words before the name.
+
+    The declaring keyword is the last word before the name, not the first word
+    on the line that happens to be a keyword: every pattern in the table above
+    puts the modifiers in front of it. Reading the whole line instead made
+    `def check(type)` a type and `class Foo(type)` a type as well.
+
+    Then two fallbacks, for the languages that name the kind after the name or
+    not at all: a name immediately followed by an argument list is a function
+    (`public static void Charge()`), and a name in screaming case is a
+    constant. `name` is what is left, and is honest: something is declared
+    here and the pattern that found it did not say what.
+    """
+    where = text.find(name)
+    for word in reversed(_WORDS.findall(text[:where] if where > 0 else "")):
+        kind = _KIND_BY_WORD.get(word.lower())
+        if kind:
+            return kind
+    if where >= 0 and text[where + len(name):].lstrip().startswith("("):
+        return "function"
+    return "constant" if _CONSTANT_NAME.match(name) else "name"
+
+
+def _py_spans(path: str) -> dict:
+    """`{"<name>\\x1e<line>": [end line, kind]}` for a Python file, from `ast`.
+
+    `end_lineno` is stdlib and exact, which no line-start regex can be: it is
+    the last line of the whole definition, decorators, nested bodies and all.
+    Keyed by the line the name is declared on, because that is the line the
+    regex table credits it to, so a declaration both of them see is one span
+    rather than two.
+
+    Module-level screaming-case assignments only, matching the `.py` row of
+    the table above: a constant assigned inside a function is not what that
+    pattern finds, and a span for a name `definitions` does not hold would be
+    a home for a name nothing else in the map mentions.
+    """
+    def _compute():
+        # Imported here rather than at the top of the file: `build` imports
+        # this module, so a module-level import back would be circular.
+        try:
+            from .build import _parse_source
+        except ImportError:  # run as a plain file, with no package around it
+            from build import _parse_source  # type: ignore[no-redef]
+        out: dict = {}
+        tree = _parse_source(path)
+        if tree is None:
+            return out
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                out[f"{node.name}\x1e{node.lineno}"] = [node.end_lineno, "function"]
+            elif isinstance(node, ast.ClassDef):
+                out[f"{node.name}\x1e{node.lineno}"] = [node.end_lineno, "class"]
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                targets = (node.targets if isinstance(node, ast.Assign)
+                           else [node.target])
+                for target in targets:
+                    if (isinstance(target, ast.Name) and target.col_offset == 0
+                            and _CONSTANT_NAME.match(target.id)):
+                        out[f"{target.id}\x1e{target.lineno}"] = [node.end_lineno,
+                                                                  "constant"]
+        return out
+
+    return _cached(path, "py_spans", _compute)
+
+
+def _declared_spans(body: str, ext: str, path: str = "") -> list:
+    """`[name, start, end, kind]` for every declaration in `path`.
+
+    The names and their start lines are exactly what `_declared_names`
+    returns, in the same order, so `spans` and `definitions` can never
+    disagree about where a name is: this adds the end line and the kind on top
+    of that list rather than finding its own names.
+
+    Where the end comes from, best first. `ast` gives it exactly for Python.
+    A tree-sitter node gives it wherever a grammar is installed, and is
+    matched by name, since `_line_for_name` may have credited the declaration
+    to a different line than the parse tree's own start; an end before that
+    start is dropped rather than printed as a span that runs backwards. The
+    regex table gives no end at all, and says so with None: it has seen the
+    first line of a declaration and nothing that says where it stops.
+    """
+    pairs = _declared_names(body, ext, path)
+    lines = body.splitlines()
+    exact = _py_spans(path) if path and ext in (".py", ".pyi") else {}
+    ts_lang = TS_LANG_BY_EXT.get(ext)
+    from_tree: dict = {}
+    if ts_lang and path and _tree_sitter(ts_lang) is not None:
+        for row in _ts_symbols(path, ts_lang):
+            from_tree.setdefault(row[0], row)
+    out = []
+    for name, start in pairs:
+        end, kind = None, ""
+        known = exact.get(f"{name}\x1e{start}")
+        if known:
+            end, kind = known[0], known[1]
+        elif name in from_tree:
+            _n, _start, tree_end, tree_kind = from_tree[name]
+            end = tree_end if tree_end and tree_end >= start else None
+            kind = tree_kind
+        if not kind:
+            text = lines[start - 1] if 0 < start <= len(lines) else ""
+            kind = _kind_of(text, name)
+        out.append([name, start, end, kind])
+    return out
+
+
+def record_span(name: str, path: str, start, end, kind: str) -> None:
+    """Note one declaration site of `name`, for the map's `spans` key.
+
+    Every place that fills `DEFINITIONS` calls this beside it, so a name in
+    `definitions` is always a name `spans` holds a home for.
+    """
+    SPANS.setdefault(name, []).append([path, start, end, kind])
+
+
+def spans_index() -> dict:
+    """`SPANS` in the shape the map writes: `{name: [{file, start, end, kind}]}`.
+
+    Sorted by file then start, and one row per site: the same file is walked
+    as the suite and as the product on some layouts, and a name declared once
+    is one home however many passes saw it. A site whose end is known wins the
+    duplicate, since it is the more complete answer to the same question.
+    """
+    out = {}
+    for name in sorted(SPANS):
+        rows, seen = [], set()
+        for path, start, end, kind in sorted(
+                SPANS[name], key=lambda r: (r[0], r[1], r[2] is None, r[2] or 0, r[3])):
+            if (path, start) in seen:
+                continue
+            seen.add((path, start))
+            rows.append({"file": path, "start": start, "end": end, "kind": kind})
+        out[name] = rows
     return out
 
 
@@ -446,8 +609,13 @@ def index_declarations(path: str, label: str = "") -> None:
         return
     INDEXED[label or ext] = INDEXED.get(label or ext, 0) + 1
     index_lines(path, body)
-    for name, number in _declared_names(body, ext, path):
+    # One list for both tables. `_declared_spans` keeps `_declared_names`'
+    # order and its start lines, so `definitions` is the same index it was
+    # before spans existed: the first site of each name, in walk order.
+    for name, number, end, kind in _cached(
+            path, f"spans:{ext}", lambda: _declared_spans(body, ext, path)):
         DEFINITIONS.setdefault(name, f"{path}:{number}")
+        record_span(name, path, number, end, kind)
 
 
 def _step_texts(path: str) -> list[str]:
@@ -455,6 +623,7 @@ def _step_texts(path: str) -> list[str]:
     def _parse():
         out: list[str] = []
         defs: list[tuple] = []
+        spans: list[list] = []
         # The same bound and the same retreat every other parse in this
         # package gets: an unbounded read here cost 414 MB on a 198 MB steps
         # module, and a steps module that large is one nobody wrote by hand.
@@ -468,7 +637,7 @@ def _step_texts(path: str) -> list[str]:
             from build import _parse_source  # type: ignore[no-redef]
         tree = _parse_source(path)
         if tree is None:
-            return {"texts": out, "defs": defs}
+            return {"texts": out, "defs": defs, "spans": spans}
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -481,6 +650,10 @@ def _step_texts(path: str) -> list[str]:
                 arg = dec.args[0]
                 if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
                     out.append(arg.value)
+                    spans.append([arg.value, node.lineno, node.end_lineno,
+                                  "step"])
+                    spans.append([f"def {node.name}", node.lineno,
+                                  node.end_lineno, "function"])
                     # Where it is, not only that it exists.
                     #
                     # An agent that has been told a phrase exists still has to
@@ -492,11 +665,15 @@ def _step_texts(path: str) -> list[str]:
                     # answers ends the search.
                     defs.append((arg.value, f"{path}:{node.lineno}"))
                     defs.append((f"def {node.name}", f"{path}:{node.lineno}"))
-        return {"texts": out, "defs": defs}
+        return {"texts": out, "defs": defs, "spans": spans}
 
     result = _cached(path, "step_texts", _parse)
     for name, loc in result["defs"]:
         DEFINITIONS.setdefault(name, loc)
+    # A step phrase is a declared name like any other, so it gets a home in
+    # `spans` like any other: `ast` knows where the decorated function ends.
+    for name, start, end, kind in result.get("spans") or ():
+        record_span(name, path, start, end, kind)
     return result["texts"]
 
 
@@ -525,8 +702,35 @@ def _tree_sitter(lang: str):
     return parser
 
 
+# What a tree-sitter node type declares. Anything not named here falls through
+# to `_kind_of`, which reads the line the way the regex table's languages are
+# read: the grammar knowing the node's shape does not oblige this table to
+# hold a row for every spelling of it.
+_TS_KIND = {
+    "function_declaration": "function", "func_declaration": "function",
+    "function_item": "function", "method_definition": "function",
+    "method_declaration": "function", "method": "function",
+    "singleton_method": "function", "delegate_declaration": "function",
+    "class_declaration": "class", "class": "class",
+    "object_declaration": "class", "record_declaration": "class",
+    "interface_declaration": "interface", "trait_item": "trait",
+    "struct_declaration": "struct", "struct_item": "struct",
+    "enum_declaration": "enum", "enum_item": "enum",
+    "type_alias_declaration": "type", "type_declaration": "type",
+    "type_item": "type",
+    "const_item": "constant", "static_item": "constant",
+    "lexical_declaration": "constant",
+    "mod_item": "module", "module": "module",
+}
+
+
 def _ts_symbols(path: str, lang: str) -> list:
-    """Top-level declarations, from a parse tree rather than a pattern."""
+    """Top-level declarations, from a parse tree rather than a pattern.
+
+    `[name, start, end, kind]` per declaration, 1-based lines: a tree-sitter
+    node carries `end_point`, which is the one thing the regex table cannot
+    know, so where a grammar is installed the span it finds is exact.
+    """
     parser = _tree_sitter(lang)
     if parser is None:
         return []
@@ -569,7 +773,9 @@ def _ts_symbols(path: str, lang: str) -> list:
                                        "constant"):
                         name = child.text.decode(errors="replace")
                         if exported or lang in no_export_keyword:
-                            out.append(name)
+                            out.append([name, node.start_point[0] + 1,
+                                        node.end_point[0] + 1,
+                                        _TS_KIND.get(node.type, "")])
                         break
             for child in node.children:
                 walk(child, exported)
@@ -581,6 +787,9 @@ def _ts_symbols(path: str, lang: str) -> list:
         # exists to close. Whatever bounds the reader sees are bounds `brief()`
         # applies once, in one place, when it renders the table for a prompt;
         # `framework_map.json` and `declarations_in` stay complete.
-        return sorted(set(out))
+        #
+        # Sorted by name, then by where it is, so the list is the same list on
+        # every run and a name declared twice in one file keeps both rows.
+        return sorted(out, key=lambda r: (r[0], r[1], r[2]))
 
     return _cached(path, f"ts:{lang}", _parse)

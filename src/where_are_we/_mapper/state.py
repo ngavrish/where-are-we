@@ -41,6 +41,20 @@ except PackageNotFoundError:  # a loose checkout: nothing installed it
 DEFINITIONS: dict[str, str] = {}
 
 
+# Every site of every name, not only the first: `[path, start, end, kind]` per
+# declaration, appended as files are parsed and written into the map as
+# `spans`.
+#
+# `DEFINITIONS` is filled with `setdefault`, so a name declared in two files
+# keeps the first and says nothing about the second. That was the one place
+# this map was quiet about a bound instead of naming it: `defines charge`
+# answered with one home for a name that has three, and which of the three it
+# named depended on walk order. This table keeps them all. `end` is None where
+# the language was read by the regex table, which has seen the first line of a
+# declaration and nothing that says where it stops.
+SPANS: dict[str, list] = {}
+
+
 # What was actually indexed, so an answer of "not found" can say what it looked
 # at. The first version said "this is a real absence rather than a search that
 # missed" about a constant sitting on line 31 of the product — because the
@@ -67,7 +81,12 @@ LINES: dict[str, list] = {}
 # `"symbols"` means, say, must not hand back an old value as if it still
 # answered the same question. Both are checked, not just the schema number,
 # because a release can change extraction logic without needing a new kind.
-CACHE_SCHEMA = 1
+#
+# 2: the declaration kinds carry a span. `spans:<ext>` is a new kind, which an
+# old cache would simply miss, but `step_texts` gained a `spans` list inside
+# the value it already stored, and a 1.4 cache holding the old shape would be
+# read back as a steps module that declares no spans at all.
+CACHE_SCHEMA = 2
 _PARSE_CACHE: dict = {}
 
 
@@ -158,6 +177,7 @@ def reset(keep_indexes: bool = False) -> None:
     if keep_indexes:
         return
     DEFINITIONS.clear()
+    SPANS.clear()
     INDEXED.clear()
     LINES.clear()
     TRUNCATED.clear()

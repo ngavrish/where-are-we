@@ -20,7 +20,8 @@ import sys
 import urllib.request
 
 from . import extract, state
-from .declare import _step_texts, index_declarations
+from .declare import (_kind_of, _step_texts, index_declarations,
+                      record_span, spans_index)
 from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
 from .walk import (AST_LIMIT, SKIP_DIRS, _cached, _lines_matching,
                    _load_parse_cache, _manifest, _product_roots,
@@ -370,8 +371,8 @@ def build(repo: str, out_dir: str | None = None,
         def _api_of(full=full, rel=rel):
             tree = _parse_source(full)
             if tree is None:
-                return {"api": [], "defs": []}
-            out, defs = [], []
+                return {"api": [], "defs": [], "spans": []}
+            out, defs, spans = [], [], []
             for node in ast.walk(tree):
                 if isinstance(node, ast.ClassDef):
                     for sub in node.body:
@@ -380,12 +381,21 @@ def build(repo: str, out_dir: str | None = None,
                             args = [a.arg for a in sub.args.args if a.arg != "self"]
                             out.append(f"{node.name}.{sub.name}({', '.join(args)})")
                             defs.append((f"{node.name}.{sub.name}", f"{rel}:{sub.lineno}"))
+                            spans.append([f"{node.name}.{sub.name}", sub.lineno,
+                                          sub.end_lineno, "function"])
                     defs.append((f"class {node.name}", f"{rel}:{node.lineno}"))
-            return {"api": sorted(out), "defs": defs}
+                    spans.append([f"class {node.name}", node.lineno,
+                                  node.end_lineno, "class"])
+            return {"api": sorted(out), "defs": defs, "spans": spans}
 
         api_result = _cached(full, "public_api", _api_of)
         for name, loc in api_result["defs"]:
             DEFINITIONS.setdefault(name, loc)
+        # `ast` has the end line of every one of these, so the qualified
+        # method names this block invents get a real span rather than a start
+        # and a question mark.
+        for name, start, end, kind in api_result.get("spans") or ():
+            record_span(name, rel, start, end, kind)
         return api_result["api"]
 
     api = {rel: _public_api(rel) for rel in page_objects + drivers}
@@ -589,6 +599,11 @@ def build(repo: str, out_dir: str | None = None,
                 for m2 in re.finditer(pattern, src, re.M):
                     line = src[:m2.start()].count("\n") + 1
                     DEFINITIONS.setdefault(m2.group(1), f"{p2}:{line}")
+                    # No end: this is a regex over a file the walk has not
+                    # parsed, and the pattern has seen the line the name is on
+                    # and nothing that says where the declaration stops.
+                    record_span(m2.group(1), p2, line, None,
+                                _kind_of(m2.group(0), m2.group(1)))
     product = {k: sorted(set(v))[:120] for k, v in product.items()}
 
     # Locators the page objects actually drive, and the timing constants that
@@ -3062,6 +3077,10 @@ def build(repo: str, out_dir: str | None = None,
         # name is a question about where it is, and an answer without the line
         # sends the reader to grep for it anyway.
         "definitions": dict(sorted(DEFINITIONS.items())),
+        # Every home of every name, not only the first one walked, each with
+        # the line it ends on where a parser knew it. `definitions` keeps its
+        # shape; this is where a name declared in two files says so.
+        "spans": spans_index(),
         # What was looked at, so "not found" can say where it looked.
         "indexed": dict(sorted(INDEXED.items())),
         # And the lines themselves, so a phrase search is a lookup. Kept out of

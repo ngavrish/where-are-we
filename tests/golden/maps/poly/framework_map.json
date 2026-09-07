@@ -18,6 +18,62 @@
     "main": "<root>/poly/repo/main.go:1",
     "payInvoice": "<root>/poly/repo/b.ts:3"
   },
+  "spans": {
+    "Serve": [
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 3,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "TestServe": [
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 7,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "charge": [
+      {
+        "file": "<root>/poly/repo/a.ts",
+        "start": 1,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "customers": [
+      {
+        "file": "<root>/poly/repo/migrations/V1__init.sql",
+        "start": 1,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "main": [
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 1,
+        "end": null,
+        "kind": "module"
+      },
+      {
+        "file": "<root>/poly/repo/main.go",
+        "start": 12,
+        "end": null,
+        "kind": "function"
+      }
+    ],
+    "payInvoice": [
+      {
+        "file": "<root>/poly/repo/b.ts",
+        "start": 3,
+        "end": null,
+        "kind": "function"
+      }
+    ]
+  },
   "indexed": {
     "suite": 4
   },

@@ -279,6 +279,1800 @@
     "they log in with valid credentials": "<root>/suite/repo/steps/login_steps.py:12",
     "they see an error message": "<root>/suite/repo/steps/login_steps.py:27"
   },
+  "spans": {
+    "CheckoutPage": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 4,
+        "end": 125,
+        "kind": "class"
+      }
+    ],
+    "CheckoutPage.click_1": [
+      {
+        "file": "pages/checkout.py",
+        "start": 7,
+        "end": 8,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_10": [
+      {
+        "file": "pages/checkout.py",
+        "start": 34,
+        "end": 35,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_11": [
+      {
+        "file": "pages/checkout.py",
+        "start": 37,
+        "end": 38,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_12": [
+      {
+        "file": "pages/checkout.py",
+        "start": 40,
+        "end": 41,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_13": [
+      {
+        "file": "pages/checkout.py",
+        "start": 43,
+        "end": 44,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_14": [
+      {
+        "file": "pages/checkout.py",
+        "start": 46,
+        "end": 47,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_15": [
+      {
+        "file": "pages/checkout.py",
+        "start": 49,
+        "end": 50,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_16": [
+      {
+        "file": "pages/checkout.py",
+        "start": 52,
+        "end": 53,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_17": [
+      {
+        "file": "pages/checkout.py",
+        "start": 55,
+        "end": 56,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_18": [
+      {
+        "file": "pages/checkout.py",
+        "start": 58,
+        "end": 59,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_19": [
+      {
+        "file": "pages/checkout.py",
+        "start": 61,
+        "end": 62,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_2": [
+      {
+        "file": "pages/checkout.py",
+        "start": 10,
+        "end": 11,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_20": [
+      {
+        "file": "pages/checkout.py",
+        "start": 64,
+        "end": 65,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_21": [
+      {
+        "file": "pages/checkout.py",
+        "start": 67,
+        "end": 68,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_22": [
+      {
+        "file": "pages/checkout.py",
+        "start": 70,
+        "end": 71,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_23": [
+      {
+        "file": "pages/checkout.py",
+        "start": 73,
+        "end": 74,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_24": [
+      {
+        "file": "pages/checkout.py",
+        "start": 76,
+        "end": 77,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_25": [
+      {
+        "file": "pages/checkout.py",
+        "start": 79,
+        "end": 80,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_26": [
+      {
+        "file": "pages/checkout.py",
+        "start": 82,
+        "end": 83,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_27": [
+      {
+        "file": "pages/checkout.py",
+        "start": 85,
+        "end": 86,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_28": [
+      {
+        "file": "pages/checkout.py",
+        "start": 88,
+        "end": 89,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_29": [
+      {
+        "file": "pages/checkout.py",
+        "start": 91,
+        "end": 92,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_3": [
+      {
+        "file": "pages/checkout.py",
+        "start": 13,
+        "end": 14,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_30": [
+      {
+        "file": "pages/checkout.py",
+        "start": 94,
+        "end": 95,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_31": [
+      {
+        "file": "pages/checkout.py",
+        "start": 97,
+        "end": 98,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_32": [
+      {
+        "file": "pages/checkout.py",
+        "start": 100,
+        "end": 101,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_33": [
+      {
+        "file": "pages/checkout.py",
+        "start": 103,
+        "end": 104,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_34": [
+      {
+        "file": "pages/checkout.py",
+        "start": 106,
+        "end": 107,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_35": [
+      {
+        "file": "pages/checkout.py",
+        "start": 109,
+        "end": 110,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_36": [
+      {
+        "file": "pages/checkout.py",
+        "start": 112,
+        "end": 113,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_37": [
+      {
+        "file": "pages/checkout.py",
+        "start": 115,
+        "end": 116,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_38": [
+      {
+        "file": "pages/checkout.py",
+        "start": 118,
+        "end": 119,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_39": [
+      {
+        "file": "pages/checkout.py",
+        "start": 121,
+        "end": 122,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_4": [
+      {
+        "file": "pages/checkout.py",
+        "start": 16,
+        "end": 17,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_40": [
+      {
+        "file": "pages/checkout.py",
+        "start": 124,
+        "end": 125,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_5": [
+      {
+        "file": "pages/checkout.py",
+        "start": 19,
+        "end": 20,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_6": [
+      {
+        "file": "pages/checkout.py",
+        "start": 22,
+        "end": 23,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_7": [
+      {
+        "file": "pages/checkout.py",
+        "start": 25,
+        "end": 26,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_8": [
+      {
+        "file": "pages/checkout.py",
+        "start": 28,
+        "end": 29,
+        "kind": "function"
+      }
+    ],
+    "CheckoutPage.click_9": [
+      {
+        "file": "pages/checkout.py",
+        "start": 31,
+        "end": 32,
+        "kind": "function"
+      }
+    ],
+    "Customer pays and the charge is declined": [
+      {
+        "file": "<root>/suite/repo/features/checkout/pay.feature",
+        "start": 9,
+        "end": null,
+        "kind": "scenario"
+      }
+    ],
+    "Customer pays with a new card": [
+      {
+        "file": "<root>/suite/repo/features/checkout/pay.feature",
+        "start": 15,
+        "end": null,
+        "kind": "scenario"
+      }
+    ],
+    "Customer pays with a saved card": [
+      {
+        "file": "<root>/suite/repo/features/checkout/pay.feature",
+        "start": 3,
+        "end": null,
+        "kind": "scenario"
+      }
+    ],
+    "Failed login": [
+      {
+        "file": "<root>/suite/repo/features/login.feature",
+        "start": 8,
+        "end": null,
+        "kind": "scenario"
+      }
+    ],
+    "Log in": [
+      {
+        "file": "<root>/suite/repo/features/login.feature",
+        "start": 1,
+        "end": null,
+        "kind": "feature"
+      }
+    ],
+    "Pay for an order": [
+      {
+        "file": "<root>/suite/repo/features/checkout/pay.feature",
+        "start": 1,
+        "end": null,
+        "kind": "feature"
+      }
+    ],
+    "Successful login": [
+      {
+        "file": "<root>/suite/repo/features/login.feature",
+        "start": 3,
+        "end": null,
+        "kind": "scenario"
+      }
+    ],
+    "a registered user": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 7,
+        "end": 8,
+        "kind": "step"
+      }
+    ],
+    "class CheckoutPage": [
+      {
+        "file": "pages/checkout.py",
+        "start": 4,
+        "end": 125,
+        "kind": "class"
+      }
+    ],
+    "click_1": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 7,
+        "end": 8,
+        "kind": "function"
+      }
+    ],
+    "click_10": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 34,
+        "end": 35,
+        "kind": "function"
+      }
+    ],
+    "click_11": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 37,
+        "end": 38,
+        "kind": "function"
+      }
+    ],
+    "click_12": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 40,
+        "end": 41,
+        "kind": "function"
+      }
+    ],
+    "click_13": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 43,
+        "end": 44,
+        "kind": "function"
+      }
+    ],
+    "click_14": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 46,
+        "end": 47,
+        "kind": "function"
+      }
+    ],
+    "click_15": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 49,
+        "end": 50,
+        "kind": "function"
+      }
+    ],
+    "click_16": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 52,
+        "end": 53,
+        "kind": "function"
+      }
+    ],
+    "click_17": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 55,
+        "end": 56,
+        "kind": "function"
+      }
+    ],
+    "click_18": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 58,
+        "end": 59,
+        "kind": "function"
+      }
+    ],
+    "click_19": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 61,
+        "end": 62,
+        "kind": "function"
+      }
+    ],
+    "click_2": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 10,
+        "end": 11,
+        "kind": "function"
+      }
+    ],
+    "click_20": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 64,
+        "end": 65,
+        "kind": "function"
+      }
+    ],
+    "click_21": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 67,
+        "end": 68,
+        "kind": "function"
+      }
+    ],
+    "click_22": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 70,
+        "end": 71,
+        "kind": "function"
+      }
+    ],
+    "click_23": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 73,
+        "end": 74,
+        "kind": "function"
+      }
+    ],
+    "click_24": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 76,
+        "end": 77,
+        "kind": "function"
+      }
+    ],
+    "click_25": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 79,
+        "end": 80,
+        "kind": "function"
+      }
+    ],
+    "click_26": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 82,
+        "end": 83,
+        "kind": "function"
+      }
+    ],
+    "click_27": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 85,
+        "end": 86,
+        "kind": "function"
+      }
+    ],
+    "click_28": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 88,
+        "end": 89,
+        "kind": "function"
+      }
+    ],
+    "click_29": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 91,
+        "end": 92,
+        "kind": "function"
+      }
+    ],
+    "click_3": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 13,
+        "end": 14,
+        "kind": "function"
+      }
+    ],
+    "click_30": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 94,
+        "end": 95,
+        "kind": "function"
+      }
+    ],
+    "click_31": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 97,
+        "end": 98,
+        "kind": "function"
+      }
+    ],
+    "click_32": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 100,
+        "end": 101,
+        "kind": "function"
+      }
+    ],
+    "click_33": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 103,
+        "end": 104,
+        "kind": "function"
+      }
+    ],
+    "click_34": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 106,
+        "end": 107,
+        "kind": "function"
+      }
+    ],
+    "click_35": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 109,
+        "end": 110,
+        "kind": "function"
+      }
+    ],
+    "click_36": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 112,
+        "end": 113,
+        "kind": "function"
+      }
+    ],
+    "click_37": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 115,
+        "end": 116,
+        "kind": "function"
+      }
+    ],
+    "click_38": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 118,
+        "end": 119,
+        "kind": "function"
+      }
+    ],
+    "click_39": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 121,
+        "end": 122,
+        "kind": "function"
+      }
+    ],
+    "click_4": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 16,
+        "end": 17,
+        "kind": "function"
+      }
+    ],
+    "click_40": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 124,
+        "end": 125,
+        "kind": "function"
+      }
+    ],
+    "click_5": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 19,
+        "end": 20,
+        "kind": "function"
+      }
+    ],
+    "click_6": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 22,
+        "end": 23,
+        "kind": "function"
+      }
+    ],
+    "click_7": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 25,
+        "end": 26,
+        "kind": "function"
+      }
+    ],
+    "click_8": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 28,
+        "end": 29,
+        "kind": "function"
+      }
+    ],
+    "click_9": [
+      {
+        "file": "<root>/suite/repo/pages/checkout.py",
+        "start": 31,
+        "end": 32,
+        "kind": "function"
+      }
+    ],
+    "def step_login_error": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 27,
+        "end": 28,
+        "kind": "function"
+      }
+    ],
+    "def step_login_invalid": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 17,
+        "end": 18,
+        "kind": "function"
+      }
+    ],
+    "def step_login_valid": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 12,
+        "end": 13,
+        "kind": "function"
+      }
+    ],
+    "def step_on_dashboard": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 22,
+        "end": 23,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_1": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 11,
+        "end": 12,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_10": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 47,
+        "end": 48,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_11": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 51,
+        "end": 52,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_12": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 55,
+        "end": 56,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_13": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 59,
+        "end": 60,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_14": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 63,
+        "end": 64,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_15": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 67,
+        "end": 68,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_16": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 71,
+        "end": 72,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_17": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 75,
+        "end": 76,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_18": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 79,
+        "end": 80,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_19": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 83,
+        "end": 84,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_2": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 15,
+        "end": 16,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_20": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 87,
+        "end": 88,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_21": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 91,
+        "end": 92,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_22": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 95,
+        "end": 96,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_23": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 99,
+        "end": 100,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_24": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 103,
+        "end": 104,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_25": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 107,
+        "end": 108,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_26": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 111,
+        "end": 112,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_27": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 115,
+        "end": 116,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_28": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 119,
+        "end": 120,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_29": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 123,
+        "end": 124,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_3": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 19,
+        "end": 20,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_30": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 127,
+        "end": 128,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_31": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 131,
+        "end": 132,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_32": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 135,
+        "end": 136,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_33": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 139,
+        "end": 140,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_34": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 143,
+        "end": 144,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_35": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 147,
+        "end": 148,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_36": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 151,
+        "end": 152,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_37": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 155,
+        "end": 156,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_38": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 159,
+        "end": 160,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_39": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 163,
+        "end": 164,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_4": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 23,
+        "end": 24,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_40": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 167,
+        "end": 168,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_5": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 27,
+        "end": 28,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_6": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 31,
+        "end": 32,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_7": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 35,
+        "end": 36,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_8": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 39,
+        "end": 40,
+        "kind": "function"
+      }
+    ],
+    "def step_pay_9": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 43,
+        "end": 44,
+        "kind": "function"
+      }
+    ],
+    "def step_registered_user": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 7,
+        "end": 8,
+        "kind": "function"
+      }
+    ],
+    "pay step 1": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 11,
+        "end": 12,
+        "kind": "step"
+      }
+    ],
+    "pay step 10": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 47,
+        "end": 48,
+        "kind": "step"
+      }
+    ],
+    "pay step 11": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 51,
+        "end": 52,
+        "kind": "step"
+      }
+    ],
+    "pay step 12": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 55,
+        "end": 56,
+        "kind": "step"
+      }
+    ],
+    "pay step 13": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 59,
+        "end": 60,
+        "kind": "step"
+      }
+    ],
+    "pay step 14": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 63,
+        "end": 64,
+        "kind": "step"
+      }
+    ],
+    "pay step 15": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 67,
+        "end": 68,
+        "kind": "step"
+      }
+    ],
+    "pay step 16": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 71,
+        "end": 72,
+        "kind": "step"
+      }
+    ],
+    "pay step 17": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 75,
+        "end": 76,
+        "kind": "step"
+      }
+    ],
+    "pay step 18": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 79,
+        "end": 80,
+        "kind": "step"
+      }
+    ],
+    "pay step 19": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 83,
+        "end": 84,
+        "kind": "step"
+      }
+    ],
+    "pay step 2": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 15,
+        "end": 16,
+        "kind": "step"
+      }
+    ],
+    "pay step 20": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 87,
+        "end": 88,
+        "kind": "step"
+      }
+    ],
+    "pay step 21": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 91,
+        "end": 92,
+        "kind": "step"
+      }
+    ],
+    "pay step 22": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 95,
+        "end": 96,
+        "kind": "step"
+      }
+    ],
+    "pay step 23": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 99,
+        "end": 100,
+        "kind": "step"
+      }
+    ],
+    "pay step 24": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 103,
+        "end": 104,
+        "kind": "step"
+      }
+    ],
+    "pay step 25": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 107,
+        "end": 108,
+        "kind": "step"
+      }
+    ],
+    "pay step 26": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 111,
+        "end": 112,
+        "kind": "step"
+      }
+    ],
+    "pay step 27": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 115,
+        "end": 116,
+        "kind": "step"
+      }
+    ],
+    "pay step 28": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 119,
+        "end": 120,
+        "kind": "step"
+      }
+    ],
+    "pay step 29": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 123,
+        "end": 124,
+        "kind": "step"
+      }
+    ],
+    "pay step 3": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 19,
+        "end": 20,
+        "kind": "step"
+      }
+    ],
+    "pay step 30": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 127,
+        "end": 128,
+        "kind": "step"
+      }
+    ],
+    "pay step 31": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 131,
+        "end": 132,
+        "kind": "step"
+      }
+    ],
+    "pay step 32": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 135,
+        "end": 136,
+        "kind": "step"
+      }
+    ],
+    "pay step 33": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 139,
+        "end": 140,
+        "kind": "step"
+      }
+    ],
+    "pay step 34": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 143,
+        "end": 144,
+        "kind": "step"
+      }
+    ],
+    "pay step 35": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 147,
+        "end": 148,
+        "kind": "step"
+      }
+    ],
+    "pay step 36": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 151,
+        "end": 152,
+        "kind": "step"
+      }
+    ],
+    "pay step 37": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 155,
+        "end": 156,
+        "kind": "step"
+      }
+    ],
+    "pay step 38": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 159,
+        "end": 160,
+        "kind": "step"
+      }
+    ],
+    "pay step 39": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 163,
+        "end": 164,
+        "kind": "step"
+      }
+    ],
+    "pay step 4": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 23,
+        "end": 24,
+        "kind": "step"
+      }
+    ],
+    "pay step 40": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 167,
+        "end": 168,
+        "kind": "step"
+      }
+    ],
+    "pay step 5": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 27,
+        "end": 28,
+        "kind": "step"
+      }
+    ],
+    "pay step 6": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 31,
+        "end": 32,
+        "kind": "step"
+      }
+    ],
+    "pay step 7": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 35,
+        "end": 36,
+        "kind": "step"
+      }
+    ],
+    "pay step 8": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 39,
+        "end": 40,
+        "kind": "step"
+      }
+    ],
+    "pay step 9": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 43,
+        "end": 44,
+        "kind": "step"
+      }
+    ],
+    "step_login_error": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 27,
+        "end": 28,
+        "kind": "function"
+      }
+    ],
+    "step_login_invalid": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 17,
+        "end": 18,
+        "kind": "function"
+      }
+    ],
+    "step_login_valid": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 12,
+        "end": 13,
+        "kind": "function"
+      }
+    ],
+    "step_on_dashboard": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 22,
+        "end": 23,
+        "kind": "function"
+      }
+    ],
+    "step_pay_1": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 11,
+        "end": 12,
+        "kind": "function"
+      }
+    ],
+    "step_pay_10": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 47,
+        "end": 48,
+        "kind": "function"
+      }
+    ],
+    "step_pay_11": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 51,
+        "end": 52,
+        "kind": "function"
+      }
+    ],
+    "step_pay_12": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 55,
+        "end": 56,
+        "kind": "function"
+      }
+    ],
+    "step_pay_13": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 59,
+        "end": 60,
+        "kind": "function"
+      }
+    ],
+    "step_pay_14": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 63,
+        "end": 64,
+        "kind": "function"
+      }
+    ],
+    "step_pay_15": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 67,
+        "end": 68,
+        "kind": "function"
+      }
+    ],
+    "step_pay_16": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 71,
+        "end": 72,
+        "kind": "function"
+      }
+    ],
+    "step_pay_17": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 75,
+        "end": 76,
+        "kind": "function"
+      }
+    ],
+    "step_pay_18": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 79,
+        "end": 80,
+        "kind": "function"
+      }
+    ],
+    "step_pay_19": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 83,
+        "end": 84,
+        "kind": "function"
+      }
+    ],
+    "step_pay_2": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 15,
+        "end": 16,
+        "kind": "function"
+      }
+    ],
+    "step_pay_20": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 87,
+        "end": 88,
+        "kind": "function"
+      }
+    ],
+    "step_pay_21": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 91,
+        "end": 92,
+        "kind": "function"
+      }
+    ],
+    "step_pay_22": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 95,
+        "end": 96,
+        "kind": "function"
+      }
+    ],
+    "step_pay_23": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 99,
+        "end": 100,
+        "kind": "function"
+      }
+    ],
+    "step_pay_24": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 103,
+        "end": 104,
+        "kind": "function"
+      }
+    ],
+    "step_pay_25": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 107,
+        "end": 108,
+        "kind": "function"
+      }
+    ],
+    "step_pay_26": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 111,
+        "end": 112,
+        "kind": "function"
+      }
+    ],
+    "step_pay_27": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 115,
+        "end": 116,
+        "kind": "function"
+      }
+    ],
+    "step_pay_28": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 119,
+        "end": 120,
+        "kind": "function"
+      }
+    ],
+    "step_pay_29": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 123,
+        "end": 124,
+        "kind": "function"
+      }
+    ],
+    "step_pay_3": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 19,
+        "end": 20,
+        "kind": "function"
+      }
+    ],
+    "step_pay_30": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 127,
+        "end": 128,
+        "kind": "function"
+      }
+    ],
+    "step_pay_31": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 131,
+        "end": 132,
+        "kind": "function"
+      }
+    ],
+    "step_pay_32": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 135,
+        "end": 136,
+        "kind": "function"
+      }
+    ],
+    "step_pay_33": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 139,
+        "end": 140,
+        "kind": "function"
+      }
+    ],
+    "step_pay_34": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 143,
+        "end": 144,
+        "kind": "function"
+      }
+    ],
+    "step_pay_35": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 147,
+        "end": 148,
+        "kind": "function"
+      }
+    ],
+    "step_pay_36": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 151,
+        "end": 152,
+        "kind": "function"
+      }
+    ],
+    "step_pay_37": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 155,
+        "end": 156,
+        "kind": "function"
+      }
+    ],
+    "step_pay_38": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 159,
+        "end": 160,
+        "kind": "function"
+      }
+    ],
+    "step_pay_39": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 163,
+        "end": 164,
+        "kind": "function"
+      }
+    ],
+    "step_pay_4": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 23,
+        "end": 24,
+        "kind": "function"
+      }
+    ],
+    "step_pay_40": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 167,
+        "end": 168,
+        "kind": "function"
+      }
+    ],
+    "step_pay_5": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 27,
+        "end": 28,
+        "kind": "function"
+      }
+    ],
+    "step_pay_6": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 31,
+        "end": 32,
+        "kind": "function"
+      }
+    ],
+    "step_pay_7": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 35,
+        "end": 36,
+        "kind": "function"
+      }
+    ],
+    "step_pay_8": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 39,
+        "end": 40,
+        "kind": "function"
+      }
+    ],
+    "step_pay_9": [
+      {
+        "file": "<root>/suite/repo/steps/pay_steps.py",
+        "start": 43,
+        "end": 44,
+        "kind": "function"
+      }
+    ],
+    "step_registered_user": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 7,
+        "end": 8,
+        "kind": "function"
+      }
+    ],
+    "they land on the dashboard": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 22,
+        "end": 23,
+        "kind": "step"
+      }
+    ],
+    "they log in with the wrong password": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 17,
+        "end": 18,
+        "kind": "step"
+      }
+    ],
+    "they log in with valid credentials": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 12,
+        "end": 13,
+        "kind": "step"
+      }
+    ],
+    "they see an error message": [
+      {
+        "file": "<root>/suite/repo/steps/login_steps.py",
+        "start": 27,
+        "end": 28,
+        "kind": "step"
+      }
+    ]
+  },
   "indexed": {
     "suite": 5
   },
