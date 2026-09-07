@@ -771,9 +771,9 @@ jobs:
           import json, pathlib
           rows = [json.loads(l) for l in open("/tmp/ctx/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
-          assert names == ["ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more", "rank",
-                           "sections"], names
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "defines", "find", "impact", "more",
+                           "rank", "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/ctx/click_7.context").read_text()
@@ -1019,9 +1019,9 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/rankout/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
-          assert names == ["ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more", "rank",
-                           "sections"], names
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "defines", "find", "impact", "more",
+                           "rank", "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/rankout/personal.txt").read_text()
           assert mcp == cli.rstrip("\n"), (mcp, cli)
@@ -1625,9 +1625,9 @@ jobs:
           import json, pathlib
           rows = [json.loads(l) for l in open("/tmp/imp/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
-          assert names == ["ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more", "rank",
-                           "sections"], names
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "defines", "find", "impact", "more",
+                           "rank", "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -1649,6 +1649,399 @@ jobs:
               assert got == ["a", "b", "c"], (tool, got)
           print("callees and impact log one line per name")
           EOF
+      - name: a change names the scenarios that reach it
+        run: |
+          set -o pipefail
+          rm -rf /tmp/aff
+          mkdir -p /tmp/aff/repo/features /tmp/aff/repo/steps \
+                   /tmp/aff/repo/pages /tmp/aff/repo/app \
+                   /tmp/aff/repo/helpers /tmp/aff/repo/tests
+          # A suite whose scenarios really bind to its steps, so a change to
+          # one page object selects one scenario and leaves the others. The
+          # `suite` golden fixture is asked the same question below, and its
+          # answer is nothing: its step phrases and its feature files do not
+          # meet, which is a fact about that fixture the answer has to state
+          # rather than round to "safe".
+          cat > /tmp/aff/repo/features/checkout.feature <<'EOF'
+          @cart
+          Feature: Checkout
+
+            Scenario: Pay with a saved card
+              Given a customer with a saved card
+              When they pay
+              Then the receipt is emailed
+
+            Scenario: Refund an order
+              Given a paid order
+              When they ask for a refund
+              Then the refund is confirmed
+          EOF
+          cat > /tmp/aff/repo/features/login.feature <<'EOF'
+          Feature: Log in
+
+            Scenario: Log in with a password
+              Given a registered user
+              When they log in
+              Then they see the dashboard
+          EOF
+          cat > /tmp/aff/repo/steps/checkout_steps.py <<'EOF'
+          """Step definitions for the checkout flow."""
+
+          from behave import given, then, when
+
+          from pages.checkout import CheckoutPage
+          from helpers.money import refund_helper
+
+          page = CheckoutPage()
+
+
+          @given("a customer with a saved card")
+          def step_saved_card(context):
+              page.open_cart()
+
+
+          @when("they pay")
+          def step_pay(context):
+              page.pay()
+
+
+          @then("the receipt is emailed")
+          def step_receipt(context):
+              pass
+
+
+          @given("a paid order")
+          def step_paid_order(context):
+              pass
+
+
+          @when("they ask for a refund")
+          def step_ask_refund(context):
+              refund_helper()
+
+
+          @then("the refund is confirmed")
+          def step_refund_confirmed(context):
+              pass
+          EOF
+          cat > /tmp/aff/repo/steps/login_steps.py <<'EOF'
+          """Step definitions for logging in."""
+
+          from behave import given, then, when
+
+          from pages.login import LoginPage
+
+          page = LoginPage()
+
+
+          @given("a registered user")
+          def step_registered_user(context):
+              pass
+
+
+          @when("they log in")
+          def step_log_in(context):
+              page.sign_in()
+
+
+          @then("they see the dashboard")
+          def step_dashboard(context):
+              pass
+          EOF
+          cat > /tmp/aff/repo/pages/checkout.py <<'EOF'
+          """The checkout page."""
+
+          from app.billing import charge
+
+
+          class CheckoutPage:
+              """Page object for the checkout flow."""
+
+              def open_cart(self):
+                  pass
+
+              def pay(self):
+                  return charge(1)
+          EOF
+          cat > /tmp/aff/repo/pages/login.py <<'EOF'
+          """The login page."""
+
+
+          class LoginPage:
+              """Page object for the login form."""
+
+              def sign_in(self):
+                  pass
+          EOF
+          cat > /tmp/aff/repo/helpers/money.py <<'EOF'
+          """Money helpers the steps call directly."""
+
+
+          def refund_helper():
+              return "refunded"
+          EOF
+          cat > /tmp/aff/repo/app/billing.py <<'EOF'
+          """Charging a card."""
+
+
+          def charge(amount):
+              return amount
+          EOF
+          cat > /tmp/aff/repo/tests/test_billing.py <<'EOF'
+          """A pytest case over the billing helper."""
+
+          from app.billing import charge
+
+
+          def test_charge_returns_the_amount():
+              assert charge(1) == 1
+
+
+          def test_nothing_to_do_with_billing():
+              assert True
+          EOF
+          where-are-we --repo /tmp/aff/repo --out /tmp/aff/m --quiet --no-semantic
+          # 1. One page object, one scenario: the one whose steps call it.
+          where-are-we --out /tmp/aff/m --affected pages/checkout.py \
+            > /tmp/aff/checkout.txt
+          cat /tmp/aff/checkout.txt
+          head -1 /tmp/aff/checkout.txt | grep -qx \
+            'Affected by a change to pages/checkout.py: 1 of 3 scenarios, 1 feature file, 0 routes, 1 page object, 2 step functions. Depth 6, 12000 characters.'
+          grep -qF -- '- `features/checkout.feature:4` Pay with a saved card, via `a customer with a saved card` in `steps/checkout_steps.py:step_saved_card`, 1 hop' \
+            /tmp/aff/checkout.txt
+          grep -qF -- '- `features/checkout.feature`' /tmp/aff/checkout.txt
+          grep -qF -- '- `pages/checkout.py`' /tmp/aff/checkout.txt
+          if grep -q 'Refund an order' /tmp/aff/checkout.txt; then
+            echo "a scenario that does not reach the change was named"; exit 1
+          fi
+          if grep -q 'Log in with a password' /tmp/aff/checkout.txt; then
+            echo "another feature's scenario was named"; exit 1
+          fi
+          # 2. Two hops through the page object, and the depth cap holds.
+          where-are-we --out /tmp/aff/m --affected app/billing.py > /tmp/aff/billing.txt
+          grep -qF 'Pay with a saved card, via `they pay` in `steps/checkout_steps.py:step_pay`, 2 hops' \
+            /tmp/aff/billing.txt
+          where-are-we --out /tmp/aff/m --affected app/billing.py --affected-depth 1 \
+            > /tmp/aff/billing1.txt
+          head -1 /tmp/aff/billing1.txt | grep -q '0 of 3 scenarios'
+          if grep -q 'Pay with a saved card' /tmp/aff/billing1.txt; then
+            echo "depth 1 reached a scenario two hops away"; exit 1
+          fi
+          if where-are-we --out /tmp/aff/m --affected app/billing.py \
+               --affected-depth 0 > /dev/null 2>&1; then
+            echo "--affected-depth 0 was accepted"; exit 1
+          fi
+          # 3. A file the graph holds no row for is named as unreachable, and
+          #    said so in the first line, which is the block a small budget
+          #    gives up first.
+          where-are-we --out /tmp/aff/m --affected pages/checkout.py,docs/nothing.md \
+            > /tmp/aff/unreach.txt
+          grep -qF 'No xrefs row names 1 of the files given, so this answer says nothing about it.' \
+            /tmp/aff/unreach.txt
+          grep -qF '## Unreachable from the graph (no xrefs row names them)' \
+            /tmp/aff/unreach.txt
+          grep -qF -- '- `docs/nothing.md`' /tmp/aff/unreach.txt
+          # 4. The two selections a runner takes. `checkout.feature` carries a
+          #    tag no other feature file has, so that branch prints tags;
+          #    `login.feature` carries none, so that one prints the include
+          #    patterns and says why.
+          where-are-we --out /tmp/aff/m --affected pages/checkout.py \
+            --affected-format behave > /tmp/aff/behave.txt
+          grep -qx '@cart' /tmp/aff/behave.txt
+          grep -qF '## behave tags, one per line: these are on every affected feature file and on no other' \
+            /tmp/aff/behave.txt
+          where-are-we --out /tmp/aff/m --affected pages/login.py \
+            --affected-format behave > /tmp/aff/behave2.txt
+          grep -qxF -- '(^|/)features/login\.feature$' /tmp/aff/behave2.txt
+          grep -qF 'the map records tags per feature file rather than per scenario' \
+            /tmp/aff/behave2.txt
+          where-are-we --out /tmp/aff/m --affected app/billing.py \
+            --affected-format pytest > /tmp/aff/pytest.txt
+          grep -qx 'tests/test_billing.py::test_charge_returns_the_amount' /tmp/aff/pytest.txt
+          if grep -q 'test_nothing_to_do_with_billing' /tmp/aff/pytest.txt; then
+            echo "a case the change does not reach was selected"; exit 1
+          fi
+          # 5. --changed reads git and answers exactly as --affected does.
+          git -C /tmp/aff/repo init -q
+          git -C /tmp/aff/repo add -A
+          git -C /tmp/aff/repo -c user.email=ci@example.com -c user.name=ci \
+            commit -qm "the fixture"
+          printf '\n\ndef extra():\n    pass\n' >> /tmp/aff/repo/pages/checkout.py
+          where-are-we --out /tmp/aff/m --changed > /tmp/aff/changed.txt
+          diff -u /tmp/aff/checkout.txt /tmp/aff/changed.txt
+          git -C /tmp/aff/repo checkout -- pages/checkout.py
+          where-are-we --out /tmp/aff/m --changed | grep -qx 'nothing changed since HEAD'
+          if where-are-we --out /tmp/aff/m --changed nosuchref > /dev/null 2>&1; then
+            echo "a ref this checkout does not have was answered"; exit 1
+          fi
+          # 6. The tool and the flag are the same answer, and the server
+          #    declares twelve tools.
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"affected","arguments":{"files":["pages/checkout.py"]}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"affected","arguments":{"files":["app/billing.py"],"depth":0}}}' \
+            | where-are-we --out /tmp/aff/m --mcp > /tmp/aff/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/aff/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "defines", "find", "impact", "more",
+                           "rank", "sections"], names
+          print("tools/list:", len(names), names)
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/aff/checkout.txt").read_text()
+          assert mcp == cli.rstrip("\n"), "MCP affected and --affected disagree"
+          assert rows[2]["error"]["code"] == -32602, rows[2]
+          assert rows[2]["error"]["message"] == "depth must be an integer from 1 to 12", rows[2]
+          print("MCP affected and --affected agree, byte for byte")
+          EOF
+          grep -q '"tool": "affected"' /tmp/aff/m/.wawe-ask.log
+          # 7. The same question walked the other way. This computes the
+          #    expected scenarios forward, from every step function outward
+          #    until it reaches something the changed file declares, which is
+          #    the opposite order to the one the tool walks, and asserts the
+          #    two agree on both fixtures.
+          python - <<'EOF'
+          import re, sys
+          sys.path.insert(0, "tests/golden")
+          import build_fixtures
+          build_fixtures.build_all("/tmp/aff/golden")
+          from where_are_we.graph import affected, load
+
+          def expected(m, changed, depth=6):
+              root = m["repo"]
+              full = root + "/" + changed
+              steps, funcs = {}, {}
+              for name, sites in m["spans"].items():
+                  for s in sites:
+                      if s["kind"] == "step":
+                          steps[(s["file"], s["start"])] = name
+                      elif s["kind"] == "function":
+                          funcs.setdefault((s["file"], name), s["start"])
+              out_edges, declared = {}, set()
+              for r in m["xrefs"]:
+                  if r["edge"] == "calls":
+                      sf, _, sn = r["subject"].rpartition(":")
+                      for target in ([r["file"]] if r["file"] else r["candidates"]):
+                          out_edges.setdefault((sf, sn), set()).add((target, r["object"]))
+                  elif r["edge"] == "declares" and r["subject"] == full:
+                      declared.add((r["subject"], r["object"]))
+              reaching = set()
+              for (holder, name), start in funcs.items():
+                  phrase = steps.get((holder, start))
+                  if phrase is None:
+                      continue
+                  if (holder, name) in declared:
+                      reaching.add(phrase)
+                      continue
+                  frontier, seen = {(holder, name)}, {(holder, name)}
+                  for _ in range(depth):
+                      nxt = set()
+                      for node in frontier:
+                          for edge in out_edges.get(node, ()):
+                              if edge not in seen:
+                                  seen.add(edge)
+                                  nxt.add(edge)
+                      if not nxt:
+                          break
+                      if nxt & declared:
+                          reaching.add(phrase)
+                          break
+                      frontier = nxt
+              keys = sorted({re.sub(r"\{[^}]*\}", "", p).strip().lower()[:40]
+                             for p in reaching if p.strip()})
+              wanted = set()
+              for rel, entry in m["features"].items():
+                  body = m["lines"].get(root + "/" + rel) or []
+                  marks = sorted((s["line"], s["name"]) for s in entry["scenarios"])
+                  for i, (line, name) in enumerate(marks):
+                      end = marks[i + 1][0] - 1 if i + 1 < len(marks) else len(body)
+                      for text in body[line:end]:
+                          hit = re.match(r"\s*(?:Given|When|Then|And|But)\s+(.+)$", text)
+                          if not hit:
+                              continue
+                          low = re.sub(r'"[^"]*"', "", hit.group(1)).strip().lower()
+                          if any(k and k in low for k in keys):
+                              wanted.add((rel, name))
+                              break
+              return sorted(wanted)
+
+          cases = [("/tmp/aff/m", "pages/checkout.py",
+                    [("features/checkout.feature", "Pay with a saved card")]),
+                   ("/tmp/aff/m", "app/billing.py",
+                    [("features/checkout.feature", "Pay with a saved card")]),
+                   ("/tmp/aff/m", "helpers/money.py",
+                    [("features/checkout.feature", "Refund an order")]),
+                   ("/tmp/aff/m", "pages/login.py",
+                    [("features/login.feature", "Log in with a password")]),
+                   ("/tmp/aff/golden/suite/out", "pages/checkout.py", []),
+                   ("/tmp/aff/golden/suite/out", "steps/login_steps.py",
+                    [("features/login.feature", "Failed login"),
+                     ("features/login.feature", "Successful login")])]
+          for map_dir, changed, want in cases:
+              m = load(map_dir)
+              mine = sorted((r[0], r[1]) for r in affected(m, [changed])["scenarios"])
+              assert mine == expected(m, changed), (changed, mine)
+              assert mine == want, (changed, mine, want)
+              print(map_dir, changed, mine)
+          print("the forward walk from the steps and the upward walk from the "
+                "change name the same scenarios, on both fixtures")
+          EOF
+          # 8. On the `suite` golden fixture the answer is nothing, and it
+          #    says why rather than reading as an all clear: none of its
+          #    three checkout scenarios holds a step any module binds.
+          where-are-we --out /tmp/aff/golden/suite/out --affected pages/checkout.py \
+            > /tmp/aff/golden.txt
+          cat /tmp/aff/golden.txt
+          head -1 /tmp/aff/golden.txt | grep -qx \
+            'Affected by a change to pages/checkout.py: 0 of 5 scenarios, 0 feature files, 0 routes, 1 page object, 40 step functions. Depth 6, 12000 characters. 3 of 5 scenarios hold no step this map binds to a step function.'
+          # 9. Every row of every block is reachable from the handles the
+          #    answer prints, at the budgets an agent actually asks at.
+          python - <<'EOF'
+          import re
+          from where_are_we import ask
+          from where_are_we.graph import affected, block_lines, load, NAMES, FORMATS
+          M, MP = "/tmp/aff/m", "/tmp/aff/m/framework_map.md"
+          HANDLE = re.compile(r"\(more:aff:[^)\s]+\)")
+
+          def printed(text):
+              return [l for l in text.splitlines()
+                      if l and not l.startswith(("## ", "… ", "Affected by "))]
+
+          def walk(text, limit):
+              seen, todo = list(printed(text)), HANDLE.findall(text)
+              while todo:
+                  handle = todo.pop()[1:-1]
+                  more = ask.more(MP, handle, limit)
+                  assert not more.startswith("no such handle"), (handle, more)
+                  seen += printed(more)
+                  todo += HANDLE.findall(more)
+              return seen
+
+          rows = 0
+          for files in (["pages/checkout.py"], ["app/billing.py"],
+                        ["helpers/money.py"], ["pages/", "app/", "nope.py"],
+                        ["app/billing.py", "pages/login.py"]):
+              result = affected(load(M), files)
+              whole = [l for block in NAMES for l in block_lines(result, block)]
+              for limit in (1500, 800):
+                  answer = ask.affected_answer(MP, files, limit=limit)
+                  assert len(answer) <= limit, (files, limit, len(answer))
+                  got = set(walk(answer, limit))
+                  assert not [l for l in whole if l not in got], (files, limit)
+                  rows += len(whole)
+              for fmt in FORMATS:
+                  answer = ask.affected_answer(MP, files, fmt=fmt, limit=1500)
+                  assert len(answer) <= 1500
+                  got = set(walk(answer, 1500))
+                  assert not [l for l in block_lines(result, fmt) if l not in got], (files, fmt)
+          print(f"{rows} rows over 5 file sets, every one of them reachable "
+                "from the answer's own handles at 1500 and 800 characters")
+          EOF
+          # 10. Twice over the same map is the same answer.
+          where-are-we --out /tmp/aff/m --affected pages/checkout.py > /tmp/aff/again.txt
+          diff -u /tmp/aff/checkout.txt /tmp/aff/again.txt
       - name: manifest and hooks
         run: |
           where-are-we --repo /tmp/fx --init && test -f /tmp/fx/.framework-map.json
@@ -4101,9 +4494,9 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/more/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
-          assert names == ["ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more", "rank",
-                           "sections"], names
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "defines", "find", "impact", "more",
+                           "rank", "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
