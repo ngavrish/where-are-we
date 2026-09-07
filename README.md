@@ -108,8 +108,9 @@ words or to open `framework_map.md`.
     /plugin install where-are-we@where-are-we
 
 The plugin builds the map at session start, puts its pointer into the session's
-context, serves all eleven of the map's tools over MCP (`ask`, `at`, `callees`,
-`callers`, `context`, `defines`, `find`, `impact`, `more`, `rank`, `sections`)
+context, serves all twelve of the map's tools over MCP (`affected`, `ask`,
+`at`, `callees`, `callers`, `context`, `defines`, `find`, `impact`, `more`,
+`rank`, `sections`)
 and ships six skills (`ask`, `orient`, `rank`, `readmes`, `spec-map`,
 `where-defined`). It needs `where-are-we` on PATH
 (`pipx install where-are-we`). Details in [plugin/README.md](plugin/README.md).
@@ -170,6 +171,7 @@ as estimates.
 | `callees` (MCP), `--callees` | What a name calls, the other direction of `callers`: every callee with the file it is defined in, from the same two graphs, cross-file only | Not measured as turns saved; the claim is one lookup instead of reading the function to find out what it reaches | Count `Read` calls spent opening a function to list its calls before/after |
 | `impact` (MCP), `--impact NAME [--impact-depth N]` | The blast radius of a name: every `file:func` that reaches it within N hops (1 to 6, 3 by default), grouped by hop and sorted inside each. A visited set walks a cycle once, and the keys defining the name itself are the change rather than its radius. The first line of every reply states the rules the answer was built under, unconditionally: hops are followed by name, so where several files define one name their callers are unioned; only cross-file calls are in the graph; and the map keeps at most 60 cross-file and 120 step graph keys, so on a large repository the radius is a floor. Under each hop, where the map holds `xrefs`, a `how:` line names in the same order the rule that placed each of those edges, and `step_graph` for a hop through the behave step graph, which records a bare name and no rule. Where the key data shows the clash a `note:` names up to five of the keys and how many more. Capped at 200 `file:func` entries in the whole reply, note keys included, with a line naming how many are left and at which depth; no handle to fetch them, because the tool already takes a depth and narrowing is the reader's move. A depth outside 1 to 6 is refused: exit 2 on the command line, JSON-RPC -32602 on the tool | Not measured as turns saved; the claim is one lookup instead of running `callers` outward by hand, hop after hop | Count `callers` calls per session before/after |
 | `context` (MCP), `--context NAME` | Everything the map holds about one name, in one answer: where it is declared with every span, the rows of the map that mention it, its callers, its callees, and its impact one hop out. The five calls an agent used to make on landing on a name, composed from the same functions over the same map. The budget is allocated in two passes: every block is given the smaller of what it needs and its floor share - 15% declared, 35% map rows, 15% callers, 15% callees, 20% impact - and what nobody claimed is then handed on in that same order to the blocks still short. So when the five answers together fit the budget every one of them is printed whole, and the same name at the same budget is always the same answer. Whole rows; a block that could not print itself ends in a tail carrying a `more:ctx:` handle the `more` tool resolves | Measured 2026-09-07 on the `suite` golden fixture, all 224 declared names at 12000 characters: 182 answers hold every row `--defines`, `--ask`, `--callers`, `--callees` and `--impact --impact-depth 1` return, and the other 42, whose five answers do not fit 12000 at all, have every cut row behind a handle. `wawe-eval --tool context` over 100 names reports recall with handles 1.0 at 1500 and 12000, and 0.6984 and 0.9943 for the first answer alone at those two budgets | Count the tool calls a session spends on one name before/after (the run's call events) |
+| `affected` (MCP), `--affected FILE[,FILE]`, `--changed [REF]`, `--affected-format`, `--affected-depth N` | Which tests a change reaches, from the graph the map already holds: the scenarios whose steps call into those files, the feature files they are in, the routes and page objects reached, and the files no `xrefs` row names, which is the answer saying what it does not cover. The walk starts at every name the changed files declare and follows the `calls` rows upward, callee to caller, to a depth of 6 by default and 12 at most, with a visited set so a cycle is walked once. A step function is the join of two `spans` sites on one line, the function and the phrase its decorator binds; a scenario is reached when one of its own step lines holds that phrase, by the same rule `feature_links` is built with. `--changed` asks git what moved in the repository the map was built from, so a pipeline passes nothing. `--affected-format behave` prints the tags where the map holds one on the affected feature files alone and `-i` include patterns where it does not, saying which; `pytest` prints node ids. Whole rows, a floor share of the budget per block, and a `more:aff:` handle on every block that was cut | Measured 2026-09-07 on a four-layer behave fixture (CI step `a change names the scenarios that reach it`): a change to one page object names 1 of 3 scenarios at 1 hop, the product function under it names the same scenario at 2 hops and none at depth 1, and the helper the other step calls names the other scenario. The expected set is recomputed in the step by the opposite traversal and asserted equal. On the `suite` golden fixture the answer is 0 of 5 scenarios, and the first line says why: 3 of those 5 hold no step any module in that fixture binds. Turns saved not measured | Count the scenarios a session re-runs after a one-file change, before and after |
 | `find` (MCP) | Where a phrase or string lives, with the line | Not measured | Same |
 | `sections` (MCP), `--sections` | The headings, now map + brief (75 vs 3 before 0.12.1) | Measured 2026-09-03: a code repository's `--sections` went from 3 empty suite headings to 75 | — |
 | `wawe-eval` | Generates questions from the map, asks each at no budget to get the rows the map holds for it, and reports what a budgeted answer shows of those, three ways: macro (per question), pooled (all rows), and over the five rows that ranked highest, plus a count of the rows too long to print at that budget at all. With `more` in the build it also reports what the answer plus its handles reaches | Measured 2026-09-07 at 1.5.0 on the suite fixture built at `/tmp/wawe-cost`, 100 questions, seed 0: first-answer recall 0.4292 / 0.8392 / 0.9996 at budgets of 350 / 1500 / 12000 characters; pooled 0.0886 / 0.2884 / 0.997; top-5 0.6317 / 1.0 / 1.0; 34 / 0 / 0 rows longer than the budget; mean answer 303.0 / 973.3 / 2220.0 characters. Recall with handles, over the rows that fit, is asserted 1.0 by the CI step `wawe-eval: the budget loses no row the map holds`, which exits 1 on any such row a handle fails to return, from the release that adds `more` onwards | `--agent` compares the map tools against grep and read on the same questions; not run in CI |
@@ -211,7 +213,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | GitHub Action (`ngavrish/where-are-we@v1`): inputs `repo`, `product`, `out`, `agent-file`, `comment`; outputs `brief`, `summary` | Map on CI, optional PR comment | Not measured | — |
 | pre-commit hook | Rebuild on commit so a map is never stale | Not measured | — |
 | `--install-hook git|claude|cursor|codex|gemini` | `git`: post-checkout/merge/commit hooks that rebuild; `claude` (`agent` is the same thing): a SessionStart hook for an agent harness (distinct from `--agent-file`, which writes the brief into a file); `cursor`: a Cursor rule at `.cursor/rules/where-are-we.mdc` plus `.cursor/mcp.json`; `codex`: an `AGENTS.md` block plus `~/.codex/config.toml`; `gemini`: a `GEMINI.md` block plus `.gemini/settings.json`. `cursor`, `codex` and `gemini` build the map into `.wawe` first if it is not already there; `git` and `claude` do not, since they already build into whatever `--out` was passed on their own first trigger, and a pre-build for them would be a second map in a different place. Each kind installs all of its files or none: every target is checked before the first write, and a refusal names the cause | Not measured | — |
-| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the eleven tools over MCP (`ask`, `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`, `impact`, `more`); skills `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,context,rank,sections,callers,callees,impact,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
+| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the twelve tools over MCP (`ask`, `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`, `impact`, `affected`, `more`); skills `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,context,rank,sections,callers,callees,impact,affected,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
 | Packages: PyPI wheel + sdist, deb (apt repo with key), rpm, Homebrew tap, GitHub release with SBOM (SPDX) and sigstore signatures | Install anywhere | — | — |
 
 ### Honesty features (not savings, guarantees)
@@ -767,6 +769,10 @@ sixty-four thousand, every turn.
 | `--defines NAME` | every place that name is declared, each as `file:start-end (kind)`, in path order |
 | `--at FILE:LINE` | the whole definition that encloses that line, with a handle for the rest of it |
 | `--context NAME` | the five answers about a name in one: declared, map rows, callers, callees, impact one hop out |
+| `--affected FILE[,FILE]` | which tests a change to those files reaches: the scenarios, their feature files, the routes and page objects, and the files the graph has no row for |
+| `--changed [REF]` | the same, for the files `git diff --name-only REF` names (HEAD by default) |
+| `--affected-format behave\|pytest` | that selection as the runner's own list: behave include patterns or tags, or pytest node ids |
+| `--affected-depth N` | how many call hops `--affected` follows upward (1 to 12, 6 by default) |
 | `--rank [FILE,...]` | the definitions this repository is built around, best first; given files, what to read while editing them |
 | `--limit N` | how many rows `--rank` prints (default 200; below 1 is refused) |
 | `--ask "words" --files a.py,b.py` | the same answer with the rows about those files first in every section; `--files -` reads the list on stdin |
@@ -846,7 +852,7 @@ of its flags carries.
 
 | class | what it touches | flags |
 |---|---|---|
-| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--defines`, `--at`, `--context`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
+| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--defines`, `--at`, `--context`, `--affected`, `--changed`, `--affected-format`, `--affected-depth`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
 | `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--ctags`, `--force`, `--watch`, `--diff` |
 | `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of, and the file `--export` was told to write, which is at whatever path the caller named | `--init`, `--agent-file`, `--docs`, `--export` |
 | `writes-config` | where a tool other than this one reads: `.git/hooks`, `~/.claude/settings.json`, `~/.codex/config.toml`, a Cursor rule, a Gemini setting | `--install-hook` |
@@ -874,9 +880,9 @@ A flag is resolved the way argparse resolves it, so `--eff` is `--effects`
 and the class of an abbreviated line is the class of the line that runs.
 
 A command line naming none of `--ask`, `--more`, `--defines`, `--at`,
-`--context`, `--rank`, `--callers`, `--callees`, `--impact`, `--sections`,
-`--cost`, `--export`, `--pointer`, `--mcp`, `--lsp`, `--init`,
-`--install-hook`, `--specs`, `--dry-run`, `--effects`
+`--context`, `--affected`, `--changed`, `--rank`, `--callers`, `--callees`,
+`--impact`, `--sections`, `--cost`, `--export`, `--pointer`, `--mcp`,
+`--lsp`, `--init`, `--install-hook`, `--specs`, `--dry-run`, `--effects`
 or `--help` builds the map into `--out`,
 so `where-are-we --repo .` is `writes-map-dir` on the strength of the build
 alone and says so as a `build writes-map-dir` line.
@@ -1082,6 +1088,13 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --at FILE:LINE               the whole definition that encloses that line
 --context NAME               declared, map rows, callers, callees and
                              impact one hop out, in one answer
+--affected FILE[,FILE]       which tests a change to those files reaches:
+                             scenarios, features, routes, page objects
+--changed [REF]              the same, for what `git diff --name-only REF`
+                             names (HEAD by default)
+--affected-format behave|pytest
+                             that selection as the runner's own list
+--affected-depth N           how many hops --affected follows (default 6)
 --rank [FILE,...]            the definitions the repository is built around,
                              personalised on the files you name
 --files FILE[,FILE]          on --ask: those files' rows first in every
@@ -1103,9 +1116,9 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 where-are-we --mcp --out /path/to/the/map
 ```
 
-Eleven tools over JSON-RPC on stdin and stdout: `ask`, `defines`, `at`,
-`context`, `rank`, `find`, `sections`, `callers`, `callees`, `impact` and
-`more`. `defines` answers where a name is declared, in every file that declares
+Twelve tools over JSON-RPC on stdin and stdout: `ask`, `defines`, `at`,
+`context`, `rank`, `find`, `sections`, `callers`, `callees`, `impact`,
+`affected` and `more`. `defines` answers where a name is declared, in every file that declares
 it, with the line each declaration ends on; `at` takes the `file:line` a stack
 trace names and returns the whole definition around it; `context` answers all
 five questions about a name at once, so landing on one costs a single round

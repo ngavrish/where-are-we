@@ -34,6 +34,9 @@ message after you open it.
    - `context(name=[...])` - everything the map holds about one name:
      declared, map rows, callers, callees, impact one hop out.
    - `find(phrase=[...])` - where a phrase (a step, a string) lives.
+   - `affected(files=[...])` - which tests a change to those files reaches:
+     scenarios, feature files, routes, page objects, and the files the graph
+     holds no row for.
    - `sections()` - the section headings.
    - `rank(files=[...])` - what the repository is built around, and what is
      worth reading given the files you are editing. Ask this first in a tree

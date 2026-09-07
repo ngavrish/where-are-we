@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.6.0
+
+Answers the graph already holds. 1.5.0 wrote `xrefs`, `spans` and `rank` into
+the map and nothing read them end to end; this release starts doing that.
+
+- Which tests a change reaches: `affected` (MCP), `--affected FILE[,FILE]`,
+  `--changed [REF]`. The walk starts at every name the changed files declare
+  and follows the map's `calls` rows upward, callee to caller, with a visited
+  set and a sorted frontier, to a depth of 6 by default and 12 at most. The
+  answer names the scenarios whose steps reach the change, with the step that
+  reaches it and how many hops away it is, the feature files those scenarios
+  are in, the routes and page objects reached, and the files no `xrefs` row
+  names at all, which is the answer saying what it does not cover. That last
+  count is in the first line as well as in its own block, because it is the
+  block a small budget gives up first and a selection that drops it quietly
+  is the one way this tool can be wrong rather than short.
+- A step function is identified from the map rather than from a naming
+  convention: `spans` holds two declarations on one line for a behave step,
+  the function and the phrase its decorator binds, and the join of those two
+  is what a step function is. A scenario is reached when one of its own step
+  lines holds a reached phrase, matched by the rule `feature_links` is built
+  with, so a scenario named here is one the map already binds to that module.
+- A first line that says what a zero means. On the `suite` golden fixture a
+  change to `pages/checkout.py` reaches 40 step functions and 0 of 5
+  scenarios, because 3 of those 5 hold no step any module in that fixture
+  binds; the answer says so rather than reading as an all clear.
+- `--changed [REF]` reads `git diff --name-only REF` in the repository the map
+  was built from, HEAD by default, so a pipeline passes nothing. A ref that
+  reads as an option to git is refused rather than handed to it, a failed
+  `git diff` is one line and exit 2, and a commit that changed nothing is
+  "nothing changed since HEAD" and exit 0.
+- `--affected-format behave` prints the tags where the map holds a tag on the
+  affected feature files alone, and `-i` include patterns where it does not,
+  saying which of the two it printed and why; `--affected-format pytest`
+  prints node ids from `pytest_tests`. `--affected-depth N` is 1 to 12, and
+  the flag refuses what the tool refuses.
+- Every block is cut by the rules every other answer here is cut by: whole
+  rows, a floor share of the budget with what nobody claims handed on in
+  printing order, and a `more:aff:` handle under a block that could not print
+  all of itself. `more` resolves it like any other handle, with the block, the
+  files and the depth in the handle and nothing stored between the two calls.
+- `context`'s three budget functions are now shared with this one, with the
+  handle passed in: the cut, the floor and the two allocation passes were the
+  same for both. `context` is byte for byte what it was, over 224 names at 6
+  budgets.
+
 ## 1.5.0
 
 What the neighbours in this space do better, taken: every home of a name with

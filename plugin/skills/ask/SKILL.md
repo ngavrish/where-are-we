@@ -41,6 +41,12 @@ line), and `find`'s hits past its limit (`more:find:`).
   does this step / string live". Use the narrower tool when you have a name,
   and `context(name=[...])` when the name is new to you and you want all five
   answers about it in one call.
+- **After an edit, ask what it reaches.** `affected(files=[...])` answers which
+  scenarios, feature files, routes and page objects a change to those files
+  reaches, by walking the map's call rows upward from what they declare, and
+  names the files it holds no row for so you know what the answer leaves out.
+  `format="behave"` or `"pytest"` gives the runner's own selection. Ask it
+  before running a suite, instead of running all of it or guessing a subset.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns
