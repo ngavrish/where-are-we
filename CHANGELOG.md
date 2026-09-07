@@ -191,24 +191,31 @@
   one row per edge, `{subject, edge, object, file, candidates, line,
   resolution}`, sorted by subject, object and line and capped by nothing.
   `edge` is `calls` (a cross-file call), `declares` (a `spans` site) or
-  `imports` (an `import_graph` dependency). `call_graph_files` is rendered
-  from the `calls` rows rather than written beside them, so its strings and
-  the rows cannot disagree, and it keeps its shape and its bytes: a consumer
-  that parses the pipes and the `?` back out of `charge (a.py|b.py)?` can now
-  read the same fact as data instead.
+  `imports` (one import line, with the file it is in and the line it is on,
+  for the package pairs `import_graph` summarises). Every path in every row
+  is absolute, which is the spelling `definitions` and most of `spans` use,
+  so the table joins to itself: the file a `calls` row settled on is the
+  subject of the `declares` rows for that file. `call_graph_files` is derived
+  from the `calls` rows by the renderer that writes it, and holds less than
+  they do: it is cut to 8 callees a key and 60 keys, and its keys are
+  basenames, so where two files of one basename declare one function name
+  they share a key and the file the walk read last owns it while both keep
+  their rows. A consumer that parses the pipes and the `?` back out of
+  `charge (a.py|b.py)?` can now read the same fact as data instead.
 - `resolution` says how sure the map is about each edge, not only about the
-  ambiguous ones. Seven values, each written by the rule that placed the
+  ambiguous ones. Eight values, each written by the rule that placed the
   edge: `sole_declarer` (one indexed file declares the name), `import_line`
   (the caller's own import line named the file), `receiver_import` (the
   module the receiver was bound to named it), `re_export` (a facade's own
   import lines were followed to the file with the `def`), `base_class` (a
   `self.name(...)` call reached the one base that declares it),
-  `declaration` (the row is the declaration site) and `ambiguous` (several
-  files declare the name and nothing said which, which is the `?` the
-  rendering carries). An unmarked edge used to cover two different degrees of
-  certainty; now it says which. There is no `local` value and no `overrides`
-  edge: a call inside the file that declares the callee never becomes an edge
-  at all, and no rule computes an override.
+  `declaration` (the row is the declaration site), `import_statement` (the
+  row is the import line) and `ambiguous` (several files declare the name and
+  nothing said which, which is the `?` the rendering carries). An unmarked
+  edge used to cover two different degrees of certainty; now it says which.
+  There is no `local` value and no `overrides` edge: a call inside the file
+  that declares the callee never becomes an edge at all, and no rule computes
+  an override.
 - `impact` prints a `how:` line under each hop, naming in the same order the
   rule that placed each of that hop's edges, and `step_graph` for a hop
   through the behave step graph, which records a bare name and no rule. The
@@ -219,7 +226,14 @@
 - The Python parse record's cache kind is `func_edges_3`: it carries the
   first line each name is called on, which is the line an `xrefs` row holds.
   A `func_edges_2` record is not read, so the first build after upgrading
-  reparses the Python files.
+  reparses the Python files, and it is dropped rather than carried: a record
+  under any kind this release no longer computes is left out when the cache
+  is written, which used to leave half an upgraded checkout's cache file
+  unreadable until someone ran `--force`.
+- Under `--also` the `declares` rows are rebuilt from the merged `spans`, so
+  a map of two roots holds the rows of both. The `calls` and `imports` rows
+  are the first root's, as `call_graph_files` and `import_graph` are, and the
+  second root's map is under `also`.
 - The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a
