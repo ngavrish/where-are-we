@@ -1316,6 +1316,27 @@ def _also_matched(def_block: str, section_chunks: list, terms: list, candidates:
     return f"(also matched: {', '.join(extra)})\n\n" if extra else ""
 
 
+def _skipped_line(name: str, offset: int, limit: int) -> str:
+    """The line that says a section was stepped over, in the longest form
+    that fits `limit`.
+
+    The section's own name is in it, and a section name can be longer than a
+    small budget on its own: at 60 characters `'Documentation pointing at
+    things that are not there' does not fit in 60 characters; raise the
+    budget to see it` is 113. `limit` is a ceiling here as it is everywhere
+    else in this module, so the forms shorten until one fits and the name is
+    the first thing given up.
+    """
+    for form in (f"… {name!r} does not fit in {limit} characters; "
+                 "raise the budget to see it",
+                 f"… {name!r} does not fit in {limit} characters",
+                 f"… section {offset + 1} does not fit in {limit} characters",
+                 f"… section {offset + 1} does not fit"):
+        if len(form) <= limit:
+            return form
+    return ""
+
+
 def _more_note(room: int, words: str = "", offset: int = 0,
                unshown: bool = True, sfield: str = "") -> str:
     """The "more sections match" note, only if it fits: a note that says
@@ -1825,9 +1846,23 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
             # so this names the section it stepped over and hands on a handle
             # past it. Refusing here put every section after it out of reach.
             name = scored[offset][1].lstrip("#").strip()
-            note = _more_note(limit, words, offset + 1, True, sfield)
-            line = (f"… {name!r} does not fit in {limit} characters; "
-                    "raise the budget to see it")
+            line = _skipped_line(name, offset, limit)
+            if not line:
+                # Below about thirty characters there is no sentence to say
+                # this in. `_block_chunk` returns nothing in the same corner
+                # rather than overrunning to explain itself.
+                return ""
+            # The room the note may take is what this line left, not the
+            # whole budget: `limit` is a ceiling here as it is everywhere
+            # else in this module, and handing `_more_note` the ceiling
+            # defeats both halves of its own job. And a handle only where
+            # there is a section after this one to fetch, which is the guard
+            # the normal path below has as `reached < len(scored)`; without
+            # it the last section printed a handle for an offset one past
+            # the end, and following it was refused.
+            note = (_more_note(limit - len(line) - 1, words, offset + 1, True,
+                               sfield)
+                    if offset + 1 < len(scored) else "")
             return "\n".join([line] + ([note.strip()] if note else []))
         room += hold
         if reached < len(scored):

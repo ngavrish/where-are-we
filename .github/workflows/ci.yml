@@ -6496,6 +6496,65 @@ jobs:
           print("MCP more and --more agree, byte for byte")
           EOF
 
+      - name: a sections chain never overruns its budget and never refuses
+        run: |
+          set -o pipefail
+          # The one branch round 2 added that the `aff` sweep does not reach.
+          # A `sections` handle carries whole sections, so a section whose
+          # head alone overruns cannot be cut to fit; it is stepped over and
+          # named. Both halves of that line can be longer than a small
+          # budget: a section name is arbitrary text, and the note under it
+          # was handed the whole budget as its room rather than what the line
+          # left. `limit` is a ceiling here as it is everywhere else in this
+          # module, and a handle past the end of the list is a handle that
+          # refuses.
+          rm -rf /tmp/secsweep
+          where-are-we --repo . --out /tmp/secsweep --product none --force \
+            --quiet --no-semantic
+          python - <<'EOF'
+          import re, sys
+          from where_are_we import ask
+          M = "/tmp/secsweep/framework_map.md"
+          H = re.compile(r"(more:sections:[^)\s]+?)(?=[)\s]|$)")
+          words = "checkout pay"
+          # Only handles an answer actually printed, gathered over a grid of
+          # budgets so every offset the chain can reach is in the set.
+          seeds = set()
+          for limit in range(80, 3001, 40):
+              seeds |= set(H.findall(ask.ask(M, words, limit)))
+          assert seeds, "no sections handle to sweep; pick another question"
+          # Dense where the branch fires (a section head alone has to
+          # overrun, which needs a small budget) and coarse above it, so the
+          # step costs seconds rather than minutes.
+          budgets = list(range(60, 501)) + list(range(500, 3001, 25))
+          over, refuse, stepped, calls, worst = 0, 0, 0, 0, 0
+          for limit in budgets:
+              queue, seen, guard = list(seeds), set(seeds), 0
+              while queue and guard < 30:
+                  handle = queue.pop(0)
+                  guard += 1
+                  calls += 1
+                  out = ask.more(M, handle, limit)
+                  calls_over = len(out) - limit
+                  if calls_over > 0:
+                      over += 1
+                      worst = max(worst, calls_over)
+                  if out.startswith("no such handle"):
+                      refuse += 1
+                  if "does not fit" in out:
+                      stepped += 1
+                  for nxt in H.findall(out):
+                      if nxt not in seen:
+                          seen.add(nxt)
+                          queue.append(nxt)
+          print(f"sections chains over {len(budgets)} budgets from 60 to "
+                f"3000: {calls} calls, {over} over budget (worst {worst}), "
+                f"{refuse} refusals reached from a printed handle, {stepped} "
+                f"replies that stepped past a section")
+          assert stepped, "the step-past branch was never exercised"
+          sys.exit(1 if (over or refuse) else 0)
+          EOF
+
       - name: an ambiguous edge names every file that declares the callee, and is matched without the mark
         run: |
           set -o pipefail

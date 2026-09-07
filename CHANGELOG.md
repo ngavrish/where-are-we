@@ -275,7 +275,16 @@ the map and nothing read them end to end; this release starts doing that.
   `_block_chunk` already printed. Fixed once, in `more()`, for every kind it
   serves: `rows`, `unmatched`, `defs`, `ctx`, `aff` and the four new ones. A
   `sections` handle, whose unit is a section rather than a row, steps past a
-  section that will not fit and names it instead of refusing.
+  section that will not fit and names it instead of refusing. That line is
+  itself built to fit: a section name is arbitrary text and can run past a
+  small budget on its own, so the forms shorten until one fits and the name
+  is the first thing given up, and the note under it is offered the room the
+  line left rather than the whole budget. It carries a handle only where
+  there is a section after this one, the guard the ordinary path has; without
+  it the last section handed out a handle one past the end of the list and
+  following it was refused. Swept over 542 budgets from 60 to 3000 on this
+  repository's own map: 7040 calls, 0 over budget, 0 refusals reached from a
+  printed handle, 1885 replies that stepped past a section.
 
   The refusal is as old as handles and shared by every kind; what is new is
   the row shape that reaches it. `dead` prints one file per row with every

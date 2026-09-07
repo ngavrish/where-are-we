@@ -79,9 +79,11 @@ line), and `find`'s hits past its limit (`more:find:`).
   line says so.
 - **Reviewing, not editing.** `hot()` is the map's `rank` score times how
   often each file changes, both numbers shown, which is where to read first.
-  Its first line carries two bounds: the churn comes from the forty busiest
-  files, so anything outside that set counts 1, and an older map can only
-  count five commit lines a file and then every count reads `5+`.
+  Its first line carries the bound that decides what the ranking is: the
+  churn comes from the forty busiest files, so anything outside that set
+  counts 1. `## How this was counted` under the rows carries the rest,
+  including that an older map can only count five commit lines a file and
+  every count then reads `5+`.
 - **`dead()` is not a list of dead code.** It is the definitions no call row
   lands on, and on a library most of those are calls the map could not place:
   a call through an imported module leaves no row, and neither does a call

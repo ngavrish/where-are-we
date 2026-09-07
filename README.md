@@ -789,7 +789,7 @@ sixty-four thousand, every turn.
 | `--unreached` | the product definitions no test reaches, grouped by file and ranked, under a first line saying how much of the call graph resolved |
 | `--path A,B` | the shortest call chain from A to B over the map's `xrefs` calls rows, one hop per line with the rule that placed each edge and the line the call is on; each end is a name or `FILE:NAME` |
 | `--path-depth N` | how many call hops `--path` follows forward (1 to 12, 6 by default) |
-| `--range NAME` | every home of NAME as `file:start-end kind`, the text of the shortest one, and the three lines an editor anchors on: the first, the last, and the one after the last. A line the map redacted is marked and never an anchor |
+| `--range NAME` | every home of NAME as `file:start-end kind`, the text of the shortest one, and the three lines an editor anchors on: the first, the last, and the one after the last. A line the map redacted is printed with a warning beside it: it is not the line on disk, so an edit anchored there will not match |
 | `--dead` | questions, not dead code: the definitions no `xrefs` calls row lands on, grouped by file. A call through an imported module or inside the declaring file leaves no row, so on a library most rows are unplaceable; the first line says so and `## How this was counted` names the exclusions |
 | `--hot` | the map's own `rank` score times the commits its most-changed-files section counted, both numbers shown; that section is the forty busiest files, so anything outside it counts 1 |
 | `--rank [FILE,...]` | the definitions this repository is built around, best first; given files, what to read while editing them |
@@ -1145,8 +1145,9 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
                              per line with how each edge was resolved
 --path-depth N               how many hops --path follows (default 6)
 --range NAME                 every home of NAME, the shortest one's text,
-                             and the lines an editor anchors on; a redacted
-                             line is marked, never an anchor
+                             and the lines an editor anchors on; a line this
+                             map redacted is printed with a warning beside
+                             it: it is not the line on disk
 --dead                       questions, not dead code: the definitions no
                              call row lands on, by file
 --hot                        rank score times commits, both numbers shown;

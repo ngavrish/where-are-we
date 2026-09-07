@@ -45,16 +45,18 @@ message after you open it.
    - `path(a=..., b=...)` - the shortest call chain from one name to
      another, one hop per line with how each edge was resolved.
    - `range(name=...)` - every home of a name with its range, the shortest
-     one's text, and the lines an editor anchors on. A line the map redacted
-     is marked and is never an anchor.
+     one's text, and the lines an editor anchors on. A line the map
+     redacted is printed with a warning beside it: it is not the line on
+     disk, so an edit anchored there will not match.
    - `dead()` - questions, not dead code: the definitions no call row lands
      on, by file. A call through an imported module and a call inside the
      declaring file leave no row, so on a library most rows are unplaceable
-     rather than dead; sharp on a suite. The first line says so and names
-     the exclusions.
+     rather than dead; sharp on a suite. The first line says so and
+     `## How this was counted` names the exclusions.
    - `hot()` - rank score times commits, both numbers shown: where a review
      starts. The churn is the forty busiest files, so anything outside that
-     set counts 1, and the first line says so.
+     set counts 1, which the first line says; the rest is in
+     `## How this was counted`.
    - `sections()` - the section headings.
    - `rank(files=[...])` - what the repository is built around, and what is
      worth reading given the files you are editing. Ask this first in a tree

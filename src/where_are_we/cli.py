@@ -680,8 +680,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="print every home of NAME as file:start-end kind, "
                          "the text of the shortest one, and the lines an "
                          "editor anchors on: the first, the last, and the one "
-                         "after the last. An end of ? is a declaration this "
-                         "map could not measure, and the row says why. Reads "
+                         "after the last. A line this map redacted is "
+                         "printed with a warning beside it: it is not the "
+                         "line on disk, so an edit anchored there will not "
+                         "match. An end of ? is a declaration this map could "
+                         "not measure, and the row says why. Reads "
                          "framework_map.json under --out")
     ap.add_argument("--dead", action="store_true",
                     help="print the definitions no `xrefs` calls row lands "
