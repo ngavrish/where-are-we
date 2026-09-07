@@ -122,11 +122,14 @@ __version__ = state.__version__
 # added and the gone ones has a third of the answer. `HASHES_AT_LOAD`,
 # `HASH_MARK`, `_HASHED_THIS_BUILD`, `PARSE_CACHE_READS`, `PARSE_CACHE_WRITES`,
 # `REDACT_LINES` and `LINES_REDACTED` are build internals and stay off it.
+# `PARSED_FILES` is a result and is here beside `PARSE_COUNT`: the two are the
+# same build counted by files and by computations, and a caller reading one
+# through the facade should be able to read the other.
 _STATE_NAMES = frozenset((
     "DEFINITIONS", "SPANS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
     "HASH_COUNT", "HASHES_ADDED", "HASHES_GONE", "HASHES_MOVED", "PARSE_COUNT",
-    "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE", "_IGNORE_CACHE",
-    "_PARSE_CACHE", "_WALK_CACHE",
+    "PARSED_FILES", "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE",
+    "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE",
 ))
 
 
@@ -176,7 +179,7 @@ __all__ = [
     "DECLARATIONS", "DEFINITIONS", "INDEXED", "LINES", "MAX_FILES",
     "SKIP_DIRS", "SPANS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
     "CACHE_SCHEMA", "HASHES_ADDED", "HASHES_GONE", "HASHES_MOVED",
-    "HASH_COUNT", "PARSE_COUNT",
+    "HASH_COUNT", "PARSED_FILES", "PARSE_COUNT",
     "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE", "_IGNORE_CACHE",
     "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief", "build",
     "changed_since", "content_hash", "content_pairs", "content_root",

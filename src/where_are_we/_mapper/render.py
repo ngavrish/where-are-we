@@ -1103,7 +1103,7 @@ def _ctags_ok(field: str) -> bool:
         and field[0] > "!"
 
 
-def ctags(m: dict) -> str:
+def ctags(m: dict, out_dir: str = "") -> str:
     """`spans` as a universal-ctags `tags` file.
 
     `spans` already is a tags file with the fields renamed: a name, the file
@@ -1117,6 +1117,14 @@ def ctags(m: dict) -> str:
     line number is what the map holds, and a pattern would have to be
     reconstructed out of a file that may have moved since the build.
 
+    Paths are relative to `out_dir`, the directory the file is written into,
+    because that is where a ctags reader resolves them from: vim's
+    `tagrelative` is on by default, and emacs and helix do the same. With the
+    usual `--out .` that is the repository root and the rows read as they
+    always have; with the plugin's `--out .wawe` it is `../src/a.py`, which is
+    the file the row means. `out_dir` empty falls back to the repository root,
+    which is what a caller rendering the text without writing it gets.
+
     Sorted as whole rows, compared as bytes, which is what `LC_ALL=C sort`
     does and what the header's `!_TAG_FILE_SORTED 1` promises the reader
     doing the binary search. A row starts with the name and a tab, and a tab
@@ -1126,7 +1134,7 @@ def ctags(m: dict) -> str:
     `4` is below `;`. Sorting those two by their value instead would put a
     file on disk that `sort -c` rejects and a binary search can miss.
     """
-    repo = m.get("repo") or ""
+    base = out_dir or (m.get("repo") or "")
     rows = set()
     for name, sites in _as_dict(m.get("spans")).items():
         if not _ctags_ok(name):
@@ -1138,15 +1146,16 @@ def ctags(m: dict) -> str:
             kind = site.get("kind") or "unknown"
             if not path or not isinstance(start, int):
                 continue
-            # Relative to the repository root, which is what an editor
-            # opening the tags file from that root can resolve. Every site in
+            # Relative to the directory the tags file is written into, which
+            # is where every ctags reader resolves a row from. Every site in
             # `spans` is absolute, so this is the one rule that turns a site
             # into a row rather than a rule with an exception in it: a file
-            # an `--also` root owns comes out as the `../` path that reaches
-            # it from this root, which the same editor can also resolve.
-            if repo:
+            # an `--also` root owns, and every file at all when `--out` is a
+            # subdirectory, comes out as the `../` path that reaches it from
+            # the tags file, which the same editor can also resolve.
+            if base:
                 try:
-                    path = os.path.relpath(path, repo)
+                    path = os.path.relpath(path, base)
                 except ValueError:  # a different drive on Windows
                     pass
             if not _ctags_ok(path) or not _ctags_ok(kind):

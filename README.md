@@ -143,7 +143,7 @@ as estimates.
 | `--diff` | What changed since the map already in `--out`, naming the files whose content hash moved, were added or are gone before the map keys that moved with them. It reads the parse cache and does not write it, so that everything it prints is measured against the map on disk and the same command over the same tree answers the same way twice | the pointer names what moved since the last session; CI step "pointer says what changed since the last session" proves it | — |
 | `--watch SECONDS` | Rebuild whenever the tree moves, by the fingerprint and the content root together, the same two questions a one-shot build asks: a full rebuild each time, writing every artefact a one-shot build writes, and an iteration that raises is printed and the loop carries on | Not measured | CI step `--watch rebuilds whole, writes every file, and survives a failure`: twenty files added while watching all reach the map, a deleted name leaves it, `framework_map.md` and `--html` are written, and replacing the output directory with a plain file prints `rebuild failed, still watching` without ending the watcher |
 | `--html` | The brief as a page | Not measured | — |
-| `--ctags` → `<out>/tags` | Every declaration the map holds, in universal-ctags format: name, file, the line as the EX command, `kind:`, `line:` and `end:` where a parser knew it. Sorted as bytes, so the binary search the header promises works. vim, emacs, helix, kakoune and `readtags` open it with no server running, on a checkout mounted read only, in a language whose server is not installed. A build without the flag leaves whatever `tags` is already in `--out` alone, exactly as a build without `--html` leaves `framework_map.html`: the file may be one real ctags wrote, and this tool does not delete files it was not asked to write | Measured 2026-09-07 on this repository at 1.5.0: 673 rows over 618 names, 54,375 bytes, written in the same build that writes the map | CI step `--ctags writes a sorted, correct tags file`: the pseudo tags are present, `LC_ALL=C sort -c` passes, every row is a declaration site the map holds and every site has a row, `charge` names `app/billing.py:4` and that line declares it, two builds are byte identical, and `readtags` reads it where the runner can install universal-ctags |
+| `--ctags` → `<out>/tags` | Every declaration the map holds, in universal-ctags format: name, file, the line as the EX command, `kind:`, `line:` and `end:` where a parser knew it. A row names its file relative to the directory the tags file is in, which is where every ctags reader resolves it from (vim's `tagrelative` is on by default): with the usual `--out .` at the repository root that is `src/a.py`, and with `--out .wawe` it is `../src/a.py`, and both open. Sorted as bytes, so the binary search the header promises works. vim, emacs, helix, kakoune and `readtags` open it with no server running, on a checkout mounted read only, in a language whose server is not installed. A build without the flag leaves whatever `tags` is already in `--out` alone, exactly as a build without `--html` leaves `framework_map.html`: the file may be one real ctags wrote, and this tool does not delete files it was not asked to write | Measured 2026-09-07 on this repository at 1.5.0: 673 rows over 618 names, 54,375 bytes, written in the same build that writes the map | CI step `--ctags writes a sorted, correct tags file`: the pseudo tags are present, `LC_ALL=C sort -c` passes, every row is a declaration site the map holds and every site has a row, `charge` names `app/billing.py:4` and that line declares it, two builds are byte identical, and `readtags` reads it where the runner can install universal-ctags |
 | `--cost [THRESHOLD]`, `--cost --json` | What each section costs to carry: rows, bytes and tokens, heaviest first, with a total and a threshold that hides the small ones. A section is a `## ` heading, and the sections are the ones a reader carries: every one in `framework_map.md`, then every one in `framework_map_brief.md` beside it whose heading the map does not already have, which is the rule every read composes the two files by. Each is measured on its own file, so its byte count is what `wc -c` would give for those lines, and the report ends with a `measured:` line per file whose header plus sections is that file's size. Tokens are `bytes / 4` and the output says `estimate`, because no extra this project has carries a tokenizer that can be reached without downloading a model | Measured 2026-09-07 on this repository at 1.5.0: 71 sections over the two files, 34,517 bytes, 8,604 tokens, 409 rows. `wc -c` agrees: `framework_map.md` is 1,330 bytes (140 of header, 1,190 in 3 sections) and `framework_map_brief.md` is 33,549 (222 of header, 33,327 in 68 sections). The heaviest section is `## Defined here` at 5,955 bytes and 52 sections are under 500 | CI step `the map says what each of its sections costs`, which splits both files independently and asserts every section against that split, and fails on a build that stops measuring `framework_map.md` |
 | `--export FILE` | The map as one self-contained file for a channel with no filesystem (a PR comment, a paste): the incompleteness notice, the `indexed:` counts, every section of `framework_map.md` and of the brief beside it with what each costs, then the brief itself. `--export -` writes it to stdout; an empty path is refused | Measured 2026-09-07 on this repository at 1.5.0: 37,885 bytes against 1,330 of `framework_map.md`, 33,549 of the brief and 2,686,740 of `framework_map.json` | CI step `the map says what each of its sections costs`: the file parses back into the section list `--sections` prints, in the same order, with the byte counts `--cost` reports |
 | `--init` → `.framework-map.json` manifest | A starter manifest the map reads `stated` facts from | Not measured | — |
@@ -512,28 +512,30 @@ multipliers come from.
 ```console
 $ where-are-we --rank --limit 4
 
-0.043907032 build /repo/src/where_are_we/_mapper/build.py:243
-0.043129010 build /repo/.github/workflows/ci.yml:1280
-0.040425929 find_text /repo/src/where_are_we/_mapper/declare.py:97
-0.034482561 build /repo/src/where_are_we/ask.py:507
+0.061401976 find_text /repo/src/where_are_we/_mapper/declare.py:135
+0.060292945 build /repo/src/where_are_we/_mapper/build.py:283
+0.047732816 build /repo/src/where_are_we/ask.py:835
+0.033677102 add /repo/src/where_are_we/eval.py:136
 ```
 
-That is this repository's own map, unedited, and the second row is worth
-reading twice: it is a `def build` inside a `python - <<'EOF'` heredoc in the CI
-workflow, which the declaration index records as a declaration of that file.
-The ranking is faithfully reporting what the map told it was declared, and the
-fix belongs where the declaration is made rather than here.
+That is this repository's own map, unedited: the declaration scanner, the
+build, `ask`'s inner budget loop and the counter `wawe-eval` runs over its
+questions. The scores are of a map that indexes this README, so editing this
+file moves their last digits; the order is what the CI step pins, across both
+supported Pythons.
 
 Name the files you are working in and the walk is personalised on them, which
 turns "what matters here" into the question actually worth asking: what should I
-read given that I am editing this. On `ask.py`, `find_text` goes from 0.0404 to
-0.0567 and takes first place, which is right: `ask.py` is what calls it.
+read given that I am editing this. On `ask.py`, `find_text` goes from 0.0614 to
+0.0800, a third, and keeps first place, which is right: `ask.py` is what calls
+it. Personalisation shows up here as a score rather than as a swap, because the
+unpersonalised ranking already has it first.
 
 ```console
 $ where-are-we --rank src/where_are_we/ask.py --limit 2
 
-0.056709183 find_text /repo/src/where_are_we/_mapper/declare.py:97
-0.044809174 build /repo/src/where_are_we/_mapper/build.py:243
+0.080000014 find_text /repo/src/where_are_we/_mapper/declare.py:135
+0.059618189 build /repo/src/where_are_we/_mapper/build.py:283
 ```
 
 The same files bias `--ask` without changing what it found: `--ask charge

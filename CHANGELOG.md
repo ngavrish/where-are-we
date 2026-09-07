@@ -306,9 +306,12 @@ says which rule placed it.
   joined a relative site onto the first root it existed under, which under
   `--also` could name a file that is not there, and the `tags` file took a
   root off an absolute one. One spelling in the key, one rule per consumer:
-  `xrefs` copies the path through, and `tags` relativises every row against
-  the map's root, so a file an `--also` root owns is the `../` path that
-  reaches it from this one.
+  `xrefs` copies the path through, and `tags` relativises every row against the
+  directory the tags file is written into, which is where every ctags reader
+  resolves it from. With the usual `--out .` at the repository root that is
+  the path it always was; with the plugin's `--out .wawe` it is `../src/a.py`,
+  which is the file the row means and which used to be a path that opened
+  nothing.
 - Upgrading does not add `spans` to a map that is already on disk. A build
   skips a tree that has not moved, so run `where-are-we --repo . --out ...
   --force` once after upgrading, or wait for the next commit. Until then
