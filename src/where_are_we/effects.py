@@ -56,6 +56,7 @@ EFFECTS = {
     "--more": "read",
     "--defines": "read",
     "--at": "read",
+    "--context": "read",
     "--callers": "read",
     "--callees": "read",
     "--impact": "read",
@@ -100,7 +101,7 @@ EFFECTS = {
 NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
-            "--at, --sections) "
+            "--at, --context, --sections) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",

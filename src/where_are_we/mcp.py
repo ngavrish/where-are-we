@@ -28,11 +28,13 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import (AT_BUDGET, IMPACT_MAX_DEPTH, at, log_answer,
-                       callees_line, callers, impact, map_heads)
+    from .ask import (AT_BUDGET, CONTEXT_BUDGET, IMPACT_MAX_DEPTH, at,
+                       context, log_answer, callees_line, callers, impact,
+                       map_heads)
 except ImportError:  # run as a plain file, with no package around it
-    from ask import (AT_BUDGET, IMPACT_MAX_DEPTH,  # type: ignore[no-redef]
-                     at, log_answer, callees_line, callers, impact, map_heads)
+    from ask import (AT_BUDGET, CONTEXT_BUDGET,  # type: ignore[no-redef]
+                     IMPACT_MAX_DEPTH, at, context, log_answer, callees_line,
+                     callers, impact, map_heads)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -215,6 +217,31 @@ TOOLS = [
             "required": ["place"],
         },
     },
+    {
+        "name": "context",
+        "description": (
+            "Everything the map holds about one name, in one call: where it "
+            "is declared and how far each declaration runs, the rows of the "
+            "map that mention it, who calls it, what it calls, and its blast "
+            "radius one hop out. This is `defines`, `ask`, `callers`, "
+            "`callees` and `impact` fused, so landing on a name costs one "
+            "round trip rather than five. Each block gets a fixed share of "
+            "the budget and ends with a `more:` handle when it was cut; pass "
+            "that handle to `more` for the rest of that block. `name` takes "
+            "a list, and `limit` sets the budget in characters."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": ["string", "array"],
+                         "items": {"type": "string"},
+                         "description": ("a declared name, or a list of them")},
+                "limit": {"type": "integer",
+                          "description": ("characters one answer may take "
+                                          "(default 12000)")},
+            },
+            "required": ["name"],
+        },
+    },
 ]
 
 
@@ -387,6 +414,25 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             pairs.append((place, answer))
         _reply(_text(_joined(pairs) if pairs
                      else "give me a place: FILE:LINE"), ident)
+    elif name == "context":
+        name_field = args.get("name")
+        if name_field is not None and not _is_str_or_str_list(name_field):
+            raise _BadParams("name must be a string or a list of strings")
+        limit_field = args.get("limit")
+        if limit_field is not None and not isinstance(limit_field, int):
+            raise _BadParams("limit must be an integer")
+        wanted = _each(name_field)
+        # The same split every other batching tool here makes, off the budget
+        # `--context` prints at, so one name through the tool and one name
+        # through the flag are the same answer byte for byte.
+        limit = int(limit_field or CONTEXT_BUDGET)
+        room = _share(limit, len(wanted), 1500)
+        pairs = []
+        for w in wanted:
+            answer = context(map_path, w, room)
+            log_answer(out_dir, "context", w, answer, room)
+            pairs.append((w, answer))
+        _reply(_text(_joined(pairs) if pairs else "give me a name"), ident)
     elif name == "callers":
         name_field = args.get("name")
         if name_field is not None and not _is_str_or_str_list(name_field):

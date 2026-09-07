@@ -29,7 +29,7 @@ import sys
 try:
     from . import ask as _ask, effects, hooks, lsp, mcp, specs
     from .ask import (IMPACT_MAX_DEPTH, ask, at, callees_line, callers,
-                       impact, log_answer, map_heads, spans_for)
+                       context, impact, log_answer, map_heads, spans_for)
     from ._mapper.build import build
     from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
                                  digest, for_audience, meaning_tail, pointer)
@@ -46,8 +46,8 @@ except ImportError:  # run as a plain file, with no package around it
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
     from ask import (IMPACT_MAX_DEPTH, ask, at,  # type: ignore[no-redef]
-                     callees_line, callers, impact, log_answer, map_heads,
-                     spans_for)
+                     callees_line, callers, context, impact, log_answer,
+                     map_heads, spans_for)
     from _mapper.build import build  # type: ignore[no-redef]
     from _mapper.render import (_as_dict, _cap_sections, brief,  # type: ignore[no-redef]
                                 changed_since, digest, for_audience,
@@ -480,6 +480,16 @@ def build_parser() -> argparse.ArgumentParser:
                          "the way a stack trace names it: the innermost one, "
                          "whole lines, cut to 12000 characters with a handle "
                          "for the rest. Reads framework_map.json under --out")
+    ap.add_argument("--context", default="", dest="context_name",
+                    metavar="NAME",
+                    help="print everything the map holds about NAME in one "
+                         "answer: where it is declared, the map rows that "
+                         "mention it, its callers, its callees and its "
+                         "impact one hop out. The five reads --defines, "
+                         "--ask, --callers, --callees and --impact do, in "
+                         "one, each block on a fixed share of 12000 "
+                         "characters with a handle for what it cut. Reads "
+                         "the map under --out")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -629,7 +639,8 @@ def _dry_run_answer(args) -> int:
         ("--pointer", args.pointer), ("--ask", args.ask),
         ("--more", args.more_handle), ("--callers", args.callers),
         ("--callees", args.callees), ("--impact", args.impact),
-        ("--defines", args.defines), ("--at", args.at_place)) if given]
+        ("--defines", args.defines), ("--at", args.at_place),
+        ("--context", args.context_name)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
     return 0
 
@@ -715,7 +726,8 @@ def main() -> int:
     if args.dry_run and (args.mcp or args.lsp or args.specs or args.sections
                          or args.ask or args.pointer or args.callers
                          or args.callees or args.impact or args.more_handle
-                         or args.defines or args.at_place):
+                         or args.defines or args.at_place
+                         or args.context_name):
         return _dry_run_answer(args)
 
     # Answering from a map that already exists needs none of what follows: no
@@ -772,7 +784,7 @@ def main() -> int:
 
     if (args.sections or args.ask or args.pointer or args.callers
             or args.callees or args.impact or args.more_handle
-            or args.defines or args.at_place):
+            or args.defines or args.at_place or args.context_name):
         out_dir = os.path.abspath(args.out)
         map_path = os.path.join(out_dir, "framework_map.md")
         # Both maps answer, because a question about this work is as likely to be
@@ -803,7 +815,7 @@ def main() -> int:
         if not have_map and (args.pointer or args.sections or args.callers
                              or args.callees or args.impact
                              or args.more_handle or args.defines
-                             or args.at_place):
+                             or args.at_place or args.context_name):
             # These three read the code map and only the code map, so for
             # them the spec map beside it is not an answer. Say which file is
             # missing and which one is there.
@@ -844,6 +856,15 @@ def main() -> int:
         if args.at_place:
             answer = at(map_path, args.at_place)
             log_answer(out_dir, "at", args.at_place, answer, _ask.AT_BUDGET)
+            print(answer)
+            return 0
+        if args.context_name:
+            # The same call the MCP `context` tool makes, at the same budget,
+            # so a name asked here and asked there comes back byte for byte
+            # the same.
+            answer = context(map_path, args.context_name)
+            log_answer(out_dir, "context", args.context_name, answer,
+                       _ask.CONTEXT_BUDGET)
             print(answer)
             return 0
         if args.callers:
