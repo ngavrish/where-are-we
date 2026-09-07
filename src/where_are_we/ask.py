@@ -1699,8 +1699,8 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
             walked = int(fields[2])
         except ValueError:
             return _stale(f"{fields[2]!r} is not a depth")
-        result = affected(load_map(os.path.dirname(map_path) or "."),
-                                named, walked)
+        result = affected(load_map(os.path.dirname(map_path) or "."), named,
+                          walked)
         lines = block_lines(result, block)
         if offset >= len(lines):
             return _stale(f"the {block} block for {', '.join(named)} is "
@@ -2592,6 +2592,14 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
     with the one list a runner takes, `behave` or `pytest`, which is then the
     whole answer and is printed even when it is empty, because there the
     empty list is the answer.
+
+    A block there is no room to print at all still gets a line: `… 2 rows in
+    pages; raise the budget (more:aff:pages:...)`. `context` drops such a
+    block silently, which is bearable when the reader asked about a name and
+    can ask again; here the answer is a test selection, and a list of rows
+    the reader cannot see and cannot fetch is the shape that makes a
+    selection wrong rather than short. The room for those lines is taken out
+    of the blocks' own share before they are allocated.
     """
     named = [f for f in files if f]
     if not named:
@@ -2599,8 +2607,7 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
     if fmt and fmt not in AFFECTED_FORMATS:
         return (f"{fmt!r} is not a format; they are "
                 + ", ".join(AFFECTED_FORMATS))
-    result = affected(load_map(os.path.dirname(map_path) or "."),
-                            named, depth)
+    result = affected(load_map(os.path.dirname(map_path) or "."), named, depth)
     head = summary(result, limit)
     if len(head) > limit:
         # `limit` is a ceiling here as it is for `ask()` and `context`, and
@@ -2615,12 +2622,16 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
 
     if fmt:
         room = limit - len(head) - 2
-        if room <= 0:
-            return head
-        chunk, _reached = _block_chunk(format_head(result, fmt),
-                                       block_lines(result, fmt), room,
-                                       handle_for(fmt), 0)
-        return "\n\n".join([head] + ([chunk] if chunk else []))
+        chunk = ""
+        if room > 0:
+            chunk, _reached = _block_chunk(format_head(result, fmt),
+                                           block_lines(result, fmt), room,
+                                           handle_for(fmt), 0)
+        out = [head] + ([chunk] if chunk else [])
+        if not chunk:
+            out += _left_out([fmt], {fmt: block_lines(result, fmt)},
+                             handle_for, limit - len(head) - 2)
+        return "\n\n".join(out)
 
     lines = {block: block_lines(result, block) for block in AFFECTED_NAMES}
     blocks = tuple(entry for entry in AFFECTED_BLOCKS if lines[entry[0]])
@@ -2629,14 +2640,69 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
     # is what is left after the first line and those separators, and the
     # answer is inside `limit` however it divides.
     room = limit - len(head) - 2 * len(blocks)
+    rooms: dict = {}
     if blocks and room > 0:
-        rooms = _block_rooms(room, blocks, lines,
-                             lambda block: handle_for(block)(0))
+        rooms = _affected_rooms(room, blocks, lines, handle_for)
         for block, bhead, _pct in blocks:
-            if not rooms[block]:
+            if not rooms.get(block):
                 continue
             chunk, _reached = _block_chunk(bhead, lines[block], rooms[block],
                                            handle_for(block), 0)
             if chunk:
                 out.append(chunk)
-    return "\n\n".join(out)
+    text = "\n\n".join(out)
+    short = [block for block, _h, _p in blocks if not rooms.get(block)]
+    return "\n\n".join([text] + _left_out(short, lines, handle_for,
+                                           limit - len(text) - 2))
+
+
+def _left_line(block: str, rows: list, handle_for) -> str:
+    """The one line a block nobody had room for gets: how many rows it holds
+    and the handle that fetches them."""
+    n = len(rows)
+    return (f"… {n} row{'' if n == 1 else 's'} in {block}; raise the budget "
+            f"({handle_for(block)(0)})")
+
+
+def _left_out(short: list, lines: dict, handle_for, room: int) -> list:
+    """Those lines for every block that was not printed, as one paragraph,
+    while they fit in what is left.
+
+    In order, and the ones that do not fit are dropped: at a budget that
+    cannot hold five of these there is nothing better to do than print the
+    ones it can hold, and the first line still carries the counts.
+    """
+    out: list = []
+    for block in short:
+        line = _left_line(block, lines[block], handle_for)
+        cost = len(line) + (1 if out else 0)
+        if cost > room:
+            continue
+        out.append(line)
+        room -= cost
+    return ["\n".join(out)] if out else []
+
+
+def _affected_rooms(room: int, blocks: tuple, lines: dict, handle_for) -> dict:
+    """`_block_rooms`, with the room those "raise the budget" lines need
+    taken out of the share first.
+
+    Two or three passes, not one: which blocks are left out decides how much
+    those lines cost, and that cost decides which blocks are left out. It
+    settles quickly, because giving a block less can only ever leave more
+    blocks out, and the loop stops as soon as the same set comes back twice.
+    """
+    given = _block_rooms(room, blocks, lines, lambda b: handle_for(b)(0))
+    for _ in range(3):
+        short = tuple(b for b, _h, _p in blocks if not given[b])
+        if not short:
+            break
+        cost = sum(len(_left_line(b, lines[b], handle_for)) + 1
+                   for b in short) + 1
+        fresh = _block_rooms(max(room - cost, 0), blocks, lines,
+                             lambda b: handle_for(b)(0))
+        again = tuple(b for b, _h, _p in blocks if not fresh[b])
+        given = fresh
+        if again == short:
+            break
+    return given
