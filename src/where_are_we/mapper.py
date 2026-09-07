@@ -58,7 +58,7 @@ import types
 
 try:
     from ._mapper import state
-    from .ask import (_definitions_for, ask, at, definitions_for,
+    from .ask import (_definitions_for, ask, at, context, definitions_for,
                       more, spans_for)
     from ._mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                                _SECRET_SHAPES, _cached, _config, _fingerprint,
@@ -80,8 +80,8 @@ try:
     from ._mapper.build import _layer_line, build
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import state
-    from ask import (_definitions_for, ask, at, definitions_for,  # type: ignore[no-redef]
-                     more, spans_for)
+    from ask import (_definitions_for, ask, at,  # type: ignore[no-redef]
+                     context, definitions_for, more, spans_for)
     from _mapper.walk import (MAX_FILES, SKIP_DIRS, _PARSE_CACHE_FILE,
                               _SECRET_SHAPES, _cached, _config, _fingerprint,
                               _ignored, _ignores, _lines_matching,
@@ -164,7 +164,8 @@ __all__ = [
     "SKIP_DIRS", "SPANS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
     "CACHE_SCHEMA", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
     "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief",
-    "build", "changed_since", "declarations_in", "definitions_for", "digest",
+    "build", "changed_since", "context", "declarations_in",
+    "definitions_for", "digest",
     "find_text", "fingerprint", "for_audience", "index_declarations",
     "index_lines", "meaning_tail", "more", "pointer", "record_span", "redact",
     "spans_for", "spans_index",

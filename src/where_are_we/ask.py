@@ -20,6 +20,9 @@ RESERVE_TAIL = 96  # the prose of a section's tail line ("… 37 more matching
 # tail the two counts can produce.
 RESERVE_DEFINED = 32  # the "… N more definitions" line in `## Defined here`,
 # paid for up front the same way.
+RESERVE_CONTEXT = 24  # the "… N more lines" tail under one `context` block,
+# paid for up front the same way. Longer than that line can be: the count is
+# a line number and no block is a million lines long.
 # What a tail's `(more:...)` handles cost is not a constant and is not
 # reserved up front. Reserving a fixed amount from every section's row budget
 # would have cost a row in 26 of the 150 golden answers, including sections
@@ -1332,10 +1335,10 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     kind = parts[0] if parts else ""
     fields = parts[1:]
     widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2,
-              "at": 2}
+              "at": 2, "ctx": 3}
     if kind not in widths:
         return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
-                      "sections, find, at")
+                      "sections, find, at, ctx")
     if len(fields) != widths[kind]:
         return _stale(f"a more:{kind} handle has {widths[kind]} fields after "
                       f"the kind, this one has {len(fields)}")
@@ -1356,6 +1359,31 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         except ValueError as exc:
             return _stale(f"{fields[0]!r} is not a place this wrote: {exc}")
         return at(map_path, place, limit, offset)
+
+    if kind == "ctx":
+        # One block of a `context` answer, from the line this offset counts
+        # to. Nothing is stored between the two calls either: the block and
+        # the name are in the handle, and the block is composed again from
+        # the same functions over the map on disk, at this call's own budget.
+        block = fields[0]
+        if block not in CONTEXT_NAMES:
+            return _stale(f"{block!r} is not a context block; they are "
+                          + ", ".join(CONTEXT_NAMES))
+        try:
+            named = _decode(fields[1])
+        except ValueError as exc:
+            return _stale(f"{fields[1]!r} is not a name this wrote: {exc}")
+        lines = _context_lines(map_path, block, named, limit)
+        if offset >= len(lines):
+            return _stale(f"the {block} block for {named!r} is {len(lines)} "
+                          f"lines long, and this handle asks for line "
+                          f"{offset + 1} of it")
+        chunk, reached = _context_chunk(CONTEXT_HEADS[block], lines[offset:],
+                                        limit, block, fields[1], offset)
+        if reached == offset:
+            return _stale(f"line {offset + 1} of the {block} block does not "
+                          f"fit in {limit} characters")
+        return chunk
 
     if kind == "find":
         try:
@@ -1790,3 +1818,220 @@ def at(map_path: str, target: str, limit: int = AT_BUDGET,
         if size(low, handle) <= limit:
             return block(low, handle)
     return head
+
+
+# What `--context` and the MCP `context` tool print at, in characters: the
+# same budget one `ask` answer gets, because it lands in the same
+# conversation and is paid for again on every turn after.
+CONTEXT_BUDGET = 12000
+
+# How far `context` walks the blast radius. One hop, because the block is a
+# fifth of one answer and depth 3 on a name forty files reach is the whole
+# answer; the first line of every reply says so, and `impact` itself takes a
+# depth for the reader who wants more.
+CONTEXT_DEPTH = 1
+
+# The five blocks `context` composes, in the order it prints them: the tool
+# each block is the answer of, the head it prints, and the percentage of the
+# budget it may spend.
+#
+# Fixed shares, not a pool. A block that does not spend its share does not
+# hand it to the next one, so the same name at the same budget composes the
+# same answer whatever else the map happens to hold, and a reader can say
+# before the call how much of the answer each block can cost. Rolling the
+# leftover forward would make the size of the callees block depend on how
+# many homes the name has, which is the kind of coupling that turns a budget
+# into a surprise. The shares are stated in the first line of every answer
+# and in the README beside the flag.
+CONTEXT_BLOCKS = (
+    ("spans", "## Declared in", 15),
+    ("ask", "## What the map says", 35),
+    ("callers", "## Callers", 15),
+    ("callees", "## Callees", 15),
+    ("impact", "## Impact", 20),
+)
+CONTEXT_NAMES = tuple(block for block, _head, _pct in CONTEXT_BLOCKS)
+CONTEXT_HEADS = {block: head for block, head, _pct in CONTEXT_BLOCKS}
+
+# A directory head `_group_dirs` wrote (``- `steps/` ``) and the rows it owns.
+_GROUPED_HEAD = re.compile(r"^- `([^`]*/)`$")
+_GROUPED_ROW = re.compile(r"^  - `([^`]+)`(.*)$")
+
+
+def _ungroup_dirs(lines: list) -> list:
+    """`_group_dirs` undone: every row carrying its own whole path again.
+
+    `ask()` prints a run of rows under one directory head to save repeating
+    the prefix, which reads well in an answer nobody is going to cut a second
+    time. A `context` block is cut a second time, and a row that only means
+    something under a head three lines above it is not a whole row: cut
+    between the two, ``  - `login_steps.py` `` is a file the reader cannot
+    place, and no handle puts the head back, because the handle continues the
+    list from below it.
+
+    Measured on the suite fixture at 1500 characters: seventeen names lost a
+    row exactly this way, and none of them after this.
+    """
+    out, directory = [], None
+    for line in lines:
+        head = _GROUPED_HEAD.match(line)
+        if head:
+            directory = head.group(1)
+            continue
+        row = _GROUPED_ROW.match(line) if directory else None
+        if row:
+            out.append(f"- `{directory}{row.group(1)}`{row.group(2)}")
+            continue
+        directory = None
+        out.append(line)
+    return out
+
+
+def _context_lines(map_path: str, block: str, name: str, limit: int) -> list:
+    """One block's whole answer, as lines, before it is cut to its share.
+
+    Each block is what the tool of that name returns for this name, and
+    nothing is summarised on the way: an empty block carries the same
+    sentence the single call prints, so a `context` answer at a budget that
+    fits it holds every row the five calls hold.
+
+    `callers` and `callees` print one row per hit rather than the one comma
+    separated line their flags print, and `spans` one row per name, because a
+    block is cut by whole rows and a single line cannot be cut at all.
+
+    `limit` is this call's own budget, and the `ask` block is rendered at it
+    rather than at its share: the share decides how much of that answer is
+    printed here, and the handle under it fetches the rest of the same
+    answer, so a reader following the handle never meets a differently
+    ranked one.
+    """
+    json_path = os.path.join(os.path.dirname(map_path) or ".",
+                             "framework_map.json")
+    if block == "spans":
+        rows = spans_for(map_path, [name.lower()], cap=0)
+        return [f"- {r}" for r in rows] or \
+            [f"no declaration of {name!r} in the map"]
+    if block == "ask":
+        # Without its blank lines, and with the directory grouping undone. A
+        # blank line is not a row, and this block is cut by whole rows: left
+        # in, they cost nothing to fit and so always fit, and a block small
+        # enough to hold two of them and nothing else came back as two blank
+        # lines under a head.
+        return _ungroup_dirs([line for line
+                              in ask(map_path, name, limit).splitlines()
+                              if line.strip()])
+    if block == "callers":
+        hits = callers(json_path, name)
+        return [f"- {h}" for h in hits] or [f"nothing in the map calls {name}"]
+    if block == "callees":
+        hits = callees(json_path, name)
+        return [f"- {h}" for h in hits] or [f"{name} calls nothing in the map"]
+    return impact(json_path, name, CONTEXT_DEPTH).splitlines()
+
+
+def _context_chunk(head: str, lines: list, room: int, block: str,
+                   field: str, base: int) -> tuple:
+    """`head` plus as many of `lines` as fit in `room`, with the tail that
+    says how many are left and the handle that fetches them.
+
+    Returns `(chunk, reached)`: the text, and how far into `lines` this got
+    counted from `base`, which is what the handle's offset is and what
+    `more()` checks to see whether it made any progress.
+
+    The same rules every other cut here obeys: whole lines, `room` a ceiling
+    and not a target, the tail paid for before the lines so it can never push
+    a block past its share, and the handle bought back out of the lines when
+    it does not fit beside them. A block whose head alone would overrun
+    prints nothing, rather than a head with a count under it.
+
+    A block with no line printed still prints its head and its tail: at a
+    small budget the impact block is one caveat longer than its whole share,
+    and a head with `… 6 more lines (more:ctx:impact:charge:0)` under it is
+    the difference between a block a reader can fetch and a block they cannot
+    see exists.
+    """
+    budget = room - RESERVE_CONTEXT
+    if budget <= len(head):
+        return "", base
+
+    def build(give: int, handle: bool) -> tuple:
+        idx = fit_indices(lines, budget - len(head) - give)
+        got = base + _first_gap(len(lines), idx)
+        kept = [head] + [lines[i] for i in idx]
+        tail, left = "", len(lines) - len(idx)
+        if left:
+            suffix = f" (more:ctx:{block}:{field}:{got})" if handle else ""
+            tail = f"… {left} more lines{suffix}"
+            kept.append(tail)
+        return "\n".join(kept), got, tail
+
+    give, most = 0, budget - len(head)
+    chunk, reached, tail = build(0, True)
+    for _ in range(4):
+        if len(chunk) <= room:
+            return chunk, reached
+        if give >= most:
+            break  # every line is already given up and it still does not fit
+        # The handle's own cost, not the overflow: the same trade
+        # `_rows_chunk` and `_defined_here` make, for the same reason. Paying
+        # the overflow back a few characters at a time frees no line and the
+        # four goes run out with the handle still unaffordable.
+        plain = build(give, False)[2]
+        give = min(most, max(give + len(chunk) - room,
+                             len(tail) - len(plain)))
+        chunk, reached, tail = build(give, True)
+    if len(chunk) > room:
+        # The handle still overruns. Print the count without it, which is
+        # what RESERVE_CONTEXT is the room for.
+        chunk, reached, tail = build(0, False)
+    return chunk, reached
+
+
+def context(map_path: str, name: str, limit: int = CONTEXT_BUDGET) -> str:
+    """Everything the map holds about one name, in one answer.
+
+    Five calls: `defines` for every home with its span, `ask` for the
+    signature and the rows that mention it, `callers`, `callees`, and
+    `impact` at depth 1. An agent that lands on a name made all five, paid
+    the tool call overhead five times and read the same map file five times
+    to do it. This is those functions, over that map, once.
+
+    The blocks and their fixed shares of `limit` are `CONTEXT_BLOCKS`, and
+    the first line of every answer names both, so a reader who is handed a
+    cut block knows what cut it. Whole rows; a tail under every block that
+    could not print all of itself; a `more:ctx:` handle on that tail, which
+    the `more` tool resolves like any other.
+
+    The map rows block is `ask()`'s answer whole, its own `## Defined here`
+    and `## Called by` included, so a home or a caller can appear twice: once
+    in the block that is only about that, and once inside the answer `ask`
+    would have given on its own. That is the point rather than an oversight.
+    This is the five answers, not a summary of them, and a reader comparing
+    it against the single call has to find the single call's own text in it.
+    """
+    name = _bare(name)
+    if not name:
+        return "context needs a name"
+    field = _encode(name)
+    shares = "/".join(str(pct) for _b, _h, pct in CONTEXT_BLOCKS)
+    head = (f"Context for `{name}`: declared, map rows, callers, callees, "
+            f"impact to depth {CONTEXT_DEPTH}. Fixed shares of {limit} "
+            f"bytes: {shares} percent.")
+    if len(head) > limit:
+        # `limit` is a ceiling, as it is for `ask()`, and this line is the
+        # smallest thing this tool has to say. Under it there is no answer,
+        # not a first line that overruns.
+        return ""
+    # Every block pays for the blank line above it, so the sum of the shares
+    # is what is left after the first line and those separators, and the
+    # answer is inside `limit` however the shares divide.
+    room = limit - len(head) - 2 * len(CONTEXT_BLOCKS)
+    out = [head]
+    if room > 0:
+        for block, bhead, pct in CONTEXT_BLOCKS:
+            chunk, _reached = _context_chunk(
+                bhead, _context_lines(map_path, block, name, limit),
+                (room * pct) // 100, block, field, 0)
+            if chunk:
+                out.append(chunk)
+    return "\n\n".join(out)
