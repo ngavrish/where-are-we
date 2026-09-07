@@ -154,8 +154,8 @@ as estimates.
 | `--ask` synonyms and stemming | "login" also searches "signin", "auth"; "invoices" also searches "invoice"; a synonym or a stem scores at half the weight of the literal word, so it never outranks an exact hit; the first line says `(also matched: signin, auth)` when an expansion found something the literal words did not; `.wawe.toml`'s `[synonyms]` table adds a project's own words to the built-in groups | Not measured | — |
 | Rows under one directory printed once | `- \`features/checkout/\`` then the files | Not measured | Bytes of an answer before/after on a 40-row directory |
 | `## Defined here` (`defines`, `_definitions_for`) | A name → file:line, every declared name in every walked file | Not measured as turns saved; the README's claim is one question instead of `grep -rn` | Count `Grep` calls per session before/after (the run's call events) |
-| Cross-file call graph (`call_graph_files`) | Function to callees defined in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where exactly one indexed file defines the callee and `charge (a.ts)?` where several do, since the file named is then whichever the walk reached first. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 40 of the edges under its 60 keys carry the mark, `cli.py:main -> build (ask.py)?` among them, which names the wrong `build` | Count `Grep` calls spent chasing a callee across files before/after |
-| `wawe-eval --map OUT --graph`, `call_graph_stats` | How much of the call tree the walk resolved, per language group: callee names looked at, names placed in a file, names several files define, and the two fractions. `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 resolved, rate 0.4706, 0 ambiguous. code fixture: python 7 sites, 0 resolved, rate 0.0. poly fixture: ts_js 3/3 and go 5/5, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2185 sites, 517 resolved, rate 0.2366, 102 ambiguous (share 0.0467); ts_js 2/2; go 3 sites, 2 resolved, rate 0.6667 | - |
+| Cross-file call graph (`call_graph_files`) | Function to callees declared in another file, Python by AST, TypeScript, JavaScript and Go by pattern. An edge is `charge (a.ts)` where one indexed file declares the callee, or where the caller's own import line says which file it means, and `charge (a.ts\|c.ts)?` where several declare it and nothing says which: the edge names every candidate, sorted, and the question mark says the map is choosing. A call to a name the calling file declares itself is not an edge. `callers`, `callees` and `impact` match on the name alone and print the mark as they find it | Measured 2026-09-07 on this repository's own map: 60 keys, 32 of the edges under them carry the mark, and the three the caller's own import decides are written plain, among them `cli.py:main -> build (build.py)`, which the release before this one named `build (ask.py)?` | Count `Grep` calls spent chasing a callee across files before/after |
+| `wawe-eval --map OUT --graph`, `call_graph_stats` | Per language group: how first-party a tree's calls are (callee names looked at, names some indexed file declares, names several declare) and what the graph came to (cross-file edges written, and how many carry a `?`). `--json` carries it. With the `precise` extra it parses the TypeScript, JavaScript and Go again with tree-sitter and prints the delta | Measured 2026-09-07. suite fixture: python 85 sites, 40 first-party, 40 edges, rate 0.4706. code fixture: python 7 sites, 0 first-party, 0 edges. poly fixture: ts_js 3/3 with 1 edge and go 5/5 with 0, rate 1.0 each, and tree-sitter says 1 and 2 sites for the same code, so the pattern pass counted 5 things that were not calls. This repository: python 2219 sites, 528 first-party, rate 0.2379, 105 ambiguous names (share 0.0473), 153 edges and 56 of them marked; ts_js 2/2; go 3 sites, 2 first-party, rate 0.6667 | — |
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
 | `callees` (MCP), `--callees` | What a name calls, the other direction of `callers`: every callee with the file it is defined in, from the same two graphs, cross-file only | Not measured as turns saved; the claim is one lookup instead of reading the function to find out what it reaches | Count `Read` calls spent opening a function to list its calls before/after |
 | `impact` (MCP), `--impact NAME [--impact-depth N]` | The blast radius of a name: every `file:func` that reaches it within N hops (1 to 6, 3 by default), grouped by hop and sorted inside each. A visited set walks a cycle once, and the keys defining the name itself are the change rather than its radius. The first line of every reply states the rules the answer was built under, unconditionally: hops are followed by name, so where several files define one name their callers are unioned; only cross-file calls are in the graph; and the map keeps at most 60 cross-file and 120 step graph keys, so on a large repository the radius is a floor. Where the key data shows the clash a `note:` names up to five of the keys and how many more. Capped at 200 `file:func` entries in the whole reply, note keys included, with a line naming how many are left and at which depth; no handle to fetch them, because the tool already takes a depth and narrowing is the reader's move. A depth outside 1 to 6 is refused: exit 2 on the command line, JSON-RPC -32602 on the tool | Not measured as turns saved; the claim is one lookup instead of running `callers` outward by hand, hop after hop | Count `callers` calls per session before/after |
@@ -216,8 +216,8 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | `--html` escapes repository content | A docstring or a file name holding markup renders as text on the page (CI step `--html escapes repository content instead of interpolating it`) |
 | `--install-hook` is one unit | Every target is checked before any is written; a refusal installs nothing and names its cause, a rerun finishes the job (CI step `install-hook git refuses a symlinked hook file`) |
 | A source in UTF-16 is read | A file with a byte order mark is decoded, indexed and answerable; a binary that merely starts with one is not (CI step `a UTF-16 source file is decoded, indexed and answerable`) |
-| An edge the map is guessing at says so | A cross-file callee two or more files define is written `charge (a.ts)?`; the file half is whichever the walk reached first, and the question mark is the map declining to pass a guess off as a lookup. Every `impact` reply states the rule (CI step `an edge whose callee two files define is marked, and matched without the mark`) |
-| The graph says how much of the tree it resolved | `call_graph_stats` counts, per language, the callee names the walk looked at, the ones it could place in a file and the ones several files define, over the whole walk rather than the 60 keys that survive the cap. `wawe-eval --map OUT --graph` prints the rates, and with tree-sitter installed prints what a real parse makes of the same code beside them (CI step `wawe-eval --graph: the map says how much of its call tree it resolved`) |
+| An edge the map is guessing at says so | A cross-file callee several files declare is written `charge (a.ts\|c.ts)?`: every candidate, sorted, and a question mark, which is the map declining to pass a choice off as a lookup. A call to a name the calling file declares is no edge at all, and an import that names one file settles it without the mark. Every `impact` reply states the rule (CI step `an ambiguous edge names every file that declares the callee, and is matched without the mark`) |
+| The graph says what it looked at and what it wrote | `call_graph_stats` counts, per language, the callee names the walk looked at, how many of them some indexed file declares and how many several declare, which is a measure of the tree rather than of the graph, and beside them the cross-file edges written and the ones written with a `?`, which is the graph. Over the whole walk, not the 60 keys that survive the cap. `wawe-eval --map OUT --graph` prints them, and with tree-sitter installed prints what a real parse makes of the same code beside them (CI step `wawe-eval --graph: the map says how much of its call tree it resolved`) |
 
 ### How to measure it on your own sessions
 
@@ -328,43 +328,69 @@ small cannot always hold a row and the handle that points at the rest, so
 the smaller budgets. The CI step `wawe-eval: the budget loses no row the map
 holds` is that exit code.
 
-### How much of the call tree the graph resolved
+### How first-party a tree's calls are, and how big the graph came out
 
-The cross-file call graph is built by name: a callee is placed in the file
+The cross-file call graph is built by name: a callee is placed in the files
 the walk saw declare it. `call_graph_stats`, a top-level key of
-`framework_map.json`, counts what that came to, per language group: `sites`
-is the callee names the walk looked at, one per function per distinct name;
-`resolved` is how many of them it could place in an indexed file at all; and
-`ambiguous` is how many had more than one file to choose from, which are the
-edges written with a trailing `?`. The counts are taken over the whole walk,
-before `call_graph_files` is cut to its 60 keys, so the rate measures the
-walk rather than the cap.
+`framework_map.json`, counts what that came to, per language group.
+
+Three of its counters describe the tree that was read. `sites` is the callee
+names the walk looked at, one per function per distinct name; `resolved` is
+how many of those names some indexed file declares; `ambiguous` is how many
+several files declare. `resolution_rate` is `resolved / sites`, so it is the
+share of what a function calls that is first-party: Python builtins, string
+and dict methods and every standard library name sit in the denominator and
+can never leave it, and a call to a name the caller's own file declares sits
+in the numerator without ever becoming an edge. It is a fact about the code,
+not a score the graph can raise by resolving more.
+
+Two more describe the graph that was written. `edges` is the cross-file edges
+the walk wrote, and `marked` how many of them carry a `?` because several
+files declare the callee and nothing in the caller says which is meant. Those
+are the numbers that move when the graph gets better or worse.
+
+All five are taken over the whole walk, before `call_graph_files` is cut to
+its 60 keys, so they measure the walk rather than the cap.
 
 ```bash
 wawe-eval --map .wawe --graph          # a table
 wawe-eval --map .wawe --graph --json   # the same numbers as JSON
 ```
 
-Measured 2026-09-07, the three golden fixtures built under `/tmp/wawe-graph`
+Measured 2026-09-07, the three golden fixtures built under `/tmp/graphfix`
 and this repository mapped with `--product none --no-semantic`:
 
-| map | language | sites | resolved | ambiguous | resolution rate | ambiguous share |
-|---|---|---|---|---|---|---|
-| suite fixture | python | 85 | 40 | 0 | 0.4706 | 0.0 |
-| code fixture | python | 7 | 0 | 0 | 0.0 | 0.0 |
-| poly fixture | ts_js | 3 | 3 | 0 | 1.0 | 0.0 |
-| poly fixture | go | 5 | 5 | 0 | 1.0 | 0.0 |
-| where-are-we | python | 2185 | 517 | 102 | 0.2366 | 0.0467 |
-| where-are-we | ts_js | 2 | 2 | 0 | 1.0 | 0.0 |
-| where-are-we | go | 3 | 2 | 0 | 0.6667 | 0.0 |
+| map | language | sites | resolved | ambiguous | edges | marked | resolution rate | ambiguous share |
+|---|---|---|---|---|---|---|---|---|
+| suite fixture | python | 85 | 40 | 0 | 40 | 0 | 0.4706 | 0.0 |
+| code fixture | python | 7 | 0 | 0 | 0 | 0 | 0.0 | 0.0 |
+| poly fixture | ts_js | 3 | 3 | 0 | 1 | 0 | 1.0 | 0.0 |
+| poly fixture | go | 5 | 5 | 0 | 0 | 0 | 1.0 | 0.0 |
+| where-are-we | python | 2219 | 528 | 105 | 153 | 56 | 0.2379 | 0.0473 |
+| where-are-we | ts_js | 2 | 2 | 0 | 0 | 0 | 1.0 | 0.0 |
+| where-are-we | go | 3 | 2 | 0 | 0 | 0 | 0.6667 | 0.0 |
 
 The code fixture's 0.0 is the honest reading of a repository whose only
 calls are into `argparse` and a decorator: nothing it calls is declared in
-it, so the graph has no edges and says so. This repository's 0.2366 is what
-a real Python tree looks like when most of what a function calls is a
-standard library name or a method on an object, and its 102 ambiguous names
-are the ones the `?` mark is for: `cli.py:main -> build (ask.py)?` names the
-wrong `build`, and the map no longer pretends otherwise.
+it, so the graph has no edges and the rate is 0. Read the two halves
+together, though. The poly fixture scores 1.0 in both languages and holds one
+edge, because a rate of 1.0 says every name it calls is declared nearby, not
+that a graph was drawn; `edges` is the half that says a graph was drawn.
+
+This repository's 0.2379 is what a Python tree looks like when most of what
+a function calls is a builtin, a method on an object or a standard library
+name. Of its 2219 sites, 575 are Python builtins and 641 are `str`, `list`,
+`dict` and `set` method names, so more than half the denominator is
+unreachable by any name graph, and 278 of the 528 first-party names have the
+calling file as their only home, which is a call the cross-file graph does
+not hold either. The graph under it is 153 edges, 56 of them marked.
+
+Of the 60 keys the map keeps, 32 edges carry the mark. Mapping the previous
+release's own checkout with both releases, the same tree and the same 60
+keys, the count goes from 40 marks to 29, and three of the edges that lost
+the mark gained a different file with it: `cli.py:main -> build (ask.py)?`
+is now `build (build.py)`, read off `from ._mapper.build import build` at
+the top of the calling file.
 
 With `pip install "where-are-we[precise]"` the same numbers are computed
 again for the TypeScript, JavaScript and Go from a tree-sitter parse and

@@ -115,28 +115,32 @@ step: the property the step is named for is the one it must not skip.
 ## The call graph half
 
 `--graph` answers a different question about the same map: not what the
-budget lost, but how much of the call tree the walk could resolve in the
-first place.
+budget lost, but how much of what the code calls is code in the same tree,
+and how many edges came out of it.
 
 ```bash
 wawe-eval --map .wawe --graph
 ```
 
 ```
-language  sites  resolved  ambiguous  resolution_rate  ambiguous_share
-  python   2185       517        102           0.2366           0.0467
-   ts_js      2         2          0              1.0              0.0
-      go      3         2          0           0.6667              0.0
+language  sites  resolved  ambiguous  edges  marked  resolution_rate  ambiguous_share
+  python   2219       528        105    153      56           0.2379           0.0473
+   ts_js      2         2          0      0       0              1.0              0.0
+      go      3         2          0      0       0           0.6667              0.0
 ```
 
 `sites` is the callee names the walk looked at, one per function per
-distinct name. `resolved` is how many of them it could place in an indexed
-file. `ambiguous` is how many had more than one file to choose from: those
-are the edges `framework_map.json` writes with a trailing `?`, because the
-file such an edge names is whichever the walk reached first. The three
-counters live in the map under `call_graph_stats`, counted over the whole
-walk rather than the 60 keys `call_graph_files` keeps, so the rate is about
-the walk and not about the cap. `--json` prints the same report as JSON.
+distinct name. `resolved` is how many of those names some indexed file
+declares. `ambiguous` is how many several files declare: those are the edges
+`framework_map.json` writes with a trailing `?`, naming every candidate.
+Read `resolution_rate` as what it is, `resolved / sites`: builtins, methods
+and standard library names are in the denominator and stay there, and a call
+to a name the caller's own file declares counts in the numerator without
+being an edge. `edges` and `marked` are the graph itself, the cross-file
+edges written and how many of them carry the mark. The counters live in the
+map under `call_graph_stats`, counted over the whole walk rather than the 60
+keys `call_graph_files` keeps, so they are about the walk and not about the
+cap. `--json` prints the same report as JSON.
 
 With `pip install "where-are-we[precise]"` the TypeScript, JavaScript and Go
 are parsed again with tree-sitter and the two counts are printed side by
@@ -153,9 +157,10 @@ bookkeeping. Without the extra installed the line says the comparison was
 not run, and the rest of the report is printed as usual.
 
 The CI step `wawe-eval --graph: the map says how much of its call tree it
-resolved` asserts the key is there, that both rates are fractions, and that
-on the poly fixture, whose every callee is declared in it, `resolved` equals
-`sites`.
+resolved` asserts the key is there, that both rates are fractions, that on
+the poly fixture, whose every callee is declared in it, `resolved` equals
+`sites`, and that the fixture's one cross-file call is an edge, because a
+perfect rate over an empty graph would otherwise pass.
 
 ## The agent half
 
