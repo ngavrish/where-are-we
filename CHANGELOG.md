@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.2.0
+
+Two ideas taken from Headroom (headroomlabs-ai/headroom), rebuilt for a map
+that lives on disk.
+
+- A cut answer carries a handle. Every tail line that says what was left
+  out (`... 37 more matching rows`, `... 15 more definitions`, `... more
+  sections match`, `find`'s "these are the 40 that rank highest") now ends
+  with `(more:<kind>:<payload>)`, and a sixth tool, `more`, returns the next
+  slice under the same whole-row, ceiling and tail rules, with its own
+  handle when there is still more. `--more HANDLE` on the command line. A
+  handle is a query, not a cursor: it is recomputed from the map on disk,
+  carries the question percent-encoded so `pre-commit`, `page.click` and
+  non-Latin words survive it whole, and answers `no such handle in this
+  map` when the map has changed under it. A question longer than about
+  forty percent of the budget cannot carry per-section handles; the note
+  line still points at the section.
+- `wawe-eval` measures what the budget loses, from the map itself: 100
+  questions built from declared names, step words and heading words, each
+  asked at no budget and at 350, 1500 and 12000 bytes; first-answer recall
+  (macro), pooled recall, top-5 recall, rows over budget, and recall with
+  handles after every `more` has been followed. At 1500 bytes and up, the
+  MCP server's floor, recall with handles is 1.0 on every fixture; CI
+  asserts it. `wawe-eval --agent` asks the same questions through the Claude
+  API with the map tools and with grep, scores against `framework_map.json`,
+  needs `ANTHROPIC_API_KEY` and the `eval-agent` extra, and is not run in CI.
+- Six new golden cases with punctuated questions; 156 pinned answers.
+
 ## 1.1.3
 
 - `--install-hook` installs as one unit. Every target is checked before

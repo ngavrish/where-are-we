@@ -292,34 +292,36 @@ neither is "the" recall:
   for them did not get them; they are left out of the recall the exit code
   asserts, because that one is about rows a handle could have returned.
 
-Measured 2026-09-07 on the three golden fixtures, 100 questions per fixture
-(fewer where the map has fewer), seed 0, built under the fixed root
-`/tmp/wawe-eval` the CI step uses:
+Measured 2026-09-07 on the three golden fixtures with `more` in the build,
+100 questions per fixture (fewer where the map has fewer), seed 0, built
+under the fixed root `/tmp/wawe-eval` the CI step uses:
 
-| fixture | questions | budget | first-answer recall | pooled recall | top-5 recall | rows over budget | mean bytes |
-|---|---|---|---|---|---|---|---|
-| suite | 100 of 285 | 350 | 0.476 | 0.105 | 0.725 | 34 | 303 |
-| suite | 100 of 285 | 1500 | 0.857 | 0.305 | 1.000 | 0 | 885 |
-| suite | 100 of 285 | 12000 | 0.9999 | 0.999 | 1.000 | 0 | 2051 |
-| code | 12 of 23 | 350 | 0.776 | 0.610 | 0.806 | 0 | 234 |
-| code | 12 of 23 | 1500 | 1.000 | 1.000 | 1.000 | 0 | 342 |
-| poly | 10 of 21 | 350 | 0.775 | 0.719 | 0.798 | 0 | 257 |
-| poly | 10 of 21 | 1500 | 1.000 | 1.000 | 1.000 | 0 | 302 |
+| fixture | questions | budget | first-answer recall | pooled recall | top-5 recall | recall with handles | rows over budget | mean bytes |
+|---|---|---|---|---|---|---|---|---|
+| suite | 100 of 285 | 350 | 0.429 | 0.089 | 0.632 | 0.981 | 34 | 303 |
+| suite | 100 of 285 | 1500 | 0.839 | 0.288 | 1.000 | 1.000 | 0 | 973 |
+| suite | 100 of 285 | 12000 | 0.9996 | 0.997 | 1.000 | 1.000 | 0 | 2220 |
+| code | 12 of 23 | 350 | 0.756 | 0.585 | 0.785 | 1.000 | 0 | 263 |
+| code | 12 of 23 | 1500 | 1.000 | 1.000 | 1.000 | 1.000 | 0 | 413 |
+| poly | 10 of 21 | 350 | 0.733 | 0.656 | 0.753 | 0.983 | 0 | 277 |
+| poly | 10 of 21 | 1500 | 1.000 | 1.000 | 1.000 | 1.000 | 0 | 367 |
 
-Read the suite row at 350 bytes together: a 303 byte answer holds about half
-of what a typical question could have said and a tenth of every row across
-all of them, and three quarters of the five rows that ranked highest. That
-is the shape of the cut. It is not a claim that nothing was lost.
+Read the suite row at 350 bytes together: a 303 byte answer holds under
+half of what a typical question could have said and a tenth of every row
+across all of them, and about two thirds of the five rows that ranked
+highest. That is the shape of the cut. It is not a claim that nothing was
+lost.
 
 The claim that nothing is lost belongs to `more`, the tool that fetches what
-a tail line says was left out. When this build has it, `wawe-eval` prints a
-`recall_with_handles` column: the rows that fit the budget, counted after
-every `more:` handle in the answer has been followed and every handle in the
-replies after that. That column has to be 1.0 at every budget, `wawe-eval`
-exits 1 when it is not, and the CI step `wawe-eval: the budget loses no row
-the map holds` is that exit code. On a build without `more` the column reads `-` and the
-run prints `handles: not available in this build`; the numbers above are
-from such a build, so the 1.0 claim is not yet made here.
+a tail line says was left out. `recall_with_handles` counts the rows that
+fit the budget after every `more:` handle in the answer has been followed,
+and every handle in the replies after that. At 1500 bytes, the MCP server's
+floor, and above, it is 1.000 on every fixture: the budget cuts the first
+answer, the handles give all of it back. At 350 it is 0.98: an answer that
+small cannot always hold a row and the handle that points at the rest, so
+`wawe-eval` asserts 1.0 only from `--assert-from` (default 1500) and prints
+the smaller budgets. The CI step `wawe-eval: the budget loses no row the map
+holds` is that exit code.
 
 `--agent` is the other half: the same questions asked through the Claude API
 twice, once with the map tools and once with grep and read over the

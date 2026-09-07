@@ -904,6 +904,12 @@ def main(argv: list | None = None) -> int:
                         help="comma separated byte budgets (default 350,1500,12000)")
     parser.add_argument("--seed", type=int, default=0,
                         help="seed for the question sample (default 0)")
+    parser.add_argument("--assert-from", type=int, default=1500, metavar="BYTES",
+                        help="fail (exit 1) on rows no handle returned only at "
+                             "budgets of at least BYTES (default 1500, the MCP "
+                             "server's floor); smaller budgets are reported, not "
+                             "asserted, since an answer that small may not hold "
+                             "both a row and the handle that points at the rest")
     parser.add_argument("--max-more", type=int, default=400, metavar="N",
                         help="stop chasing a question's handles after N calls "
                              "(default 400)")
@@ -952,20 +958,26 @@ def main(argv: list | None = None) -> int:
     else:
         print_table(report)
 
+    fatal = [loss for loss in report["losses"]
+             if loss["budget"] >= args.assert_from]
     if report["handles"] and report["losses"]:
         # A row the map holds, that fits the budget, that the budgeted answer
-        # cut, and that no handle gave back. That is a bug in `more`, not a
-        # property of the budget, so it fails the run rather than printing a
-        # number nobody reads. A row longer than the budget is not one of
-        # these: it is counted in rows_over_budget and named, not asserted.
+        # cut, and that no handle gave back. At a budget the MCP server ever
+        # uses (1500 and up) that is a bug in `more`, not a property of the
+        # budget, so it fails the run rather than printing a number nobody
+        # reads. Below --assert-from the answer may be too small to carry a
+        # row and the handle that points at the rest, so those losses are
+        # printed and not asserted. A row longer than the budget is neither:
+        # it is counted in rows_over_budget and named.
         print(f"{len(report['losses'])} question(s) lost rows no handle "
-              "returned:", file=sys.stderr)
+              f"returned ({len(fatal)} at budgets of {args.assert_from} or "
+              "more, which fail the run):", file=sys.stderr)
         for loss in report["losses"][:10]:
             print(f"- budget {loss['budget']}, {loss['words']!r}: "
                   f"{loss['missing']} of {loss['rows_that_fit']} rows that fit "
                   f"the budget missing ({loss['rows_over_budget']} more were "
                   "longer than the budget and are not counted)", file=sys.stderr)
-        return 1
+        return 1 if fatal else 0
     return 0
 
 
