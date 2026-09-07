@@ -421,7 +421,36 @@ def _scope(map_path: str, files) -> dict | None:
             homes.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
     except (OSError, ValueError):
         pass
-    return {"root": root, "homes": homes, "files": list(files)}
+    # The same list as one handle field, percent-encoded like the question
+    # beside it. A tail printed under a scoped answer carries it, and `more()`
+    # rebuilds this dict from it, so the continuation reorders the section the
+    # way the answer that printed the handle did. Without it the offset counts
+    # into one order and the slice comes out of another, and a row `--files`
+    # pushed past the cut is unreachable through the handle that promised it.
+    return {"root": root, "homes": homes, "files": list(files),
+            "field": _encode(",".join(files))}
+
+
+def _scope_field(scope) -> str:
+    """One scope's handle field, or `""` when there is no scope.
+
+    Empty for an unscoped answer, and every handle builder appends the field
+    only when it is non-empty, so an answer asked without `--files` prints the
+    handles it printed before this existed. The golden suite is the proof:
+    156 expected files, none of them moved.
+    """
+    return (scope or {}).get("field") or ""
+
+
+def _scope_from_field(map_path: str, field: str) -> dict | None:
+    """The scope a handle's own field names, rebuilt from the map on disk.
+
+    Nothing is stored between the two calls. The file list is in the handle,
+    the map is on disk, and `_scope` resolves the one against the other the
+    same way it did for the answer that printed it.
+    """
+    files = [part for part in _decode(field).split(",") if part]
+    return _scope(map_path, files)
 
 
 def _in_scope(row: str, scope: dict) -> bool:
@@ -461,7 +490,7 @@ def _files_first(rows: list, scope: dict | None) -> list:
 
 
 def _defined_here(exact: list, room: int, words: str = "",
-                  base: int = 0) -> tuple:
+                  base: int = 0, sfield: str = "") -> tuple:
     """The definitions block, whole lines up to `room`, with a count of what
     did not fit and, when `words` is given, the handle that fetches it.
 
@@ -487,7 +516,8 @@ def _defined_here(exact: list, room: int, words: str = "",
         got = base + _first_gap(len(exact), idx)
         line = ""
         if len(exact) - len(idx):
-            suffix = f" (more:defs:{slug}:{got})" if handle and slug else ""
+            tail = f":{sfield}" if sfield else ""
+            suffix = f" (more:defs:{slug}:{got}{tail})" if handle and slug else ""
             line = f"… {len(exact) - len(idx)} more definitions{suffix}"
             kept.append(line)
         return ("\n".join(kept) if len(kept) > 1 else ""), got, line
@@ -688,11 +718,12 @@ def _definitions_block(map_path: str, terms: list, room: int,
     exact = definitions_for(map_path, terms, extra)
     if not exact:
         return ""
-    return _defined_here(_files_first(exact, scope), room, words)[0]
+    return _defined_here(_files_first(exact, scope), room, words, 0,
+                         _scope_field(scope))[0]
 
 
 def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
-               offset: int, kind: str = "rows") -> str:
+               offset: int, kind: str = "rows", sfield: str = "") -> str:
     """The one line under a section that says what was left out, with the
     handle that fetches it when `sec` and `words` are given.
 
@@ -705,15 +736,20 @@ def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
     question was about, so on a line that has both they get the handle, and
     the other list is reachable by hand from the same two slugs with the kind
     changed and the offset at zero.
+
+    `sfield` is the scope `--files` was given, already encoded, appended as a
+    fifth field. Empty without `--files`, and then the handle is character for
+    character the one this printed before scopes existed.
     """
+    tail = f":{sfield}" if sfield else ""
     parts = []
     if dropped:
         noun = ("more matching rows" if kind == "rows"
                 else "more rows that do not mention these words")
-        h = f" (more:{kind}:{sec}:{words}:{offset})" if sec and words else ""
+        h = f" (more:{kind}:{sec}:{words}:{offset}{tail})" if sec and words else ""
         parts.append(f"… {dropped} {noun}{h}")
     if unmatched:
-        h = (f" (more:unmatched:{sec}:{words}:0)"
+        h = (f" (more:unmatched:{sec}:{words}:0{tail})"
              if sec and words and not dropped else "")
         parts.append(f"{unmatched} rows in this section do not mention "
                      f"these words{h}")
@@ -724,7 +760,7 @@ def _tail_line(dropped: int, unmatched: int, sec: str, words: str,
 
 def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
                 sec: str = "", words: str = "", base: int = 0,
-                kind: str = "rows") -> tuple:
+                kind: str = "rows", sfield: str = "") -> tuple:
     """`head` plus as many of `rows` as fit in `room`, grouped by directory,
     with the tail that says what was left and how to ask for it.
 
@@ -754,8 +790,12 @@ def _rows_chunk(head: str, rows: list, unmatched: int, room: int,
     handle counting output lines would skip one row per link of a chain.
     """
     def tail_for(dropped: int, got: int, handles: bool) -> str:
+        # `sfield` rides in the closure, not through `_fit_chunk`: the fitter
+        # is shared with `context`, which has no scope, and a tail builder is
+        # exactly where the two callers are allowed to differ.
         return _tail_line(dropped, unmatched, sec if handles else "",
-                          words if handles else "", got, kind)
+                          words if handles else "", got, kind,
+                          sfield if handles else "")
 
     chunk, reached, lines, tail = _fit_chunk(head, rows, room, RESERVE_TAIL,
                                              tail_for, _group_dirs, base)
@@ -858,7 +898,8 @@ def _section_answer(head: str, body: list, terms: list, room: int,
     matching = _files_first(matching, scope)
     chunk, attempted, _reached, handed = _rows_chunk(
         head, matching, unmatched, room,
-        _head_slug(head) if words else "", _encode(words) if words else "")
+        _head_slug(head) if words else "", _encode(words) if words else "",
+        kind="rows", sfield=_scope_field(scope))
     return chunk, attempted, handed
 
 
@@ -1193,7 +1234,7 @@ def _also_matched(def_block: str, section_chunks: list, terms: list, candidates:
 
 
 def _more_note(room: int, words: str = "", offset: int = 0,
-               unshown: bool = True) -> str:
+               unshown: bool = True, sfield: str = "") -> str:
     """The "more sections match" note, only if it fits: a note that says
     "more" when there is no more, or that pushes the answer past its limit,
     is the defect this guards.
@@ -1202,13 +1243,14 @@ def _more_note(room: int, words: str = "", offset: int = 0,
     unshown. When that longer note does not fit but the plain one does, the
     plain one goes out: half the note is still true.
     """
-    for form in _note_forms(words, offset, unshown):
+    for form in _note_forms(words, offset, unshown, sfield):
         if len(form) + 2 <= room:
             return form
     return ""
 
 
-def _note_forms(words: str, offset: int, unshown: bool = True) -> list:
+def _note_forms(words: str, offset: int, unshown: bool = True,
+                sfield: str = "") -> list:
     """The note under an answer that could not finish, longest first.
 
     The order is what the answer gives up first. The long form is the sentence
@@ -1228,11 +1270,12 @@ def _note_forms(words: str, offset: int, unshown: bool = True) -> list:
     if not words:
         return [plain] if unshown else []
     field = _encode(words)
+    tail = f":{sfield}" if sfield else ""
     if not unshown:
         return [f"… more of these sections than fit here; "
-                f"more:sections:{field}:{offset}"]
-    return [f"{plain}, or more:sections:{field}:{offset}",
-            f"… more sections: more:sections:{field}:{offset}",
+                f"more:sections:{field}:{offset}{tail}"]
+    return [f"{plain}, or more:sections:{field}:{offset}{tail}",
+            f"… more sections: more:sections:{field}:{offset}{tail}",
             plain]
 
 
@@ -1309,7 +1352,8 @@ def _assemble(map_path: str, terms: list, expanded: list, candidates: list,
         # without the handle for what it cut, and only if the note itself
         # fits: a note that says "more" when there is no more, or that pushes
         # the answer past its limit, is the defect this guards.
-        note = _more_note(room, words, first_unshown, seen < len(scored))
+        note = _more_note(room, words, first_unshown, seen < len(scored),
+                          _scope_field(scope))
         if note:
             out.append(note)
             room -= len(note) + 2
@@ -1416,7 +1460,8 @@ def ask(map_path: str, words: str, limit: int = 12000, files=()) -> str:
         # which are a different list. And it must not come out of the whole
         # `## Defined here` block, because where a name was declared is the
         # question this tool is asked most.
-        for form in _note_forms(words, len(scored), built[5]):
+        for form in _note_forms(words, len(scored), built[5],
+                                _scope_field(scope)):
             if built[4] and ("more:sections:" in built[4]
                              or "more:sections:" not in form):
                 break
@@ -1479,6 +1524,15 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     same way, filters the same rows, and continues from `offset`, so the only
     state is the handle itself and a map that has not changed underneath it.
 
+    An answer asked with `--files` carries the scope in one more field, and
+    the four scoped kinds accept it: `more:rows:<section>:<words>:<offset>:
+    <files>`. It has to be there. The offset counts rows in the order the
+    scoped answer printed, and without the scope this would slice the
+    unscoped order at that number: every row `--files` demoted past the cut
+    would be skipped and every row it promoted would come back twice. That is
+    the one promise this project makes above all others, and a scoped answer
+    used to void it silently.
+
     When it has changed, the handle is stale rather than wrong: a section the
     rebuild dropped, or a list that is now shorter than the offset, comes back
     as `no such handle in this map: ...` instead of a slice of some other
@@ -1496,12 +1550,29 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     fields = parts[1:]
     widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2,
               "at": 2, "ctx": 3}
+    # The four kinds an answer's scope can reach. `find` searches the lines
+    # and `at` a definition; neither is ordered by `--files`, so neither
+    # carries the field and a handle that puts one there is malformed. `ctx`
+    # is out for the same reason from the other side: `context` takes no
+    # files, so no answer it prints is ordered by a scope. If it ever gains
+    # one, it belongs in this tuple and nowhere else.
+    scoped = ("rows", "unmatched", "defs", "sections")
     if kind not in widths:
         return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
                       "sections, find, at, ctx")
+    sfield = ""
+    if kind in scoped and len(fields) == widths[kind] + 1:
+        sfield, fields = fields[-1], fields[:-1]
     if len(fields) != widths[kind]:
-        return _stale(f"a more:{kind} handle has {widths[kind]} fields after "
-                      f"the kind, this one has {len(fields)}")
+        want = (f"{widths[kind]} fields after the kind, or {widths[kind] + 1} "
+                f"with a scope," if kind in scoped
+                else f"{widths[kind]} fields after the kind,")
+        return _stale(f"a more:{kind} handle has {want} this one has "
+                      f"{len(fields) + (1 if sfield else 0)}")
+    try:
+        scope = _scope_from_field(map_path, sfield) if sfield else None
+    except ValueError as exc:
+        return _stale(f"{sfield!r} is not a file list this wrote: {exc}")
     try:
         offset = int(fields[-1])
     except ValueError:
@@ -1569,11 +1640,13 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         return _stale(f"{words!r} holds no word to ask about")
 
     if kind == "defs":
-        rows = definitions_for(map_path, terms, candidates, cap=0)
+        rows = _files_first(definitions_for(map_path, terms, candidates, cap=0),
+                            scope)
         if offset >= len(rows):
             return _stale(f"{len(rows)} names in this map hold {words!r}, "
                           f"and this handle asks for number {offset + 1}")
-        block, reached = _defined_here(rows[offset:], limit, words, offset)
+        block, reached = _defined_here(rows[offset:], limit, words, offset,
+                                       sfield)
         if reached == offset:
             return _stale(f"definition {offset + 1} of {len(rows)} does not "
                           f"fit in {limit} characters")
@@ -1598,11 +1671,12 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         # this walk, and a continuation that cannot say where it stopped ends
         # the chain in the middle of the list it was asked to finish.
         hold = len(f"… more sections match; ask for something narrower, or "
-                   f"more:sections:{_encode(words)}:{len(scored)}") + 2
+                   f"more:sections:{_encode(words)}:{len(scored)}"
+                   f"{':' + sfield if sfield else ''}") + 2
         out, room, reached = [], limit - hold, offset
         for i, (_hits, h, b) in enumerate(scored[offset:], offset):
             chunk, attempted, handed = _section_answer(h, b, expanded, room,
-                                                       words)
+                                                       words, scope)
             if not attempted:
                 break
             if chunk and not handed and i > offset:
@@ -1616,7 +1690,7 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
                           f"fit in {limit} characters")
         room += hold
         if reached < len(scored):
-            note = _more_note(room, words, reached)
+            note = _more_note(room, words, reached, True, sfield)
             if note:
                 out.append(note)
         return "\n\n".join(out) or (
@@ -1627,14 +1701,15 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         if _head_slug(h) != fields[0]:
             continue
         matching, other = _rows_by_match(b, expanded)
-        rows = matching if kind == "rows" else other
+        rows = _files_first(matching if kind == "rows" else other, scope)
         what = "matching rows" if kind == "rows" else "rows that do not mention it"
         if offset >= len(rows):
             return _stale(f"{h.lstrip('#').strip()!r} has {len(rows)} "
                           f"{what} for {words!r}, and this handle asks for "
                           f"number {offset + 1}")
         chunk, _attempted, reached, _handed = _rows_chunk(
-            h, rows[offset:], 0, limit, fields[0], _encode(words), offset, kind)
+            h, rows[offset:], 0, limit, fields[0], _encode(words), offset, kind,
+            sfield)
         if reached == offset:
             return _stale(f"row {offset + 1} of {len(rows)} does not fit in "
                           f"{limit} characters")
@@ -1780,6 +1855,25 @@ def file_list(text: str, read_stdin=None) -> list:
             if part and part not in out:
                 out.append(part)
     return out
+
+
+def unknown_files(map_path: str, files) -> list:
+    """The paths named that no file this map indexed matches.
+
+    A typo used to be silent: `--rank nosuch.py` personalises on nothing and
+    returns the global order, which reads exactly like `--rank` with no
+    argument. The command line says so on stderr; stdout is untouched, so the
+    flag and the MCP tool still print the same bytes.
+    """
+    scope = _scope(map_path, files)
+    if not scope or not scope["homes"]:
+        # No files named, or no map beside this one to check them against.
+        # Silence is the honest answer to "is this path real" when there is
+        # nothing to ask.
+        return []
+    known = [rel for rels in scope["homes"].values() for rel in rels]
+    return [want for want in scope["files"]
+            if not any(_rank_graph.matches(rel, "", [want]) for rel in known)]
 
 
 def rank_lines(map_path: str, files=(), words=(), limit: int = RANK_LIMIT) -> str:
