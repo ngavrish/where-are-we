@@ -411,7 +411,15 @@ def _kind_of(text: str, name: str) -> str:
 
 
 def _py_spans(path: str) -> dict:
-    """`{"<name>\\x1e<line>": [end line, kind]}` for a Python file, from `ast`.
+    """`{"spans": {"<name>\\x1e<line>": [end, kind]}, "quoted": [[from, to]]}`
+    for a Python file, from `ast`.
+
+    `quoted` is every range of lines that is inside a string literal, which
+    is not this file's code: a `def` written out inside a triple-quoted
+    fixture is not a declaration of this file, and neither is the word
+    `class` in a sentence of a docstring. Both come out of the same parse as
+    the spans, because there is one parse of a Python file here and adding a
+    second for this would double what it costs.
 
     `end_lineno` is stdlib and exact, which no line-start regex can be: it is
     the last line of the whole definition, decorators, nested bodies and all.
@@ -441,13 +449,23 @@ def _py_spans(path: str) -> dict:
             from build import _parse_source  # type: ignore[no-redef]
             from walk import _slurp_source  # type: ignore[no-redef]
         out: dict = {}
+        quoted: list = []
         tree = _parse_source(path)
         if tree is None:
-            return out
+            return {"spans": out, "quoted": quoted}
         _text, was_cut = _slurp_source(path)
         deepest = 0
         for node in ast.walk(tree):
             deepest = max(deepest, getattr(node, "end_lineno", 0) or 0)
+            # The lines strictly inside a string, not the lines that open and
+            # close it: a declaration can share the line that opens one
+            # (`SRC = """def f():` is not something anyone writes, but
+            # `x = f("""` is), and the closing line holds only the quotes.
+            if isinstance(node, (ast.Constant, ast.JoinedStr)):
+                start = getattr(node, "lineno", 0) or 0
+                end = getattr(node, "end_lineno", 0) or 0
+                if end > start + 1:
+                    quoted.append([start + 1, end - 1])
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 out[f"{node.name}\x1e{node.lineno}"] = [node.end_lineno, "function"]
             elif isinstance(node, ast.ClassDef):
@@ -464,9 +482,63 @@ def _py_spans(path: str) -> dict:
             for key, row in out.items():
                 if row[0] >= deepest:
                     out[key] = [None, row[1]]
-        return out
+        return {"spans": out, "quoted": quoted}
 
-    return _cached(path, "py_spans", _compute)
+    return _cached(path, "py_spans_2", _compute)
+
+
+# The extensions a `<<EOF` heredoc is a heredoc in. Not the fallback table's
+# whole reach: `a << b` at the end of a line is a shift in C, Go and Java, and
+# masking to a terminator that never comes would take the rest of such a file
+# out of the map. These are the languages where the construct is the
+# construct, which is what a CI workflow's `python - <<'EOF'` is written in.
+_HEREDOC_EXTS = {".sh", ".bash", ".zsh", ".ksh", ".yml", ".yaml"}
+_HEREDOC_START = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1\s*$")
+
+
+def _heredoc_lines(body: str) -> list:
+    """The `[from, to]` line ranges of `body` that are heredoc bodies.
+
+    A heredoc is text a script hands to another program, so what is written
+    in it is that program's code and not this file's: this repository's own
+    workflow declares `build` inside a `python - <<'EOF'` block, and the map
+    answered "where is build declared" with a line of YAML. The terminator is
+    matched stripped, which is what `<<-` means and what every YAML block
+    scalar does to its own indentation anyway.
+    """
+    out, term, start = [], None, 0
+    for number, text in enumerate(body.splitlines(), 1):
+        if term is None:
+            found = _HEREDOC_START.search(text)
+            if found:
+                term, start = found.group(2), number + 1
+            continue
+        if text.strip() == term:
+            if number > start:
+                out.append([start, number - 1])
+            term = None
+    if term is not None:
+        out.append([start, len(body.splitlines())])
+    return out
+
+
+def _not_code_lines(body: str, ext: str, exact: dict) -> set:
+    """The lines of `body` that hold text rather than this file's own code.
+
+    A string literal in Python and a heredoc body in a shell script or a
+    workflow are the same idea: the file quotes something, and what it quotes
+    is not a declaration it makes. Everything else here reads a line and asks
+    what it declares, which is why three names in this repository's own map
+    were a `def` inside a fixture's string, a `def` inside a CI heredoc, and
+    the word after `class` in an English sentence in a docstring.
+    """
+    ranges = list(exact.get("quoted") or ())
+    if ext in _HEREDOC_EXTS:
+        ranges += _heredoc_lines(body)
+    out: set = set()
+    for start, end in ranges:
+        out.update(range(start, end + 1))
+    return out
 
 
 def _declared_spans(body: str, ext: str, path: str = "") -> list:
@@ -502,7 +574,12 @@ def _declared_spans(body: str, ext: str, path: str = "") -> list:
                                              name)])
             return out
     pairs = _regex_declared_names(body, ext)
-    exact = _py_spans(path) if path and ext in (".py", ".pyi") else {}
+    parsed = _py_spans(path) if path and ext in (".py", ".pyi") else {}
+    exact = parsed.get("spans") or {}
+    # What the file quotes is not what it declares.
+    quoted = _not_code_lines(body, ext, parsed)
+    if quoted:
+        pairs = [(name, start) for name, start in pairs if start not in quoted]
     from_tree: dict = {}
     end_lang = TS_END_BY_EXT.get(ext)
     if not exact and end_lang and path and _tree_sitter(end_lang) is not None:

@@ -392,6 +392,89 @@ jobs:
             --quiet --no-semantic
           diff -u /tmp/spans/m/framework_map.json /tmp/spans/m2/framework_map.json
           diff -u /tmp/spans/m/framework_map.md /tmp/spans/m2/framework_map.md
+      - name: what a file quotes is not what it declares
+        run: |
+          set -o pipefail
+          rm -rf /tmp/quo
+          mkdir -p /tmp/quo/r/.github/workflows
+          # A docstring with the word `class` in a sentence, a triple-quoted
+          # fixture that writes out a module, and a real declaration in the
+          # same file so that the fix is a filter and not an off switch.
+          cat > /tmp/quo/r/fixtures.py <<'PY'
+          """Writes a small tree.
+
+          The caller names the class of that command line, and the flag that
+          gave it each class.
+          """
+
+          SOURCE = """
+          def refund(amount):
+              return amount
+
+
+          class Ledger:
+              pass
+          """
+
+
+          def write_tree(root):
+              return SOURCE
+          PY
+          # And a workflow whose heredoc body is another language's code.
+          cat > /tmp/quo/r/.github/workflows/ci.yml <<'YML'
+          jobs:
+            check:
+              steps:
+                - name: run it
+                  run: |
+                    python - <<'EOF'
+                    def build(x):
+                        return x
+                    class Runner:
+                        pass
+                    EOF
+                    echo done
+          YML
+          # A shift is not a heredoc: the same two characters at the end of a
+          # line in a language that has no heredocs must not take the rest of
+          # the file out of the map.
+          printf 'package main\n\nfunc Shift(a int) int {\n\treturn a <<\n\t\t3\n}\n\nfunc After(b int) int {\n\treturn b\n}\n' \
+            > /tmp/quo/r/shift.go
+          where-are-we --repo /tmp/quo/r --out /tmp/quo/m --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json, sys
+          m = json.load(open("/tmp/quo/m/framework_map.json"))
+          names = m["definitions"]
+          spans = m["spans"]
+          quoted = ["of", "refund", "Ledger", "build", "Runner"]
+          leaked = [n for n in quoted if n in names or n in spans]
+          if leaked:
+              print("a quoted body was read as a declaration:", leaked)
+              sys.exit(1)
+          # The same files still declare what they really declare.
+          for n in ("SOURCE", "write_tree", "Shift", "After"):
+              assert n in names, (n, sorted(names))
+              assert n in spans, (n, sorted(spans))
+          assert names["write_tree"].endswith("fixtures.py:17"), names["write_tree"]
+          print("quoted bodies dropped:", quoted,
+                "; declarations kept:", ["SOURCE", "write_tree", "Shift", "After"])
+          EOF
+          # An unterminated heredoc masks the rest of its own file and nothing
+          # else: being wrong about one file is the safe way to be wrong.
+          printf 'run: |\n  python - <<%sEOF%s\n  def never_closed(x):\n      return x\n' "'" "'" \
+            > /tmp/quo/r/open.yml
+          where-are-we --repo /tmp/quo/r --out /tmp/quo/m2 --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json, sys
+          m = json.load(open("/tmp/quo/m2/framework_map.json"))
+          if "never_closed" in m["definitions"]:
+              print("an unterminated heredoc still declared its body")
+              sys.exit(1)
+          assert "write_tree" in m["definitions"]
+          print("an unterminated heredoc masks its own file only")
+          EOF
       - name: context returns in one call what five calls return
         run: |
           set -o pipefail

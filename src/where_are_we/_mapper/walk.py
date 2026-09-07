@@ -177,7 +177,7 @@ def _write_atomic_group(pairs) -> None:
 # of kinds the source asks for.
 CACHE_KINDS = frozenset((
     "call_graph", "complexity", "exports_py", "func_edges_3", "hooks",
-    "module_doc", "public_api", "py_spans", "pytest_ast", "redactions",
+    "module_doc", "public_api", "py_spans_2", "pytest_ast", "redactions",
     "step_texts", "symbols"))
 CACHE_KIND_PREFIXES = ("spans:", "ts:")
 

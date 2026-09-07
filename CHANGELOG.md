@@ -12,6 +12,18 @@
   reads it is null and prints as `?`, because a pattern has seen the line a
   declaration starts on and nothing that says where it stops, and a guessed
   end is worse than none for anyone editing by anchor.
+- What a file quotes is not what it declares. The lines inside a Python string
+  literal, docstrings included, and the body of a `<<EOF` heredoc in a shell
+  script or a workflow are text this file hands to something else, so they are
+  no longer read for declarations. On this repository that is three names
+  gone: `refund`, a `def` inside the string `tests/golden/build_fixtures.py`
+  writes out; `build`, a `def` inside a `python - <<'EOF'` block in the CI
+  workflow, which used to outrank the real `build` in `rank`; and `of`, from
+  the phrase "the class of that command line" in a docstring. The heredoc rule
+  is applied to `.sh`, `.bash`, `.zsh`, `.ksh`, `.yml` and `.yaml` and nowhere
+  else, because `a << b` at the end of a line is a shift in the languages that
+  have no heredocs. An unterminated heredoc masks the rest of its own file and
+  nothing beyond it.
 - `--defines NAME` and the MCP `defines` tool list every home:
   `charge: a.py:10-24 (function), b.py:88-91 (function)`. The flag is new; the
   tool answered with one home per name before, chosen by directory order.
