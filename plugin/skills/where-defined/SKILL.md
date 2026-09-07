@@ -47,10 +47,16 @@ And when the question is what a change to a name would reach, not who calls it
 once, `impact(name="charge", depth=3)` walks the same graph back several hops
 and groups the answer by distance:
 
-    Impact of `charge` to depth 3, cross-file callers only: ...
+    Impact of `charge` to depth 3. How to read it: hops are followed by name, ...
     depth 1: b.ts:pay
     depth 2: app.ts:checkout
 
-A cycle is walked once, not looped. The depth is 1 to 6 and 3 by default; when
-the answer is capped at 200 entries, ask again at a smaller depth rather than
-paging, which is why there is no handle for the rest.
+Read that first line. Hops are followed by name, so where several files define
+one name their callers are unioned into the answer; only cross-file calls are
+in the graph; and the map keeps a bounded number of graph keys, so on a large
+repository the radius is a floor rather than the whole of it. A cycle is
+walked once, not looped. The depth is 1 to 6 and 3 by default, and a depth
+outside that is refused rather than answered. At most 200 `file:func` entries
+come back, the keys in any `note:` line counted: when the answer says what it
+left out, ask again at a smaller depth rather than paging, which is why there
+is no handle for the rest.

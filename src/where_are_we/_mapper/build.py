@@ -28,6 +28,15 @@ from .walk import (AST_LIMIT, SKIP_DIRS, _cached, _lines_matching,
                    sweep_out_dir)
 
 
+# How much of each call graph the map keeps. `ask.impact` tells its reader
+# these numbers, because a blast radius drawn from a sampled graph is a floor
+# and not the whole of it; it cannot import them (this module reaches
+# `_mapper.declare`, which reaches `ask`), so a CI step asserts the two
+# spellings agree.
+CALL_GRAPH_KEYS = 60
+STEP_GRAPH_KEYS = 120
+
+
 def _parse_source(path: str):
     """`ast.parse` of as much of `path` as a parser can be given, or None.
 
@@ -698,7 +707,7 @@ def build(repo: str, out_dir: str | None = None,
             return found
 
         call_graph.update(_cached(full, "call_graph", _call_graph_of))
-    call_graph = dict(list(call_graph.items())[:120])
+    call_graph = dict(list(call_graph.items())[:STEP_GRAPH_KEYS])
 
     # What a finished run leaves behind, and where.
     artefacts = {}
@@ -1868,7 +1877,8 @@ def build(repo: str, out_dir: str | None = None,
 
     # One cap across both languages, tie-broken by key so ties do not depend
     # on os.walk order.
-    func_calls = dict(sorted(func_calls.items(), key=lambda kv: (-len(kv[1]), kv[0]))[:60])
+    func_calls = dict(sorted(func_calls.items(),
+                            key=lambda kv: (-len(kv[1]), kv[0]))[:CALL_GRAPH_KEYS])
 
     # Every extractor, in registry order, merged into one dict. There is no
     # call site per topic and no unwrap per topic: `extract.EXTRACTORS` is the

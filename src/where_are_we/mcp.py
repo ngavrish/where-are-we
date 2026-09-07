@@ -28,10 +28,11 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import log_answer, callees_line, callers, impact, map_heads
+    from .ask import (IMPACT_MAX_DEPTH, log_answer, callees_line, callers,
+                       impact, map_heads)
 except ImportError:  # run as a plain file, with no package around it
-    from ask import (log_answer, callees_line,  # type: ignore[no-redef]
-                     callers, impact, map_heads)
+    from ask import (IMPACT_MAX_DEPTH,  # type: ignore[no-redef]
+                     log_answer, callees_line, callers, impact, map_heads)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -371,18 +372,29 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             raise _BadParams("name must be a string or a list of strings")
         json_path = os.path.join(out_dir, "framework_map.json")
         wanted = _each(name_field)
-        answer = "\n".join(callees_line(json_path, w) for w in wanted)
-        log_answer(out_dir, "callees", ", ".join(wanted), answer,
-                   len(answer))
-        _reply(_text(answer), ident)
+        lines = []
+        for w in wanted:
+            a = callees_line(json_path, w)
+            # One log line per name, as `impact` does: a batch of five names
+            # is five answers, and one row holding all of them says nothing
+            # about what any of them cost.
+            log_answer(out_dir, "callees", w, a, len(a))
+            lines.append(a)
+        _reply(_text("\n".join(lines)), ident)
     elif name == "impact":
         name_field = args.get("name")
         if name_field is not None and not _is_str_or_str_list(name_field):
             raise _BadParams("name must be a string or a list of strings")
         depth_field = args.get("depth")
+        # The schema says 1 to 6, and a request outside it is a malformed
+        # request, not a question to answer: it used to come back as a
+        # result whose text complained, which a client reads as an answer.
         if depth_field is not None and (not isinstance(depth_field, int)
-                                        or isinstance(depth_field, bool)):
-            raise _BadParams("depth must be an integer")
+                                        or isinstance(depth_field, bool)
+                                        or depth_field < 1
+                                        or depth_field > IMPACT_MAX_DEPTH):
+            raise _BadParams("depth must be an integer from 1 to "
+                             f"{IMPACT_MAX_DEPTH}")
         json_path = os.path.join(out_dir, "framework_map.json")
         depth = 3 if depth_field is None else int(depth_field)
         wanted = _each(name_field)

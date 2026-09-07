@@ -6,7 +6,9 @@
   direction of `callers`, from the two call graphs the map already holds.
 - `impact` (MCP), `--impact NAME [--impact-depth N]`: every `file:func` that
   reaches a name within N hops, grouped by hop, cycles walked once, capped at
-  200 entries.
+  200 entries. Every reply opens with the rules it was built under: hops are
+  followed by name, only cross-file calls are in the graph, and the map keeps
+  a bounded number of graph keys, so the radius is a floor.
 
 ## 1.2.0
 
