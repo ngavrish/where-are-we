@@ -67,7 +67,9 @@ line), and `find`'s hits past its limit (`more:find:`).
   the first line, the last, and the one after the last, each with the text of
   that line. Anchor an `Edit` on those rather than reading the file at a
   guessed offset; an insertion after the last line lands outside the
-  definition.
+  definition. One line you must not anchor on: one holding `[redacted]`,
+  where this map wrote over a value that looked like a secret. It is not the
+  line on disk, the row says so, and the first line repeats it.
 - **When you need the chain, not the neighbours.** `path(a="handler",
   b="charge")` prints the shortest call chain between two names, one hop per
   line with the rule that placed each edge and the line the call is on, in

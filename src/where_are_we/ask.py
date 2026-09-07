@@ -1696,11 +1696,14 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
             return _stale(f"the {block} block for {named!r} is {len(lines)} "
                           f"line{'' if len(lines) == 1 else 's'} long, and "
                           f"this handle asks for line {offset + 1} of it")
+        def ctx_handle(got: int) -> str:
+            return f"more:ctx:{block}:{fields[1]}:{got}"
+
         chunk, reached = _context_chunk(CONTEXT_HEADS[block], lines[offset:],
                                         limit, block, fields[1], offset)
         if reached == offset:
-            return _stale(f"line {offset + 1} of the {block} block does not "
-                          f"fit in {limit} characters")
+            return _cut_row(CONTEXT_HEADS[block], lines[offset], limit,
+                            ctx_handle, offset, len(lines)) or chunk
         return chunk
 
     if kind == "aff":
@@ -1730,12 +1733,14 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
                           "of it")
         head = (format_head(result, block) if block in AFFECTED_FORMATS
                 else AFFECTED_HEADS[block])
-        chunk, reached = _block_chunk(
-            head, lines[offset:], limit,
-            lambda got: f"more:aff:{block}:{fields[1]}:{walked}:{got}", offset)
+        def aff_handle(got: int) -> str:
+            return f"more:aff:{block}:{fields[1]}:{walked}:{got}"
+
+        chunk, reached = _block_chunk(head, lines[offset:], limit, aff_handle,
+                                      offset)
         if reached == offset:
-            return _stale(f"line {offset + 1} of the {block} block does not "
-                          f"fit in {limit} characters")
+            return _cut_row(head, lines[offset], limit, aff_handle, offset,
+                            len(lines)) or chunk
         return chunk
 
     if kind in _GRAPH_MORE:
@@ -1773,8 +1778,11 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
         block, reached = _defined_here(rows[offset:], limit, words, offset,
                                        sfield)
         if reached == offset:
-            return _stale(f"definition {offset + 1} of {len(rows)} does not "
-                          f"fit in {limit} characters")
+            scoped = f":{sfield}" if sfield else ""
+            return _cut_row(
+                "## Defined here", rows[offset], limit,
+                lambda got: f"more:defs:{_encode(words)}:{got}{scoped}",
+                offset, len(rows)) or block
         return block
 
     try:
@@ -1811,8 +1819,16 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
                 out.append(chunk)
                 room -= len(chunk) + 2
         if reached == offset:
-            return _stale(f"section {offset + 1} of {len(scored)} does not "
-                          f"fit in {limit} characters")
+            # A section whose head alone overruns. The unit this chain
+            # carries is a section rather than a row, so there is nothing to
+            # cut to fit; what matters is the same, that the chain advances,
+            # so this names the section it stepped over and hands on a handle
+            # past it. Refusing here put every section after it out of reach.
+            name = scored[offset][1].lstrip("#").strip()
+            note = _more_note(limit, words, offset + 1, True, sfield)
+            line = (f"… {name!r} does not fit in {limit} characters; "
+                    "raise the budget to see it")
+            return "\n".join([line] + ([note.strip()] if note else []))
         room += hold
         if reached < len(scored):
             note = _more_note(room, words, reached, True, sfield)
@@ -1836,8 +1852,12 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
             h, rows[offset:], 0, limit, fields[0], _encode(words), offset, kind,
             sfield)
         if reached == offset:
-            return _stale(f"row {offset + 1} of {len(rows)} does not fit in "
-                          f"{limit} characters")
+            scoped = f":{sfield}" if sfield else ""
+            return _cut_row(
+                h, rows[offset], limit,
+                lambda got: (f"more:{kind}:{fields[0]}:{_encode(words)}:"
+                             f"{got}{scoped}"),
+                offset, len(rows)) or chunk
         return chunk
     return _stale(f"no section called {fields[0]!r} mentions {words!r}")
 
@@ -2377,6 +2397,64 @@ def _context_lines(map_path: str, block: str, name: str, limit: int) -> list:
         hits = callees(json_path, name)
         return [f"- {h}" for h in hits] or [f"{name} calls nothing in the map"]
     return impact(json_path, name, CONTEXT_DEPTH).splitlines()
+
+
+# What a row too long for the budget is marked with when it is cut, and the
+# room that mark costs. The count is the row's whole length, so a reader can
+# see how much was taken off and decide whether to ask again at a wider
+# budget.
+ROW_CUT = "… (row cut to fit; {} of {} characters)"
+
+
+def _cut_row(head: str, row: str, room: int, handle_at, offset: int,
+             total: int) -> str:
+    """The one row at `offset`, cut to `room`, with the marker and a handle
+    past it.
+
+    Every `more:` chain in this project continues a list by offset and stops
+    at the first row that will not fit. `fit_indices` skips such a row and
+    `_first_gap` puts the handle's offset back on it, so the handle the
+    answer printed lands on exactly the row nothing can print, the next call
+    refuses, and every row after it in that list is unreachable. Measured on
+    this repository's own `--dead` at 900 characters before this existed: one
+    row of 1501 characters stranded 25 of 39.
+
+    So when nothing fits, the row itself is the answer, cut, marked, and the
+    offset moves past it. A cut row counts as delivered: the reader has its
+    beginning, knows exactly what was taken off, and the chain advances,
+    which is the property the whole handle contract rests on. Better a row a
+    reader can see the front of than a row no budget below its own length can
+    ever reach.
+
+    Nothing is forced past `room`: the shapes below are tried in order and
+    the first that fits is printed. The tail outranks the head, because the
+    tail is what carries the chain on and a head names a block the reader
+    already asked for; and where even the handle will not fit, the count of
+    what is left is printed without it, which is the line `_block_chunk`
+    prints in the same corner. Under about the length of one handle there is
+    no chain to have, and then this delivers the row and says so.
+    """
+    left = total - offset - 1
+    plural = "" if left == 1 else "s"
+    tails = []
+    if left:
+        # The handle first, then the count without it, which is the line
+        # `_block_chunk` prints in the same corner: a reader told there is
+        # more and not told how to get it has been handed a fact with
+        # nothing behind it, but the count is still worth more than silence.
+        tails.append(f"… {left} more line{plural} ({handle_at(offset + 1)})")
+        tails.append(f"… {left} more line{plural}; no room for a handle")
+    tails.append("")
+    for tail in tails:
+        for head_too in (True, False):
+            above = f"{head}\n" if head_too and head else ""
+            below = f"\n{tail}" if tail else ""
+            mark = ROW_CUT.format(len(row), len(row))
+            fits = room - len(above) - len(below) - len(mark)
+            if fits >= 1:
+                cut = row[:fits]
+                return above + cut + ROW_CUT.format(len(cut), len(row)) + below
+    return ""
 
 
 def _context_chunk(head: str, lines: list, room: int, block: str,
@@ -3136,10 +3214,13 @@ def _graph_more(map_path: str, kind: str, fields: list, offset: int,
                       f"{len(lines)} line{'' if len(lines) == 1 else 's'} "
                       f"long, and this handle asks for line {offset + 1} "
                       "of it")
-    chunk, reached = _block_chunk(
-        head_for(result, block), lines[offset:], limit,
-        lambda got: f"more:{kind}:{block}:{rest}:{got}", offset)
+    def handle_at(got: int) -> str:
+        return f"more:{kind}:{block}:{rest}:{got}"
+
+    head = head_for(result, block)
+    chunk, reached = _block_chunk(head, lines[offset:], limit, handle_at,
+                                  offset)
     if reached == offset:
-        return _stale(f"line {offset + 1} of the {block} block does not fit "
-                      f"in {limit} characters")
+        return _cut_row(head, lines[offset], limit, handle_at, offset,
+                        len(lines)) or chunk
     return chunk

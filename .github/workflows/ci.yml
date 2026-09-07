@@ -1973,6 +1973,75 @@ jobs:
           print("MCP affected and --affected agree, byte for byte")
           EOF
           grep -q '"tool": "affected"' /tmp/aff/m/.wawe-ask.log
+          # 9b. A handle chain never dead-ends on a row longer than the
+          #     budget. Before, `more` refused such a row and every row after
+          #     it in that block was out of reach for good; the refusal was
+          #     the base's, shared by every kind, and `dead` is where a row
+          #     routinely long enough to reach it first appeared.
+          python - <<'EOF'
+          import re, sys
+          from where_are_we import ask
+          M = "/tmp/aff/m/framework_map.md"
+          files = ["pages/checkout.py"]
+          result = ask.affected(ask.load_map("/tmp/aff/m"), files, 6)
+          rows = ask.block_lines(result, "scenarios")
+          longest = max(len(r) for r in rows)
+          handle = ("more:aff:scenarios:"
+                    + ask._encode(",".join(files)) + ":6:0")
+          # The invariant, swept rather than sampled at guessed budgets: at
+          # every budget from above the row's own length down to sixty, the
+          # call comes back, stays inside the budget, never refuses, and
+          # either advances the offset or says there is no room for a handle.
+          advanced, noroom, bare = 0, 0, 0
+          for limit in range(longest + 60, 59, -1):
+              out = ask.more(M, handle, limit)
+              # The three things that must hold at every budget: something
+              # comes back, it is inside the budget, and it is never the
+              # refusal that used to strand every row behind this one.
+              assert out, (limit, "nothing came back")
+              assert len(out) <= limit, (limit, len(out))
+              assert "no such handle" not in out, (limit, out)
+              # And below the row's own length it is the row, cut and marked,
+              # rather than a block with the row missing from it.
+              if limit < longest:
+                  assert "(row cut to fit;" in out, (limit, out)
+              nxt = re.findall(r"(more:aff:[^)\s]+?)(?=[)\s]|$)", out)
+              if nxt and nxt[-1] != handle:
+                  advanced += 1
+              elif "no room for a handle" in out:
+                  noroom += 1
+              else:
+                  # Under about the length of one handle plus the count line
+                  # there is nothing left to say but the row itself.
+                  bare += 1
+          print(f"a scenarios row of {longest} characters, swept from "
+                f"{longest + 60} down to 60: {advanced} budgets advance the "
+                f"offset, {noroom} say there is no room for a handle, {bare} "
+                f"have room for the row alone; none refuse and none overrun")
+          assert advanced and noroom, (advanced, noroom, bare)
+          # Recall over every block at budgets where each block gets a line.
+          whole = [r for b in ask.AFFECTED_NAMES
+                   for r in ask.block_lines(result, b)]
+          HANDLE = re.compile(r"(more:aff:[^)\s]+?)(?=[)\s]|$)")
+          for limit in (12000, 1500, 800, 400):
+              answer = ask.affected_answer(M, files, 6, "", limit)
+              seen, queue, guard = [], [answer], 0
+              while queue and guard < 200:
+                  text = queue.pop(0)
+                  guard += 1
+                  seen += [l for l in text.splitlines() if l in whole]
+                  for line in text.splitlines():
+                      if "(row cut to fit;" in line:
+                          stem = line.split("… (row cut to fit;")[0]
+                          seen += [w for w in whole
+                                   if stem and w.startswith(stem)]
+                  queue += [ask.more(M, h, limit) for h in HANDLE.findall(text)]
+              missing = [r for r in whole if r not in seen]
+              assert not missing, (limit, missing[:2])
+          print(f"{len(whole)} affected rows, every one reachable at 12000, "
+                "1500, 800 and 400 characters")
+          sys.exit(0)
+          EOF
           # 10. The same question walked the other way. This computes the
           #     expected scenarios forward, from every step function outward
           #     until it reaches something the changed file declares, which is
@@ -3728,6 +3797,87 @@ jobs:
                   assert not missing, (kind, limit, missing[:2])
               print(f"{kind}: {len(whole)} rows, every one reachable from the answer's "
                     "own handles at 12000, 1500, 900 and 800 characters")
+          EOF
+          # 11b. Recall on this repository's own map, not only on the
+          #      eleven-short-row fixture above. One `dead` row here is a
+          #      file with forty names on it and runs past 900 characters on
+          #      its own, which is the shape that used to strand every row
+          #      after it: `fit_indices` skipped it, the handle's offset
+          #      landed back on it, and `more` refused. A row that cannot fit
+          #      now comes back cut, marked with its own length, and the
+          #      offset moves past it, so the chain always advances.
+          cd "$root"
+          rm -rf /tmp/dhself
+          where-are-we --repo . --out /tmp/dhself --product none --force \
+            --quiet --no-semantic
+          python - <<'EOF'
+          import re, sys
+          from where_are_we import ask
+          M = "/tmp/dhself/framework_map.md"
+          result = ask.dead(ask.load_map("/tmp/dhself"), 40)
+          whole = [r for b in ask.DEAD_NAMES for r in ask.dead_lines(result, b)]
+          longest = max(len(r) for r in whole)
+          over = [r for r in whole if len(r) > 900]
+          print(f"this repository's own --dead: {len(whole)} rows, longest "
+                f"{longest} characters, {len(over)} over 900")
+          assert over, "the fixture this assertion needs is gone: no row over 900"
+          HANDLE = re.compile(r"(more:dead:[^)\s]+?)(?=[)\s]|$)")
+          for limit in (12000, 1500, 900, 800):
+              answer = ask.dead_answer(M, 40, limit)
+              assert len(answer) <= limit, (limit, len(answer))
+              seen, queue, guard = [], [answer], 0
+              while queue and guard < 400:
+                  text = queue.pop(0)
+                  guard += 1
+                  seen += [l for l in text.splitlines() if l in whole]
+                  # A row delivered cut counts as delivered: the reader has
+                  # its front and is told exactly how much was taken off.
+                  for line in text.splitlines():
+                      if "(row cut to fit;" in line:
+                          stem = line.split("… (row cut to fit;")[0]
+                          seen += [w for w in whole
+                                   if stem and w.startswith(stem)]
+                  queue += [ask.more(M, h, limit) for h in HANDLE.findall(text)]
+              missing = [r for r in whole if r not in seen]
+              print(f"  {limit}: {len(whole) - len(missing)} of {len(whole)} "
+                    f"rows reachable in {guard} calls")
+              assert not missing, (limit, [len(m) for m in missing][:3])
+          # And the chain really does cut rather than skip: the over-long row
+          # comes back with the marker and its own length.
+          handle, cut = "more:dead:dead:40:0", ""
+          for _ in range(40):
+              text = ask.more(M, handle, 900)
+              hit = [l for l in text.splitlines() if "(row cut to fit;" in l]
+              if hit:
+                  cut = hit[0]
+                  break
+              found = HANDLE.findall(text)
+              if not found:
+                  break
+              handle = found[-1]
+          assert cut, "no row was ever delivered cut"
+          kept, whole_len = re.search(r"row cut to fit; (\d+) of (\d+)", cut).groups()
+          print(f"  a row of {whole_len} characters delivered as {kept}, marked")
+          assert int(kept) < int(whole_len), cut
+          # And the worst row of all, the one no budget here can hold whole,
+          # is delivered by that same chain rather than stranded behind it.
+          worst = max(whole, key=len)
+          handle, saw = "more:dead:dead:40:0", False
+          for _ in range(60):
+              text = ask.more(M, handle, 900)
+              for line in text.splitlines():
+                  if line == worst or (
+                          "(row cut to fit;" in line
+                          and worst.startswith(
+                              line.split("… (row cut to fit;")[0])):
+                      saw = True
+              found = HANDLE.findall(text)
+              if saw or not found:
+                  break
+              handle = found[-1]
+          print(f"  the longest row ({len(worst)} characters) is delivered: {saw}")
+          assert saw, "the longest row never came back"
+          sys.exit(0)
           EOF
           # 12. The map's own "Page-object methods nothing calls" section is a
           #     different rule (a text count over the suite's source) over a

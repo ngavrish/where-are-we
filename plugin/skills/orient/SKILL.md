@@ -45,7 +45,8 @@ message after you open it.
    - `path(a=..., b=...)` - the shortest call chain from one name to
      another, one hop per line with how each edge was resolved.
    - `range(name=...)` - every home of a name with its range, the shortest
-     one's text, and the lines an editor anchors on.
+     one's text, and the lines an editor anchors on. A line the map redacted
+     is marked and is never an anchor.
    - `dead()` - questions, not dead code: the definitions no call row lands
      on, by file. A call through an imported module and a call inside the
      declaring file leave no row, so on a library most rows are unplaceable

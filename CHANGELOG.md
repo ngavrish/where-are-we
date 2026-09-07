@@ -213,14 +213,15 @@ the map and nothing read them end to end; this release starts doing that.
   call on any spelling keeps the site off the list. Counted only in the file
   kinds this map's call graph actually reaches, read off the table rather
   than hard coded, because a `def` quoted inside a Markdown fence is
-  documentation and not dead code; the first line names the suffixes it
-  counted, and a declaration in any other language is not judged either way.
+  documentation and not dead code; a row of `## How this was counted` names
+  the suffixes it counted, and a declaration in any other language is not
+  judged either way.
   A map whose graph holds no `calls` row at all answers `No call graph in
   this map` rather than printing a clean nothing, which is what a small
   repository used to get. `routes_served` records a basename and no path, so
   where two files share one the map cannot say which serves the route and
-  both are left out; the first line counts the basenames it guessed on
-  instead of dropping their rows in silence.
+  both are left out, and a row of that same block counts the basenames it
+  guessed on instead of dropping their rows in silence.
 
   The map's own "Page-object methods nothing calls" section is **not** yet a
   rendering of `dead`, which is what 1.6.0 planned. The two disagree: that
@@ -260,6 +261,32 @@ the map and nothing read them end to end; this release starts doing that.
   existed can only count commit lines, and there the first line says so and
   every count at the cap prints `5+ commits`, a floor rather than a
   measurement.
+- A `more:` handle chain never dead-ends on a row longer than the budget.
+  Every chain in this project continues a list by offset; `fit_indices` skips
+  a row that does not fit and `_first_gap` puts the handle's offset back on
+  it, so the handle an answer printed landed on exactly the row nothing could
+  print, the next call answered `no such handle in this map: line N ... does
+  not fit`, and every row after it in that list was unreachable at that
+  budget for good. Now such a row is returned cut, marked `… (row cut to fit;
+  756 of 1574 characters)`, and the offset moves past it: a cut row counts as
+  delivered, because the reader has its front, is told exactly how much was
+  taken off, and the chain advances. Below the length of one handle the count
+  of what is left is printed without it, which is the line the same corner of
+  `_block_chunk` already printed. Fixed once, in `more()`, for every kind it
+  serves: `rows`, `unmatched`, `defs`, `ctx`, `aff` and the four new ones. A
+  `sections` handle, whose unit is a section rather than a row, steps past a
+  section that will not fit and names it instead of refusing.
+
+  The refusal is as old as handles and shared by every kind; what is new is
+  the row shape that reaches it. `dead` prints one file per row with every
+  name on it, and on this repository one row runs to 1574 characters, which
+  at 900 stranded 25 of 39 rows. Measured after the fix, on this repository's
+  own map rather than on a fixture of short rows: 39 of 39 reachable at
+  12000, 1500, 900 and 800, and the 1574-character row comes back cut. The CI
+  step asserts that, and asserts on the `affected` chain that across every
+  budget from 202 down to 60 the call comes back, stays inside the budget,
+  never refuses, and either advances the offset or says there is no room for
+  a handle.
 - Every one of the four prints its rules in a block rather than in its first
   line. A first line is read again on every turn of a conversation and the
   rules behind it are not, and `dead`'s had grown to about a thousand

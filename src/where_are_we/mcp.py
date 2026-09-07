@@ -386,8 +386,13 @@ TOOLS = [
             "and the one after the last, each with the text of that line. "
             "Call this before an `Edit` instead of reading the file at a "
             "guessed offset: an insertion after the last line lands outside "
-            "the definition rather than inside it. An end of `?` is a "
-            "declaration this map could not measure, and the row says why. "
+            "the definition rather than inside it. One caveat, and the first "
+            "line repeats it whenever it applies: a line holding `[redacted]` "
+            "had a value that looked like a secret written over on the way "
+            "into the map, so it is not the line on disk and an edit anchored "
+            "on it will not match. An end of `?` is a declaration this map "
+            "could not measure, and the row says why. How the sites were "
+            "chosen is a `## How this was counted` block under the answer. "
             "Reads only; it writes nothing."),
         "inputSchema": {
             "type": "object",
@@ -408,10 +413,12 @@ TOOLS = [
             "unplaceable calls rather than dead definitions; on a test suite, "
             "where a page object is called from step modules, it is sharp. A "
             "route handler, a step function, an entry point, a dunder and a "
-            "test case are left out and the first line names the whole "
-            "exclusion list and both caveats. Never delete from this list "
-            "without checking the callers yourself. `limit` is how many files "
-            "come back (40 by default)."),
+            "test case are left out. The first line carries the counts and "
+            "that one caveat; the whole exclusion list, the file kinds "
+            "counted and the rest of the rules are rows of a "
+            "`## How this was counted` block under the answer. Never delete "
+            "from this list without checking the callers yourself. `limit` is "
+            "how many files come back (40 by default)."),
         "inputSchema": {
             "type": "object",
             "properties": {"limit": {"type": "integer", "minimum": 1,
@@ -426,13 +433,16 @@ TOOLS = [
             "of the codebase behind them that also change the most, ranked "
             "by the map's own `rank` score times the commits its "
             "most-changed-files section counted, with both numbers shown so "
-            "you can see which of the two put a row where it is. Two bounds, "
-            "both in the first line: that section is the forty busiest files "
-            "of the last ninety days, so a file outside it counts 1 however "
-            "often it changed, and a map built before the `git_commits` key "
-            "can only count the five commit lines kept per file, where every "
-            "count reads `5+` and means five or more. `limit` is how many "
-            "definitions come back (40 by default)."),
+            "you can see which of the two put a row where it is. Two bounds: "
+            "that section is the forty busiest files of the last ninety days, "
+            "so a file outside it counts 1 however often it changed, and a "
+            "map built before the `git_commits` key can only count the five "
+            "commit lines kept per file, where every count reads `5+` and "
+            "means five or more. `limit` is how many "
+            "definitions come back (40 by default). The first line carries "
+            "the counts and the forty-file bound; the rest, including the "
+            "older-map cap, is a `## How this was counted` block under the "
+            "answer."),
         "inputSchema": {
             "type": "object",
             "properties": {"limit": {"type": "integer", "minimum": 1,
