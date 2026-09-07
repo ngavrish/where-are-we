@@ -415,9 +415,7 @@
       "edge": "declares",
       "object": "get_invoice",
       "file": "<root>/code/repo/app/api.py",
-      "candidates": [
-        "<root>/code/repo/app/api.py"
-      ],
+      "candidates": [],
       "line": 15,
       "resolution": "declaration"
     },
@@ -426,9 +424,7 @@
       "edge": "declares",
       "object": "health",
       "file": "<root>/code/repo/app/api.py",
-      "candidates": [
-        "<root>/code/repo/app/api.py"
-      ],
+      "candidates": [],
       "line": 21,
       "resolution": "declaration"
     },
@@ -437,9 +433,7 @@
       "edge": "declares",
       "object": "list_invoices",
       "file": "<root>/code/repo/app/api.py",
-      "candidates": [
-        "<root>/code/repo/app/api.py"
-      ],
+      "candidates": [],
       "line": 9,
       "resolution": "declaration"
     },
@@ -448,9 +442,7 @@
       "edge": "declares",
       "object": "charge",
       "file": "<root>/code/repo/app/billing.py",
-      "candidates": [
-        "<root>/code/repo/app/billing.py"
-      ],
+      "candidates": [],
       "line": 4,
       "resolution": "declaration"
     },
@@ -459,9 +451,7 @@
       "edge": "declares",
       "object": "refund",
       "file": "<root>/code/repo/app/billing.py",
-      "candidates": [
-        "<root>/code/repo/app/billing.py"
-      ],
+      "candidates": [],
       "line": 9,
       "resolution": "declaration"
     },
@@ -470,9 +460,7 @@
       "edge": "declares",
       "object": "main",
       "file": "<root>/code/repo/app/cli.py",
-      "candidates": [
-        "<root>/code/repo/app/cli.py"
-      ],
+      "candidates": [],
       "line": 6,
       "resolution": "declaration"
     },
@@ -481,9 +469,7 @@
       "edge": "declares",
       "object": "Customer",
       "file": "<root>/code/repo/app/models.py",
-      "candidates": [
-        "<root>/code/repo/app/models.py"
-      ],
+      "candidates": [],
       "line": 19,
       "resolution": "declaration"
     },
@@ -492,9 +478,7 @@
       "edge": "declares",
       "object": "Invoice",
       "file": "<root>/code/repo/app/models.py",
-      "candidates": [
-        "<root>/code/repo/app/models.py"
-      ],
+      "candidates": [],
       "line": 9,
       "resolution": "declaration"
     }

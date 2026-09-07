@@ -4394,7 +4394,8 @@ jobs:
           mkdir -p /tmp/xref/mark /tmp/xref/py /tmp/xref/reex /tmp/xref/mod \
                    /tmp/xref/base /tmp/xref/dup/a /tmp/xref/dup/b \
                    /tmp/xref/also/a /tmp/xref/also/b /tmp/xref/pkg/steps \
-                   /tmp/xref/pkg/pages
+                   /tmp/xref/pkg/pages /tmp/xref/alsop/a \
+                   /tmp/xref/alsop/b/pages /tmp/xref/alsop/b/steps
           # ts/js: `charge` in two files, called with nothing to say which,
           # and called from a file that imports it from one of them.
           printf 'export function charge(amount: number): string {\n  return `a ${amount}`;\n}\n' > /tmp/xref/mark/a.ts
@@ -4435,6 +4436,14 @@ jobs:
           # the merged index rather than left as the first root's copy.
           printf 'ONLY_IN_A = 1\n\n\ndef shared_name():\n    return 1\n' > /tmp/xref/also/a/alpha.py
           printf 'ONLY_IN_B = 1\n\n\ndef only_b():\n    return 2\n\n\ndef use_b():\n    return only_b()\n' > /tmp/xref/also/b/beta.py
+          # The same again, with the second root holding a page object and
+          # a step table. Those two tables record a span relative to the
+          # root being walked and `spans` does not keep which root that
+          # was, so rows that resolved every relative site against the
+          # first root named a file that is not there.
+          printf 'ONLY_IN_A = 1\n' > /tmp/xref/alsop/a/one.py
+          printf '"""The checkout page."""\n\n\nclass CheckoutPage:\n    def click_pay(self):\n        pass\n' > /tmp/xref/alsop/b/pages/checkout.py
+          printf 'from behave import step\n\nfrom pages.checkout import CheckoutPage\n\n\n@step("the customer pays")\ndef step_pay(context):\n    return CheckoutPage().click_pay()\n' > /tmp/xref/alsop/b/steps/pay_steps.py
           # Two top-level packages, one importing the other: the `imports`
           # rows, with the file the import line is in and the line it is on.
           printf 'def open_checkout():\n    return 1\n' > /tmp/xref/pkg/pages/checkout.py
@@ -4445,6 +4454,8 @@ jobs:
           done
           where-are-we --repo /tmp/xref/also/a --out /tmp/xref/also-out \
             --also /tmp/xref/also/b --product none --force --quiet --no-semantic
+          where-are-we --repo /tmp/xref/alsop/a --out /tmp/xref/alsop-out \
+            --also /tmp/xref/alsop/b --product none --force --quiet --no-semantic
           # The golden fixtures, built here for the same reason, and this
           # repository, which is the only tree in the step with a `spans`
           # table worth counting.
@@ -4518,7 +4529,15 @@ jobs:
                           assert len(r["candidates"]) == 1, r
                   if r["edge"] == "declares":
                       assert r["resolution"] == "declaration", r
-                      assert r["file"] == r["subject"] == r["candidates"][0], r
+                      assert r["file"] == r["subject"], r
+                      # A declaration is not a choice between files, so the
+                      # candidate list is empty rather than the subject
+                      # written a third time.
+                      assert r["candidates"] == [], r
+                      # And the path is a file on disk: a relative `spans`
+                      # site resolved against the wrong root of an `--also`
+                      # map used to name one that is not there.
+                      assert os.path.exists(r["subject"]), (name, r)
                   if r["edge"] == "imports":
                       assert r["resolution"] == "import_statement", r
                       assert r["file"] == r["candidates"][0], r
@@ -4584,14 +4603,26 @@ jobs:
               for lang, stats in m["call_graph_stats"].items():
                   assert stats["marked"] == marked.get(lang, 0), (name, lang, stats)
                   assert stats["edges"] == placed.get(lang, 0), (name, lang, stats)
-              # And the declarations are `spans`, site for site, whatever
-              # spelling `spans` recorded a site under.
-              spans = sorted((home(site["file"], m), name_, site["start"])
+              # And the declarations are `spans`, site for site. Matched on
+              # the file's name rather than its path, because a site `spans`
+              # recorded relative to whichever root was being walked is
+              # resolved against the root it exists under and `spans` does not
+              # say which that was; the `os.path.exists` above is what says
+              # the resolved path is real. A map of one root is held to the
+              # whole path, since there is only one root a site can be under.
+              spans = sorted((os.path.basename(site["file"]), name_, site["start"])
                              for name_, sites in m["spans"].items()
                              for site in sites)
-              assert sorted((r["subject"], r["object"], r["line"])
+              assert sorted((os.path.basename(r["subject"]), r["object"], r["line"])
                             for r in rows if r["edge"] == "declares") == spans, \
                   f"{name}: declares rows are not the spans sites"
+              if not m.get("also"):
+                  whole = sorted((home(site["file"], m), name_, site["start"])
+                                 for name_, sites in m["spans"].items()
+                                 for site in sites)
+                  assert sorted((r["subject"], r["object"], r["line"])
+                                for r in rows if r["edge"] == "declares") == whole, \
+                      f"{name}: declares rows are not the spans sites"
               # The `imports` rows are the pairs `import_graph` names, with
               # the file and the line that key cannot hold.
               pairs = sorted((pkg, other)
@@ -4619,6 +4650,7 @@ jobs:
                              ("dup", "/tmp/xref/dup-out"),
                              ("pkg", "/tmp/xref/pkg-out"),
                              ("also", "/tmp/xref/also-out"),
+                             ("alsop", "/tmp/xref/alsop-out"),
                              ("poly", "/tmp/xref/golden/poly/out"),
                              ("code", "/tmp/xref/golden/code/out"),
                              ("suite", "/tmp/xref/golden/suite/out"),
@@ -4672,6 +4704,16 @@ jobs:
           assert "ONLY_IN_B" in also["spans"], sorted(also["spans"])
           assert {r["object"] for r in also["xrefs"] if r["edge"] == "declares"} \
               == set(also["spans"]), "an --also map's rows are not its spans"
+          # The page object of an `--also` root is that root's file: `spans`
+          # recorded it relative to the root being walked, and a row that
+          # joined it to the first root named a path nothing can open.
+          alsop = read("/tmp/xref/alsop-out")
+          pages = [r for r in alsop["xrefs"] if r["edge"] == "declares"
+                   and "pages" in r["subject"]]
+          assert pages, sorted(alsop["spans"])
+          assert all(r["subject"].startswith("/tmp/xref/alsop/b/") for r in pages), \
+              pages
+          assert "click_pay" in alsop["spans"], sorted(alsop["spans"])
           # And the import line, named by file and line.
           pkg = read("/tmp/xref/pkg-out")
           rows = [r for r in pkg["xrefs"] if r["edge"] == "imports"]
@@ -4737,9 +4779,17 @@ jobs:
                                  src))
           literal = {k for k in asked if "{" not in k}
           families = {k.split("{")[0] for k in asked if "{" in k}
-          assert literal == set(CACHE_KINDS), (literal ^ set(CACHE_KINDS))
+          missing = sorted(literal - set(CACHE_KINDS))
+          unasked = sorted(set(CACHE_KINDS) - literal)
+          assert not missing and not unasked, (
+              f"CACHE_KINDS in _mapper/walk.py is not the set of kinds the "
+              f"source asks _cached for: missing {missing}, listed but never "
+              f"asked for {unasked}. A kind missing from that list is dropped "
+              f"from the parse cache every time it is written, so add it "
+              f"there.")
           assert families == set(CACHE_KIND_PREFIXES), \
-              (families ^ set(CACHE_KIND_PREFIXES))
+              (f"CACHE_KIND_PREFIXES is not the set of kind families: "
+               f"{sorted(families ^ set(CACHE_KIND_PREFIXES))}")
           print("cache kinds:", len(literal), "literal,", sorted(families))
           EOF
           rm -rf /tmp/xref/cache

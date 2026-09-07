@@ -1343,9 +1343,13 @@ def main() -> int:
         # `calls` and `imports` rows are the first root's, as
         # `call_graph_files` and `import_graph` are: a second root's call
         # graph is under `also`, and SCHEMA.md says so.
+        # Every root, in the order they were given: a site the page object
+        # and step tables recorded relative to whichever root was being
+        # walked belongs to that root, and `spans` does not say which one, so
+        # the row names the first root the file exists under.
         m["xrefs"] = sort_xrefs(
             [r for r in (m.get("xrefs") or []) if r["edge"] != "declares"]
-            + declares_rows(m["spans"], repo))
+            + declares_rows(m["spans"], repos))
         m["indexed"] = dict(sorted(INDEXED.items()))
     m = redact(m)
     m["fingerprint"] = stamp_now

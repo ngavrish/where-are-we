@@ -3978,9 +3978,7 @@
       "edge": "declares",
       "object": "Customer pays and the charge is declined",
       "file": "<root>/suite/repo/features/checkout/pay.feature",
-      "candidates": [
-        "<root>/suite/repo/features/checkout/pay.feature"
-      ],
+      "candidates": [],
       "line": 9,
       "resolution": "declaration"
     },
@@ -3989,9 +3987,7 @@
       "edge": "declares",
       "object": "Customer pays with a new card",
       "file": "<root>/suite/repo/features/checkout/pay.feature",
-      "candidates": [
-        "<root>/suite/repo/features/checkout/pay.feature"
-      ],
+      "candidates": [],
       "line": 15,
       "resolution": "declaration"
     },
@@ -4000,9 +3996,7 @@
       "edge": "declares",
       "object": "Customer pays with a saved card",
       "file": "<root>/suite/repo/features/checkout/pay.feature",
-      "candidates": [
-        "<root>/suite/repo/features/checkout/pay.feature"
-      ],
+      "candidates": [],
       "line": 3,
       "resolution": "declaration"
     },
@@ -4011,9 +4005,7 @@
       "edge": "declares",
       "object": "Pay for an order",
       "file": "<root>/suite/repo/features/checkout/pay.feature",
-      "candidates": [
-        "<root>/suite/repo/features/checkout/pay.feature"
-      ],
+      "candidates": [],
       "line": 1,
       "resolution": "declaration"
     },
@@ -4022,9 +4014,7 @@
       "edge": "declares",
       "object": "Failed login",
       "file": "<root>/suite/repo/features/login.feature",
-      "candidates": [
-        "<root>/suite/repo/features/login.feature"
-      ],
+      "candidates": [],
       "line": 8,
       "resolution": "declaration"
     },
@@ -4033,9 +4023,7 @@
       "edge": "declares",
       "object": "Log in",
       "file": "<root>/suite/repo/features/login.feature",
-      "candidates": [
-        "<root>/suite/repo/features/login.feature"
-      ],
+      "candidates": [],
       "line": 1,
       "resolution": "declaration"
     },
@@ -4044,9 +4032,7 @@
       "edge": "declares",
       "object": "Successful login",
       "file": "<root>/suite/repo/features/login.feature",
-      "candidates": [
-        "<root>/suite/repo/features/login.feature"
-      ],
+      "candidates": [],
       "line": 3,
       "resolution": "declaration"
     },
@@ -4055,9 +4041,7 @@
       "edge": "declares",
       "object": "CheckoutPage",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 4,
       "resolution": "declaration"
     },
@@ -4066,9 +4050,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_1",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 7,
       "resolution": "declaration"
     },
@@ -4077,9 +4059,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_10",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 34,
       "resolution": "declaration"
     },
@@ -4088,9 +4068,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_11",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 37,
       "resolution": "declaration"
     },
@@ -4099,9 +4077,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_12",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 40,
       "resolution": "declaration"
     },
@@ -4110,9 +4086,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_13",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 43,
       "resolution": "declaration"
     },
@@ -4121,9 +4095,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_14",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 46,
       "resolution": "declaration"
     },
@@ -4132,9 +4104,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_15",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 49,
       "resolution": "declaration"
     },
@@ -4143,9 +4113,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_16",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 52,
       "resolution": "declaration"
     },
@@ -4154,9 +4122,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_17",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 55,
       "resolution": "declaration"
     },
@@ -4165,9 +4131,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_18",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 58,
       "resolution": "declaration"
     },
@@ -4176,9 +4140,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_19",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 61,
       "resolution": "declaration"
     },
@@ -4187,9 +4149,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_2",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 10,
       "resolution": "declaration"
     },
@@ -4198,9 +4158,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_20",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 64,
       "resolution": "declaration"
     },
@@ -4209,9 +4167,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_21",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 67,
       "resolution": "declaration"
     },
@@ -4220,9 +4176,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_22",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 70,
       "resolution": "declaration"
     },
@@ -4231,9 +4185,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_23",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 73,
       "resolution": "declaration"
     },
@@ -4242,9 +4194,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_24",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 76,
       "resolution": "declaration"
     },
@@ -4253,9 +4203,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_25",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 79,
       "resolution": "declaration"
     },
@@ -4264,9 +4212,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_26",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 82,
       "resolution": "declaration"
     },
@@ -4275,9 +4221,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_27",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 85,
       "resolution": "declaration"
     },
@@ -4286,9 +4230,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_28",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 88,
       "resolution": "declaration"
     },
@@ -4297,9 +4239,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_29",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 91,
       "resolution": "declaration"
     },
@@ -4308,9 +4248,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_3",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 13,
       "resolution": "declaration"
     },
@@ -4319,9 +4257,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_30",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 94,
       "resolution": "declaration"
     },
@@ -4330,9 +4266,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_31",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 97,
       "resolution": "declaration"
     },
@@ -4341,9 +4275,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_32",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 100,
       "resolution": "declaration"
     },
@@ -4352,9 +4284,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_33",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 103,
       "resolution": "declaration"
     },
@@ -4363,9 +4293,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_34",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 106,
       "resolution": "declaration"
     },
@@ -4374,9 +4302,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_35",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 109,
       "resolution": "declaration"
     },
@@ -4385,9 +4311,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_36",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 112,
       "resolution": "declaration"
     },
@@ -4396,9 +4320,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_37",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 115,
       "resolution": "declaration"
     },
@@ -4407,9 +4329,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_38",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 118,
       "resolution": "declaration"
     },
@@ -4418,9 +4338,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_39",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 121,
       "resolution": "declaration"
     },
@@ -4429,9 +4347,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_4",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 16,
       "resolution": "declaration"
     },
@@ -4440,9 +4356,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_40",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 124,
       "resolution": "declaration"
     },
@@ -4451,9 +4365,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_5",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 19,
       "resolution": "declaration"
     },
@@ -4462,9 +4374,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_6",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 22,
       "resolution": "declaration"
     },
@@ -4473,9 +4383,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_7",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 25,
       "resolution": "declaration"
     },
@@ -4484,9 +4392,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_8",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 28,
       "resolution": "declaration"
     },
@@ -4495,9 +4401,7 @@
       "edge": "declares",
       "object": "CheckoutPage.click_9",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 31,
       "resolution": "declaration"
     },
@@ -4506,9 +4410,7 @@
       "edge": "declares",
       "object": "class CheckoutPage",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 4,
       "resolution": "declaration"
     },
@@ -4517,9 +4419,7 @@
       "edge": "declares",
       "object": "click_1",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 7,
       "resolution": "declaration"
     },
@@ -4528,9 +4428,7 @@
       "edge": "declares",
       "object": "click_10",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 34,
       "resolution": "declaration"
     },
@@ -4539,9 +4437,7 @@
       "edge": "declares",
       "object": "click_11",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 37,
       "resolution": "declaration"
     },
@@ -4550,9 +4446,7 @@
       "edge": "declares",
       "object": "click_12",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 40,
       "resolution": "declaration"
     },
@@ -4561,9 +4455,7 @@
       "edge": "declares",
       "object": "click_13",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 43,
       "resolution": "declaration"
     },
@@ -4572,9 +4464,7 @@
       "edge": "declares",
       "object": "click_14",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 46,
       "resolution": "declaration"
     },
@@ -4583,9 +4473,7 @@
       "edge": "declares",
       "object": "click_15",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 49,
       "resolution": "declaration"
     },
@@ -4594,9 +4482,7 @@
       "edge": "declares",
       "object": "click_16",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 52,
       "resolution": "declaration"
     },
@@ -4605,9 +4491,7 @@
       "edge": "declares",
       "object": "click_17",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 55,
       "resolution": "declaration"
     },
@@ -4616,9 +4500,7 @@
       "edge": "declares",
       "object": "click_18",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 58,
       "resolution": "declaration"
     },
@@ -4627,9 +4509,7 @@
       "edge": "declares",
       "object": "click_19",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 61,
       "resolution": "declaration"
     },
@@ -4638,9 +4518,7 @@
       "edge": "declares",
       "object": "click_2",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 10,
       "resolution": "declaration"
     },
@@ -4649,9 +4527,7 @@
       "edge": "declares",
       "object": "click_20",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 64,
       "resolution": "declaration"
     },
@@ -4660,9 +4536,7 @@
       "edge": "declares",
       "object": "click_21",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 67,
       "resolution": "declaration"
     },
@@ -4671,9 +4545,7 @@
       "edge": "declares",
       "object": "click_22",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 70,
       "resolution": "declaration"
     },
@@ -4682,9 +4554,7 @@
       "edge": "declares",
       "object": "click_23",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 73,
       "resolution": "declaration"
     },
@@ -4693,9 +4563,7 @@
       "edge": "declares",
       "object": "click_24",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 76,
       "resolution": "declaration"
     },
@@ -4704,9 +4572,7 @@
       "edge": "declares",
       "object": "click_25",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 79,
       "resolution": "declaration"
     },
@@ -4715,9 +4581,7 @@
       "edge": "declares",
       "object": "click_26",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 82,
       "resolution": "declaration"
     },
@@ -4726,9 +4590,7 @@
       "edge": "declares",
       "object": "click_27",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 85,
       "resolution": "declaration"
     },
@@ -4737,9 +4599,7 @@
       "edge": "declares",
       "object": "click_28",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 88,
       "resolution": "declaration"
     },
@@ -4748,9 +4608,7 @@
       "edge": "declares",
       "object": "click_29",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 91,
       "resolution": "declaration"
     },
@@ -4759,9 +4617,7 @@
       "edge": "declares",
       "object": "click_3",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 13,
       "resolution": "declaration"
     },
@@ -4770,9 +4626,7 @@
       "edge": "declares",
       "object": "click_30",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 94,
       "resolution": "declaration"
     },
@@ -4781,9 +4635,7 @@
       "edge": "declares",
       "object": "click_31",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 97,
       "resolution": "declaration"
     },
@@ -4792,9 +4644,7 @@
       "edge": "declares",
       "object": "click_32",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 100,
       "resolution": "declaration"
     },
@@ -4803,9 +4653,7 @@
       "edge": "declares",
       "object": "click_33",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 103,
       "resolution": "declaration"
     },
@@ -4814,9 +4662,7 @@
       "edge": "declares",
       "object": "click_34",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 106,
       "resolution": "declaration"
     },
@@ -4825,9 +4671,7 @@
       "edge": "declares",
       "object": "click_35",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 109,
       "resolution": "declaration"
     },
@@ -4836,9 +4680,7 @@
       "edge": "declares",
       "object": "click_36",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 112,
       "resolution": "declaration"
     },
@@ -4847,9 +4689,7 @@
       "edge": "declares",
       "object": "click_37",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 115,
       "resolution": "declaration"
     },
@@ -4858,9 +4698,7 @@
       "edge": "declares",
       "object": "click_38",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 118,
       "resolution": "declaration"
     },
@@ -4869,9 +4707,7 @@
       "edge": "declares",
       "object": "click_39",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 121,
       "resolution": "declaration"
     },
@@ -4880,9 +4716,7 @@
       "edge": "declares",
       "object": "click_4",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 16,
       "resolution": "declaration"
     },
@@ -4891,9 +4725,7 @@
       "edge": "declares",
       "object": "click_40",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 124,
       "resolution": "declaration"
     },
@@ -4902,9 +4734,7 @@
       "edge": "declares",
       "object": "click_5",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 19,
       "resolution": "declaration"
     },
@@ -4913,9 +4743,7 @@
       "edge": "declares",
       "object": "click_6",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 22,
       "resolution": "declaration"
     },
@@ -4924,9 +4752,7 @@
       "edge": "declares",
       "object": "click_7",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 25,
       "resolution": "declaration"
     },
@@ -4935,9 +4761,7 @@
       "edge": "declares",
       "object": "click_8",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 28,
       "resolution": "declaration"
     },
@@ -4946,9 +4770,7 @@
       "edge": "declares",
       "object": "click_9",
       "file": "<root>/suite/repo/pages/checkout.py",
-      "candidates": [
-        "<root>/suite/repo/pages/checkout.py"
-      ],
+      "candidates": [],
       "line": 31,
       "resolution": "declaration"
     },
@@ -4957,9 +4779,7 @@
       "edge": "declares",
       "object": "a registered user",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 7,
       "resolution": "declaration"
     },
@@ -4968,9 +4788,7 @@
       "edge": "declares",
       "object": "def step_login_error",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 27,
       "resolution": "declaration"
     },
@@ -4979,9 +4797,7 @@
       "edge": "declares",
       "object": "def step_login_invalid",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 17,
       "resolution": "declaration"
     },
@@ -4990,9 +4806,7 @@
       "edge": "declares",
       "object": "def step_login_valid",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 12,
       "resolution": "declaration"
     },
@@ -5001,9 +4815,7 @@
       "edge": "declares",
       "object": "def step_on_dashboard",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 22,
       "resolution": "declaration"
     },
@@ -5012,9 +4824,7 @@
       "edge": "declares",
       "object": "def step_registered_user",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 7,
       "resolution": "declaration"
     },
@@ -5023,9 +4833,7 @@
       "edge": "declares",
       "object": "step_login_error",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 27,
       "resolution": "declaration"
     },
@@ -5034,9 +4842,7 @@
       "edge": "declares",
       "object": "step_login_invalid",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 17,
       "resolution": "declaration"
     },
@@ -5045,9 +4851,7 @@
       "edge": "declares",
       "object": "step_login_valid",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 12,
       "resolution": "declaration"
     },
@@ -5056,9 +4860,7 @@
       "edge": "declares",
       "object": "step_on_dashboard",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 22,
       "resolution": "declaration"
     },
@@ -5067,9 +4869,7 @@
       "edge": "declares",
       "object": "step_registered_user",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 7,
       "resolution": "declaration"
     },
@@ -5078,9 +4878,7 @@
       "edge": "declares",
       "object": "they land on the dashboard",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 22,
       "resolution": "declaration"
     },
@@ -5089,9 +4887,7 @@
       "edge": "declares",
       "object": "they log in with the wrong password",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 17,
       "resolution": "declaration"
     },
@@ -5100,9 +4896,7 @@
       "edge": "declares",
       "object": "they log in with valid credentials",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 12,
       "resolution": "declaration"
     },
@@ -5111,9 +4905,7 @@
       "edge": "declares",
       "object": "they see an error message",
       "file": "<root>/suite/repo/steps/login_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/login_steps.py"
-      ],
+      "candidates": [],
       "line": 27,
       "resolution": "declaration"
     },
@@ -5122,9 +4914,7 @@
       "edge": "declares",
       "object": "def step_pay_1",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 11,
       "resolution": "declaration"
     },
@@ -5133,9 +4923,7 @@
       "edge": "declares",
       "object": "def step_pay_10",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 47,
       "resolution": "declaration"
     },
@@ -5144,9 +4932,7 @@
       "edge": "declares",
       "object": "def step_pay_11",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 51,
       "resolution": "declaration"
     },
@@ -5155,9 +4941,7 @@
       "edge": "declares",
       "object": "def step_pay_12",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 55,
       "resolution": "declaration"
     },
@@ -5166,9 +4950,7 @@
       "edge": "declares",
       "object": "def step_pay_13",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 59,
       "resolution": "declaration"
     },
@@ -5177,9 +4959,7 @@
       "edge": "declares",
       "object": "def step_pay_14",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 63,
       "resolution": "declaration"
     },
@@ -5188,9 +4968,7 @@
       "edge": "declares",
       "object": "def step_pay_15",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 67,
       "resolution": "declaration"
     },
@@ -5199,9 +4977,7 @@
       "edge": "declares",
       "object": "def step_pay_16",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 71,
       "resolution": "declaration"
     },
@@ -5210,9 +4986,7 @@
       "edge": "declares",
       "object": "def step_pay_17",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 75,
       "resolution": "declaration"
     },
@@ -5221,9 +4995,7 @@
       "edge": "declares",
       "object": "def step_pay_18",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 79,
       "resolution": "declaration"
     },
@@ -5232,9 +5004,7 @@
       "edge": "declares",
       "object": "def step_pay_19",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 83,
       "resolution": "declaration"
     },
@@ -5243,9 +5013,7 @@
       "edge": "declares",
       "object": "def step_pay_2",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 15,
       "resolution": "declaration"
     },
@@ -5254,9 +5022,7 @@
       "edge": "declares",
       "object": "def step_pay_20",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 87,
       "resolution": "declaration"
     },
@@ -5265,9 +5031,7 @@
       "edge": "declares",
       "object": "def step_pay_21",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 91,
       "resolution": "declaration"
     },
@@ -5276,9 +5040,7 @@
       "edge": "declares",
       "object": "def step_pay_22",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 95,
       "resolution": "declaration"
     },
@@ -5287,9 +5049,7 @@
       "edge": "declares",
       "object": "def step_pay_23",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 99,
       "resolution": "declaration"
     },
@@ -5298,9 +5058,7 @@
       "edge": "declares",
       "object": "def step_pay_24",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 103,
       "resolution": "declaration"
     },
@@ -5309,9 +5067,7 @@
       "edge": "declares",
       "object": "def step_pay_25",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 107,
       "resolution": "declaration"
     },
@@ -5320,9 +5076,7 @@
       "edge": "declares",
       "object": "def step_pay_26",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 111,
       "resolution": "declaration"
     },
@@ -5331,9 +5085,7 @@
       "edge": "declares",
       "object": "def step_pay_27",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 115,
       "resolution": "declaration"
     },
@@ -5342,9 +5094,7 @@
       "edge": "declares",
       "object": "def step_pay_28",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 119,
       "resolution": "declaration"
     },
@@ -5353,9 +5103,7 @@
       "edge": "declares",
       "object": "def step_pay_29",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 123,
       "resolution": "declaration"
     },
@@ -5364,9 +5112,7 @@
       "edge": "declares",
       "object": "def step_pay_3",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 19,
       "resolution": "declaration"
     },
@@ -5375,9 +5121,7 @@
       "edge": "declares",
       "object": "def step_pay_30",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 127,
       "resolution": "declaration"
     },
@@ -5386,9 +5130,7 @@
       "edge": "declares",
       "object": "def step_pay_31",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 131,
       "resolution": "declaration"
     },
@@ -5397,9 +5139,7 @@
       "edge": "declares",
       "object": "def step_pay_32",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 135,
       "resolution": "declaration"
     },
@@ -5408,9 +5148,7 @@
       "edge": "declares",
       "object": "def step_pay_33",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 139,
       "resolution": "declaration"
     },
@@ -5419,9 +5157,7 @@
       "edge": "declares",
       "object": "def step_pay_34",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 143,
       "resolution": "declaration"
     },
@@ -5430,9 +5166,7 @@
       "edge": "declares",
       "object": "def step_pay_35",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 147,
       "resolution": "declaration"
     },
@@ -5441,9 +5175,7 @@
       "edge": "declares",
       "object": "def step_pay_36",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 151,
       "resolution": "declaration"
     },
@@ -5452,9 +5184,7 @@
       "edge": "declares",
       "object": "def step_pay_37",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 155,
       "resolution": "declaration"
     },
@@ -5463,9 +5193,7 @@
       "edge": "declares",
       "object": "def step_pay_38",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 159,
       "resolution": "declaration"
     },
@@ -5474,9 +5202,7 @@
       "edge": "declares",
       "object": "def step_pay_39",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 163,
       "resolution": "declaration"
     },
@@ -5485,9 +5211,7 @@
       "edge": "declares",
       "object": "def step_pay_4",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 23,
       "resolution": "declaration"
     },
@@ -5496,9 +5220,7 @@
       "edge": "declares",
       "object": "def step_pay_40",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 167,
       "resolution": "declaration"
     },
@@ -5507,9 +5229,7 @@
       "edge": "declares",
       "object": "def step_pay_5",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 27,
       "resolution": "declaration"
     },
@@ -5518,9 +5238,7 @@
       "edge": "declares",
       "object": "def step_pay_6",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 31,
       "resolution": "declaration"
     },
@@ -5529,9 +5247,7 @@
       "edge": "declares",
       "object": "def step_pay_7",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 35,
       "resolution": "declaration"
     },
@@ -5540,9 +5256,7 @@
       "edge": "declares",
       "object": "def step_pay_8",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 39,
       "resolution": "declaration"
     },
@@ -5551,9 +5265,7 @@
       "edge": "declares",
       "object": "def step_pay_9",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 43,
       "resolution": "declaration"
     },
@@ -5573,9 +5285,7 @@
       "edge": "declares",
       "object": "pay step 1",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 11,
       "resolution": "declaration"
     },
@@ -5584,9 +5294,7 @@
       "edge": "declares",
       "object": "pay step 10",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 47,
       "resolution": "declaration"
     },
@@ -5595,9 +5303,7 @@
       "edge": "declares",
       "object": "pay step 11",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 51,
       "resolution": "declaration"
     },
@@ -5606,9 +5312,7 @@
       "edge": "declares",
       "object": "pay step 12",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 55,
       "resolution": "declaration"
     },
@@ -5617,9 +5321,7 @@
       "edge": "declares",
       "object": "pay step 13",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 59,
       "resolution": "declaration"
     },
@@ -5628,9 +5330,7 @@
       "edge": "declares",
       "object": "pay step 14",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 63,
       "resolution": "declaration"
     },
@@ -5639,9 +5339,7 @@
       "edge": "declares",
       "object": "pay step 15",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 67,
       "resolution": "declaration"
     },
@@ -5650,9 +5348,7 @@
       "edge": "declares",
       "object": "pay step 16",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 71,
       "resolution": "declaration"
     },
@@ -5661,9 +5357,7 @@
       "edge": "declares",
       "object": "pay step 17",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 75,
       "resolution": "declaration"
     },
@@ -5672,9 +5366,7 @@
       "edge": "declares",
       "object": "pay step 18",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 79,
       "resolution": "declaration"
     },
@@ -5683,9 +5375,7 @@
       "edge": "declares",
       "object": "pay step 19",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 83,
       "resolution": "declaration"
     },
@@ -5694,9 +5384,7 @@
       "edge": "declares",
       "object": "pay step 2",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 15,
       "resolution": "declaration"
     },
@@ -5705,9 +5393,7 @@
       "edge": "declares",
       "object": "pay step 20",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 87,
       "resolution": "declaration"
     },
@@ -5716,9 +5402,7 @@
       "edge": "declares",
       "object": "pay step 21",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 91,
       "resolution": "declaration"
     },
@@ -5727,9 +5411,7 @@
       "edge": "declares",
       "object": "pay step 22",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 95,
       "resolution": "declaration"
     },
@@ -5738,9 +5420,7 @@
       "edge": "declares",
       "object": "pay step 23",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 99,
       "resolution": "declaration"
     },
@@ -5749,9 +5429,7 @@
       "edge": "declares",
       "object": "pay step 24",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 103,
       "resolution": "declaration"
     },
@@ -5760,9 +5438,7 @@
       "edge": "declares",
       "object": "pay step 25",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 107,
       "resolution": "declaration"
     },
@@ -5771,9 +5447,7 @@
       "edge": "declares",
       "object": "pay step 26",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 111,
       "resolution": "declaration"
     },
@@ -5782,9 +5456,7 @@
       "edge": "declares",
       "object": "pay step 27",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 115,
       "resolution": "declaration"
     },
@@ -5793,9 +5465,7 @@
       "edge": "declares",
       "object": "pay step 28",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 119,
       "resolution": "declaration"
     },
@@ -5804,9 +5474,7 @@
       "edge": "declares",
       "object": "pay step 29",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 123,
       "resolution": "declaration"
     },
@@ -5815,9 +5483,7 @@
       "edge": "declares",
       "object": "pay step 3",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 19,
       "resolution": "declaration"
     },
@@ -5826,9 +5492,7 @@
       "edge": "declares",
       "object": "pay step 30",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 127,
       "resolution": "declaration"
     },
@@ -5837,9 +5501,7 @@
       "edge": "declares",
       "object": "pay step 31",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 131,
       "resolution": "declaration"
     },
@@ -5848,9 +5510,7 @@
       "edge": "declares",
       "object": "pay step 32",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 135,
       "resolution": "declaration"
     },
@@ -5859,9 +5519,7 @@
       "edge": "declares",
       "object": "pay step 33",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 139,
       "resolution": "declaration"
     },
@@ -5870,9 +5528,7 @@
       "edge": "declares",
       "object": "pay step 34",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 143,
       "resolution": "declaration"
     },
@@ -5881,9 +5537,7 @@
       "edge": "declares",
       "object": "pay step 35",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 147,
       "resolution": "declaration"
     },
@@ -5892,9 +5546,7 @@
       "edge": "declares",
       "object": "pay step 36",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 151,
       "resolution": "declaration"
     },
@@ -5903,9 +5555,7 @@
       "edge": "declares",
       "object": "pay step 37",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 155,
       "resolution": "declaration"
     },
@@ -5914,9 +5564,7 @@
       "edge": "declares",
       "object": "pay step 38",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 159,
       "resolution": "declaration"
     },
@@ -5925,9 +5573,7 @@
       "edge": "declares",
       "object": "pay step 39",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 163,
       "resolution": "declaration"
     },
@@ -5936,9 +5582,7 @@
       "edge": "declares",
       "object": "pay step 4",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 23,
       "resolution": "declaration"
     },
@@ -5947,9 +5591,7 @@
       "edge": "declares",
       "object": "pay step 40",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 167,
       "resolution": "declaration"
     },
@@ -5958,9 +5600,7 @@
       "edge": "declares",
       "object": "pay step 5",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 27,
       "resolution": "declaration"
     },
@@ -5969,9 +5609,7 @@
       "edge": "declares",
       "object": "pay step 6",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 31,
       "resolution": "declaration"
     },
@@ -5980,9 +5618,7 @@
       "edge": "declares",
       "object": "pay step 7",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 35,
       "resolution": "declaration"
     },
@@ -5991,9 +5627,7 @@
       "edge": "declares",
       "object": "pay step 8",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 39,
       "resolution": "declaration"
     },
@@ -6002,9 +5636,7 @@
       "edge": "declares",
       "object": "pay step 9",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 43,
       "resolution": "declaration"
     },
@@ -6013,9 +5645,7 @@
       "edge": "declares",
       "object": "step_pay_1",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 11,
       "resolution": "declaration"
     },
@@ -6024,9 +5654,7 @@
       "edge": "declares",
       "object": "step_pay_10",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 47,
       "resolution": "declaration"
     },
@@ -6035,9 +5663,7 @@
       "edge": "declares",
       "object": "step_pay_11",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 51,
       "resolution": "declaration"
     },
@@ -6046,9 +5672,7 @@
       "edge": "declares",
       "object": "step_pay_12",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 55,
       "resolution": "declaration"
     },
@@ -6057,9 +5681,7 @@
       "edge": "declares",
       "object": "step_pay_13",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 59,
       "resolution": "declaration"
     },
@@ -6068,9 +5690,7 @@
       "edge": "declares",
       "object": "step_pay_14",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 63,
       "resolution": "declaration"
     },
@@ -6079,9 +5699,7 @@
       "edge": "declares",
       "object": "step_pay_15",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 67,
       "resolution": "declaration"
     },
@@ -6090,9 +5708,7 @@
       "edge": "declares",
       "object": "step_pay_16",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 71,
       "resolution": "declaration"
     },
@@ -6101,9 +5717,7 @@
       "edge": "declares",
       "object": "step_pay_17",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 75,
       "resolution": "declaration"
     },
@@ -6112,9 +5726,7 @@
       "edge": "declares",
       "object": "step_pay_18",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 79,
       "resolution": "declaration"
     },
@@ -6123,9 +5735,7 @@
       "edge": "declares",
       "object": "step_pay_19",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 83,
       "resolution": "declaration"
     },
@@ -6134,9 +5744,7 @@
       "edge": "declares",
       "object": "step_pay_2",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 15,
       "resolution": "declaration"
     },
@@ -6145,9 +5753,7 @@
       "edge": "declares",
       "object": "step_pay_20",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 87,
       "resolution": "declaration"
     },
@@ -6156,9 +5762,7 @@
       "edge": "declares",
       "object": "step_pay_21",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 91,
       "resolution": "declaration"
     },
@@ -6167,9 +5771,7 @@
       "edge": "declares",
       "object": "step_pay_22",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 95,
       "resolution": "declaration"
     },
@@ -6178,9 +5780,7 @@
       "edge": "declares",
       "object": "step_pay_23",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 99,
       "resolution": "declaration"
     },
@@ -6189,9 +5789,7 @@
       "edge": "declares",
       "object": "step_pay_24",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 103,
       "resolution": "declaration"
     },
@@ -6200,9 +5798,7 @@
       "edge": "declares",
       "object": "step_pay_25",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 107,
       "resolution": "declaration"
     },
@@ -6211,9 +5807,7 @@
       "edge": "declares",
       "object": "step_pay_26",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 111,
       "resolution": "declaration"
     },
@@ -6222,9 +5816,7 @@
       "edge": "declares",
       "object": "step_pay_27",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 115,
       "resolution": "declaration"
     },
@@ -6233,9 +5825,7 @@
       "edge": "declares",
       "object": "step_pay_28",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 119,
       "resolution": "declaration"
     },
@@ -6244,9 +5834,7 @@
       "edge": "declares",
       "object": "step_pay_29",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 123,
       "resolution": "declaration"
     },
@@ -6255,9 +5843,7 @@
       "edge": "declares",
       "object": "step_pay_3",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 19,
       "resolution": "declaration"
     },
@@ -6266,9 +5852,7 @@
       "edge": "declares",
       "object": "step_pay_30",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 127,
       "resolution": "declaration"
     },
@@ -6277,9 +5861,7 @@
       "edge": "declares",
       "object": "step_pay_31",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 131,
       "resolution": "declaration"
     },
@@ -6288,9 +5870,7 @@
       "edge": "declares",
       "object": "step_pay_32",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 135,
       "resolution": "declaration"
     },
@@ -6299,9 +5879,7 @@
       "edge": "declares",
       "object": "step_pay_33",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 139,
       "resolution": "declaration"
     },
@@ -6310,9 +5888,7 @@
       "edge": "declares",
       "object": "step_pay_34",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 143,
       "resolution": "declaration"
     },
@@ -6321,9 +5897,7 @@
       "edge": "declares",
       "object": "step_pay_35",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 147,
       "resolution": "declaration"
     },
@@ -6332,9 +5906,7 @@
       "edge": "declares",
       "object": "step_pay_36",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 151,
       "resolution": "declaration"
     },
@@ -6343,9 +5915,7 @@
       "edge": "declares",
       "object": "step_pay_37",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 155,
       "resolution": "declaration"
     },
@@ -6354,9 +5924,7 @@
       "edge": "declares",
       "object": "step_pay_38",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 159,
       "resolution": "declaration"
     },
@@ -6365,9 +5933,7 @@
       "edge": "declares",
       "object": "step_pay_39",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 163,
       "resolution": "declaration"
     },
@@ -6376,9 +5942,7 @@
       "edge": "declares",
       "object": "step_pay_4",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 23,
       "resolution": "declaration"
     },
@@ -6387,9 +5951,7 @@
       "edge": "declares",
       "object": "step_pay_40",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 167,
       "resolution": "declaration"
     },
@@ -6398,9 +5960,7 @@
       "edge": "declares",
       "object": "step_pay_5",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 27,
       "resolution": "declaration"
     },
@@ -6409,9 +5969,7 @@
       "edge": "declares",
       "object": "step_pay_6",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 31,
       "resolution": "declaration"
     },
@@ -6420,9 +5978,7 @@
       "edge": "declares",
       "object": "step_pay_7",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 35,
       "resolution": "declaration"
     },
@@ -6431,9 +5987,7 @@
       "edge": "declares",
       "object": "step_pay_8",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 39,
       "resolution": "declaration"
     },
@@ -6442,9 +5996,7 @@
       "edge": "declares",
       "object": "step_pay_9",
       "file": "<root>/suite/repo/steps/pay_steps.py",
-      "candidates": [
-        "<root>/suite/repo/steps/pay_steps.py"
-      ],
+      "candidates": [],
       "line": 43,
       "resolution": "declaration"
     },

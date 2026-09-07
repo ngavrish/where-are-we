@@ -240,8 +240,12 @@ def _bound_shapes(node) -> list:
     return out
 
 
-def declares_rows(spans: dict, repo: str) -> list:
+def declares_rows(spans: dict, roots) -> list:
     """The `declares` rows of `xrefs`: one per site in `spans`.
+
+    `roots` is every root the map was built from, in the order they were
+    given: one for a plain build, and the first root and its `--also` roots
+    for a merged one.
 
     Written here rather than inside `build` because `--also` rebuilds them:
     the first root's copy of `spans` is taken before the extra roots are
@@ -249,18 +253,32 @@ def declares_rows(spans: dict, repo: str) -> list:
     rows named fewer files than the `spans` key beside them would break the
     one thing this table promises, that a row is a site.
 
-    Paths are absolute, which is the spelling every row in `xrefs` uses; a
-    site the page object and step tables recorded relative to the repository
-    is joined to it here.
+    Paths are absolute, which is the spelling every row in `xrefs` uses. The
+    page object and step tables record a site relative to the root that was
+    being walked at the time and `spans` does not keep which one that was, so
+    a relative site is resolved against `roots` in order and the first root it
+    exists under is the one it names: under `--also` a page object of the
+    second root is that root's file, not a path under the first that nothing
+    can open. A site no root makes exist is left exactly as `spans` wrote it,
+    because a relative path a reader can still resolve for themselves is
+    better than an absolute one that is wrong.
+
+    `candidates` is empty on these rows: a declaration is not a choice between
+    files, and the file is the subject's. `file` is kept, so every row of
+    every edge answers "which file did this edge reach" the same way.
     """
     out = []
     for name in sorted(spans):
         for site in spans[name] or ():
             path = site["file"]
             if not os.path.isabs(path):
-                path = os.path.join(repo, path)
+                for root in roots:
+                    joined = os.path.join(root, path)
+                    if os.path.exists(joined):
+                        path = joined
+                        break
             out.append({"subject": path, "edge": "declares", "object": name,
-                        "file": path, "candidates": [path],
+                        "file": path, "candidates": [],
                         "line": site["start"], "resolution": "declaration"})
     return out
 
@@ -3302,7 +3320,7 @@ def build(repo: str, out_dir: str | None = None,
     # import line of one file, kept for the package pairs `import_graph`
     # summarises: the pair without the line is that key written out again in
     # seven fields, and the line is the half of it this table adds.
-    xrefs += declares_rows(spans, repo)
+    xrefs += declares_rows(spans, [repo])
     for (package, other, path), line in sorted(import_sites.items()):
         if other not in (import_graph.get(package) or ()):
             # A pair the cap above dropped. `import_graph` is the summary and

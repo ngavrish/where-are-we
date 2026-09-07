@@ -195,7 +195,11 @@
   for the package pairs `import_graph` summarises). Every path in every row
   is absolute, which is the spelling `definitions` and most of `spans` use,
   so the table joins to itself: the file a `calls` row settled on is the
-  subject of the `declares` rows for that file. `call_graph_files` is derived
+  subject of the `declares` rows for that file. A `declares` row's
+  `candidates` is empty, because a declaration is not a choice between
+  files, and a site the page object and step tables recorded relative to the
+  root being walked is named under the root it exists under, so an `--also`
+  map of two checkouts names each file where it really is. `call_graph_files` is derived
   from the `calls` rows by the renderer that writes it, and holds less than
   they do: it is cut to 8 callees a key and 60 keys, and its keys are
   basenames, so where two files of one basename declare one function name

@@ -324,9 +324,7 @@
       "edge": "declares",
       "object": "charge",
       "file": "<root>/poly/repo/a.ts",
-      "candidates": [
-        "<root>/poly/repo/a.ts"
-      ],
+      "candidates": [],
       "line": 1,
       "resolution": "declaration"
     },
@@ -335,9 +333,7 @@
       "edge": "declares",
       "object": "payInvoice",
       "file": "<root>/poly/repo/b.ts",
-      "candidates": [
-        "<root>/poly/repo/b.ts"
-      ],
+      "candidates": [],
       "line": 3,
       "resolution": "declaration"
     },
@@ -357,9 +353,7 @@
       "edge": "declares",
       "object": "Serve",
       "file": "<root>/poly/repo/main.go",
-      "candidates": [
-        "<root>/poly/repo/main.go"
-      ],
+      "candidates": [],
       "line": 3,
       "resolution": "declaration"
     },
@@ -368,9 +362,7 @@
       "edge": "declares",
       "object": "TestServe",
       "file": "<root>/poly/repo/main.go",
-      "candidates": [
-        "<root>/poly/repo/main.go"
-      ],
+      "candidates": [],
       "line": 7,
       "resolution": "declaration"
     },
@@ -379,9 +371,7 @@
       "edge": "declares",
       "object": "main",
       "file": "<root>/poly/repo/main.go",
-      "candidates": [
-        "<root>/poly/repo/main.go"
-      ],
+      "candidates": [],
       "line": 1,
       "resolution": "declaration"
     },
@@ -390,9 +380,7 @@
       "edge": "declares",
       "object": "main",
       "file": "<root>/poly/repo/main.go",
-      "candidates": [
-        "<root>/poly/repo/main.go"
-      ],
+      "candidates": [],
       "line": 12,
       "resolution": "declaration"
     },
@@ -401,9 +389,7 @@
       "edge": "declares",
       "object": "customers",
       "file": "<root>/poly/repo/migrations/V1__init.sql",
-      "candidates": [
-        "<root>/poly/repo/migrations/V1__init.sql"
-      ],
+      "candidates": [],
       "line": 1,
       "resolution": "declaration"
     }
