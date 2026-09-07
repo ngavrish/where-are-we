@@ -2982,6 +2982,32 @@ jobs:
           # PEM state is per file: b_page's contribution to any aggregated
           # list survives a_page's header. It used to be blanked with it.
           grep -q "distinctive-b-content" /tmp/sec/m/framework_map.json
+          # `redact()` skips `lines` when the build that made the map redacted
+          # them as it recorded them, so the same tree has to come out of both
+          # passes as the same map. And the skip is conditional on that: a map
+          # whose lines were not redacted at index time is swept in full here,
+          # which is what keeps "a map written to disk is redacted" true
+          # whatever produced it.
+          python - <<'EOF'
+          import json
+          from where_are_we import mapper
+          from where_are_we._mapper import state, walk
+          m = mapper.build("/tmp/sec/r", out_dir="/tmp/sec/m2")
+          assert state.LINES_REDACTED is True
+          skipped = walk.redact(m)
+          state.LINES_REDACTED = False
+          swept = walk.redact(m)
+          assert skipped == swept, [k for k in swept if swept[k] != skipped.get(k)]
+          assert skipped["lines"] == m["lines"], "the pass over lines was not inert"
+          raw = mapper.build("/tmp/sec/r", out_dir="/tmp/sec/m3",
+                             redact_lines=False)
+          assert state.LINES_REDACTED is False
+          assert any("[redacted]" in ln
+                     for rows in walk.redact(raw)["lines"].values()
+                     for ln in rows), "an unredacted map came through the pass raw"
+          print("the writers' pass and the index-time pass agree, and the "
+                "unredacted build is still swept")
+          EOF
 
       - name: every environment variable the code reads is in the README table
         run: |

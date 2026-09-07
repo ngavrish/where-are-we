@@ -3533,6 +3533,9 @@ def build(repo: str, out_dir: str | None = None,
     state.PARSE_CACHE_READS = True
     state.PARSE_CACHE_WRITES = True
     state.REDACT_LINES = True
+    # Not restored: it is not a setting, it is what this build did to the map
+    # it is about to hand back, and `redact()` is the next thing to read it.
+    state.LINES_REDACTED = redact_lines
     if state.DEBUG_PARSES:
         print(f"parsed {state.PARSE_COUNT - parses_before} files", file=sys.stderr)
         # The pre-filter's own number. A tree nobody touched parses nothing

@@ -99,9 +99,11 @@ def index_lines(path: str, body: str) -> None:
     redacted lines themselves would put every line of the repository in the
     cache file.
 
-    The whole-map `redact()` the writers run still covers these lines. It is
-    idempotent, so a second pass over them changes nothing; it is what covers
-    every other key.
+    The whole-map `redact()` the writers run covers every other key and
+    passes `lines` through, because this is where they were redacted and a
+    second pass over them provably changes none of them. It sweeps them after
+    all when `state.REDACT_LINES` was off for the build, which is the branch
+    below.
     """
     lines = body.splitlines()
     if not state.REDACT_LINES:

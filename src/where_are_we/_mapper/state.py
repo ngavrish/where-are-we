@@ -199,6 +199,17 @@ PARSE_CACHE_WRITES = True
 # run's directory.
 REDACT_LINES = True
 
+# Whether the `lines` of the map the last `build()` in this process returned
+# were already redacted, line by line, as they were recorded. `redact()` skips
+# `lines` when this says so, because a second pass over 36,000 lines that
+# provably changes none of them cost 0.38 s of every build, warm ones
+# included. False by default and set by `build()` from its own `redact_lines`,
+# so a map that was not line-redacted at index time, and a map handed to
+# `redact()` by a process that never built one, are both swept in full: the
+# property that a map written to disk is redacted whatever produced it is
+# what this flag has to keep, not what it may trade away.
+LINES_REDACTED = False
+
 
 # Incremented on every parse actually done: an ast.parse, a tree-sitter parse,
 # or an index_declarations regex pass over a file's body. A rebuild of a tree

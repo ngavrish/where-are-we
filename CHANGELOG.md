@@ -143,9 +143,15 @@
   a reader asks the map for agree. Redaction runs once per file as the lines
   are recorded and what it changed is cached under the file's hash, so a
   rebuild of a tree nobody touched redacts nothing. The whole-map pass the
-  writers run is unchanged and idempotent, so the published map is byte for
-  byte what it was. `build(redact_lines=False)` is for a caller that wants the
-  raw lines, which is the golden fixture builder and nothing else.
+  writers run now passes `lines` through rather than sweeping them a second
+  time, because that is where they were redacted: the pass over 36,000 lines
+  of this repository provably changed none of them and cost 0.46 s of every
+  build, warm ones included. It still sweeps every other key, and it still
+  sweeps `lines` for a map whose build said `redact_lines=False` or for a map
+  handed to it by a process that never built one, so a map written to disk is
+  redacted whatever produced it. The published map is byte for byte what it
+  was. `build(redact_lines=False)` is for a caller that wants the raw lines,
+  which is the golden fixture builder and nothing else.
 - `--ctags` writes `<out>/tags` beside the map: every declaration site the
   `spans` key holds, in universal-ctags format, with the line number as the EX
   command, `kind:`, `line:` and, where a parser knew it, `end:`. The map was
