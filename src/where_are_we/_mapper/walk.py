@@ -188,6 +188,32 @@ def _kind_is_live(key: str) -> bool:
     return kind in CACHE_KINDS or kind.startswith(CACHE_KIND_PREFIXES)
 
 
+def _cache_path_in(out_dir: str, path: str) -> str:
+    """One indexed file's path as the cache file writes it: relative to the
+    directory the cache file itself is in.
+
+    The cache holds one key per file per kind plus one hash entry per file,
+    and an absolute path is most of every one of them: on this repository the
+    same 272 paths were written 13 times over. Relative to `out_dir` rather
+    than to the repository because `out_dir` is where the file being written
+    is, so nothing has to be told a second root, and `--also` folds in as the
+    `../` path that reaches the other checkout. A path on another Windows
+    drive has no relative form and keeps its absolute one, which `_cache_path_out`
+    passes straight back through.
+    """
+    try:
+        return os.path.relpath(path, out_dir)
+    except ValueError:  # a different drive on Windows
+        return path
+
+
+def _cache_path_out(out_dir: str, path: str) -> str:
+    """The inverse of `_cache_path_in`: what the process works in, absolute."""
+    if os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(out_dir, path))
+
+
 def _load_parse_cache(out_dir: str) -> None:
     """Every `(kind, path)` -> `{"sha", "value"}` entry and every
     `path -> {"mtime", "size", "ctime", "sha"}` hash a previous build
@@ -198,10 +224,18 @@ def _load_parse_cache(out_dir: str) -> None:
     Walking the tree is cheap; parsing every module is not, and a repository
     where three files changed does not need the other nine hundred re-parsed.
     The hashes ride along in the same file because they answer the same
-    question one step earlier: which files are worth looking at again."""
+    question one step earlier: which files are worth looking at again.
+
+    Paths on disk are relative to `out_dir` and absolute in memory, so the
+    two spellings meet here and in `_save_parse_cache` and nowhere else.
+    `empty` is the section holding the entries whose value is the empty list,
+    which is a sha and nothing else; it is read back as the entry it stands
+    for, so `_cached` sees one shape."""
     try:
         with open(os.path.join(out_dir, _PARSE_CACHE_FILE), encoding="utf-8") as fh:
             doc = json.load(fh)
+        hashes = {_cache_path_out(out_dir, k): v
+                  for k, v in (doc.get("hashes") or {}).items()}
         if (doc.get("schema") != state.CACHE_SCHEMA
                 or doc.get("version") != state.__version__):
             # Only the parse entries go. What a kind stores is what a schema
@@ -209,10 +243,18 @@ def _load_parse_cache(out_dir: str) -> None:
             # in every release, and the hashes this process took itself are
             # not on disk to be distrusted in the first place.
             state._PARSE_CACHE = {}
-            state.HASHES_AT_LOAD = doc.get("hashes") or {}
+            state.HASHES_AT_LOAD = hashes
             return
-        state._PARSE_CACHE = doc.get("entries") or {}
-        state.HASHES_AT_LOAD = doc.get("hashes") or {}
+        entries = {}
+        for k, v in (doc.get("entries") or {}).items():
+            kind, _, path = k.partition("\x1e")
+            entries[f"{kind}\x1e{_cache_path_out(out_dir, path)}"] = v
+        for k, sha in (doc.get("empty") or {}).items():
+            kind, _, path = k.partition("\x1e")
+            entries[f"{kind}\x1e{_cache_path_out(out_dir, path)}"] = \
+                {"sha": sha, "value": []}
+        state._PARSE_CACHE = entries
+        state.HASHES_AT_LOAD = hashes
         # Under, not over: a hash this process took describes the file as it
         # is, and one read off disk describes it as it was when that file was
         # last saved. The command line hashes on its way to deciding whether
@@ -220,7 +262,7 @@ def _load_parse_cache(out_dir: str) -> None:
         # and had `build()` read every one of those files a second time.
         # Nothing can be served stale by keeping them, because `content_hash`
         # validates every entry against the file's current stat block anyway.
-        state._HASH_CACHE = {**(doc.get("hashes") or {}), **state._HASH_CACHE}
+        state._HASH_CACHE = {**hashes, **state._HASH_CACHE}
     except (OSError, ValueError):
         state._PARSE_CACHE = {}
         state.HASHES_AT_LOAD = {}
@@ -237,12 +279,24 @@ def _save_parse_cache(out_dir: str) -> None:
         # A file that moved or was deleted since the last build otherwise
         # keeps its stale entry forever, and so does a record under a kind
         # this release no longer computes: nothing else ever prunes either.
-        live = {k: v for k, v in state._PARSE_CACHE.items()
-                if os.path.exists(k.split("\x1e", 1)[-1]) and _kind_is_live(k)}
-        hashes = {k: v for k, v in state._HASH_CACHE.items()
-                  if os.path.exists(k)}
+        live, empty = {}, {}
+        for k, v in state._PARSE_CACHE.items():
+            kind, _, path = k.partition("\x1e")
+            if not os.path.exists(path) or not _kind_is_live(k):
+                continue
+            short = f"{kind}\x1e{_cache_path_in(out_dir, path)}"
+            # An entry whose value is the empty list is a sha and a shape.
+            # 246 of this repository's 272 redaction diffs are empty, and
+            # writing each of them as `{"sha": ..., "value": []}` under an
+            # absolute path cost four times what the sha alone costs.
+            if v.get("value") == []:
+                empty[short] = v.get("sha")
+            else:
+                live[short] = v
+        hashes = {_cache_path_in(out_dir, k): v
+                  for k, v in state._HASH_CACHE.items() if os.path.exists(k)}
         doc = {"schema": state.CACHE_SCHEMA, "version": state.__version__,
-               "entries": live, "hashes": hashes}
+               "entries": live, "empty": empty, "hashes": hashes}
         # Atomically: a reader that lands mid-write used to see a prefix,
         # fail to parse it and throw the whole cache away, and re-parse a
         # tree nobody had touched.

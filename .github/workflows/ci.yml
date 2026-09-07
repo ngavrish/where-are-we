@@ -4824,12 +4824,53 @@ jobs:
           where-are-we --repo /tmp/xref/cache --out /tmp/xref/cache-out \
             --product none --quiet --no-semantic
           python - <<'EOF'
-          import json
+          import json, os
           doc = json.load(open("/tmp/xref/cache-out/.wawe-cache.json"))
-          kinds = {k.split("\x1e", 1)[0] for k in doc["entries"]}
+          # Both sections an entry can be written to: `entries` holds the
+          # values, `empty` holds the sha of every entry whose value is the
+          # empty list, and a retired kind has to be gone from both.
+          kinds = {k.split("\x1e", 1)[0]
+                   for k in list(doc["entries"]) + list(doc["empty"])}
           assert "func_edges_2" not in kinds, sorted(kinds)
           assert "func_edges_3" in kinds, sorted(kinds)
-          print("retired cache kinds dropped; kinds kept:", len(kinds))
+          # Every path in the file is relative to the directory the file is
+          # in, and reaches a file from there.
+          for k in list(doc["entries"]) + list(doc["empty"]):
+            rel = k.split("\x1e", 1)[-1]
+            assert not os.path.isabs(rel), k
+            assert os.path.exists(os.path.join("/tmp/xref/cache-out", rel)), k
+          for rel in doc["hashes"]:
+            assert not os.path.isabs(rel), rel
+            assert os.path.exists(os.path.join("/tmp/xref/cache-out", rel)), rel
+          print("retired cache kinds dropped; kinds kept:", len(kinds),
+                "; entries:", len(doc["entries"]), "empty:", len(doc["empty"]),
+                "hashes:", len(doc["hashes"]), "; every path relative")
+          EOF
+          # A cache written by the previous schema, whose keys are absolute:
+          # its entries go, because what a key spells is what this bump
+          # changed, and its hashes stay, because a sha means the same thing
+          # in every release. The build after the upgrade re-parses once.
+          python - <<'EOF'
+          import json, os
+          from where_are_we._mapper import state, walk
+          path = "/tmp/xref/cache-out/.wawe-cache.json"
+          doc = json.load(open(path))
+          out = "/tmp/xref/cache-out"
+          old = {"schema": 3, "version": state.__version__,
+                 "entries": {k.split("\x1e", 1)[0] + "\x1e"
+                             + os.path.join(out, k.split("\x1e", 1)[-1]): v
+                             for k, v in doc["entries"].items()},
+                 "hashes": {os.path.join(out, k): v
+                            for k, v in doc["hashes"].items()}}
+          json.dump(old, open(path, "w"))
+          state._PARSE_CACHE, state.HASHES_AT_LOAD, state._HASH_CACHE = {}, {}, {}
+          walk._load_parse_cache(out)
+          assert state._PARSE_CACHE == {}, "a schema 3 cache kept its entries"
+          assert len(state.HASHES_AT_LOAD) == len(doc["hashes"]), \
+              (len(state.HASHES_AT_LOAD), len(doc["hashes"]))
+          assert all(os.path.isabs(k) for k in state.HASHES_AT_LOAD)
+          print("a schema 3 cache: entries dropped, ",
+                len(state.HASHES_AT_LOAD), "hashes kept")
           EOF
 
       - name: "wawe-eval --graph: the map says how much of its call tree it resolved"

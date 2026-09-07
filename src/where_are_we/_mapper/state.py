@@ -94,7 +94,14 @@ LINES: dict[str, list] = {}
 # `mtime` and `size`. A schema 2 entry read under this rule has no `sha` at
 # all and would be discarded one by one; discarding the file is the same
 # answer arrived at once.
-CACHE_SCHEMA = 3
+#
+# 4: a key and a hash name their file relative to the directory the cache
+# file is in rather than absolutely, and an entry whose value is the empty
+# list is written to an `empty` section as its sha alone. Both change the
+# spelling of every key in the file, so a schema 3 file is read for its
+# hashes (a sha means the same thing in every release) and its entries are
+# dropped, which is one re-parse of the tree on the build after the upgrade.
+CACHE_SCHEMA = 4
 _PARSE_CACHE: dict = {}
 
 

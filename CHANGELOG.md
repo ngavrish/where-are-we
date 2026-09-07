@@ -105,6 +105,18 @@
   nothing, where it used to re-parse everything: a CI cache restored over a
   fresh checkout, a `cp -r`, a `tar x`, a container rebuild. Measured on this
   repository, 667 parses before and 0 after.
+- The parse cache schema is 4, and the file is smaller. A key and a hash name
+  their file relative to the directory the cache file is in rather than
+  absolutely, so the same path is not written out in full once per kind per
+  file; and an entry whose value is the empty list is written to an `empty`
+  section as its sha alone, which is most of the redaction diffs, since most
+  files hold nothing that looks like a credential. Measured on this
+  repository, 260 indexed files: `.wawe-cache.json` goes from 590,653 to
+  501,718 bytes, 15 percent, of which the entries are 516,359 to 449,253
+  across the two sections and the hashes 74,236 to 52,396. A schema 3 file is
+  read for its hashes, since a sha means the same thing in every release, and
+  its entries are dropped, so the first build after upgrading re-parses the
+  tree once and every build after that is warm.
 - New map key `content_root`: one sha256 over the sorted `(path relative to
   the repository, hash)` pairs of every indexed file. `fingerprint` keeps its
   documented `<commit>:<newest mtime in nanoseconds>` format and its meaning;
