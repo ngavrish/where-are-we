@@ -16,6 +16,7 @@ in this project is cut.
 import json
 import os
 import re
+import shlex
 import subprocess
 
 try:
@@ -50,6 +51,10 @@ PHRASE_HEAD = 40
 # is named here when the file it is served from is reached, which is what the
 # block's head says out loud.
 _ROUTE_FILE = re.compile(r"\(([^()]+)\)\s*$")
+
+# A scenario outline's placeholder, in the name the map recorded. `re.escape`
+# leaves the angle brackets alone, so this finds them after escaping.
+_OUTLINE_SLOT = re.compile(r"<[^>]*>")
 
 
 def load(map_dir: str) -> dict:
@@ -246,7 +251,7 @@ def _blocks_from(m: dict, root: str, wanted: list, depth: int, seen: dict,
         if key:
             by_phrase.setdefault(key, (phrase, holder, name, hop))
 
-    scenarios, unbound = _scenarios(m, root, by_phrase)
+    scenarios, unbound = _scenarios(m, root, wanted, by_phrase)
     features = sorted({row[0] for row in scenarios})
 
     routes = []
@@ -272,22 +277,35 @@ def _blocks_from(m: dict, root: str, wanted: list, depth: int, seen: dict,
 
     total = sum(len(f.get("scenarios") or ())
                 for f in (m.get("features") or {}).values())
+    # How many scenarios each feature file holds, so the behave selection can
+    # tell a file every scenario of which is affected, which one `-i` selects
+    # exactly, from a file where only some are and which needs one `--name`
+    # each.
+    held = {rel: len(entry.get("scenarios") or ())
+            for rel, entry in (m.get("features") or {}).items()}
     return {"files": list(wanted), "depth": depth, "scenarios": scenarios,
             "features": features, "routes": routes, "pages": pages,
             "steps": steps, "pytest": cases, "unreachable": unreachable,
             "total_scenarios": total, "unbound": unbound,
-            "tags": _tags(m, features)}
+            "file_scenarios": held}
 
 
-def _scenarios(m: dict, root: str, by_phrase: dict) -> tuple:
-    """`(rows, unbound)`: the scenarios a reached step function is used by.
+def _scenarios(m: dict, root: str, wanted: list, by_phrase: dict) -> tuple:
+    """`(rows, unbound)`: the scenarios this change reaches, and why each one.
 
-    A scenario's steps are its own lines, which the map already holds in
+    A row is `(feature file, name, line, why)`, and there are two kinds of
+    why. A scenario's steps are its own lines, which the map already holds in
     `lines`, read from the scenario's line to the line before the next
-    scenario in that file. A line is a step of this scenario when a reached
-    phrase, normalised and cut to `PHRASE_HEAD`, appears in it: the rule
-    `feature_links` is built with, so a scenario named here is a scenario the
-    map already binds to that step module.
+    scenario in that file; a line is a step of this scenario when a reached
+    phrase, normalised and cut to `PHRASE_HEAD`, appears in it, which is the
+    rule `feature_links` is built with, so a scenario named here is a scenario
+    the map already binds to that step module.
+
+    The other kind is the feature file itself being one of the changed files.
+    A feature file is a test rather than something a test calls, so every
+    scenario in it is affected at no hops at all, and a commit that edits or
+    adds a scenario is the commonest change a suite gets. Without this the
+    answer to such a commit was no block at all, which reads as an all clear.
 
     `unbound` counts the scenarios no step phrase in this map binds to at all,
     reached or not. Without it a zero in the first line reads as "this change
@@ -303,11 +321,12 @@ def _scenarios(m: dict, root: str, by_phrase: dict) -> tuple:
     rows, unbound = [], 0
     for rel, entry in sorted((m.get("features") or {}).items()):
         body = (m.get("lines") or {}).get(os.path.join(root, rel)) or []
+        itself = _rank_graph.matches(os.path.join(root, rel), root, wanted)
         marks = sorted((s.get("line") or 0, s.get("name") or "")
                        for s in (entry.get("scenarios") or ()))
         for i, (line, name) in enumerate(marks):
             end = marks[i + 1][0] - 1 if i + 1 < len(marks) else len(body)
-            hits, bound = [], False
+            hits = []
             for offset, text in enumerate(body[line:end], line + 1):
                 step = _STEP_LINE.match(text)
                 if not step:
@@ -319,9 +338,16 @@ def _scenarios(m: dict, root: str, by_phrase: dict) -> tuple:
                         break
             if not _binds(known, body, line, end):
                 unbound += 1
-            if hits:
+            if itself:
+                # The file the change is in. That beats any path through a
+                # step, because the scenario is going to run whatever its
+                # steps call.
+                rows.append((rel, name, line, "the feature file itself changed"))
+            elif hits:
                 hop, _offset, phrase, holder, func = min(hits)
-                rows.append((rel, name, line, phrase, holder, func, hop))
+                rows.append((rel, name, line,
+                             f"via `{phrase}` in `{holder}:{func}`, "
+                             f"{_plural(hop, 'hop')}"))
     # By where each scenario is written rather than by what it is called, so
     # a feature file reads here in the order it reads on disk.
     rows.sort(key=lambda row: (row[0], row[2], row[1]))
@@ -344,31 +370,6 @@ def _binds(known: list, body: list, line: int, end: int) -> bool:
         if any(key in low for key in known):
             return True
     return False
-
-
-def _tags(m: dict, features: list) -> list:
-    """The tags that are on every affected feature file and on no other one.
-
-    The map records tags per feature file, not per scenario, so this is the
-    only tag question it can answer: a `--tags` run selects whole files here,
-    and where one tag is also on a file this change does not reach the answer
-    falls back to the include list instead of quietly running more than it
-    said it would.
-    """
-    holds = m.get("features") or {}
-    chosen = set(features)
-    if not chosen:
-        return []
-    elsewhere = {t for rel, entry in holds.items() if rel not in chosen
-                 for t in (entry.get("tags") or ())}
-    shared = None
-    for rel in features:
-        mine = {t for t in ((holds.get(rel) or {}).get("tags") or ())
-                if t not in elsewhere}
-        shared = mine if shared is None else (shared | mine)
-        if not mine:
-            return []
-    return sorted(shared or ())
 
 
 def summary(result: dict, limit: int) -> str:
@@ -436,10 +437,8 @@ def block_lines(result: dict, block: str) -> list:
     exception, because there the block is the whole answer.
     """
     if block == "scenarios":
-        return [f"- `{rel}:{line}` {name}, via `{phrase}` in "
-                f"`{holder}:{func}`, {_plural(hop, 'hop')}"
-                for rel, name, line, phrase, holder, func, hop
-                in result["scenarios"]]
+        return [f"- `{rel}:{line}` {name}, {why}"
+                for rel, name, line, why in result["scenarios"]]
     if block == "features":
         return [f"- `{rel}`" for rel in result["features"]]
     if block == "routes":
@@ -459,34 +458,65 @@ def block_lines(result: dict, block: str) -> list:
 def format_head(result: dict, block: str) -> str:
     """The head of a `--affected-format` block, which says which form it is.
 
-    A caller pasting this into a pipeline has to know whether it is running
-    whole feature files or a tag expression, and why the answer picked that
-    one, because the two select different things.
+    A caller pastes this into a pipeline without reading the block above it,
+    so the head has to say what the lines under it select and how exactly.
     """
     if block == "pytest":
         return "## pytest node ids, one per line"
-    if result["tags"]:
-        return ("## behave tags, one per line: these are on every affected "
-                "feature file and on no other")
-    if not result["features"]:
-        return "## behave include patterns, one per line for -i"
-    return ("## behave include patterns, one per line for -i: the map records "
-            "tags per feature file rather than per scenario, and no tag here "
-            "is on the affected files alone")
+    return ("## behave selection, one argument pair per line for `xargs "
+            "behave`: --name per affected scenario, and -i for a feature file "
+            "only where every scenario in it is affected")
 
 
 def _behave_lines(result: dict) -> list:
-    """The include list, as `--tags` values where the map holds a tag that
-    separates these feature files and as `-i` patterns otherwise.
+    """The behave arguments that select exactly the scenarios named above.
 
-    `-i` matches a feature file path, so the pattern is anchored on a path
-    separator and on the end of the name: without that, `features/pay.feature`
-    would also select `features/pay.feature.bak` and a directory whose name
-    ends in the same letters.
+    One `--name` per affected scenario, anchored on the whole name, and one
+    `-i` for a feature file every scenario of which is affected, which selects
+    the same set in one argument instead of one per scenario. The `-i` pattern
+    is anchored on a path separator and on the end of the name: without that,
+    `features/pay.feature` would also select `features/pay.feature.bak` and a
+    directory whose name ends in the same letters.
+
+    No tag is ever emitted. behave applies `--tags` per scenario, and the map
+    records the tags of a feature file as every `@word` anywhere in it,
+    scenario tags and the `@` of an email address in a step line included,
+    with nothing saying which line each came from. A tag built from that key
+    selected the wrong scenarios, and once selected nothing at all: the
+    reviewer's suite with `@slow` on the one scenario the change does not
+    reach ran that one and skipped the two it does, and the same suite with
+    `billing@example.com` in a step line emitted `@example.com` and ran none
+    of the three. Under-selection in a test selection tool is the fault this
+    whole answer is shaped to prevent, so the tag branch is gone rather than
+    narrowed.
+
+    `--name` is a regular expression behave searches the scenario's name
+    with. The name is escaped and anchored at both ends, with two allowances
+    for a scenario outline, whose rows behave runs under a name of its own:
+    it substitutes each example's values into the name and appends ` -- @1.1`
+    to it, so `Scenario Outline: Pay in <currency>` runs as `Pay in GBP --
+    @1.1`. A `<placeholder>` is therefore matched by anything and the suffix
+    is allowed after the name. Measured with behave 1.3.3: without those two
+    an outline is skipped by its own selector, which is the silent
+    under-selection this whole answer is shaped to prevent.
     """
-    if result["tags"]:
-        return [f"@{tag}" for tag in result["tags"]]
-    if not result["features"]:
+    if not result["scenarios"]:
         return ["no feature file in this map is reached by a change to "
                 "these files"]
-    return [f"(^|/){re.escape(rel)}$" for rel in result["features"]]
+    by_file: dict = {}
+    for rel, name, _line, _why in result["scenarios"]:
+        by_file.setdefault(rel, []).append(name)
+    out = []
+    for rel in sorted(by_file):
+        names = list(dict.fromkeys(by_file[rel]))
+        if len(names) >= result["file_scenarios"].get(rel, 0):
+            out.append("-i " + shlex.quote(f"(^|/){re.escape(rel)}$"))
+            continue
+        for name in sorted(names):
+            out.append("--name " + shlex.quote(_name_pattern(name)))
+    return out
+
+
+def _name_pattern(name: str) -> str:
+    """One scenario name as the regular expression `behave --name` takes."""
+    return "^" + _OUTLINE_SLOT.sub(".*", re.escape(name)) + "( -- @|$)"
