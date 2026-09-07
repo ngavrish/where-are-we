@@ -7,29 +7,43 @@
   candidate for `out.add(key)`. Three shapes of receiver are now read, none
   of them needing a type checker. A receiver that resolves to one indexed
   file which does not declare the name is a facade, and that file's own
-  `from M import name` line is followed, up to three hops, to the file with
-  the `def`: `mapper.build(...)` in `hooks.py` is `_mapper/build.py`'s
+  `from M import name` line is followed, three steps at most, to the file
+  with the `def`: `mapper.build(...)` in `hooks.py` is `_mapper/build.py`'s
   `build`, not a choice between two files. A receiver the function itself
   bound to a builtin (a literal, a comprehension, an f-string, one of the
   builtin constructors, or `defaultdict`, `Counter`, `deque` and
   `OrderedDict` through an import from outside the tree) is not a
   first-party object, so `out = set()` followed by `out.add(key)` is
-  `set.add` and no edge at all; a name the function also bound to something
-  else keeps the candidate list it had, and so does a receiver that is not a
-  plain name. And `self.name(...)` and `cls.name(...)` go to the class the
-  method is in: declared there or by a base in the same file, the call is
-  local and no cross-file edge; declared by exactly one base in another
-  file, the edge names that file.
-- The numbers after those three rules. On this repository the marks under
-  the same 60 keys go from 20 to 3, and the three that stay are all a call
-  on something that is not a name, such as
-  `homes.setdefault(g, {}).setdefault(n, set()).add(path)`. Mapping the
-  previous release's own checkout with both releases, the marks under the
-  same 60 keys go from 20 to 2. `call_graph_stats` for this repository is
-  now 0.2398 over 2277 Python sites, with 156 edges and 6 of them marked,
-  against 145 and 36 before. Only the names something was actually called
-  on are kept in the parse cache, so this costs `.wawe-cache.json` 248 KB
-  against 172 KB and a full build of this tree 1.93s against 1.83s.
+  `set.add` and no edge at all. A parameter's default counts as what the
+  function bound and `None` does not, `*args` and `**kwargs` are a tuple and
+  a dict, a name a nested function never binds is the one written around it,
+  and `d.setdefault(k, set())` is a set whatever `d` is; a name the function
+  also bound to something else, and a receiver that is not a name such as
+  `d[k]`, keep the candidate list. And `self.name(...)` and `cls.name(...)`
+  go to the class the method is in: declared there or by a base in the same
+  file, the call is local and no cross-file edge; declared by exactly one
+  base in another file, the edge names that file. A base is followed only
+  where the file says where it came from, so `class D(Base)` with no import
+  of `Base` and `class D(other.Base)` where nothing binds `other` keep the
+  mark rather than matching a class name anywhere in the tree.
+- A directory named after an imported module no longer speaks for it on its
+  own. `_module_is_here` counts a directory whose last path part matches the
+  module, at any depth, which made `tests/fixtures/logging/` enough for
+  `logging.info(...)` to reach a first-party `info`. The directory now has to
+  hold one of the callee's candidate homes. A vendored
+  `requests/__init__.py` that declares `get` is a file and still answers for
+  `requests.get(...)`.
+- The numbers after those rules. On this repository the marks under the same
+  60 keys go from 20 to 1, and the one that stays is `pool[kind].add(word)`,
+  a call on a subscript. Mapping the previous release's own checkout with
+  both releases, the marks under the same 60 keys go from 20 to 1 as well.
+  `call_graph_stats` for this repository is now 0.2431 over 2308 Python
+  sites, with 156 edges and 4 of them marked, against 145 and 36 before.
+  Only the names something was actually called on are kept in the parse
+  cache, so this costs `.wawe-cache.json` 241 KB against 159 KB and a full
+  build of this tree 2.11s against 1.97s. The cache record these rules read
+  is stored under its own kind, so upgrading re-parses the call graph rather
+  than serving 1.4.0 answers from a warm cache.
 
 ## 1.4.0
 
@@ -37,22 +51,24 @@
   one indexed file declares the callee, and `charge (a.ts|c.ts)?` when
   several do: the edge names every file that declares the name, sorted, and
   the question mark says the map is choosing between them rather than letting
-  the reader take one file for a fact. Three calls that used to produce an edge
-  no longer do or no longer guess: a plain call to a name the calling file
-  declares itself is a local call and is left out of a cross-file graph; a
-  call through a module this tree does not declare, which is what
+  the reader take one file for a fact. Three calls that used to produce an
+  edge no longer do or no longer guess: a plain call to a name the calling
+  file declares itself is a local call and is left out of a cross-file
+  graph; a call through a module this tree does not declare, which is what
   `ast.walk(...)` is, and what `from os import path` followed by
-  `path.join(...)` is, is not in the tree at all and is left out too; and a call the caller's own `from MOD import name` (or
-  `import { name } from "./mod"`) settles is written plain. `callers`, `callees` and `impact` match
-  on the name alone, so a marked edge is found exactly as an unmarked one is,
-  and print the mark as they find it. Every `impact` reply now ends its rules
-  line with "an edge ending in ? names every file that declares the callee,
-  because more than one does". Mapping the previous release's checkout with
-  both releases, the marks under the same 60 keys go from 40 to 17, and
-  `cli.py:main -> build (ask.py)?`, which pointed at the wrong `build`, is
-  now `build (build.py)`. `--callers walk` on this repository's own map
-  used to answer with eleven callers of `ast.walk` and `os.walk` and not one
-  caller of a `walk` this tree declares.
+  `path.join(...)` is, is not in the tree at all and is left out too; and a
+  call the caller's own `from MOD import name` (or
+  `import { name } from "./mod"`) settles is written plain. `callers`,
+  `callees` and `impact` match on the name alone, so a marked edge is found
+  exactly as an unmarked one is, and print the mark as they find it. Every
+  `impact` reply now ends its rules line with "an edge ending in ? names
+  every file that declares the callee, because more than one does". Mapping
+  the previous release's checkout with both releases, the marks under the
+  same 60 keys go from 40 to 17, and `cli.py:main -> build (ask.py)?`, which
+  pointed at the wrong `build`, is now `build (build.py)`. `--callers walk`
+  on this repository's own map used to answer with eleven callers of
+  `ast.walk` and `os.walk` and not one caller of a `walk` this tree
+  declares.
 - Numbers for the call graph, and for the tree it was read from. The build
   records `call_graph_stats` in `framework_map.json`: per language group
   (`python`, `ts_js`, `go`) how many callee names the walk looked at
