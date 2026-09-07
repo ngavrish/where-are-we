@@ -42,6 +42,8 @@ message after you open it.
      calls.
    - `unreached()` - the product definitions no test reaches, ranked, under
      a first line saying how much of the call graph resolved.
+   - `path(a=..., b=...)` - the shortest call chain from one name to
+     another, one hop per line with how each edge was resolved.
    - `sections()` - the section headings.
    - `rank(files=[...])` - what the repository is built around, and what is
      worth reading given the files you are editing. Ask this first in a tree

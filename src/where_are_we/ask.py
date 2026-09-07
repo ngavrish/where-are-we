@@ -22,22 +22,24 @@ try:
     from ._mapper import rank as _rank_graph
     from .graph import (BLOCKS as AFFECTED_BLOCKS, DEFAULT_DEPTH,
                         FORMATS as AFFECTED_FORMATS, HEADS as AFFECTED_HEADS,
-                        NAMES as AFFECTED_NAMES,
+                        NAMES as AFFECTED_NAMES, PATH_BLOCKS, PATH_NAMES,
                         REACHES_BLOCKS, REACHES_HEADS, REACHES_NAMES,
                         UNREACHED_BLOCKS, UNREACHED_HEADS, UNREACHED_LIMIT,
                         UNREACHED_NAMES, affected, block_lines, format_head,
-                        load as load_map, reaches, reaches_lines,
-                        reaches_summary, selectors, summary, unreached,
-                        unreached_lines, unreached_summary)
+                        load as load_map, path, path_head, path_lines,
+                        path_summary, reaches, reaches_lines, reaches_summary,
+                        selectors, summary, unreached, unreached_lines,
+                        unreached_summary)
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import rank as _rank_graph  # type: ignore[no-redef]
     from graph import (BLOCKS as AFFECTED_BLOCKS,  # type: ignore[no-redef]
                        DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
                        HEADS as AFFECTED_HEADS, NAMES as AFFECTED_NAMES,
-                       REACHES_BLOCKS, REACHES_HEADS, REACHES_NAMES,
-                       UNREACHED_BLOCKS, UNREACHED_HEADS, UNREACHED_LIMIT,
-                       UNREACHED_NAMES, affected, block_lines, format_head,
-                       load as load_map, reaches, reaches_lines,
+                       PATH_BLOCKS, PATH_NAMES, REACHES_BLOCKS, REACHES_HEADS,
+                       REACHES_NAMES, UNREACHED_BLOCKS, UNREACHED_HEADS,
+                       UNREACHED_LIMIT, UNREACHED_NAMES, affected, block_lines,
+                       format_head, load as load_map, path, path_head,
+                       path_lines, path_summary, reaches, reaches_lines,
                        reaches_summary, selectors, summary, unreached,
                        unreached_lines, unreached_summary)
 
@@ -1622,7 +1624,10 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     kind = parts[0] if parts else ""
     fields = parts[1:]
     widths = {"rows": 3, "unmatched": 3, "defs": 2, "sections": 2, "find": 2,
-              "at": 2, "ctx": 3, "aff": 4, "rch": 3, "unr": 3}
+              "at": 2, "ctx": 3, "aff": 4}
+    # The graph answers say how wide their own handles are, so an answer
+    # added there is resolvable here without a second list to keep true.
+    widths.update({kind: how[0] for kind, how in _GRAPH_MORE.items()})
     # The four kinds an answer's scope can reach. `find` searches the lines
     # and `at` a definition; neither is ordered by `--files`, so neither
     # carries the field and a handle that puts one there is malformed. `ctx`
@@ -1633,8 +1638,7 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
     # it answers rather than an ordering laid over an answer to another one.
     scoped = ("rows", "unmatched", "defs", "sections")
     if kind not in widths:
-        return _stale(f"{kind!r} is not one of rows, unmatched, defs, "
-                      "sections, find, at, ctx, aff, rch, unr")
+        return _stale(f"{kind!r} is not one of " + ", ".join(widths))
     sfield = ""
     if kind in scoped and len(fields) == widths[kind] + 1:
         sfield, fields = fields[-1], fields[:-1]
@@ -1726,59 +1730,8 @@ def more(map_path: str, handle: str, limit: int = 4000) -> str:
                           f"fit in {limit} characters")
         return chunk
 
-    if kind == "rch":
-        # The same walk `reaches` did, from the same map, continuing from the
-        # line this offset counts to. The block and the name are in the
-        # handle and nothing is stored between the two calls.
-        block = fields[0]
-        if block not in REACHES_NAMES:
-            return _stale(f"{block!r} is not a reaches block; they are "
-                          + ", ".join(REACHES_NAMES))
-        try:
-            named = _decode(fields[1])
-        except ValueError as exc:
-            return _stale(f"{fields[1]!r} is not a name this wrote: {exc}")
-        lines = reaches_lines(
-            reaches(load_map(os.path.dirname(map_path) or "."), named), block)
-        if offset >= len(lines):
-            return _stale(f"the {block} block for {named!r} is {len(lines)} "
-                          f"line{'' if len(lines) == 1 else 's'} long, and "
-                          f"this handle asks for line {offset + 1} of it")
-        chunk, reached = _block_chunk(
-            REACHES_HEADS[block], lines[offset:], limit,
-            lambda got: f"more:rch:{block}:{fields[1]}:{got}", offset)
-        if reached == offset:
-            return _stale(f"line {offset + 1} of the {block} block does not "
-                          f"fit in {limit} characters")
-        return chunk
-
-    if kind == "unr":
-        # The same walk `unreached` did. The middle field is how many
-        # definitions were ranked, not a character budget: the offset counts
-        # rows of that list, so continuing it needs the list it counted.
-        block = fields[0]
-        if block not in UNREACHED_NAMES:
-            return _stale(f"{block!r} is not an unreached block; they are "
-                          + ", ".join(UNREACHED_NAMES))
-        try:
-            rows = int(fields[1])
-        except ValueError:
-            return _stale(f"{fields[1]!r} is not a row count")
-        if rows < 1:
-            return _stale("a row count cannot be below one")
-        lines = unreached_lines(
-            unreached(load_map(os.path.dirname(map_path) or "."), rows), block)
-        if offset >= len(lines):
-            return _stale(f"the {block} block is {len(lines)} "
-                          f"line{'' if len(lines) == 1 else 's'} long, and "
-                          f"this handle asks for line {offset + 1} of it")
-        chunk, reached = _block_chunk(
-            UNREACHED_HEADS[block], lines[offset:], limit,
-            lambda got: f"more:unr:{block}:{rows}:{got}", offset)
-        if reached == offset:
-            return _stale(f"line {offset + 1} of the {block} block does not "
-                          f"fit in {limit} characters")
-        return chunk
+    if kind in _GRAPH_MORE:
+        return _graph_more(map_path, kind, fields, offset, limit)
 
     if kind == "find":
         try:
@@ -2763,25 +2716,28 @@ def affected_answer(map_path: str, files, depth: int = DEFAULT_DEPTH,
         return lambda got: f"more:aff:{block}:{field}:{walked}:{got}"
 
     lines = {block: block_lines(result, block) for block in AFFECTED_NAMES}
-    return _cut_blocks(head, AFFECTED_BLOCKS, lines, handle_for, limit)
+    blocks = tuple(entry for entry in AFFECTED_BLOCKS if lines[entry[0]])
+    return _blocked_answer(head, blocks, lines, handle_for, limit,
+                           first="unreachable")
 
 
-def _cut_blocks(head: str, blocks: tuple, lines: dict, handle_for,
-                limit: int) -> str:
-    """One graph answer: a first line, then its blocks cut to what is left.
+def _blocked_answer(head: str, blocks: tuple, lines: dict, handle_for,
+                    limit: int, first: str = "") -> str:
+    """A first line and a set of blocks, cut to `limit` and never past it.
 
-    The three answers `graph.py` holds are cut identically, so they are cut
-    here rather than three times: each block gets the smaller of what it
-    needs and its floor share, what nobody claims is handed on in printing
-    order, a block that was cut ends in a tail carrying its handle, and a
-    block there was no room for at all still gets a line saying how many rows
-    it holds and the handle that fetches them.
+    The shape every graph answer in this project has: `affected` and `path`
+    both print a line of counts and then blocks of
+    whole rows, each block guaranteed a floor share and handed what the
+    others did not want, each block that was cut ending in a tail with the
+    handle that fetches the rest, and each block there was no room for at all
+    printed as one "raise the budget" line rather than dropped in silence.
 
-    A block with nothing in it is dropped before any of that: the first line
-    has already said the count, and heads over empty lists are budget spent
-    saying nothing twice.
+    `blocks` is `(name, head, floor percentage)` per block, already filtered
+    to the ones holding a row: five heads over five empty lists are five rows
+    of a budget spent saying nothing twice. `first` is the block whose
+    "raise the budget" line is given up last, which is the block that says
+    the answer is partial where an answer has one.
     """
-    blocks = tuple(entry for entry in blocks if lines[entry[0]])
     out = [head]
     # Every block pays for the blank line above it, so what the blocks divide
     # is what is left after the first line and those separators, and the
@@ -2789,7 +2745,7 @@ def _cut_blocks(head: str, blocks: tuple, lines: dict, handle_for,
     room = limit - len(head) - 2 * len(blocks)
     rooms: dict = {}
     if blocks and room > 0:
-        rooms = _affected_rooms(room, blocks, lines, handle_for)
+        rooms = _rooms_with_left_out(room, blocks, lines, handle_for)
         for block, bhead, _pct in blocks:
             if not rooms.get(block):
                 continue
@@ -2800,7 +2756,7 @@ def _cut_blocks(head: str, blocks: tuple, lines: dict, handle_for,
     text = "\n\n".join(out)
     short = [block for block, _h, _p in blocks if not rooms.get(block)]
     return "\n\n".join([text] + _left_out(short, lines, handle_for,
-                                           limit - len(text) - 2))
+                                           limit - len(text) - 2, first))
 
 
 def _left_line(block: str, rows: list, handle_for) -> str:
@@ -2811,15 +2767,18 @@ def _left_line(block: str, rows: list, handle_for) -> str:
             f"({handle_for(block)(0)})")
 
 
-def _left_out(short: list, lines: dict, handle_for, room: int) -> list:
+def _left_out(short: list, lines: dict, handle_for, room: int,
+              first: str = "") -> list:
     """Those lines for every block that was not printed, as one paragraph,
     while they fit in what is left.
 
-    Printed in the blocks' own order, but claimed in another: `unreachable`
-    takes its room first and is the last of these lines to be given up. It is
-    the block that says the answer is partial, which is why it is last in
-    `BLOCKS` and holds a quarter of the floor, and walking `short` in that
-    same order here made it the first line dropped. Measured at 600
+    Printed in the blocks' own order, but claimed in another: `first` takes
+    its room first and is the last of these lines to be given up. On an
+    `affected` answer that block is `unreachable`, the one that says the
+    answer is partial, which is why it is last in `BLOCKS` and holds a
+    quarter of the floor; walking `short` in that same order here made it the
+    first line dropped. An answer with no such block passes no name and the
+    lines are claimed in printing order. Measured at 600
     characters on a suite of eight feature files with a file the graph has no
     row for: three of these lines printed and none for `unreachable`, whose
     row was then out of reach.
@@ -2829,7 +2788,7 @@ def _left_out(short: list, lines: dict, handle_for, room: int) -> list:
     than print the ones it can hold, and the first line still carries every
     count.
     """
-    kept, order = [], sorted(short, key=lambda b: b != "unreachable")
+    kept, order = [], sorted(short, key=lambda b: b != first)
     for block in order:
         line = _left_line(block, lines[block], handle_for)
         cost = len(line) + (1 if kept else 0)
@@ -2842,7 +2801,8 @@ def _left_out(short: list, lines: dict, handle_for, room: int) -> list:
     return ["\n".join(out)] if out else []
 
 
-def _affected_rooms(room: int, blocks: tuple, lines: dict, handle_for) -> dict:
+def _rooms_with_left_out(room: int, blocks: tuple, lines: dict,
+                         handle_for) -> dict:
     """`_block_rooms`, with the room those "raise the budget" lines need
     taken out of the share first.
 
@@ -2900,7 +2860,7 @@ def reaches_answer(map_path: str, name: str,
         return lambda got: f"more:rch:{block}:{field}:{got}"
 
     lines = {block: reaches_lines(result, block) for block in REACHES_NAMES}
-    return _cut_blocks(head, REACHES_BLOCKS, lines, handle_for, limit)
+    return _graph_answer(head, REACHES_BLOCKS, lines, handle_for, limit)
 
 
 def unreached_answer(map_path: str, rows: int = UNREACHED_LIMIT,
@@ -2924,4 +2884,165 @@ def unreached_answer(map_path: str, rows: int = UNREACHED_LIMIT,
         return lambda got: f"more:unr:{block}:{walked}:{got}"
 
     lines = {block: unreached_lines(result, block) for block in UNREACHED_NAMES}
-    return _cut_blocks(head, UNREACHED_BLOCKS, lines, handle_for, limit)
+    return _graph_answer(head, UNREACHED_BLOCKS, lines, handle_for, limit)
+
+
+# What one `path` answer may take, in characters.
+# The same ceiling `ask()`, `context` and `affected` print at: an answer read
+# off the command line and the same answer read off the MCP tool land in the
+# same conversation and are paid for again on every turn after.
+GRAPH_BUDGET = 12000
+
+
+def _graph_answer(head: str, blocks: tuple, lines: dict, handle_for,
+                  limit: int) -> str:
+    """One graph answer, cut, or nothing at all when its first line overruns.
+
+    `limit` is a ceiling here as it is for `ask()` and `context`, and the
+    first line is the smallest thing these tools have to say. Under it there
+    is no answer, not a first line that overruns.
+    """
+    if len(head) > limit:
+        return ""
+    kept = tuple(entry for entry in blocks if lines[entry[0]])
+    return _blocked_answer(head, kept, lines, handle_for, limit)
+
+
+def _with_heads(result: dict, blocks: tuple, head_for) -> tuple:
+    """`(name, head, percentage)` per block, with each head composed from the
+    result: a `range` head names the site it is about and a `path` head the
+    hop its rows stopped at, so the head is not a constant the way
+    `affected`'s are."""
+    return tuple((name, head_for(result, name), pct) for name, pct in blocks)
+
+
+def path_answer(map_path: str, a: str, b: str, depth: int = DEFAULT_DEPTH,
+                limit: int = GRAPH_BUDGET) -> str:
+    """The shortest call chain from `a` to `b`, from the graph in the map.
+
+    `graph.path` walks it and this cuts it, by the rules every other answer
+    here is cut by: whole rows, a floor share per block, a tail with a
+    `more:pth:` handle under a block that did not fit.
+
+    Two blocks, and only one of them ever holds a row: a walk that arrived
+    prints its chain, and a walk that did not prints the names it reached at
+    the last hop it managed, so "no path" says how far it got rather than
+    only that it failed.
+    """
+    result = path(load_map(os.path.dirname(map_path) or "."), a, b, depth)
+    head = path_summary(result, limit)
+    fields = (_encode(a), _encode(b), result["depth"])
+
+    def handle_for(block: str):
+        return lambda got: (f"more:pth:{block}:{fields[0]}:{fields[1]}:"
+                            f"{fields[2]}:{got}")
+
+    lines = {block: path_lines(result, block) for block in PATH_NAMES}
+    return _graph_answer(head, _with_heads(result, PATH_BLOCKS, path_head),
+                         lines, handle_for, limit)
+
+
+
+
+# How to ask one graph answer again, from a handle's own fields: the walk or
+# the lookup is done over the map on disk rather than remembered, which is
+# what makes a handle survive a rebuild honestly. Each returns
+# `(result, the fields the next handle repeats, what to call the question in
+# a complaint)`, or a string, which is a stale handle and the answer.
+
+
+def _pth_again(m: dict, fields: list):
+    """One `path` question again: two names and a depth."""
+    asked = []
+    for field in fields[1:3]:
+        try:
+            asked.append(_decode(field))
+        except ValueError as exc:
+            return _stale(f"{field!r} is not a name this wrote: {exc}")
+    try:
+        depth = int(fields[3])
+    except ValueError:
+        return _stale(f"{fields[3]!r} is not a depth")
+    result = path(m, asked[0], asked[1], depth)
+    return (result, f"{fields[1]}:{fields[2]}:{result['depth']}",
+            f"{asked[0]} to {asked[1]}")
+
+
+
+
+def _rch_again(m: dict, fields: list):
+    """One `reaches` question again: the name the handle carries."""
+    try:
+        named = _decode(fields[1])
+    except ValueError as exc:
+        return _stale(f"{fields[1]!r} is not a name this wrote: {exc}")
+    return reaches(m, named), fields[1], repr(named)
+
+
+def _unr_again(m: dict, fields: list):
+    """One `unreached` question again. The middle field is how many
+    definitions were ranked, not a character budget: the offset counts rows
+    of that list, so continuing it needs the list it counted."""
+    try:
+        rows = int(fields[1])
+    except ValueError:
+        return _stale(f"{fields[1]!r} is not a row count")
+    if rows < 1:
+        return _stale("a row count cannot be below one")
+    return unreached(m, rows), str(rows), None
+
+
+# The graph answers a `more:` handle can continue, and everything continuing
+# one needs: how many fields its handle carries after the kind, the blocks it
+# prints, the head of one block, its rows, and how to ask the question again.
+# `more()` reads the widths off this, so an answer is here or it is nowhere.
+_GRAPH_MORE = {
+    "pth": (5, PATH_NAMES, path_head, path_lines, _pth_again),
+    "rch": (3, REACHES_NAMES, lambda _r, block: REACHES_HEADS[block],
+            reaches_lines, _rch_again),
+    "unr": (3, UNREACHED_NAMES, lambda _r, block: UNREACHED_HEADS[block],
+            unreached_lines, _unr_again),
+}
+
+# What a block of one of those is called when a handle names one that is not
+# there. The kind's own spelling reads as an error message for `pth`, which
+# is what the flag is called; `rch` and `unr` are abbreviations of words a
+# reader knows, so they are said in full.
+_GRAPH_MORE_NOUN = {"rch": "reaches", "unr": "unreached"}
+
+
+def _graph_more(map_path: str, kind: str, fields: list, offset: int,
+                limit: int) -> str:
+    """One block of a graph answer, from the line `offset` counts to.
+
+    Nothing is stored between the call that printed the handle and this one:
+    the question is in the handle's own fields, the graph is whatever the map
+    on disk now holds, and the block is composed again from the same
+    functions at this call's own budget. A block the rebuild shortened comes
+    back as a stale handle instead of a slice of some other list.
+    """
+    _width, names, head_for, lines_for, again = _GRAPH_MORE[kind]
+    block = fields[0]
+    if block not in names:
+        return _stale(f"{block!r} is not a {_GRAPH_MORE_NOUN.get(kind, kind)} "
+                      "block; they are " + ", ".join(names))
+    asked = again(load_map(os.path.dirname(map_path) or "."), fields)
+    if isinstance(asked, str):
+        return asked
+    result, rest, asked_for = asked
+    lines = lines_for(result, block)
+    if offset >= len(lines):
+        # `asked_for` is None where the question has no subject to name: an
+        # `unreached` answer is about the whole map rather than about a name.
+        about = f" for {asked_for}" if asked_for else ""
+        return _stale(f"the {block} block{about} is "
+                      f"{len(lines)} line{'' if len(lines) == 1 else 's'} "
+                      f"long, and this handle asks for line {offset + 1} "
+                      "of it")
+    chunk, reached = _block_chunk(
+        head_for(result, block), lines[offset:], limit,
+        lambda got: f"more:{kind}:{block}:{rest}:{got}", offset)
+    if reached == offset:
+        return _stale(f"line {offset + 1} of the {block} block does not fit "
+                      f"in {limit} characters")
+    return chunk

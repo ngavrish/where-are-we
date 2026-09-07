@@ -28,11 +28,12 @@ import sys
 # `src/where_are_we` is itself the import root.
 try:
     from . import ask as _ask, effects, graph, hooks, lsp, mcp, specs
-    from .ask import (AFFECTED_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
-                       UNREACHED_LIMIT, affected_answer, ask, at,
+    from .ask import (AFFECTED_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
+                       RANK_LIMIT, UNREACHED_LIMIT, affected_answer, ask, at,
                        callees_line, callers, context, file_list, impact,
-                       log_answer, map_heads, rank_lines, reaches_answer,
-                       selection_lines, spans_for, unreached_answer)
+                       log_answer, map_heads, path_answer, rank_lines,
+                       reaches_answer, selection_lines, spans_for,
+                       unreached_answer)
     from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
                                  changed_since, cost, ctags, digest, export,
@@ -52,11 +53,11 @@ except ImportError:  # run as a plain file, with no package around it
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import (AFFECTED_BUDGET,  # type: ignore[no-redef]
+    from ask import (AFFECTED_BUDGET, GRAPH_BUDGET,  # type: ignore[no-redef]
                      IMPACT_MAX_DEPTH, RANK_LIMIT, UNREACHED_LIMIT,
                      affected_answer, ask, at, callees_line, callers, context,
-                     file_list, impact, log_answer, map_heads, rank_lines,
-                     reaches_answer, selection_lines, spans_for,
+                     file_list, impact, log_answer, map_heads, path_answer,
+                     rank_lines, reaches_answer, selection_lines, spans_for,
                      unreached_answer)
     from _mapper.build import (build,  # type: ignore[no-redef]
                                declares_rows, sort_xrefs)
@@ -662,6 +663,17 @@ def build_parser() -> argparse.ArgumentParser:
                          "is how much of this is untested rather than "
                          "unknown. --limit sets how many are ranked. Reads "
                          "framework_map.json under --out")
+    ap.add_argument("--path", dest="call_path", default="", metavar="A,B",
+                    help="print the shortest call chain from A to B over the "
+                         "map's `xrefs` calls rows, one hop per line with the "
+                         "rule that placed each edge and the line the call is "
+                         "on. Each endpoint is a name, or FILE:NAME where "
+                         "several files declare it. Only cross-file calls are "
+                         "in the graph. Reads framework_map.json under --out")
+    ap.add_argument("--path-depth", type=_affected_depth,
+                    default=graph.DEFAULT_DEPTH, metavar="N",
+                    help="how many call hops --path follows forward, 1 to "
+                         f"{graph.MAX_DEPTH} (default {graph.DEFAULT_DEPTH})")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
@@ -864,6 +876,7 @@ def _dry_run_answer(args) -> int:
         ("--affected-out", args.affected_out),
         ("--changed", args.changed is not None),
         ("--reaches", args.reaches), ("--unreached", args.unreached),
+        ("--path", args.call_path),
         ("--rank", args.rank_files is not None),
         ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
@@ -969,7 +982,7 @@ def main() -> int:
                          or args.defines or args.at_place
                          or args.context_name or args.affected
                          or args.changed is not None or args.reaches
-                         or args.unreached
+                         or args.unreached or args.call_path
                          or args.export is not None
                          or args.rank_files is not None
                          or args.cost is not None):
@@ -1031,7 +1044,7 @@ def main() -> int:
             or args.callees or args.impact or args.more_handle
             or args.defines or args.at_place or args.context_name
             or args.affected or args.changed is not None
-            or args.reaches or args.unreached
+            or args.reaches or args.unreached or args.call_path
             or args.export is not None or args.rank_files is not None
             or args.cost is not None):
         out_dir = os.path.abspath(args.out)
@@ -1067,6 +1080,7 @@ def main() -> int:
                              or args.at_place or args.context_name
                              or args.affected or args.changed is not None
                              or args.reaches or args.unreached
+                             or args.call_path
                              or args.export is not None
                              or args.rank_files is not None
                              or args.cost is not None):
@@ -1217,6 +1231,19 @@ def main() -> int:
             log_answer(out_dir, "unreached", str(args.limit or
                                                  UNREACHED_LIMIT), answer,
                        _ask.UNREACHED_BUDGET)
+        if args.call_path:
+            # The same call the MCP `path` tool makes, at the same budget, so
+            # a chain asked here and asked there comes back byte for byte the
+            # same. Two names, comma separated, because a path has two ends
+            # and a flag that took one of them would need a second flag to
+            # say where to.
+            ends = [e.strip() for e in args.call_path.split(",") if e.strip()]
+            if len(ends) != 2:
+                print("--path takes two names, A,B: the chain runs from the "
+                      "first to the second", file=sys.stderr)
+                return 2
+            answer = path_answer(map_path, ends[0], ends[1], args.path_depth)
+            log_answer(out_dir, "path", ",".join(ends), answer, GRAPH_BUDGET)
             print(answer)
             return 0
         if args.rank_files is not None:

@@ -63,6 +63,11 @@ _ROUTE_FILE = re.compile(r"\(([^()]+)\)\s*$")
 # leaves the angle brackets alone, so this finds them after escaping.
 _OUTLINE_SLOT = re.compile(r"<[^>]*>")
 
+# What `_mapper/walk.py` writes in place of a value that looked like a
+# secret. A line carrying it is not the line on disk, so `range` marks it
+# rather than offering it as something an `Edit` can match on.
+REDACTED = "[redacted]"
+
 # How many `--name` arguments a behave selection prints one per scenario
 # before it alternates each feature file's names into one argument instead.
 # A command line has a length: 200 names of a suite's own scale is a few
@@ -138,7 +143,8 @@ def _plural(count: int, word: str) -> str:
     return f"{count} {word}" if count == 1 else f"{count} {word}s"
 
 
-def _climb(m: dict, seeds, depth=None, up: bool = True) -> dict:
+def _climb(m: dict, seeds, depth=None, up: bool = True,
+           goal=None) -> dict:
     """The one walk over the map's `calls` rows, in whichever direction.
 
     `seeds` are `(file, name)` nodes at hop 0, and each hop takes the `calls`
@@ -152,12 +158,23 @@ def _climb(m: dict, seeds, depth=None, up: bool = True) -> dict:
     does not know which of two files it reaches.
 
     Nodes are `(file, name)` pairs and the visited set carries across hops, so
-    a cycle is walked once; the frontier is sorted at every hop and the rows
-    of one node are taken in the order `xrefs` holds them, so the hop a node
-    is first found at, and the edge that found it, are the same on every run.
+    a cycle is walked once; the frontier is sorted at every hop, so the hop a
+    node is first found at, and the edge that found it, are the same on every
+    run. Downward, one node's rows are sorted by callee, call-site line and
+    resolution before they are followed, which `path` needs to print the same
+    chain every time and which the mapper's emission order happens to give
+    already: measured over this repository's own graph and the golden suite,
+    no calling node's rows are out of that order. Sorting them here rather
+    than relying on that habit costs nothing and pins the determinism.
     `depth` of None walks until nothing new is found, which is what a question
     about the whole graph ("does anything at all reach this") needs and what a
     question about a change ("which tests, six hops out") does not.
+
+    `goal`, when given, stops the walk at the end of the hop that first
+    reaches one of those nodes. A node is recorded at the first hop it is
+    found at, so the chain read back from a goal is the shortest one either
+    way; what the early stop changes is how much of the graph was walked,
+    which is the number `path` reports as its reach.
 
     Returns `{node: (hop, row, parent)}`. `parent` is the node this one was
     found from, so a chain of hops can be read back off it without the walk
@@ -185,6 +202,8 @@ def _climb(m: dict, seeds, depth=None, up: bool = True) -> dict:
                 seen[reached] = (hop, row, node)
                 found.append(reached)
         frontier = sorted(found)
+        if goal and any(node in goal for node in frontier):
+            break
     return seen
 
 
@@ -201,11 +220,14 @@ def _next_nodes(index: dict, node: tuple, up: bool):
                 row.get("subject") or "").rpartition(":")
             yield (caller_file, caller_name), row
         return
-    for row in index.get(f"{holder}:{name}", ()):
+    rows = sorted(index.get(f"{holder}:{name}", ()),
+                  key=lambda r: (str(r.get("object") or ""), r.get("line") or 0,
+                                 str(r.get("resolution"))))
+    for row in rows:
         settled = row.get("file")
         for target in ([settled] if settled
-                       else sorted(row.get("candidates") or ())):
-            yield (target, row.get("object")), row
+                       else sorted(str(c) for c in (row.get("candidates") or ()))):
+            yield (target, str(row.get("object") or "")), row
 
 
 def affected(m: dict, files, depth: int = DEFAULT_DEPTH) -> dict:
@@ -248,14 +270,21 @@ def affected(m: dict, files, depth: int = DEFAULT_DEPTH) -> dict:
     return _blocks_from(m, root, wanted, depth, seen, set(subjects))
 
 
-def _spans_at(m: dict) -> tuple:
-    """`(step_at, func_at)`: where each step phrase and each function sits.
+def _declaration_sites(m: dict) -> tuple:
+    """`(step_at, func_at)`, both read off `spans` in one pass.
 
-    A behave step is two declarations on one line: the function, and the
-    phrase its decorator binds. So a node is a step function when `spans` has
-    it as a function and has a phrase starting on the same line of the same
-    file, which is the join that identifies one without reading the source or
-    guessing from a module's name.
+    Where each declaration of each kind sits. A behave step is two
+    declarations on one line: the function, and the phrase its decorator
+    binds. So a node is a step function when `spans` has it as a function and
+    has a phrase starting on the same line of the same file, which is the
+    join that identifies one without reading the source or guessing from a
+    module's name.
+
+    `step_at` is `{(file, line): phrase}` and `func_at` is
+    `{(file, name): line}`. `affected` uses both to say which reached node is
+    a step, and `dead` uses `step_at` to leave a step function out of a list
+    of things nothing calls: nothing calls a step function, because behave
+    does, off a phrase in a feature file.
     """
     step_at, func_at = {}, {}
     for name, sites in (m.get("spans") or {}).items():
@@ -302,7 +331,7 @@ def _steps_reached(m: dict, root: str, seen: dict) -> tuple:
     closer to what was asked about. Ties by phrase, then by module and
     function, so the choice does not depend on the order the walk found them.
     """
-    step_at, func_at = _spans_at(m)
+    step_at, func_at = _declaration_sites(m)
     by_site: dict = {}
     for (holder, name), found in seen.items():
         hop = found[0]
@@ -672,6 +701,495 @@ def _name_pattern(*names: str) -> str:
     inner = "|".join(_OUTLINE_SLOT.sub(".*", re.escape(name)) for name in names)
     return "^" + (inner if len(names) == 1 else f"({inner})") + "( -- @|$)"
 
+HOW_COUNTED = "## How this was counted"
+
+
+# --------------------------------------------------------------------- path
+#
+# One chain from A to B over the same `calls` rows `affected` walks, in the
+# other direction: caller to callee, forward, which is how a reader asks "how
+# does this reach that". `affected` walks upward because it starts at a change
+# and wants the tests above it; `path` walks downward because it starts at a
+# caller and wants the callee under it. Same rows, same resolutions, same
+# ambiguous-edge rule, so a hop printed here is a hop the map already holds.
+
+
+def _edge_files(row: dict) -> list:
+    """The files one `calls` row's callee may be declared in.
+
+    The settled file where the edge named one, and every candidate where it
+    named several. An ambiguous edge is walked into each candidate rather
+    than dropped or guessed at: the map says it could not choose, and a walk
+    that chose for it would print a chain the graph does not hold.
+    """
+    settled = row.get("file")
+    if settled:
+        return [settled]
+    return sorted(str(c) for c in (row.get("candidates") or ()))
+
+
+def _file_named(path: str, root: str, hint: str) -> bool:
+    """Whether `hint` names `path`: the repo-relative path, a suffix of it,
+    or its basename. The rule `at()` resolves a stack trace's file with, so
+    `cli.py:main` and `src/where_are_we/cli.py:main` are one question."""
+    rel = _rank_graph.relative(path, root)
+    want = hint.replace(os.sep, "/").lstrip("./")
+    return bool(want) and (rel == want or rel.endswith("/" + want)
+                           or os.path.basename(rel) == want)
+
+
+def _graph_nodes(m: dict) -> dict:
+    """`{name: {files}}`: every node this walk can stand on.
+
+    `spans` first, which is where a declaration and its file live. Then the
+    `xrefs` table itself, both ends of every row, because the walk is over
+    that table and a graph can hold a node the declaration index does not: a
+    repository mapped with no product root writes its `calls` rows and no
+    `spans` at all, and a path through those rows is still a path. An
+    endpoint this can name is exactly an endpoint the walk can start or
+    finish on.
+    """
+    out: dict = {}
+    for name, sites in (m.get("spans") or {}).items():
+        for site in sites or ():
+            if site.get("file"):
+                out.setdefault(name, set()).add(site["file"])
+    for row in m.get("xrefs") or []:
+        edge = row.get("edge")
+        if edge == "declares":
+            out.setdefault(str(row.get("object") or ""),
+                           set()).add(_subject_file(row))
+        elif edge == "calls":
+            caller = str(row.get("subject") or "")
+            out.setdefault(caller.rpartition(":")[2],
+                           set()).add(caller.rpartition(":")[0])
+            for file in _edge_files(row):
+                out.setdefault(str(row.get("object") or ""), set()).add(file)
+    out.pop("", None)
+    return out
+
+
+def _endpoint(m: dict, root: str, spec: str) -> tuple:
+    """`(nodes, name, problem)`: the `(file, name)` pairs one endpoint names.
+
+    `spec` is a name, or `FILE:NAME` where the file narrows a name several
+    files declare. A node of this walk is one name in one file, which is what
+    a `calls` row's settled file and object name are together.
+
+    A dotted name falls back to its last segment: `spans` holds a method
+    under both `CheckoutPage.click_1` and `click_1`, and a `calls` row's
+    object is always the bare form, so the bare form is the node's name and a
+    reader who typed the qualified one is answered about the same node.
+    """
+    text = (spec or "").strip()
+    hint, sep, name = text.rpartition(":")
+    if not sep:
+        hint, name = "", text
+    if not name:
+        return [], text, f"{spec!r} is not a name; give me NAME or FILE:NAME"
+    known = _graph_nodes(m)
+    files = known.get(name) or set()
+    if not files and "." in name:
+        bare = name.rpartition(".")[2]
+        if known.get(bare):
+            name, files = bare, known[bare]
+    nodes = sorted((file, name) for file in files)
+    if not nodes:
+        return [], name, f"no declaration of {name!r} in this map"
+    if hint:
+        narrowed = [n for n in nodes if _file_named(n[0], root, hint)]
+        if not narrowed:
+            return [], name, (f"{name!r} is declared in this map, but not in "
+                              f"a file called {hint!r}")
+        nodes = narrowed
+    return nodes, name, ""
+
+
+def path(m: dict, a: str, b: str, depth: int = DEFAULT_DEPTH) -> dict:
+    """The shortest call chain from `a` to `b`, over the `calls` rows.
+
+    Breadth first from every declaration `a` names, following each node's own
+    `calls` rows forward. The rows out of one node are sorted by callee,
+    call-site line and resolution, and each hop's frontier is sorted, so the
+    hop a node is first reached at and the edge that reached it are the same
+    on every run and the chain printed is the same chain.
+
+    A visited set carries across hops, so a cycle is walked once and the walk
+    terminates on a graph that holds one; a node reached at hop 3 is not
+    reached again at hop 5, which is what makes the first chain found the
+    shortest one.
+
+    An ambiguous edge is followed into every candidate. The map says several
+    files declare that name and nothing said which, and a walk that picked
+    one would print a chain the graph does not hold; the hop's own line names
+    the candidates and says which of them this chain took.
+
+    Returns the blocks the answer prints: `hops`, each
+    `(caller file, caller name, row, callee file, callee name)`; `nearest`,
+    the deepest frontier the walk reached when there is no chain, as
+    `(file, name, hop)`; and the counts and complaints the first line states.
+    """
+    depth = max(1, min(int(depth), MAX_DEPTH))
+    root = m.get("repo") or ""
+    starts, a_name, a_bad = _endpoint(m, root, a)
+    targets, b_name, b_bad = _endpoint(m, root, b)
+    out = {"a": a, "b": b, "a_name": a_name, "b_name": b_name, "depth": depth,
+           "root": root, "hops": [], "nearest": [], "reached": 0,
+           "problem": a_bad or b_bad, "same": False}
+    if out["problem"]:
+        return out
+    goal = set(targets)
+    if goal & set(starts):
+        out["same"] = True
+        return out
+
+    # The same walk `affected`, `reaches` and `unreached` run, pointed the
+    # other way. `_climb` sorts each node's rows and stops on the goal, which
+    # is what this used its own breadth-first loop for; keeping two loops over
+    # one table is how the two come to disagree about a chain.
+    seen = _climb(m, starts, depth, up=False, goal=set(targets))
+
+    # The start counted itself, so the reach is what the walk added to it.
+    out["reached"] = len(seen) - len(starts)
+    landed = sorted(n for n in seen if n in goal and seen[n][2] is not None)
+    hit = landed[0] if landed else None
+    if hit is None:
+        # Where the walk stopped: the last frontier it reached, which is the
+        # honest answer to "how close did you get". Not the nodes nearest `b`
+        # by any other measure: a node the forward walk reached that a walk
+        # back from `b` also reached would be a path, so there is no such
+        # node to name.
+        deepest = max((hop for hop, _row, _parent in seen.values()), default=0)
+        frontier = [n for n, (hop, _r, _p) in seen.items() if hop == deepest]
+        out["nearest"] = sorted((_rank_graph.relative(f, root), n,
+                                 seen[(f, n)][0]) for f, n in frontier)
+        return out
+
+    chain = []
+    node = hit
+    while seen[node][2] is not None:
+        _hop, row, parent = seen[node]
+        chain.append((parent[0], parent[1], row, node[0], node[1]))
+        node = parent
+    out["hops"] = list(reversed(chain))
+    return out
+
+
+# The blocks a `path` answer prints, as `(name, floor percentage)`. Only one
+# of the two ever holds a row: a walk that arrived prints its chain and a
+# walk that did not prints where it stopped, so the percentages decide
+# nothing and are there because every block in this project has one.
+PATH_BLOCKS = (("path", 55), ("nearest", 25), ("counted", 20))
+PATH_NAMES = tuple(name for name, _pct in PATH_BLOCKS)
+
+
+def path_head(result: dict, block: str) -> str:
+    """The head of one `path` block."""
+    if block == "path":
+        return "## The chain, one hop per line, with how each edge was resolved"
+    if block == "counted":
+        return HOW_COUNTED
+    hop = result["nearest"][0][2] if result["nearest"] else 0
+    if not hop:
+        # Hop 0 is the start itself, which the walk did not reach: it began
+        # there. The block still prints, because naming the node the question
+        # was asked about is the answer to "where did it get to".
+        return "## Where the walk stopped: the start, which calls nothing here"
+    return f"## Where the walk stopped: the names it reached at hop {hop}"
+
+
+def path_summary(result: dict, limit: int) -> str:
+    """The first line of a `path` answer: the counts, and the one clause that
+    decides what a missing chain means.
+
+    Short, because a first line is read on every turn after and the rules
+    behind it are not: they are rows of `## How this was counted`, where they
+    can be cut without taking the count with them. The clause that stays is
+    cross-file, because it is the reason a chain a reader can see in the
+    source is missing here, and a reader who does not know it will conclude
+    the code does not call what it calls.
+    """
+    rule = "Only cross-file calls are in this graph."
+    room = f"{limit} characters."
+    if result["problem"]:
+        return f"{result['problem']}. {room}"
+    if result["same"]:
+        return (f"{result['a']} and {result['b']} are the same declaration, "
+                f"so the chain is empty. {room}")
+    if result["hops"]:
+        return (f"`{result['a']}` reaches `{result['b']}` in "
+                f"{_plural(len(result['hops']), 'hop')}, the shortest chain "
+                f"the graph holds. Depth {result['depth']}, {room}")
+    if not result["reached"]:
+        # It never left the start. Saying "0 names reached, the ones it
+        # stopped at are below" over a block naming the start itself reads as
+        # a walk that got somewhere, which it did not.
+        return (f"No path from `{result['a']}` to `{result['b']}`: nothing "
+                f"`{result['a_name']}` calls is in this graph, so the walk "
+                f"had nowhere to go from it. {room}")
+    return (f"No path from `{result['a']}` to `{result['b']}` within "
+            f"{_plural(result['depth'], 'hop')}. "
+            f"{_plural(result['reached'], 'name')} reached; where the walk "
+            f"stopped is below. {rule} Depth {result['depth']}, {room}")
+
+
+def path_lines(result: dict, block: str) -> list:
+    """One `path` block's rows, whole, before anything is cut to a budget."""
+    if block == "path":
+        rows = []
+        for i, (holder, name, row, target, callee) in enumerate(result["hops"],
+                                                                1):
+            rel = _rank_graph.relative(holder, result["root"])
+            where = _rank_graph.relative(target, result["root"])
+            line = (f"{i}. `{rel}:{name}` calls `{callee}` at line "
+                    f"{row.get('line')}, {row.get('resolution')}, declared in "
+                    f"`{where}`")
+            if row.get("resolution") == "ambiguous":
+                every = [_rank_graph.relative(c, result["root"])
+                         for c in _edge_files(row)]
+                line += (f"; {_plural(len(every), 'file')} declare "
+                         f"`{callee}` and nothing said which: "
+                         + ", ".join(f"`{c}`" for c in every))
+            rows.append(line)
+        return rows
+    if block == "nearest":
+        return [f"- `{rel}:{name}`, "
+                + ("the start itself" if not hop
+                   else f"{_plural(hop, 'hop')} out")
+                for rel, name, hop in result["nearest"]]
+    if block == "counted":
+        rows = ["- only cross-file calls are in this graph: a call inside the "
+                "file that declares the callee is not written to `xrefs` at "
+                "all, so a hop through one is a hop this cannot walk",
+                f"- breadth first to {_plural(result['depth'], 'hop')}, the "
+                "rows out of a node sorted by callee, call-site line and "
+                "resolution and every frontier sorted, so the same question "
+                "gives the same chain on every run",
+                "- a visited set carries across hops, so a cycle is walked "
+                "once and the first chain found is the shortest",
+                "- an ambiguous edge is followed into every file that "
+                "declares the callee rather than guessed at, and the hop says "
+                "which of them the chain took"]
+        amb = sum(1 for hop in result["hops"]
+                  if hop[2].get("resolution") == "ambiguous")
+        if amb:
+            rows.append(f"- {_plural(amb, 'hop')} of the chain above "
+                        f"{'goes' if amb == 1 else 'go'} through such an edge")
+        if not result["hops"] and result["reached"]:
+            rows.append("- the names below are the last frontier the walk "
+                        "reached; a name both this walk and a walk back from "
+                        "the other end reached would be a path, so there is "
+                        "no nearer set to name")
+        return rows
+    return []
+
+
+# -------------------------------------------------------------------- range
+
+
+def _end_reason(m: dict, site: dict) -> str:
+    """Why one declaration's end is `?`.
+
+    `spans` records an end where a parser knew one and null where nothing
+    did, which is either the language being read by the pattern table or the
+    file having been read to a limit, so the last declaration in it ends at
+    the cut. The two are told apart here by whether this is the last
+    declaration the map holds for that file: below the last one, a cut cannot
+    be the reason.
+    """
+    file = site.get("file")
+    starts = [s.get("start") or 0 for sites in (m.get("spans") or {}).values()
+              for s in sites or () if s.get("file") == file]
+    base = ("this map records an end only where a parser knew one, and "
+            "nothing here measured where the declaration stops")
+    if starts and (site.get("start") or 0) >= max(starts):
+        return (base + "; it is the last declaration in the file, so a read "
+                "cut short would end it here too")
+    return (base + "; it is not the last declaration in the file, so the "
+            "read limit is not the reason")
+
+
+def symbol_range(m: dict, name: str) -> dict:
+    """Every home of one name with its range, and the shortest one's text.
+
+    The move an agent makes before an `Edit`: it needs the file, the first
+    line, the last line, and the line after the last so an insertion lands
+    outside the definition rather than inside it. All three are in `spans`
+    and the text is in `lines`, so this is a lookup rather than a read of the
+    file at a guessed offset.
+
+    The shortest site is the one whose text is printed, because a name
+    declared in two places is usually a small real one and a large one that
+    shadows it, and the small one fits an answer. Ties by file then start.
+    Sites whose end nothing measured cannot be the shortest, because their
+    length is unknown; they are still listed, with `?` and the reason.
+
+    Returns `sites` (every home, in path order), `shortest`, `text` (its
+    lines), `anchor` (start, end and the line after end, each with its own
+    text) and the complaint when the map holds no such name.
+    """
+    root = m.get("repo") or ""
+    spans = m.get("spans") or {}
+    wanted = (name or "").strip()
+    sites = spans.get(wanted) or []
+    if not sites and "." in wanted:
+        bare = wanted.rpartition(".")[2]
+        if spans.get(bare):
+            wanted, sites = bare, spans[bare]
+    out = {"name": wanted, "asked": name, "root": root, "sites": [],
+           "shortest": None, "text": [], "anchor": [], "unknown": 0,
+           "redacted": 0, "problem": ""}
+    if not wanted:
+        out["problem"] = "give me a name"
+        return out
+    if not sites:
+        out["problem"] = f"no declaration of {name!r} in this map"
+        return out
+    ordered = sorted(sites, key=lambda s: (str(s.get("file")),
+                                           s.get("start") or 0,
+                                           str(s.get("kind"))))
+    # Each site with the reason its end is `?`, empty where an end is known,
+    # so the row that prints the `?` prints why beside it rather than sending
+    # the reader to a sentence somewhere else in the answer.
+    out["sites"] = [(site, "" if site.get("end") is not None
+                     else _end_reason(m, site)) for site in ordered]
+    out["unknown"] = sum(1 for site in ordered if site.get("end") is None)
+    measured = [s for s in ordered if s.get("end") is not None]
+    if not measured:
+        return out
+    shortest = min(measured, key=lambda s: (s["end"] - s["start"],
+                                            str(s.get("file")), s["start"]))
+    out["shortest"] = shortest
+    body = (m.get("lines") or {}).get(shortest["file"]) or []
+    start, end = shortest["start"], shortest["end"]
+    out["text"] = list(body[start - 1:end])
+    # The three numbers an editor anchors on, each with the line it names, so
+    # an `Edit` can match on text rather than trusting a number alone. The
+    # line after the end is the one an insertion goes above; where the
+    # definition ends the file there is no such line and the row says so.
+    after = body[end] if end < len(body) else None
+    out["anchor"] = [("start", start, body[start - 1] if start <= len(body)
+                      else None),
+                     ("end", end, body[end - 1] if end <= len(body) else None),
+                     ("after", end + 1, after)]
+    # Whether any line this answer prints was redacted on the way into the
+    # map. `_mapper/walk.py` replaces a value that looks like a secret, so
+    # such a line is not the line on disk and an `Edit` anchored on it either
+    # fails to match or writes the marker into the source. The rows say so
+    # and the first line says so; reading the file to recover the real text
+    # is the other way out and this does not take it, because nothing in this
+    # module opens a source file and a map is often read far from the tree it
+    # was built from, where the file would be a different file or no file.
+    out["redacted"] = sum(1 for line in out["text"] if REDACTED in line) + sum(
+        1 for _label, _n, line in out["anchor"] if line and REDACTED in line)
+    return out
+
+
+RANGE_BLOCKS = (("sites", 20), ("text", 45), ("anchor", 20), ("counted", 15))
+RANGE_NAMES = tuple(name for name, _pct in RANGE_BLOCKS)
+
+
+def range_head(result: dict, block: str) -> str:
+    """The head of one `range` block."""
+    if block == "sites":
+        return "## Every home of this name, as file:start-end kind"
+    if block == "text":
+        site = result["shortest"] or {}
+        where = _rank_graph.relative(str(site.get("file")), result["root"])
+        return (f"## The shortest of them whole: `{where}:"
+                f"{site.get('start')}-{site.get('end')}`")
+    if block == "counted":
+        return HOW_COUNTED
+    return ("## The lines an editor anchors on: first, last, and the one "
+            "after the last")
+
+
+def range_summary(result: dict, limit: int) -> str:
+    """The first line of a `range` answer: how many homes, and the one clause
+    an agent about to anchor an edit has to read before it does.
+
+    Redaction is that clause. Everything else about how the sites were chosen
+    and why an end can be unknown is a row of `## How this was counted`,
+    where the budget can cut it; a line that is not the line on disk cannot
+    be cut, because the whole answer is sold on anchoring an edit on it.
+    """
+    if result["problem"]:
+        return f"{result['problem']}. {limit} characters."
+    head = (f"`{result['name']}` is declared in "
+            f"{_plural(len(result['sites']), 'place')}"
+            + (f", {result['unknown']} of them ending at `?`"
+               if result["unknown"] else "") + f". {limit} characters.")
+    if result["redacted"]:
+        head += (f" {_plural(result['redacted'], 'line')} below "
+                 f"{'holds' if result['redacted'] == 1 else 'hold'} "
+                 f"`{REDACTED}` and {'is' if result['redacted'] == 1 else 'are'}"
+                 " not the line on disk: do not anchor an edit there.")
+    if not result["shortest"]:
+        head += " No site has a measured end, so there is no text to print."
+    return head
+
+
+def range_lines(result: dict, block: str) -> list:
+    """One `range` block's rows, whole, before anything is cut to a budget.
+
+    The `text` block's rows are source lines and carry no bullet: they are
+    the file's own text, and a marker in front of them would have to be
+    stripped by whoever pastes them back.
+    """
+    if block == "sites":
+        rows = []
+        for site, reason in result["sites"]:
+            where = _rank_graph.relative(str(site.get("file")),
+                                         result["root"])
+            end = site.get("end")
+            row = (f"- `{where}:{site.get('start')}-"
+                   f"{end if end is not None else '?'}` "
+                   f"{site.get('kind') or 'name'}")
+            if reason:
+                row += f" (end unknown: {reason})"
+            rows.append(row)
+        return rows
+    if block == "text":
+        return list(result["text"])
+    if block == "counted":
+        rows = ["- every home comes from the map's `spans` key, in path "
+                "order, and nothing here opens a source file",
+                "- the text printed is the shortest site with a measured "
+                "end, ties by file then start: a name declared twice is "
+                "usually a small real one and a large one shadowing it",
+                "- an end of `?` is a declaration nothing measured, and the "
+                "site's own row says whether a read cut short is ruled out",
+                "- the three anchors are the first line of the definition, "
+                "the last, and the one after the last, so an insertion after "
+                "the last lands outside the definition rather than inside it"]
+        if result["redacted"]:
+            rows.append("- a line holding `" + REDACTED + "` had a value "
+                        "that looked like a secret written over on the way "
+                        "into the map, so it is not the line on disk. This "
+                        "answer marks it rather than reading the file back: "
+                        "nothing in this module opens a source file, and a "
+                        "map is often read far from the tree it was built "
+                        "from, where that path is a different file or none")
+        return rows
+    if block == "anchor":
+        rows = []
+        for label, number, text in result["anchor"]:
+            if text is None:
+                rows.append(f"- {label} {number}: the file ends at "
+                            f"{number - 1}, so there is no line here")
+            elif not text.strip():
+                rows.append(f"- {label} {number}: a blank line")
+            else:
+                rows.append(f"- {label} {number}: `{text}`"
+                            + (f"  (this map redacted a value on this line, "
+                               f"so it is not the line on disk; do not anchor "
+                               f"on it)" if REDACTED in text else ""))
+        return rows
+    return []
+
+
+# --------------------------------------------------------------- dead, hot
+
 # The declaration kinds a `calls` row can name. The graph this walks is a
 # call graph, so a constant or a type is never reached by it and would sit in
 # `unreached` for ever whatever the tests do; naming those would drown the
@@ -686,6 +1204,432 @@ def _name_pattern(*names: str) -> str:
 # which is where a reader who suspects one goes. Stated in the block that
 # says how the count was made.
 CALLABLE_KINDS = ("class", "function")
+
+# `dead` asks the same of the same graph and wants the same answer: a
+# constant or a module nothing calls is not dead code either, because
+# `xrefs` records calls and imports rather than every read of every name,
+# so every constant in the map would be listed and the list would say
+# nothing. One tuple under one name, so the two answers cannot drift.
+
+
+
+# The names left out whatever the graph says, because something other than a
+# call reaches them. Printed in the answer's first line, so a reader knows
+# what the list is not.
+DEAD_EXCLUDED = (
+    "a dunder the language itself calls (`__init__` and every other "
+    "`__name__`)",
+    "`main`",
+    "a name starting with `test`, and every case `pytest_tests` records",
+    "a step function, which behave calls off a phrase in a feature file",
+    "a definition in a file a `routes_served` row is served from",
+    "a definition in a file `entry_points` names as a launch script",
+)
+
+# How many files `dead` and how many definitions `hot` print when nobody
+# says. The same order of magnitude as `--rank`'s own default cut down to
+# what a reader scans: a hundred dead files is a project to work through
+# rather than an answer to read.
+DEAD_LIMIT = 40
+HOT_LIMIT = 40
+
+# How many commit lines `_mapper/build.py` keeps for one file in
+# `git_history`. Only used to mark a count read off that key as a floor,
+# which is what a map built before `git_commits` existed can offer.
+_CAPPED_LINES = 5
+
+
+def _called(m: dict) -> set:
+    """`{(file, name)}` every `calls` row lands on.
+
+    An ambiguous row lands on each of its candidates, so a name several files
+    declare is called in all of them. That over-counts, and it over-counts in
+    the direction that keeps a definition out of `dead`: calling something
+    dead that is called is worse than leaving something dead off the list.
+    """
+    out = set()
+    for row in m.get("xrefs") or []:
+        if row.get("edge") != "calls":
+            continue
+        for file in _edge_files(row):
+            out.add((file, str(row.get("object") or "")))
+    return out
+
+
+def _call_suffixes(m: dict) -> set:
+    """The file extensions this map's `calls` rows actually reach.
+
+    Read off the table rather than hard coded, because which languages the
+    call graph covers is a property of the build: Python by `ast`, several
+    more by pattern, and more again under the `[precise]` extra. A
+    declaration in a file of any other kind can never have an incoming row,
+    so calling it dead would report a bound of this graph as a fact about the
+    code: a `def` quoted inside a Markdown fence is not dead code, it is
+    documentation.
+
+    Both ends of every row, so a language whose files only ever declare and
+    never call is still covered.
+
+    What it costs: real code in a language this particular build's call graph
+    did not reach is dropped with the prose. On this repository's own map a
+    `--no-semantic` build places no `.ts` or `.tsx` edge, so `App.tsx:App`
+    and `api.ts:getUser` are not judged either way. That is the trade this
+    rule makes, and the row of `## How this was counted` that names the
+    suffixes counted says so, so a reader can see which languages were left
+    out rather than read an absence as a clean bill.
+
+    Empty when the graph holds no `calls` row at all, which is a repository
+    this cannot answer the question for; `dead` says that rather than
+    printing a clean nothing.
+    """
+    out = set()
+    for row in m.get("xrefs") or []:
+        if row.get("edge") != "calls":
+            continue
+        for file in [_subject_file(row)] + _edge_files(row):
+            out.add(os.path.splitext(str(file))[1].lower())
+    out.discard("")
+    return out
+
+
+def _excluded_files(m: dict, root: str) -> tuple:
+    """`(files, ambiguous)`: the files whose definitions are left out.
+
+    A file a route is served from, and a file `entry_points` names as a
+    launch script. `routes_served` records the basename of the serving file
+    and no path (`GET /invoice  (api.py)`), so where two files of one
+    basename exist the map cannot say which of them serves the route and
+    both are excluded. `ambiguous` counts the basenames that matched more
+    than one file, and a row of `## How this was counted` says how many
+    were taken out on a guess, because silently dropping a file's rows is the
+    one way this list can be wrong rather than long.
+    """
+    bases = set()
+    for route in m.get("routes_served") or ():
+        hit = _ROUTE_FILE.search(str(route))
+        if hit:
+            bases.add(hit.group(1))
+    scripts = {str(k) for k in (m.get("entry_points") or {})}
+    by_base: dict = {}
+    out = set()
+    for name, sites in (m.get("spans") or {}).items():
+        for site in sites or ():
+            file = site.get("file")
+            if not file:
+                continue
+            rel = _rank_graph.relative(file, root)
+            base = os.path.basename(rel)
+            if base in bases:
+                by_base.setdefault(base, set()).add(file)
+            if base in bases or rel in scripts:
+                out.add(file)
+    return out, sum(1 for files in by_base.values() if len(files) > 1)
+
+
+def _readable(name: str) -> tuple:
+    """How to choose between the spellings one declaration is held under.
+
+    A site is in `spans` more than once: a class is there as `LoginPage` and
+    as `class LoginPage`, and a method as `LoginPage.sign_in` and `sign_in`.
+    The name a reader greps for is the one that reads as an identifier, so a
+    spelling with a space in it loses to one without, and among those the
+    qualified one wins, because `LoginPage.sign_in` says which class and
+    `sign_in` does not.
+    """
+    return (" " in name, -len(name), name)
+
+
+def _entry_name(name: str) -> bool:
+    """Whether a name is an entry point rather than something called.
+
+    The last segment, so `Case.test_pay` and `test_pay` are both test entry
+    points and `Thing.__init__` is a dunder.
+    """
+    bare = name.rpartition(".")[2]
+    return (bare == "main" or bare.startswith("test")
+            or (bare.startswith("__") and bare.endswith("__")))
+
+
+def dead(m: dict, limit: int = DEAD_LIMIT) -> dict:
+    """The definitions no `calls` row lands on, grouped by file.
+
+    A site rather than a name: `spans` holds a method under both
+    `CheckoutPage.click_1` and `click_1`, one declaration on one line, and a
+    list that named both would report twice the dead code a file has. The
+    qualified spelling is the one printed, because it is the one a reader
+    greps for; a site is called when any of its spellings is called.
+
+    `DEAD_EXCLUDED` says what is left out and the answer's first line prints
+    it, because a list of things nothing calls is only readable when the
+    reader knows which callers it does not count.
+
+    The caveat that matters most is not an exclusion: `xrefs` holds cross
+    file calls and nothing else, so a function called only from the file that
+    declares it has no incoming row and is here. The first line says so.
+    """
+    root = m.get("repo") or ""
+    limit = max(1, int(limit))
+    called = _called(m)
+    step_at, _func_at = _declaration_sites(m)
+    skip_files, guessed = _excluded_files(m, root)
+    cases = {name for names in (m.get("pytest_tests") or {}).values()
+             for name in names or ()}
+
+    # By site, with every name that site is declared under, so one `def` is
+    # one row and a call on any of its spellings keeps it off the list.
+    reachable = _call_suffixes(m)
+    at_site: dict = {}
+    for name, sites in (m.get("spans") or {}).items():
+        for site in sites or ():
+            if site.get("kind") not in CALLABLE_KINDS or not site.get("file"):
+                continue
+            if os.path.splitext(str(site["file"]))[1].lower() not in reachable:
+                continue
+            at_site.setdefault((site["file"], site.get("start") or 0),
+                               []).append(name)
+
+    rows = []
+    for (file, start), names in at_site.items():
+        if file in skip_files or step_at.get((file, start)) is not None:
+            continue
+        if any(_entry_name(n) or n in cases for n in names):
+            continue
+        if any((file, n) in called or (file, n.rpartition(".")[2]) in called
+               for n in names):
+            continue
+        rows.append((_rank_graph.relative(file, root),
+                     min(names, key=_readable), start))
+
+    by_file: dict = {}
+    for rel, name, start in sorted(rows, key=lambda r: (r[0], r[2], r[1])):
+        by_file.setdefault(rel, []).append((name, start))
+    files = sorted(by_file.items())
+    return {"files": files[:limit], "held": len(files), "total": len(rows),
+            "considered": len(at_site), "limit": limit, "guessed": guessed,
+            "graph": bool(reachable), "declared": sum(
+                1 for sites in (m.get("spans") or {}).values()
+                for site in sites or () if site.get("kind") in CALLABLE_KINDS),
+            "suffixes": ", ".join(sorted(reachable)) or "none"}
+
+
+DEAD_BLOCKS = (("dead", 70), ("counted", 30))
+DEAD_NAMES = tuple(name for name, _pct in DEAD_BLOCKS)
+
+
+def dead_head(_result: dict, block: str) -> str:
+    """The head of one `dead` block."""
+    if block == "counted":
+        return HOW_COUNTED
+    return "## Definitions with no incoming call row, by file, in path order"
+
+
+def dead_summary(result: dict, limit: int) -> str:
+    """The first line of a `dead` answer: the counts, and the one sentence
+    that decides what they mean.
+
+    Short. It used to carry both caveats, the file-kind rule, the whole
+    exclusion list and the route guess, which came to about a thousand
+    characters: a first line that long is re-read on every turn of a
+    conversation, and it put the whole answer out of reach below its own
+    length. Everything but the sentence a reader has to have is a row of
+    `## How this was counted`, which the budget may cut.
+
+    The sentence that stays is the one the flag's name argues against. Most
+    of this list, on a library, is a call the map could not place rather than
+    a definition nothing calls, and a reader who takes the rows for dead code
+    and deletes them will break the build.
+
+    A map whose graph holds no `calls` row cannot answer the question at all,
+    and says so instead of printing a clean nothing, which is the reading a
+    small repository would otherwise get.
+    """
+    if not result["graph"]:
+        return (f"No call graph in this map: not one `xrefs` calls row, so "
+                f"nothing here can be called dead. The map holds "
+                f"{result['declared']} function"
+                f"{'' if result['declared'] == 1 else 's'} and classes. "
+                f"{limit} characters.")
+    return (f"{result['total']} of {result['considered']} definitions in "
+            f"{_plural(result['held'], 'file')} have no incoming calls row. "
+            f"Most of a list like this is calls the map could not place, not "
+            f"dead code. Top {result['limit']} files, {limit} characters.")
+
+
+def dead_lines(result: dict, block: str) -> list:
+    """The one `dead` block's rows: one file per row, its dead definitions
+    with the line each starts on.
+
+    One row per file rather than per definition, so a block cut to a budget
+    loses whole files and never a file's header with its names below it. It
+    is also the shape the map's own "Page-object methods nothing calls"
+    section prints, which is the same question asked of a different table.
+    """
+    if block == "counted":
+        if not result["graph"]:
+            # No calls row at all, so there is no list above and no rule that
+            # made one. What is worth saying is what the map does hold and
+            # what would have to change for the question to have an answer.
+            return ["- a definition is called dead here when no `xrefs` "
+                    "calls row lands on it, and this map holds no such row, "
+                    "so the question has no answer rather than the answer no",
+                    f"- the map does hold {result['declared']} function"
+                    f"{'' if result['declared'] == 1 else 's'} and classes, "
+                    "in every language it indexed",
+                    "- `calls` rows are written for the languages this build "
+                    "resolves calls in; a tree of any other, or a map from "
+                    "before 1.5.0, has none"]
+        rows = ["- only cross-file calls are in this graph, so a definition "
+                "called from the file that declares it has no incoming row "
+                "and is above",
+                "- so is one whose callers this map's resolver could not "
+                "place, which is what a call through an imported module "
+                "looks like: on a library that is most of the list, and on a "
+                "test suite, where a page object is called from step modules, "
+                "it is few",
+                f"- counted over the {result['considered']} functions and "
+                "classes this map holds in the file kinds its call graph "
+                f"reaches ({result['suffixes']}); a declaration in any other "
+                "language is not judged either way, because no row could ever "
+                "land on it"]
+        rows += [f"- left out: {rule}" for rule in DEAD_EXCLUDED]
+        if result["guessed"]:
+            rows.append(
+                f"- {_plural(result['guessed'], 'route file basename')} "
+                f"{'names' if result['guessed'] == 1 else 'name'} more than "
+                "one file in this map and `routes_served` records no path, so "
+                "every one of them was left out on a guess")
+        rows.append(f"- grouped by file in path order, showing "
+                    f"{len(result['files'])} of {result['held']}")
+        return rows
+    if block != "dead":
+        return []
+    return [f"- `{rel}`: "
+            + ", ".join(f"{name} ({start})" for name, start in names)
+            for rel, names in result["files"]]
+
+
+def hot(m: dict, limit: int = HOT_LIMIT) -> dict:
+    """The ranked definitions weighted by how often their file changes.
+
+    `rank` says what the repository is built around and `git_history` says
+    what it keeps editing; either alone is half an answer. A file nothing
+    reaches that changes every day is churn, and a file everything reaches
+    that has not moved in a year is settled. What a reviewer wants is the
+    product, and both numbers are printed so a reader can see which of the
+    two put a row where it is.
+
+    A file with no row in the most-changed-files section counts 1 rather than
+    0: that section is the last ninety days, so a file missing from it has
+    not changed lately, not never, and a zero would erase every definition in
+    it from the ranking. That section is itself the forty busiest files, so a
+    file outside it may have changed a great deal and still count 1; the
+    first line says so, because a cap a reader cannot see is a number that
+    lies.
+
+    The count comes from `git_commits`, which is the real number of commits
+    in the window. `git_history` is not it: that key keeps at most five
+    commit lines a file, so counting its lines made every file in the section
+    weigh exactly five and the multiplier two-valued, which reordered
+    nothing. A map built before `git_commits` existed has only those lines,
+    and then every count at the cap is written `5+` and two rows of
+    `## How this was counted` say where the number came from and why it is a
+    floor. Not the first line: that carries the counts and the one bound
+    that decides what the ranking is, which is the forty-file one.
+
+    `rank` is the map's top 200, so this ranks within those.
+    """
+    root = m.get("repo") or ""
+    limit = max(1, int(limit))
+    history = m.get("git_history") or {}
+    counts = m.get("git_commits") or {}
+    capped = bool(history) and not counts
+    churn = ({rel: int(n or 0) for rel, n in counts.items()} if counts
+             else {rel: len(entries or ()) for rel, entries in history.items()})
+    rows = []
+    for entry in m.get("rank") or ():
+        rel = _rank_graph.relative(str(entry.get("file") or ""), root)
+        commits = churn.get(rel) or 1
+        score = float(entry.get("score") or 0.0)
+        rows.append((score * commits, rel, entry.get("line") or 0,
+                     str(entry.get("name") or ""), score, commits))
+    rows.sort(key=lambda r: (-r[0], r[1], r[2], r[3]))
+    return {"rows": rows[:limit], "held": len(rows), "limit": limit,
+            "churned": len(churn), "capped": capped,
+            "section": len(history) or len(churn)}
+
+
+HOT_BLOCKS = (("hot", 70), ("counted", 30))
+HOT_NAMES = tuple(name for name, _pct in HOT_BLOCKS)
+
+
+def hot_head(_result: dict, block: str) -> str:
+    """The head of one `hot` block."""
+    if block == "counted":
+        return HOW_COUNTED
+    return "## Rank score times commits, highest first"
+
+
+def hot_summary(result: dict, limit: int) -> str:
+    """The first line of a `hot` answer: the counts, and the bound that
+    decides what the ranking is.
+
+    One bound, not both. The most-changed section is the forty busiest files,
+    so everything outside it weighs the same and the tail of this answer is
+    `rank`'s own order: a reader who does not know that will read a ranking
+    into rows that carry none. The rest, including the older-map cap, is a
+    row of `## How this was counted`.
+    """
+    return (f"The top {len(result['rows'])} of {result['held']} ranked "
+            f"definitions by rank score times commits, both numbers shown. "
+            f"Churn covers the {_plural(result['churned'], 'busiest file')} "
+            f"only, so anything outside them counts 1. {limit} characters.")
+
+
+def hot_lines(result: dict, block: str) -> list:
+    """One `hot` block's rows, with both numbers behind each product."""
+    # A count the map capped is written `5+`, not `5`: that row is then a
+    # floor rather than a measurement, and a reader multiplying it out can
+    # see which it is without going back to the first line. Only the rows at
+    # the cap are marked; a file with two commit lines really has two.
+    def count(n: int) -> str:
+        if result["capped"] and n >= _CAPPED_LINES:
+            return f"{n}+ commits"
+        return f"{n} commit{'' if n == 1 else 's'}"
+
+    if block == "counted":
+        rows = ["- the score is the map's own `rank`, which holds the top "
+                f"{result['held']} definitions of this repository, so this "
+                "ranks within those"]
+        if result["capped"]:
+            # Say where the number came from and what is wrong with it in
+            # one breath. Naming `git_commits` as the source and then, five
+            # rows later, saying the map has no such key is two rows that
+            # cannot both be true.
+            rows += ["- the commits are the commit lines `git_history` keeps, "
+                     "because this map has no `git_commits` key",
+                     f"- that key caps those lines at {_CAPPED_LINES} a file, "
+                     f"so every count written `{_CAPPED_LINES}+` is a floor "
+                     "and not a measurement; `--force` rebuilds the map with "
+                     "the real numbers"]
+        else:
+            rows.append("- the commits are `git_commits`, what the "
+                        "most-changed-files section counted over the last "
+                        "ninety days")
+        rows += [f"- that section is the "
+                 f"{_plural(result['churned'], 'busiest file')} and no more, "
+                 "so a file outside it counts 1 however often it changed and "
+                 "this ranking is `rank`'s own order for those",
+                 "- a merge commit names no file in the log that section is "
+                 "built from and is not counted",
+                 "- ties by path, then line, then name, so two builds of one "
+                 "tree print the same order"]
+        return rows
+    if block != "hot":
+        return []
+    return [f"- `{rel}:{line}` {name}, rank {score:.9f} x {count(commits)} "
+            f"= {product:.9f}"
+            for product, rel, line, name, score, commits in result["rows"]]
+
 
 # Definitions no answer about coverage counts, whatever the graph says. A
 # module's entry point is called by the runtime rather than by anything the
@@ -939,7 +1883,7 @@ def entry_points(m: dict, defs: dict = None) -> tuple:
     """
     root = m.get("repo") or ""
     defs = _definitions(m) if defs is None else defs
-    step_at, _func_at = _spans_at(m)
+    step_at, _func_at = _declaration_sites(m)
     steps = sorted((holder, name)
                    for (holder, start), (name, kind, _end) in defs.items()
                    if kind == "function" and (holder, start) in step_at)
@@ -1036,7 +1980,7 @@ def reaches(m: dict, name: str) -> dict:
 
     total = sum(len(f.get("scenarios") or ())
                 for f in (m.get("features") or {}).values())
-    step_at, _func_at = _spans_at(m)
+    step_at, _func_at = _declaration_sites(m)
     return {"name": name, "sites": sites, "scenarios": scenarios,
             "features": sorted({row[0] for row in scenarios}),
             "routes": _routes_reached(m, {f for f, _n in walked}),

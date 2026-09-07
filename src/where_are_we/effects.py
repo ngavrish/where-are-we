@@ -76,6 +76,11 @@ EFFECTS = {
     "--affected-out": "writes-repo",
     "--reaches": "read",
     "--unreached": "read",
+    "--path": "read",
+    # `--path-depth` says how far the chain may run and never that this line
+    # is answering, so it is a modifier and not in `NO_MAP_BUILD`, exactly
+    # as `--impact-depth` and `--affected-depth` are.
+    "--path-depth": "read",
     "--sections": "read",
     "--cost": "read",
     "--pointer": "read",
@@ -126,7 +131,7 @@ NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
             "--at, --context, --affected, --changed, --reaches, "
-            "--unreached, --rank, --sections, --cost) "
+            "--unreached, --path, --rank, --sections, --cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
@@ -151,7 +156,7 @@ NO_MAP_BUILD = frozenset({
     "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
     "--cost", "--export", "--context", "--affected", "--changed",
-    "--reaches", "--unreached",
+    "--reaches", "--unreached", "--path",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

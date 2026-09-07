@@ -30,19 +30,21 @@ except ImportError:  # run as a plain file, with no package around it
 try:
     from . import graph
     from .ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET,
-                       IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
-                       REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
-                       affected_tool_answer, at, context, file_list,
-                       log_answer, callees_line, callers, impact, map_heads,
-                       rank_lines, reaches_answer, unreached_answer)
+                       GRAPH_BUDGET, IMPACT_MAX_DEPTH, MCP_SELECTORS,
+                       RANK_LIMIT, REACHES_BUDGET, UNREACHED_BUDGET,
+                       UNREACHED_LIMIT, affected_tool_answer, at, context,
+                       file_list, log_answer, callees_line, callers, impact,
+                       map_heads, path_answer, rank_lines, reaches_answer,
+                       unreached_answer)
 except ImportError:  # run as a plain file, with no package around it
     import graph  # type: ignore[no-redef]
     from ask import (AFFECTED_BUDGET, AT_BUDGET,  # type: ignore[no-redef]
-                     CONTEXT_BUDGET, IMPACT_MAX_DEPTH, MCP_SELECTORS,
-                     RANK_LIMIT, REACHES_BUDGET, UNREACHED_BUDGET,
-                     UNREACHED_LIMIT, affected_tool_answer, at, context,
-                     file_list, log_answer, callees_line, callers, impact,
-                     map_heads, rank_lines, reaches_answer, unreached_answer)
+                     CONTEXT_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
+                     MCP_SELECTORS, RANK_LIMIT, REACHES_BUDGET,
+                     UNREACHED_BUDGET, UNREACHED_LIMIT, affected_tool_answer,
+                     at, context, file_list, log_answer, callees_line, callers,
+                     impact, map_heads, path_answer, rank_lines,
+                     reaches_answer, unreached_answer)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -347,6 +349,35 @@ TOOLS = [
         },
     },
     {
+        "name": "path",
+        "description": (
+            "How one function reaches another: the shortest call chain from "
+            "`a` to `b` over the map's own `xrefs` call rows, one hop per "
+            "line with the rule that placed each edge and the line the call "
+            "is on. Ask it instead of running `callers` or `callees` outward "
+            "hop after hop and joining the answers by hand. Each end is a "
+            "name, or `FILE:NAME` where several files declare it. A cycle is "
+            "walked once, and a hop through an ambiguous edge names every "
+            "file that declares the callee. Only cross-file calls are in the "
+            "graph, so a hop inside one file is not one this can walk; where "
+            "there is no chain within `depth` hops (1 to 12, 6 by default) "
+            "the answer says how far the walk got."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "a": {"type": "string",
+                      "description": "the name the chain starts at, or "
+                                     "FILE:NAME"},
+                "b": {"type": "string",
+                      "description": "the name it has to reach, or FILE:NAME"},
+                "depth": {"type": "integer", "minimum": 1, "maximum": 12,
+                          "description": ("how many call hops to follow "
+                                          "forward (default 6)")},
+            },
+            "required": ["a", "b"],
+        },
+    },
+    {
         "name": "rank",
         "description": (
             "What this repository is built around, best first: the "
@@ -624,6 +655,25 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         rows = int(limit_field or UNREACHED_LIMIT)
         answer = unreached_answer(map_path, rows, UNREACHED_BUDGET)
         log_answer(out_dir, "unreached", str(rows), answer, UNREACHED_BUDGET)
+    elif name == "path":
+        ends = []
+        for field in ("a", "b"):
+            value = args.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise _BadParams(f"{field} must be a name, or FILE:NAME")
+            ends.append(value.strip())
+        depth_field = args.get("depth")
+        if depth_field is not None and (not isinstance(depth_field, int)
+                                        or isinstance(depth_field, bool)
+                                        or depth_field < 1
+                                        or depth_field > graph.MAX_DEPTH):
+            raise _BadParams("depth must be an integer from 1 to "
+                             f"{graph.MAX_DEPTH}")
+        depth = graph.DEFAULT_DEPTH if depth_field is None else int(depth_field)
+        # One question, so the whole budget, and the same ceiling the flag
+        # prints at, which is what makes the two byte for byte identical.
+        answer = path_answer(map_path, ends[0], ends[1], depth, GRAPH_BUDGET)
+        log_answer(out_dir, "path", ",".join(ends), answer, GRAPH_BUDGET)
         _reply(_text(answer), ident)
     elif name == "rank":
         files_field = args.get("files")

@@ -10,6 +10,9 @@ grepped.
   `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
   `callees`, `impact`, `affected`, `reaches`, `unreached`,
   and `more`, which takes the handle an answer printed
+- **MCP server** `where-are-we` exposes the map as thirteen tools: `ask`,
+  `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
+  `callees`, `impact`, `affected`, `path`, and `more`, which takes the handle an answer printed
   where it was cut and returns the part that was left out. `defines` names
   every file that declares a name, with the line each declaration ends on,
   `at` takes the `file:line` a stack trace gives you and returns the whole
@@ -44,6 +47,14 @@ grepped.
   because the product split is only as good as the map's own heuristics, and
   a map with no step function and no test case says there is nothing to reach
   from and lists nothing.
+  to both. A selection is never cut to a budget; on the command line
+  `--affected-out FILE` writes it to a file and leaves stdout to the answer a
+  person reads. `path` walks the same rows the other way, caller to callee,
+  and prints the shortest chain from one name to another with the rule that
+  placed each edge and the line the call is on; an ambiguous hop names every
+  file that declares the callee, a cycle terminates, and where there is no
+  chain the answer says how far the walk got. Only cross-file calls are in
+  that graph, which every one of these answers says out loud.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

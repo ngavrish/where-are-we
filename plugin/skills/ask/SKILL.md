@@ -60,6 +60,15 @@ line), and `find`'s hits past its limit (`more:find:`).
   much of the list is untested rather than unknown. Read both first lines:
   they say when the map, rather than the suite, is the reason a count is
   zero.
+  `format="behave"` or `"pytest"` gives the runner's own selection. Ask it
+  before running a suite, instead of running all of it or guessing a subset.
+- **When you need the chain, not the neighbours.** `path(a="handler",
+  b="charge")` prints the shortest call chain between two names, one hop per
+  line with the rule that placed each edge and the line the call is on, in
+  one call rather than walking `callers` or `callees` outward and joining the
+  answers by hand. Only cross-file calls are in that graph, so a chain that
+  runs through a call inside one file is not one it can walk, and the first
+  line says so.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

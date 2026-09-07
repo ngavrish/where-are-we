@@ -174,6 +174,32 @@ the map and nothing read them end to end; this release starts doing that.
   what to walk is in the handle, the walk is run again over the map on disk,
   and nothing is stored between the two calls.
 - The MCP server serves fourteen tools.
+- How one function reaches another: `path` (MCP), `--path A,B`,
+  `--path-depth N`. Breadth first over the same `calls` rows, forward this
+  time, caller to callee. One hop per line with the rule that placed the edge
+  and the line the call site is on, the rows out of a node sorted by callee,
+  line and resolution and every frontier sorted, so the chain printed is the
+  same chain on every run. A visited set carries across hops, so a graph with
+  a cycle in it terminates and the first chain found is the shortest. An
+  ambiguous edge is followed into every candidate rather than guessed at, and
+  the hop names every file that declares the callee and says which of them
+  the chain took. Each end is a name, or `FILE:NAME` where several files
+  declare it. Where there is no chain the answer names the frontier the walk
+  stopped at, so "no path" says how far it got, and the first line says the
+  two reasons a chain can be missing: the depth, and that only cross-file
+  calls are in this graph.
+- It is cut by the rules every other answer here is cut by, through
+  the same code: whole rows, a floor share of the budget per block with what
+  nobody claims handed on in printing order, a `more:` handle under a block
+  that was cut, and one "raise the budget" line with a handle for a block
+  there was no room for at all. `affected`'s renderer became that shared one
+  and is byte for byte what it was. The new handle kind is `more:pth:`,
+  carrying its own question
+  and nothing stored between the call that printed it and the call that uses
+  it.
+- `tools/list` moves from 12 to 13 and every pin in the workflow moves with
+  it; the session banner the plugin prints names all thirteen, and a CI step
+  fails when a tool the server declares is missing from that line.
 
 ## 1.5.0
 
