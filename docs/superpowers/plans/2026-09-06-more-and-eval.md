@@ -34,3 +34,13 @@
 
 ### Task 3: release 1.2.0
 CHANGELOG, versions, README rows, Python 3.12/3.13 CI green, tag.
+
+### Task 4 (1.3.0): `callees` and `impact`
+
+Two tools CodeGraph has and the map already holds the data for. Both read `framework_map.json`'s `call_graph_files` (`"<file>:<func>": ["<callee> (<file>)", ...]`, cross-file, Python + TS/JS + Go) and `call_graph` (`"<steps file>:<func>": ["<callee>", ...]`, behave steps), the same two graphs `callers` reads.
+
+- `callees(map_json, name)`: every callee of the functions named `name` (exact, case-sensitive, `(` stripped), as `"<callee> (<file>)"` strings sorted; from both graphs. MCP tool `callees` (`name`: string or list), CLI `--callees NAME`.
+- `impact(map_json, name, depth=3)`: transitive callers (the blast radius): every `<file>:<func>` that reaches `name` through the caller graph within `depth` hops, grouped by hop distance, each hop sorted; cycles handled; the total capped at 200 entries with a tail line and a `more`-style note (`… N more at depth d`); a cross-file-only caveat in the reply's first line. MCP tool `impact` (`name`, optional `depth` 1..6), CLI `--impact NAME [--impact-depth N]`.
+- `ask()`: no new blocks (the tools answer directly; the answer budget is already spent).
+- Both logged via `log_answer`; both in `TOOLS` with schemas like `callers`; plugin skill and README updated (eight tools); SCHEMA.md unchanged (no new keys).
+- Proofs: on the poly fixture (b.ts:pay calls charge (a.ts); c.go:Run calls Serve (s.go)) and a hand-made three-hop Python fixture (a calls b calls c calls d, plus a cycle d calls b): `callees b` = c; `impact d` = depth 1: c, depth 2: b, depth 3: a, and the cycle does not loop; depth cap respected; `impact` of a name nobody calls says so; MCP and CLI byte-identical; `tools/list` = 8; a CI step "callees and impact walk the graph the map holds"; golden byte-identical (no ask change).
