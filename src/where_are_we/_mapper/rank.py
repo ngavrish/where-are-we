@@ -97,19 +97,27 @@ def relative(path: str, root: str) -> str:
 
 
 def matches(path: str, root: str, wanted) -> bool:
-    """Whether one file is one the reader named: exact, or under a prefix.
+    """Whether one file is one the reader named: exact, or under a directory.
 
     `--files billing/` is every file in that directory; `--files a.py` is that
     file. Compared relative to the repository root, because that is how the
     reader writes a path and how every row of the map that is not a
     definition prints one.
+
+    A prefix stops at a path separator. A raw string prefix made `--files
+    bill` match `billing.py` and `--files core` match `core_utils.py`, which
+    is a different file and a different answer; a reader naming half a name
+    means the directory, or means nothing.
     """
     if not wanted:
         return False
     rel = relative(path, root)
     for want in wanted:
         want = want.replace(os.sep, "/").lstrip("./")
-        if want and (rel == want or rel.startswith(want)):
+        if not want:
+            continue
+        if rel == want or rel.startswith(want if want.endswith("/")
+                                         else want + "/"):
             return True
     return False
 
@@ -334,4 +342,10 @@ def rows(map_obj: dict, files=(), words=(), limit: int = TOP) -> list:
                         "line": line_at.get((path, name), 0),
                         "score": round(scores.get((path, name), 0.0), DIGITS)})
     out.sort(key=lambda row: (-row["score"], row["file"], row["name"]))
-    return out[:limit] if limit else out
+    # A limit is a ceiling or it is absent. Anything at or below zero is
+    # absent: `out[:limit]` on a negative number is a slice from the end, so
+    # `--limit -3` used to answer with every definition in the map but the
+    # last three, which is not a smaller answer and is not what anyone asked
+    # for. The command line refuses it before it reaches here; a library
+    # caller gets the whole list.
+    return out[:limit] if limit and limit > 0 else out

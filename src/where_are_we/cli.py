@@ -332,6 +332,40 @@ def _impact_depth(text: str) -> int:
     return value
 
 
+def _row_limit(text: str) -> int:
+    """`--limit`, refused at the parser the way `--impact-depth` is.
+
+    A limit is a ceiling, and a ceiling below one is not a smaller answer.
+    `--limit -3` used to reach a list slice, so it printed every definition in
+    the map but the last three, and `--limit 0` printed the default two
+    hundred; the MCP `rank` tool refused both with -32602. Two spellings of
+    one tool disagreeing about what the input means is worse than either
+    answer.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a whole number") from None
+    if value < 1:
+        raise argparse.ArgumentTypeError(
+            f"must be a positive integer, not {value}")
+    return value
+
+
+def _say_unknown(map_path: str, files) -> None:
+    """One line on stderr for a named path nothing in the map matches.
+
+    stdout is untouched, so `--rank` and the MCP `rank` tool still print the
+    same bytes; what changes is that a typo is visible instead of answering
+    the question the reader did not ask.
+    """
+    missing = _ask.unknown_files(map_path, files)
+    if missing:
+        print("nothing indexed under " + ", ".join(repr(m) for m in missing),
+              file=sys.stderr)
+
+
 def _resolve_repo(given, out):
     """The repository a run is about, when --repo was not spelled out.
 
@@ -506,7 +540,7 @@ def build_parser() -> argparse.ArgumentParser:
                          "section and the rest follow as usual. `-` reads a "
                          "newline separated list on stdin, which is what "
                          "`git diff --name-only` hands over")
-    ap.add_argument("--limit", type=int, default=0, metavar="N",
+    ap.add_argument("--limit", type=_row_limit, default=0, metavar="N",
                     help="how many rows --rank prints (default 200)")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
@@ -894,7 +928,13 @@ def main() -> int:
             # function. `--ask` alongside it is the tool's `words`: the names
             # in the question count ten times, which is aider's first
             # multiplier and the only one a question can move.
-            chosen = file_list(args.rank_files)
+            # `--files` reads as "the files I am working in", which is what
+            # `--rank`'s own argument is, so the two are one list rather than
+            # one flag quietly answering the other's question.
+            chosen = file_list(args.rank_files) + file_list(args.files,
+                                                            sys.stdin.read)
+            chosen = list(dict.fromkeys(chosen))
+            _say_unknown(map_path, chosen)
             answer = rank_lines(map_path, chosen, args.ask,
                                 args.limit or RANK_LIMIT)
             log_answer(out_dir, "rank", ",".join(chosen), answer, len(answer))
@@ -929,6 +969,7 @@ def main() -> int:
         syn = _config(os.path.abspath(args.repo)).get("synonyms")
         _ask.set_synonyms(syn if isinstance(syn, dict) else {})
         scope = file_list(args.files, sys.stdin.read)
+        _say_unknown(map_path, scope)
         parts = []
         if have_map:
             parts.append(ask(map_path, args.ask, files=scope))
