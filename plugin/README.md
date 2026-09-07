@@ -6,15 +6,10 @@ grepped.
 - **SessionStart hook** builds `.wawe/framework_map.md` (or rebuilds it after a
   commit) and puts the map's ~600-byte pointer into the session's context. The
   map itself stays on disk.
-- **MCP server** `where-are-we` exposes the map as sixteen tools: `ask`,
-  `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
-  `callees`, `impact`, `affected`, `reaches`, `unreached`,
-  and `more`, which takes the handle an answer printed
-- **MCP server** `where-are-we` exposes the map as thirteen tools: `ask`,
-  `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
-  `callees`, `impact`, `affected`, `path`, `range`, and `more`, which takes the handle an answer printed
-  `callees`, `impact`, `affected`, `path`, `range`, `dead`, `hot`,
-  and `more`, which takes the handle an answer printed
+- **MCP server** `where-are-we` exposes the map as eighteen tools: `affected`,
+  `ask`, `at`, `callees`, `callers`, `context`, `dead`, `defines`, `find`,
+  `hot`, `impact`, `more`, `path`, `range`, `rank`, `reaches`, `sections`,
+  `unreached`, where `more` takes the handle an answer printed
   where it was cut and returns the part that was left out. `defines` names
   every file that declares a name, with the line each declaration ends on,
   `at` takes the `file:line` a stack trace gives you and returns the whole

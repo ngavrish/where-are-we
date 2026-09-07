@@ -173,7 +173,7 @@ the map and nothing read them end to end; this release starts doing that.
   `more:unr:<block>:<rows>:<offset>` join `more:aff:`, resolved the same way:
   what to walk is in the handle, the walk is run again over the map on disk,
   and nothing is stored between the two calls.
-- The MCP server serves fourteen tools.
+- The MCP server serves eighteen tools.
 - How one function reaches another: `path` (MCP), `--path A,B`,
   `--path-depth N`. Breadth first over the same `calls` rows, forward this
   time, caller to callee. One hop per line with the rule that placed the edge

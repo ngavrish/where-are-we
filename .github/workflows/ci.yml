@@ -772,9 +772,9 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/ctx/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["affected", "ask", "at", "callees", "callers",
-                           "context", "defines", "find", "impact", "more",
-                           "path", "rank", "reaches", "sections",
-                           "unreached"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "reaches", "sections", "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
                            "context", "dead", "defines", "find", "hot",
@@ -1026,9 +1026,9 @@ jobs:
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
           assert names == ["affected", "ask", "at", "callees", "callers",
-                           "context", "defines", "find", "impact", "more",
-                           "path", "rank", "reaches", "sections",
-                           "unreached"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "reaches", "sections", "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
                            "context", "dead", "defines", "find", "hot",
@@ -1638,9 +1638,9 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/imp/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["affected", "ask", "at", "callees", "callers",
-                           "context", "defines", "find", "impact", "more",
-                           "path", "rank", "reaches", "sections",
-                           "unreached"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "reaches", "sections", "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
                            "context", "dead", "defines", "find", "hot",
@@ -1956,9 +1956,9 @@ jobs:
           rows = [json.loads(l) for l in open("/tmp/aff/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           assert names == ["affected", "ask", "at", "callees", "callers",
-                           "context", "defines", "find", "impact", "more",
-                           "path", "rank", "reaches", "sections",
-                           "unreached"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "reaches", "sections", "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
                            "context", "dead", "defines", "find", "hot",
@@ -3146,9 +3146,10 @@ jobs:
           import json, pathlib
           rows = [json.loads(l) for l in open("/tmp/rch/mcp.jsonl")]
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
-          assert names == ["affected", "ask", "at", "callees", "callers", "context",
-                           "defines", "find", "impact", "more", "rank", "reaches",
-                           "sections", "unreached"], names
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "reaches", "sections", "unreached"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/rch/charge.txt"), (2, "/tmp/rch/unreached.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -3271,7 +3272,7 @@ jobs:
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
-                           "sections"], names
+                           "reaches", "sections", "unreached"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/pth/ad.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP path and --path disagree"
@@ -3459,7 +3460,7 @@ jobs:
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
-                           "sections"], names
+                           "reaches", "sections", "unreached"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/rng/charge.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP range and --range disagree"
@@ -3757,7 +3758,7 @@ jobs:
           assert names == ["affected", "ask", "at", "callees", "callers",
                            "context", "dead", "defines", "find", "hot",
                            "impact", "more", "path", "range", "rank",
-                           "sections"], names
+                           "reaches", "sections", "unreached"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/dh/dead.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP dead and --dead disagree"
@@ -3931,7 +3932,10 @@ jobs:
           rows = graph.dead(m, 40)
           names = [n for _rel, pairs in rows["files"] for n, _line in pairs]
           print(f"dead on the suite fixture: {rows['total']} row(s), {names}")
-          assert names == ["CheckoutPage"], names
+          assert names == ["affected", "ask", "at", "callees", "callers",
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "reaches", "sections", "unreached"], names
           assert not [x for x in m["xrefs"]
                       if x.get("edge") == "calls" and x.get("object") == "CheckoutPage"], \
               "a module-level construction is in the graph now; drop this caveat"
@@ -6482,9 +6486,9 @@ jobs:
           names = sorted(t["name"] for t in rows[0]["result"]["tools"])
           print("tools/list:", len(names), names)
           assert names == ["affected", "ask", "at", "callees", "callers",
-                           "context", "defines", "find", "impact", "more",
-                           "path", "rank", "reaches", "sections",
-                           "unreached"], names
+                           "context", "dead", "defines", "find", "hot",
+                           "impact", "more", "path", "range", "rank",
+                           "reaches", "sections", "unreached"], names
                            "context", "defines", "find", "impact",
                            "more", "path", "range", "rank", "sections"], names
                            "context", "dead", "defines", "find", "hot",
