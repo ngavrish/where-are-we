@@ -56,9 +56,11 @@ five calls in one:
 
 returns, in this order and each under its own head: every home of the name with
 its span, the rows of the map that mention it, its callers, its callees, and
-its impact one hop out. The first line says so and names the share of the
+its impact one hop out. The first line says so and names the floor share of the
 budget each block was given (15 percent declared, 35 map rows, 15 callers, 15
-callees, 20 impact).
+callees, 20 impact); a block that does not need its share hands the rest on to
+the blocks that do, so when the five answers fit the budget you get all five
+whole.
 
 - Reach for it first when a name is new to you. `defines`, `ask`, `callers`,
   `callees` and `impact` are five round trips for the same map; this is one.

@@ -32,12 +32,17 @@
   calls, and its blast radius one hop out. Nothing new is parsed and nothing
   new is stored; it is `defines`, `ask`, `callers`, `callees` and `impact`
   over the same map, so an agent that lands on a name pays one round trip
-  rather than five. Each block gets a fixed share of the budget - 15 percent
-  for the declarations, 35 for the map's rows, 15 for the callers, 15 for the
-  callees, 20 for the impact - and a block that does not spend its share does
-  not hand it to the next one, so the same name at the same budget is always
-  the same answer. Whole rows; a block that could not print all of itself ends
-  in a tail carrying a `more:ctx:` handle that `more` resolves like any other.
+  rather than five. The budget is allocated in two passes: every block is
+  given the smaller of what printing all of itself would cost and its floor
+  share - 15 percent for the declarations, 35 for the map's rows, 15 for the
+  callers, 15 for the callees, 20 for the impact - and what nobody claimed is
+  handed on in that same order to the blocks still short. So when the five
+  answers together fit the budget, every one of them is printed whole; and the
+  same name at the same budget is always the same answer, since the needs come
+  from the map and the order is fixed. Whole rows; a block that could not
+  print all of itself ends in a tail carrying a `more:ctx:` handle that `more`
+  resolves like any other, and a block that could not be given room for even
+  that is left out rather than printed as a count nobody can follow.
 - `wawe-eval --tool context` measures the new tool with the harness that
   measures `ask`: over 100 names of the suite fixture, recall with handles is
   1.0 at 1500 and at 12000 bytes, which the CI step `context returns in one

@@ -405,29 +405,39 @@ jobs:
           M=/tmp/ctx/suite/out
           rm -f $M/.wawe-ask.log
           # The first line says how the answer was composed: one hop of
-          # impact, and the share of the budget each block was cut to.
+          # impact, and the floor share of the budget each block was given.
           where-are-we --out $M --context click_7 > /tmp/ctx/click_7.context
           head -1 /tmp/ctx/click_7.context | grep -qx \
-            'Context for `click_7`: declared, map rows, callers, callees, impact to depth 1. Fixed shares of 12000 bytes: 15/35/15/15/20 percent.'
-          # Three names between them fill and empty every block: click_7 has
-          # callers and no callees, step_pay_7 the other way round, login is
-          # a word the map mentions in four sections.
-          for N in click_7 step_pay_7 login; do
-            where-are-we --out $M --defines $N > /tmp/ctx/$N.defines
-            where-are-we --out $M --ask $N > /tmp/ctx/$N.ask
-            where-are-we --out $M --callers $N > /tmp/ctx/$N.callers
-            where-are-we --out $M --callees $N > /tmp/ctx/$N.callees
-            where-are-we --out $M --impact $N --impact-depth 1 > /tmp/ctx/$N.impact
-            where-are-we --out $M --context $N > /tmp/ctx/$N.context
+            'Context for `click_7`: declared, map rows, callers, callees, impact to depth 1. 12000 bytes, floor shares 15/35/15/15/20 percent, what a block does not need passed on in that order.'
+          # Ten declared names through the five flags and through the one
+          # that composes them. Between them every block is filled and every
+          # block is empty: click_7 has a caller and no callee, step_pay_7
+          # the other way round, CheckoutPage neither and forty-one homes,
+          # `Log in` and `class CheckoutPage` are a scenario and a class with
+          # no call graph at all.
+          NAMES=(click_7 step_pay_7 CheckoutPage click_1 step_pay_1 click_3 \
+                 "Log in" "def step_pay_3" "class CheckoutPage" "a registered user")
+          i=0
+          for N in "${NAMES[@]}"; do
+            i=$((i + 1))
+            printf '%s' "$N" > /tmp/ctx/$i.name
+            where-are-we --out $M --defines "$N" > /tmp/ctx/$i.defines
+            where-are-we --out $M --ask "$N" > /tmp/ctx/$i.ask
+            where-are-we --out $M --callers "$N" > /tmp/ctx/$i.callers
+            where-are-we --out $M --callees "$N" > /tmp/ctx/$i.callees
+            where-are-we --out $M --impact "$N" --impact-depth 1 > /tmp/ctx/$i.impact
+            where-are-we --out $M --context "$N" > /tmp/ctx/$i.context
           done
-          where-are-we --out $M --defines CheckoutPage > /tmp/ctx/CheckoutPage.defines
-          where-are-we --out $M --context CheckoutPage > /tmp/ctx/CheckoutPage.context
           python - <<'EOF'
-          import pathlib, sys
-          from where_are_we.ask import CONTEXT_BUDGET, more
+          import json, pathlib
+          from where_are_we.ask import (CONTEXT_BUDGET, CONTEXT_HEADS,
+                                        CONTEXT_NAMES, _context_lines,
+                                        _context_need, ask, callees, callers,
+                                        context, impact, more, spans_for)
           from where_are_we.eval import handles, ordered_rows
 
           M = "/tmp/ctx/suite/out/framework_map.md"
+          J = "/tmp/ctx/suite/out/framework_map.json"
           read = lambda n: pathlib.Path(f"/tmp/ctx/{n}").read_text()
 
           def rows_of(text):
@@ -449,49 +459,95 @@ jobs:
                       out.add(line)
               return out
 
-          def five(name):
+          def five_flags(i):
+              """The rows the five flags printed, from their captured output."""
               want = set()
               for suffix in ("defines", "ask", "callers", "impact"):
-                  want |= rows_of(read(f"{name}.{suffix}"))
+                  want |= rows_of(read(f"{i}.{suffix}"))
               # `--callees` prints one line naming every callee; the block
               # prints one row each, so a cut can take whole rows.
-              line = read(f"{name}.callees").strip()
+              line = read(f"{i}.callees").strip()
               want |= ({c.strip() for c in line.split(": ", 1)[1].split(", ")}
                        if ": " in line else {line})
               return want
 
-          for name in ("click_7", "step_pay_7", "login"):
-              answer = read(f"{name}.context")
-              assert len(answer.rstrip("\n")) <= CONTEXT_BUDGET, len(answer)
-              missing = sorted(five(name) - rows_of(answer))
-              assert not missing, (name, missing[:3])
-              print(f"{name}: {len(five(name))} rows from five calls, all of "
-                    f"them in one {len(answer.rstrip(chr(10)))} byte answer")
+          def five_calls(name):
+              """The same five answers through the functions the flags call,
+              for the sweep below: 224 names x 5 subprocesses is not a CI
+              step, and these are the calls `cli.py` makes."""
+              want = set(spans_for(M, [name.lower()]))
+              want |= rows_of(ask(M, name))
+              want |= set(callers(J, name)) or {
+                  f"nothing in the map calls {name}"}
+              want |= set(callees(J, name)) or {
+                  f"{name} calls nothing in the map"}
+              want |= rows_of(impact(J, name, 1))
+              return want
 
-          # A block whose share its own answer does not fit is the other
-          # half of the promise: `CheckoutPage` is declared 41 times and the
-          # declared block holds 1778 characters, so the rest is behind the
-          # handle on its tail rather than nowhere.
-          answer = read("CheckoutPage.context")
-          assert len(answer.rstrip("\n")) <= CONTEXT_BUDGET, len(answer)
-          want = rows_of(read("CheckoutPage.defines"))
-          cut = sorted(want - rows_of(answer))
-          assert cut, "the declared block was not cut; pick a wider name"
-          reachable, pending = set(), [h for h in handles(answer)
-                                       if h.startswith("more:ctx:spans:")]
-          assert pending, handles(answer)
-          seen = set(pending)
-          while pending:
-              reply = more(M, pending.pop(0), CONTEXT_BUDGET)
-              reachable |= rows_of(reply)
-              for nxt in handles(reply):
-                  if nxt not in seen and nxt.startswith("more:ctx:"):
-                      seen.add(nxt)
-                      pending.append(nxt)
-          still = sorted(set(cut) - reachable)
-          assert not still, still[:3]
-          print(f"CheckoutPage: {len(cut)} rows over the declared block's "
-                f"share, every one of them behind its handle")
+          def chased(answer, budget):
+              """Every row reachable from an answer, its handles included."""
+              got, pending = rows_of(answer), list(handles(answer))
+              seen = set(pending)
+              while pending:
+                  reply = more(M, pending.pop(0), budget)
+                  got |= rows_of(reply)
+                  for nxt in handles(reply):
+                      if nxt not in seen:
+                          seen.add(nxt)
+                          pending.append(nxt)
+              return got
+
+          def whole_fits(name):
+              """Whether the five answers together fit CONTEXT_BUDGET.
+
+              `_context_rooms` gives every block the smaller of its need and
+              its floor and then hands the rest on, so every block is printed
+              whole exactly when the needs together fit the room. That is the
+              line the superset is asserted on either side of, rather than a
+              list of names someone chose.
+              """
+              lines = {b: _context_lines(M, b, name, CONTEXT_BUDGET)
+                       for b in CONTEXT_NAMES}
+              head = context(M, name, CONTEXT_BUDGET).splitlines()[0]
+              room = CONTEXT_BUDGET - len(head) - 2 * len(CONTEXT_NAMES)
+              return sum(_context_need(CONTEXT_HEADS[b], lines[b])
+                         for b in CONTEXT_NAMES) <= room
+
+          # 1. The ten names, flag by flag: every row the five flags print is
+          # in the one answer, and the answer is inside the budget.
+          for i in range(1, 11):
+              name = read(f"{i}.name")
+              answer = read(f"{i}.context")
+              assert len(answer.rstrip("\n")) <= CONTEXT_BUDGET, (name, len(answer))
+              assert whole_fits(name), f"{name} does not fit; pick another"
+              missing = sorted(five_flags(i) - rows_of(answer))
+              assert not missing, (name, missing[:3])
+          print("10 names through the five flags: every row in one answer, "
+                "every answer inside 12000 bytes")
+
+          # 2. Every declared name in the fixture, no exemptions: whole where
+          # the five answers fit the budget, and behind a handle where they
+          # do not.
+          names = sorted(json.load(open(J))["definitions"])
+          fit = cut = 0
+          for name in names:
+              answer = context(M, name, CONTEXT_BUDGET)
+              assert len(answer) <= CONTEXT_BUDGET, (name, len(answer))
+              want = five_calls(name)
+              if whole_fits(name):
+                  fit += 1
+                  missing = sorted(want - rows_of(answer))
+                  assert not missing, (name, missing[:3])
+              else:
+                  cut += 1
+                  # It has to be cut, or `whole_fits` is measuring nothing.
+                  assert want - rows_of(answer), name
+                  left = sorted(want - chased(answer, CONTEXT_BUDGET))
+                  assert not left, (name, left[:3])
+          assert fit and cut, (fit, cut)
+          print(f"{len(names)} declared names at 12000: {fit} answers hold "
+                f"every row of the five calls, {cut} are cut and every cut "
+                f"row is behind a handle")
           EOF
           # At 1500 characters every block that could not print itself ends
           # in a tail carrying a handle, and following the handles returns
@@ -501,7 +557,7 @@ jobs:
             '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"context","arguments":{"name":"click_7","limit":1500}}}' \
             | where-are-we --out $M --mcp > /tmp/ctx/small.jsonl
           python - <<'EOF'
-          import json, sys
+          import json
           from where_are_we.ask import CONTEXT_BLOCKS, context, more
           from where_are_we.eval import handles, ordered_rows
 
@@ -511,22 +567,33 @@ jobs:
           assert small == context(M, "click_7", 1500), "MCP limit is not the budget"
           assert len(small) <= 1500, len(small)
 
-          # A block is `## Head`, its lines, and a tail when it was cut. The
-          # tail is the last line of the block and carries the handle.
-          blocks = {}
-          for chunk in small.split("\n\n")[1:]:
-              lines = chunk.splitlines()
-              blocks[lines[0]] = lines
-          for _name, head, _pct in CONTEXT_BLOCKS:
-              lines = blocks.get(head)
-              if lines is None or not lines[-1].startswith("…"):
-                  continue
-              assert "(more:ctx:" in lines[-1], lines[-1]
-          cut = [h for h, lines in blocks.items()
-                 if lines[-1].startswith("…")]
-          assert cut, sorted(blocks)
+          def blocks_of(answer):
+              """`{head: lines}` for one answer. A block is `## Head`, its
+              lines, and a tail when it was cut."""
+              return {chunk.splitlines()[0]: chunk.splitlines()
+                      for chunk in answer.split("\n\n")[1:]}
 
-          whole = {r for r in ordered_rows(context(M, "click_7", 10 ** 9))}
+          # Every name in the fixture, not the one this step was written
+          # against: the map rows block ends in `ask()`'s own tail, which
+          # carries a `more:unmatched:` handle rather than a `more:ctx:` one,
+          # and the invariant is that a tail carries a handle.
+          import json as _json
+          names = sorted(_json.load(open(
+              "/tmp/ctx/suite/out/framework_map.json"))["definitions"])
+          cut = 0
+          for name in names:
+              answer = context(M, name, 1500)
+              assert len(answer) <= 1500, (name, len(answer))
+              for head, lines in blocks_of(answer).items():
+                  if not lines[-1].startswith("…"):
+                      continue
+                  cut += 1
+                  assert "(more:" in lines[-1], (name, lines[-1])
+          assert cut, "nothing was cut at 1500; the assertion proves nothing"
+          print(f"at 1500 bytes, {len(names)} names: {cut} cut blocks, every "
+                "tail carries a handle")
+
+          whole = set(ordered_rows(context(M, "click_7", 10 ** 9)))
           got, pending = set(ordered_rows(small)), list(handles(small))
           seen = set(pending)
           while pending:
@@ -538,22 +605,30 @@ jobs:
                       pending.append(nxt)
           missing = sorted(whole - got)
           assert not missing, missing[:3]
-          print(f"at 1500 bytes: {len(cut)} block(s) cut, every tail carries "
-                f"a handle, {len(whole)} rows all reachable")
+          print(f"click_7 at 1500 bytes: {len(whole)} rows, all of them "
+                "reachable by following the handles")
           EOF
           # The same measurement over a hundred names, by the harness that
           # measures `ask`: no row a handle should have returned is lost.
           wawe-eval --map $M --tool context --questions 100 \
             --budgets 1500,12000 --json > /tmp/ctx/eval.json
           python - <<'EOF'
-          import json, sys
+          import json
           report = json.load(open("/tmp/ctx/eval.json"))
           assert report["tool"] == "context", report["tool"]
-          for row in report["budgets"]:
+          by_budget = {row["budget"]: row for row in report["budgets"]}
+          for budget, row in by_budget.items():
               assert row["recall_with_handles"] == 1.0, row
+          # The first answer alone, with no handle followed. It is not 1.0
+          # because the sample holds names whose five answers do not fit
+          # 12000 at all, which the sweep above counted; the number is stated
+          # rather than asserted at 1.0, and the floor guards a regression.
+          first = by_budget[12000]["first_answer_recall"]
+          assert first >= 0.99, first
           print("wawe-eval --tool context: recall with handles",
-                [r["recall_with_handles"] for r in report["budgets"]],
-                "at budgets", [r["budget"] for r in report["budgets"]])
+                [by_budget[b]["recall_with_handles"] for b in sorted(by_budget)],
+                "at budgets", sorted(by_budget),
+                f"; first answer alone at 12000: {first}")
           EOF
           # Every tool the server declares, and the flag and the tool as one
           # answer.
@@ -576,8 +651,8 @@ jobs:
           EOF
           grep -q '"tool": "context"' $M/.wawe-ask.log
           # Twice over the same map is the same answer.
-          where-are-we --out $M --context login > /tmp/ctx/login.again
-          diff -u /tmp/ctx/login.context /tmp/ctx/login.again
+          where-are-we --out $M --context CheckoutPage > /tmp/ctx/again.txt
+          diff -u /tmp/ctx/3.context /tmp/ctx/again.txt
       - name: who calls X
         run: |
           mkdir -p /tmp/wc

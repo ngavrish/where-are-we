@@ -161,7 +161,7 @@ as estimates.
 | `callers` (MCP), `--callers`, "Called by" in `ask` | Who calls a name, the other direction of the call graph: every `file:func` that mentions it, exact and case-sensitive | Not measured as turns saved; the claim is one lookup instead of grepping every file for a call site | Count `Grep` calls spent finding call sites before/after |
 | `callees` (MCP), `--callees` | What a name calls, the other direction of `callers`: every callee with the file it is defined in, from the same two graphs, cross-file only | Not measured as turns saved; the claim is one lookup instead of reading the function to find out what it reaches | Count `Read` calls spent opening a function to list its calls before/after |
 | `impact` (MCP), `--impact NAME [--impact-depth N]` | The blast radius of a name: every `file:func` that reaches it within N hops (1 to 6, 3 by default), grouped by hop and sorted inside each. A visited set walks a cycle once, and the keys defining the name itself are the change rather than its radius. The first line of every reply states the rules the answer was built under, unconditionally: hops are followed by name, so where several files define one name their callers are unioned; only cross-file calls are in the graph; and the map keeps at most 60 cross-file and 120 step graph keys, so on a large repository the radius is a floor. Where the key data shows the clash a `note:` names up to five of the keys and how many more. Capped at 200 `file:func` entries in the whole reply, note keys included, with a line naming how many are left and at which depth; no handle to fetch them, because the tool already takes a depth and narrowing is the reader's move. A depth outside 1 to 6 is refused: exit 2 on the command line, JSON-RPC -32602 on the tool | Not measured as turns saved; the claim is one lookup instead of running `callers` outward by hand, hop after hop | Count `callers` calls per session before/after |
-| `context` (MCP), `--context NAME` | Everything the map holds about one name, in one answer: where it is declared with every span, the rows of the map that mention it, its callers, its callees, and its impact one hop out. The five calls an agent used to make on landing on a name, composed from the same functions over the same map. Fixed shares of the budget, block by block - 15% declared, 35% map rows, 15% callers, 15% callees, 20% impact - so a block that does not spend its share does not hand it on and the same name at the same budget is always the same answer. Whole rows; a block that could not print itself ends in a tail carrying a `more:ctx:` handle the `more` tool resolves | Measured 2026-09-07 on the `suite` golden fixture: three names' worth of rows from `--defines`, `--ask`, `--callers`, `--callees` and `--impact --impact-depth 1` all present in one answer of 1,382, 1,213 and 3,223 bytes; `wawe-eval --tool context` over 100 names reports recall with handles 1.0 at 1500 and 12000 bytes | Count the tool calls a session spends on one name before/after (the run's call events) |
+| `context` (MCP), `--context NAME` | Everything the map holds about one name, in one answer: where it is declared with every span, the rows of the map that mention it, its callers, its callees, and its impact one hop out. The five calls an agent used to make on landing on a name, composed from the same functions over the same map. The budget is allocated in two passes: every block is given the smaller of what it needs and its floor share - 15% declared, 35% map rows, 15% callers, 15% callees, 20% impact - and what nobody claimed is then handed on in that same order to the blocks still short. So when the five answers together fit the budget every one of them is printed whole, and the same name at the same budget is always the same answer. Whole rows; a block that could not print itself ends in a tail carrying a `more:ctx:` handle the `more` tool resolves | Measured 2026-09-07 on the `suite` golden fixture, all 224 declared names at 12000 bytes: 182 answers hold every row `--defines`, `--ask`, `--callers`, `--callees` and `--impact --impact-depth 1` return, and the other 42, whose five answers do not fit 12000 at all, have every cut row behind a handle. `wawe-eval --tool context` over 100 names reports recall with handles 1.0 at 1500 and 12000, and 0.9955 for the first answer alone at 12000 | Count the tool calls a session spends on one name before/after (the run's call events) |
 | `find` (MCP) | Where a phrase or string lives, with the line | Not measured | Same |
 | `sections` (MCP), `--sections` | The headings, now map + brief (75 vs 3 before 0.12.1) | Measured 2026-09-03: a code repository's `--sections` went from 3 empty suite headings to 75 | — |
 | `wawe-eval` | Generates questions from the map, asks each at no budget to get the rows the map holds for it, and reports what a budgeted answer shows of those, three ways: macro (per question), pooled (all rows), and over the five rows that ranked highest, plus a count of the rows too long to print at that budget at all. With `more` in the build it also reports what the answer plus its handles reaches | Measured 2026-09-07 on the suite fixture, 100 questions, seed 0: first-answer recall 0.476 / 0.857 / 0.9999 at 350 / 1500 / 12000 bytes; pooled 0.105 / 0.305 / 0.999; top-5 0.725 / 1.000 / 1.000; 34 / 0 / 0 rows longer than the budget; mean answer 303 / 885 / 2051 bytes. Recall with handles, over the rows that fit, is asserted 1.0 by the CI step `wawe-eval: the budget loses no row the map holds`, which exits 1 on any such row a handle fails to return, from the release that adds `more` onwards | `--agent` compares the map tools against grep and read on the same questions; not run in CI |
@@ -497,7 +497,7 @@ answers them together:
 ```console
 $ where-are-we --context charge
 
-Context for `charge`: declared, map rows, callers, callees, impact to depth 1. Fixed shares of 12000 bytes: 15/35/15/15/20 percent.
+Context for `charge`: declared, map rows, callers, callees, impact to depth 1. 12000 bytes, floor shares 15/35/15/15/20 percent, what a block does not need passed on in that order.
 
 ## Declared in
 - charge: billing/core.py:10-24 (function)
@@ -519,12 +519,23 @@ Impact of `charge` to depth 1. How to read it: ...
 depth 1: checkout.py:pay
 ```
 
-The shares are fixed: 15 percent of the budget for the declarations, 35 for the
-map's own rows, 15 for the callers, 15 for the callees, 20 for the impact. A
-block that does not spend its share does not hand it to the next one, so the
-same name at the same budget always composes the same answer. A block that
-could not print all of itself ends in `… N more lines (more:ctx:...)`, and
-`--more` on that handle returns the rest of that block.
+The shares are floors, and the budget is allocated in two passes. The first
+asks every block what printing all of itself would cost. The second gives each
+block the smaller of that and its share - 15 percent of the budget for the
+declarations, 35 for the map's own rows, 15 for the callers, 15 for the
+callees, 20 for the impact - and then hands what nobody claimed to the blocks
+still short, in that same order. So when the five answers together fit the
+budget, every one of them is printed whole; and the same name at the same
+budget always composes the same answer, since the needs come from the map and
+the order is fixed.
+
+A block that could not print all of itself ends in `… N more lines
+(more:ctx:...)`, and `--more` on that handle returns the rest of that block.
+A block that could not even be given the room to name itself and carry that
+handle is left out rather than printed as a count nobody can follow, and the
+blocks are served in order, so below about a thousand characters the first of
+them are printed and the rest are not there. That is why the MCP server never
+asks for less than 1500: under it some rows are out of reach.
 
 ## The other map: the specifications
 
