@@ -86,7 +86,8 @@ line), and `find`'s hits past its limit (`more:find:`).
   inside the file that declares the callee. It is sharp on a test suite,
   where a page object is called from step modules, and blunt on a library.
   Read it as questions and check the callers before deleting anything; the
-  answer's first line says the same thing before it says anything else.
+  answer's first line says the same thing before it says anything else, and
+  `## How this was counted` under the rows says how the list was made.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

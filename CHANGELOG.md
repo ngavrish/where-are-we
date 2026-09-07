@@ -260,6 +260,20 @@ the map and nothing read them end to end; this release starts doing that.
   existed can only count commit lines, and there the first line says so and
   every count at the cap prints `5+ commits`, a floor rather than a
   measurement.
+- Every one of the four prints its rules in a block rather than in its first
+  line. A first line is read again on every turn of a conversation and the
+  rules behind it are not, and `dead`'s had grown to about a thousand
+  characters carrying both caveats, the file-kind rule, six exclusions and a
+  route caveat, which also put the whole answer out of reach below its own
+  length. Each first line is now the counts and the one sentence that decides
+  what they mean, under two hundred characters: for `dead` that most of the
+  list is calls the map could not place rather than dead code, for `hot` that
+  churn covers the forty busiest files only, for `path` that only cross-file
+  calls are in the graph, and for `range` that a redacted line is not the
+  line on disk. Everything else is a row of `## How this was counted`, the
+  same head and the same shape `unreached` prints, and the budget may cut it
+  without taking a count or a caveat with it. Measured: 168, 178, 102 to 164
+  and 50 to 153 characters against 988, 506, 194 to 236 and 50 to 253 before.
 - All four are cut by the rules every other answer here is cut by, through
   the same code: whole rows, a floor share of the budget per block with what
   nobody claims handed on in printing order, a `more:` handle under a block

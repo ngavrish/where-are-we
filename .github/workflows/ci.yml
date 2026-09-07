@@ -3115,6 +3115,11 @@ jobs:
           where-are-we --out /tmp/pthmap --path a,d > /tmp/pth/ad.txt
           cat /tmp/pth/ad.txt
           grep -q '`a` reaches `d` in 3 hops' /tmp/pth/ad.txt
+          # The rules are a block, not a first line: every one of these
+          # answers has a head short enough to be re-read on every turn.
+          grep -q '## How this was counted' /tmp/pth/ad.txt
+          grep -q 'a call inside the file that declares the callee is not written' /tmp/pth/ad.txt
+          grep -q 'a visited set carries across hops' /tmp/pth/ad.txt
           grep -qx '1. `a.py:a` calls `b` at line 4, sole_declarer, declared in `b.py`' /tmp/pth/ad.txt
           grep -qx '2. `b.py:b` calls `c` at line 4, sole_declarer, declared in `c.py`' /tmp/pth/ad.txt
           grep -qx '3. `c.py:c` calls `d` at line 4, sole_declarer, declared in `d.py`' /tmp/pth/ad.txt
@@ -3127,6 +3132,7 @@ jobs:
           # Two: `b` and `c`. The start is not one of them, because the walk
           # did not reach it, it began there.
           grep -q '2 names reached' /tmp/pth/da.txt
+          grep -q 'the last frontier the walk reached' /tmp/pth/da.txt
           grep -q '## Where the walk stopped: the names it reached at hop 2' /tmp/pth/da.txt
           # A start with no outgoing calls row is its own case, and reads as
           # one. Counting the start as a reach and printing it under "the
@@ -3180,7 +3186,8 @@ jobs:
           cat /tmp/pthamb/out.txt
           grep -q 'ambiguous' /tmp/pthamb/out.txt
           grep -q '2 files declare `leaf` and nothing said which: `p.py`, `q.py`' /tmp/pthamb/out.txt
-          grep -q 'goes through an ambiguous edge' /tmp/pthamb/out.txt
+          grep -q 'goes through such an edge' /tmp/pthamb/out.txt
+          grep -q 'followed into every file that declares the callee' /tmp/pthamb/out.txt
           # 9. The tool and the flag are the same answer, and the server declares them.
           printf '%s\n%s\n%s\n' \
             '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
@@ -3204,7 +3211,25 @@ jobs:
           print("MCP path and --path agree, byte for byte")
           EOF
           grep -q '"tool": "path"' /tmp/pthmap/.wawe-ask.log
-          # 10. Twice over the same map is the same answer.
+          # 10. Every first line is under two hundred characters, in every
+          #     shape this answer has: a chain, no chain, a start that calls
+          #     nothing, the two ends being one declaration, and a name the
+          #     map does not hold.
+          where-are-we --out /tmp/pthmap --path a,a > /tmp/pth/same.txt
+          where-are-we --out /tmp/pthmap --path a,nosuchname > /tmp/pth/none.txt
+          python - <<'EOF'
+          import sys
+          bad = []
+          for path in ("/tmp/pth/ad.txt", "/tmp/pth/da.txt", "/tmp/pth/ad2.txt",
+                       "/tmp/pth/leaf.txt", "/tmp/pth/same.txt",
+                       "/tmp/pth/none.txt", "/tmp/pthamb/out.txt"):
+              head = open(path).readline().rstrip("\n")
+              print(f"{len(head):4d}  {path}")
+              if len(head) > 200:
+                  bad.append(path)
+          sys.exit(1 if bad else 0)
+          EOF
+          # 11. Twice over the same map is the same answer.
           where-are-we --out /tmp/pthmap --path a,d > /tmp/pth/again.txt
           diff -u /tmp/pth/ad.txt /tmp/pth/again.txt
           # 11. Every row of both blocks is reachable from the answer's own handles at
@@ -3218,7 +3243,7 @@ jobs:
               result = ask.path(ask.load_map("/tmp/pthmap"), a, b, 6)
               whole = [row for block in ask.PATH_NAMES
                        for row in ask.path_lines(result, block)]
-              for limit in (12000, 1500, 400, 300):
+              for limit in (12000, 1500, 900, 800):
                   answer = ask.path_answer(M, a, b, 6, limit)
                   assert len(answer) <= limit, (a, b, limit, len(answer))
                   seen, queue, guard = [], [answer], 0
@@ -3230,7 +3255,7 @@ jobs:
                   missing = [row for row in whole if row not in seen]
                   assert not missing, (a, b, limit, missing[:2])
               print(f"{a} to {b}: {len(whole)} rows, every one reachable from the "
-                    "answer's own handles at 12000, 1500, 400 and 300 characters")
+                    "answer's own handles at 12000, 1500, 900 and 800 characters")
           EOF
       - name: range hands an editor the lines it needs
         run: |
@@ -3272,6 +3297,9 @@ jobs:
           where-are-we --out /tmp/rngmap --range charge > /tmp/rng/charge.txt
           cat /tmp/rng/charge.txt
           grep -q '`charge` is declared in 2 places' /tmp/rng/charge.txt
+          grep -q '## How this was counted' /tmp/rng/charge.txt
+          grep -q 'the shortest site with a measured end' /tmp/rng/charge.txt
+          grep -q 'an insertion after the last lands outside the definition' /tmp/rng/charge.txt
           grep -qxF -e '- `api/charge.py:1-7` function' /tmp/rng/charge.txt
           grep -qxF -e '- `billing/charge.py:4-7` function' /tmp/rng/charge.txt
           # 2. The shortest of them is the one whose text is printed, whole.
@@ -3320,6 +3348,31 @@ jobs:
           grep -qF -e '-?` function (end unknown:' /tmp/rng/serve.txt
           grep -q 'this map records an end only where a parser knew one' /tmp/rng/serve.txt
           grep -q 'No site has a measured end' /tmp/rng/serve.txt
+          # A redacted line is marked and named in the first line, and never
+          # offered as something to anchor an edit on.
+          rm -rf /tmp/rngsec /tmp/rngsecmap
+          mkdir -p /tmp/rngsec
+          printf 'def signs_in(context):\n    context.token = "api-token-1234"\n' \
+            > /tmp/rngsec/steps.py
+          where-are-we --repo /tmp/rngsec --out /tmp/rngsecmap --product /tmp/rngsec --quiet
+          where-are-we --out /tmp/rngsecmap --range signs_in > /tmp/rng/secret.txt
+          cat /tmp/rng/secret.txt
+          grep -q 'not the line on disk: do not anchor an edit there' /tmp/rng/secret.txt
+          grep -q 'had a value that looked like a secret' /tmp/rng/secret.txt
+          grep -q 'do not anchor on it' /tmp/rng/secret.txt
+          # Every first line, in every shape.
+          python - <<'EOF'
+          import sys
+          bad = []
+          for path in ("/tmp/rng/charge.txt", "/tmp/rng/serve.txt",
+                       "/tmp/rng/secret.txt"):
+              head = open(path).readline().rstrip("\n")
+              print(f"{len(head):4d}  {path}")
+              if len(head) > 200:
+                  bad.append(path)
+          sys.exit(1 if bad else 0)
+          EOF
+
           # 6. A name this map does not hold.
           where-are-we --out /tmp/rngmap --range nosuchname \
             | grep -q "no declaration of 'nosuchname' in this map"
@@ -3360,7 +3413,7 @@ jobs:
               result = ask.symbol_range(ask.load_map("/tmp/rngmap"), name)
               rows = {block: ask.range_lines(result, block) for block in ask.RANGE_NAMES}
               whole = [row for block in ask.RANGE_NAMES for row in rows[block]]
-              for limit in (12000, 1500, 600, 400):
+              for limit in (12000, 1500, 900, 800):
                   answer = ask.range_answer(M, name, limit)
                   assert len(answer) <= limit, (name, limit, len(answer))
                   seen, queue, guard = [], [answer], 0
@@ -3373,7 +3426,7 @@ jobs:
                   assert not missing, (name, limit, missing[:2])
               print(f"{name}: {len(whole)} rows over {len(ask.RANGE_NAMES)} blocks, "
                     "every one reachable from the answer's own handles at 12000, 1500, "
-                    "600 and 400 characters")
+                    "900 and 800 characters")
           EOF
       - name: dead and hot read the graph and the history
         run: |
@@ -3420,35 +3473,52 @@ jobs:
           where-are-we --repo /tmp/dh --out /tmp/dhmap --product /tmp/dh --quiet
           where-are-we --out /tmp/dhmap --dead > /tmp/dh/dead.txt
           cat /tmp/dh/dead.txt
+          # The rows of the list itself, without the first line and without
+          # the rules block under it: `main` is named in both, once as a row
+          # and once as an exclusion, and only one of those is a finding.
+          sed -n '/^## Definitions with no incoming call row/,/^## /p' \
+            /tmp/dh/dead.txt | grep '^- ' > /tmp/dh/rows.txt || true
+          cat /tmp/dh/rows.txt
           # 1. A function nothing calls is dead, and a class nothing builds is dead.
-          grep -q 'nothing_calls_me' /tmp/dh/dead.txt
-          grep -q 'Orphan' /tmp/dh/dead.txt
+          grep -q 'nothing_calls_me' /tmp/dh/rows.txt
+          grep -q 'Orphan' /tmp/dh/rows.txt
           # 2. A function called across files is not.
-          if grep -q 'called_across_files' /tmp/dh/dead.txt; then
+          if grep -q 'called_across_files' /tmp/dh/rows.txt; then
             echo "a function another file calls was called dead"; exit 1
           fi
           # 3. One referenced only from a route is not: `api.py` serves GET /invoice,
           #    so nothing declared in it is on the list, and the first line says that
           #    is the rule rather than leaving the reader to guess.
-          if grep -q 'serve_invoice' /tmp/dh/dead.txt; then
+          if grep -q 'serve_invoice' /tmp/dh/rows.txt; then
             echo "a definition in a file a route is served from was called dead"; exit 1
           fi
-          grep -q 'a definition in a file a `routes_served` row is served from' /tmp/dh/dead.txt
+          grep -q 'left out: a definition in a file a `routes_served` row is served from' /tmp/dh/dead.txt
           # 4. A step function is not: behave calls it off a phrase in a feature file.
-          if grep -q 'step_pays' /tmp/dh/dead.txt; then
+          if grep -q 'step_pays' /tmp/dh/rows.txt; then
             echo "a step function was called dead"; exit 1
           fi
           # 5. An entry point is not.
-          if grep '^- ' /tmp/dh/dead.txt | grep -qw 'main'; then
+          if grep -qw 'main' /tmp/dh/rows.txt; then
             echo "main was called dead"; exit 1
           fi
-          # 6. The caveats that decide what the list means come before the list
-          #    rather than after it, because they are what the list is.
+          # 6. The first line is short enough to be read on every turn: the
+          #    counts and the one sentence the flag's own name argues against.
+          #    Every other rule is a row of "## How this was counted", where
+          #    the budget may cut it without taking the caveat with it.
+          head -1 /tmp/dh/dead.txt | grep -q 'not dead code'
+          python - <<'EOF'
+          import sys
+          head = open("/tmp/dh/dead.txt").readline().rstrip("\n")
+          print(f"dead first line: {len(head)} characters")
+          sys.exit(0 if len(head) <= 200 else 1)
+          EOF
+          grep -q '## How this was counted' /tmp/dh/dead.txt
           grep -q 'only cross-file calls are in this graph' /tmp/dh/dead.txt
           grep -q "callers this map's resolver could not place" /tmp/dh/dead.txt
-          grep -q 'Read it as questions, not as a list to delete from' /tmp/dh/dead.txt
           grep -q 'file kinds its call graph reaches (.py)' /tmp/dh/dead.txt
           grep -q 'any other language is not judged either way' /tmp/dh/dead.txt
+          grep -qF -e '- left out: `main`' /tmp/dh/dead.txt
+          grep -q 'left out: a step function' /tmp/dh/dead.txt
           # A map whose graph holds no calls row cannot answer the question, and
           # says so rather than printing a clean nothing, which a reader of a
           # small repository would take for good news.
@@ -3461,6 +3531,12 @@ jobs:
           cat /tmp/dhnone/out.txt
           grep -q 'No call graph in this map' /tmp/dhnone/out.txt
           grep -q 'The map holds 2 functions and classes' /tmp/dhnone/out.txt
+          python - <<'EOF'
+          import sys
+          head = open("/tmp/dhnone/out.txt").readline().rstrip("\n")
+          print(f"dead empty-graph first line: {len(head)} characters")
+          sys.exit(0 if len(head) <= 200 else 1)
+          EOF
           if grep -q '0 definitions in 0 files' /tmp/dhnone/out.txt; then
             echo "an empty call graph was reported as a clean bill"; exit 1
           fi
@@ -3558,6 +3634,16 @@ jobs:
           #    first line says that bound rather than implying an uncapped count.
           grep -q 'counts 1 however often it changed' /tmp/hot/hot.txt
           grep -q 'busiest files and no more' /tmp/hot/hot.txt
+          grep -q '## How this was counted' /tmp/hot/hot.txt
+          grep -q 'A merge commit names no file' /tmp/hot/hot.txt || \
+            grep -q 'a merge commit names no file' /tmp/hot/hot.txt
+          python - <<'EOF'
+          import sys
+          head = open("/tmp/hot/hot.txt").readline().rstrip("\n")
+          print(f"hot first line: {len(head)} characters")
+          assert "counts 1" in head, head
+          sys.exit(0 if len(head) <= 200 else 1)
+          EOF
           if grep -q 'x 5 commits' /tmp/hot/hot.txt; then
             echo "a count of 5 was printed where the history holds 11"; exit 1
           fi
@@ -3576,7 +3662,7 @@ jobs:
           where-are-we --out /tmp/hotold --hot > /tmp/hot/old.txt
           cat /tmp/hot/old.txt
           grep -q 'no `git_commits` key' /tmp/hot/old.txt
-          grep -q 'every count at 5 means 5 or more' /tmp/hot/old.txt
+          grep -q 'is a floor and not a measurement' /tmp/hot/old.txt
           grep -qF 'x 5+ commits' /tmp/hot/old.txt
           if grep -qE 'x 5 commits' /tmp/hot/old.txt; then
             echo "a capped count was printed as a measurement"; exit 1
@@ -3626,12 +3712,10 @@ jobs:
               HANDLE = re.compile(rf"(more:{kind}:[^)\s]+?)(?=[)\s]|$)")
               result = call(ask.load_map(out), 40)
               whole = [row for block in names for row in lines_of(result, block)]
-              # Budgets above each answer's own first line. `dead`'s carries
-              # the whole exclusion list and both caveats, so it runs to about
-              # eleven hundred characters, and a budget under that is not a
-              # shorter answer but no answer, which is the rule `ask` and
-              # `context` already print under.
-              for limit in (12000, 2500, 1500):
+              # Every first line here is under two hundred characters, so
+              # these budgets are budgets that cut blocks rather than budgets
+              # an answer cannot fit its own head into.
+              for limit in (12000, 1500, 900, 800):
                   text = answer_of(M, 40, limit)
                   assert len(text) <= limit, (kind, limit, len(text))
                   seen, queue, guard = [], [text], 0
@@ -3643,7 +3727,7 @@ jobs:
                   missing = [row for row in whole if row not in seen]
                   assert not missing, (kind, limit, missing[:2])
               print(f"{kind}: {len(whole)} rows, every one reachable from the answer's "
-                    "own handles at 12000, 2500 and 1500 characters")
+                    "own handles at 12000, 1500, 900 and 800 characters")
           EOF
           # 12. The map's own "Page-object methods nothing calls" section is a
           #     different rule (a text count over the suite's source) over a
