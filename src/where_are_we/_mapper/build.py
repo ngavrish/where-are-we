@@ -2141,6 +2141,25 @@ def build(repo: str, out_dir: str | None = None,
     # `requests` name no file here; `where_are_we.mapper` names one.
     py_files = set(raw_calls_by_rel)
 
+    # Which indexed file a module names, answered once per build. The scan
+    # behind it reads every Python file the walk indexed, and the answer
+    # depends only on the module, the level and the directory the importing
+    # file sits in, so a thousand callers of one facade ask it once between
+    # them rather than a thousand times each, at each hop.
+    _carrier_memo: dict = {}
+
+    def _carriers(module: str, level: int, rel: str) -> set:
+        """The indexed files a module named from `rel` resolves to."""
+        key = (module, level, os.path.dirname(rel))
+        hit = _carrier_memo.get(key)
+        if hit is None:
+            hit = _carrier_memo[key] = _module_homes(module, level, rel, py_files)
+        return hit
+
+    # And the walk over those files, per facade and name. Every caller of
+    # `mapper.build(...)` asks the same question of `mapper.py`.
+    _reexport_memo: dict = {}
+
     def _reexport_home(start: str, name: str, where: set) -> set:
         """The file a facade takes `name` from, following its import lines.
 
@@ -2150,30 +2169,41 @@ def build(repo: str, out_dir: str | None = None,
         `_mapper/build.py` and the edge names that one file rather than every
         file with a `def build`.
 
-        Three hops, so a facade in front of a facade resolves and a longer
-        chain gives up rather than walking a repository. A module that names
-        several homes, a module that names none, and a hop back to a file
-        already visited each end the walk with the empty set, which is the
-        caller's signal to keep the candidate list it already had.
+        Three steps: the facade, a facade behind it, and one behind that, so
+        `F -> G -> H -> I` resolves and a longer chain gives up rather than
+        walking a repository. A module that names several homes, a module
+        that names none, and a hop back to a file already visited each end
+        the walk with the empty set, which is the caller's signal to keep the
+        candidate list it already had.
+
+        `where` is the name's homes, so it is a function of `name`, and the
+        answer is memoised on `(start, name)`.
         """
+        key = (start, name)
+        if key in _reexport_memo:
+            return _reexport_memo[key]
         seen, at = {start}, start
-        for _hop in range(3):
+        answer: set = set()
+        for _step in range(3):
             lines = ((raw_calls_by_rel.get(at) or {}).get("refrom") or {}).get(name)
             if not lines:
-                return set()
+                break
             declares, carries = set(), set()
             for mod, lvl in lines:
                 declares |= _module_homes(mod, lvl, at, where)
-                carries |= _module_homes(mod, lvl, at, py_files)
+                carries |= _carriers(mod, lvl, at)
             if declares:
-                return declares if len(declares) == 1 else set()
+                if len(declares) == 1:
+                    answer = declares
+                break
             if len(carries) != 1:
-                return set()
+                break
             at = next(iter(carries))
             if at in seen:
-                return set()
+                break
             seen.add(at)
-        return set()
+        _reexport_memo[key] = answer
+        return answer
 
     def _is_builtin_here(rel: str, shape: str, aliases: dict) -> bool:
         """Whether one recorded binding shape really means a builtin here.
@@ -2323,7 +2353,7 @@ def build(repo: str, out_dir: str | None = None,
                         # own import lines say where the name comes from.
                         carriers: set = set()
                         for mod, lvl, _pkg in said:
-                            carriers |= _module_homes(mod, lvl, rel, py_files)
+                            carriers |= _carriers(mod, lvl, rel)
                         if len(carriers) == 1:
                             through = _reexport_home(next(iter(carriers)),
                                                      name, where)
