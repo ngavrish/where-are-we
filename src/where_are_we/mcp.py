@@ -30,15 +30,17 @@ except ImportError:  # run as a plain file, with no package around it
 try:
     from . import graph
     from .ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET,
-                       IMPACT_MAX_DEPTH, RANK_LIMIT, affected_answer, at,
-                       context, file_list, log_answer, callees_line, callers,
-                       impact, map_heads, rank_lines)
+                       IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
+                       affected_tool_answer, at, context, file_list,
+                       log_answer, callees_line, callers, impact, map_heads,
+                       rank_lines)
 except ImportError:  # run as a plain file, with no package around it
     import graph  # type: ignore[no-redef]
     from ask import (AFFECTED_BUDGET, AT_BUDGET,  # type: ignore[no-redef]
-                     CONTEXT_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
-                     affected_answer, at, context, file_list, log_answer,
-                     callees_line, callers, impact, map_heads, rank_lines)
+                     CONTEXT_BUDGET, IMPACT_MAX_DEPTH, MCP_SELECTORS,
+                     RANK_LIMIT, affected_tool_answer, at, context, file_list,
+                     log_answer, callees_line, callers, impact, map_heads,
+                     rank_lines)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -266,9 +268,14 @@ TOOLS = [
             "`xrefs` call rows upward, callee to caller, to `depth` hops (1 "
             "to 12, 6 by default). Ask it before running a suite: it is the "
             "selection, not a search. `format` returns a runner's own list "
-            "instead of the blocks, `behave` include patterns or `pytest` "
-            "node ids. `files` takes a list, relative to the repository "
-            "root, and a directory prefix counts."),
+            "instead of the blocks, `behave` arguments (one --name per "
+            "affected scenario) or `pytest` node ids. A selection that fits "
+            "this reply comes back whole; one that does not comes back as "
+            f"its count, its first {MCP_SELECTORS} selectors and the "
+            "`--affected-out FILE` command that writes all of it, because a "
+            "selection cut in half is a test run that misses tests. `files` "
+            "takes a list, relative to the repository root, and a directory "
+            "prefix counts."),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -541,8 +548,8 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         # One question, so the whole budget: the files are one change rather
         # than a list of separate questions, and the flag prints at the same
         # ceiling, which is what makes the two byte for byte identical.
-        answer = affected_answer(map_path, chosen, depth, fmt_field or "",
-                                 AFFECTED_BUDGET)
+        answer = affected_tool_answer(map_path, chosen, depth,
+                                      fmt_field or "", AFFECTED_BUDGET)
         log_answer(out_dir, "affected", ",".join(chosen), answer,
                    AFFECTED_BUDGET)
         _reply(_text(answer), ident)
