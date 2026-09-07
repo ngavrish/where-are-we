@@ -2123,7 +2123,13 @@ def build(repo: str, out_dir: str | None = None,
                     "classes": classes, "owner": owner}
 
         _stats("python")
-        func_info = _cached(full, "func_edges", _func_calls_of)
+        # `func_edges_2`, because the record under this key holds six tables
+        # where 1.4.0's held five. The kind is part of the cache key, so a
+        # record whose shape changed is a record this build recomputes; the
+        # alternative, waiting for the version in the cache file's header to
+        # change, makes the correctness of a stored record depend on a
+        # release number moving in the same commit that changed its shape.
+        func_info = _cached(full, "func_edges_2", _func_calls_of)
         raw_calls_by_rel[rel] = func_info
         for name in func_info["defs"]:
             defined_at.setdefault(name, rel)
