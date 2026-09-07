@@ -2796,6 +2796,39 @@ jobs:
           assert graph == {"keeps.py:k": ["f (p.py|q.py)?"]}, graph
           print("from-import receiver:", graph)
           EOF
+          # A directory named after an imported module is the weakest
+          # evidence there is: it matches on the last part of the path at any
+          # depth. `tests/fixtures/logging/` declaring no `info` does not
+          # speak for `logging.info(...)`, and the two first-party `info`
+          # functions are not what that line calls. A vendored
+          # `requests/__init__.py` that does declare `get` is a file and
+          # still answers for `requests.get(...)`, and a package with no
+          # `__init__.py` whose own files declare the callee still counts.
+          rm -rf /tmp/markdir
+          mkdir -p /tmp/markdir/log/tests/fixtures/logging /tmp/markdir/vend/vendor/requests /tmp/markdir/pkg/mypkg
+          printf 'def info(x):\n    return x\n' > /tmp/markdir/log/a.py
+          printf 'def info(x):\n    return x\n' > /tmp/markdir/log/b.py
+          printf 'HELPER = 1\n' > /tmp/markdir/log/tests/fixtures/logging/x.py
+          printf 'import logging\n\n\ndef go(u):\n    return logging.info(u)\n' > /tmp/markdir/log/caller.py
+          printf 'def get(url):\n    return url\n' > /tmp/markdir/vend/vendor/requests/__init__.py
+          printf 'def get(url):\n    return url\n' > /tmp/markdir/vend/mine.py
+          printf 'import requests\n\n\ndef fetch(u):\n    return requests.get(u)\n' > /tmp/markdir/vend/caller.py
+          printf 'def helper(x):\n    return x\n' > /tmp/markdir/pkg/mypkg/impl.py
+          printf 'def helper(x):\n    return x\n' > /tmp/markdir/pkg/elsewhere.py
+          printf 'import mypkg\n\n\ndef go(u):\n    return mypkg.helper(u)\n' > /tmp/markdir/pkg/caller.py
+          for d in log vend pkg; do
+            where-are-we --repo "/tmp/markdir/$d" --out "/tmp/markdir/$d-out" \
+              --product none --force --quiet --no-semantic
+          done
+          python - <<'EOF'
+          import json
+          def graph(name):
+              return json.load(open(f"/tmp/markdir/{name}-out/framework_map.json"))["call_graph_files"]
+          assert graph("log") == {}, graph("log")
+          assert graph("vend") == {"caller.py:fetch": ["get (__init__.py)"]}, graph("vend")
+          assert graph("pkg") == {"caller.py:go": ["helper (elsewhere.py|impl.py)?"]}, graph("pkg")
+          print("directory evidence:", graph("log"), graph("vend"), graph("pkg"))
+          EOF
           # A name exactly one file defines keeps a bare edge: the poly
           # fixture's `charge` is declared once, and its edge carries no mark.
           rm -rf /tmp/markpoly

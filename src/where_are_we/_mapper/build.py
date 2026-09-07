@@ -1981,13 +1981,22 @@ def build(repo: str, out_dir: str | None = None,
                 hits.add(home)
         return hits
 
-    def _module_is_here(module: str, level: int, rel: str, files) -> bool:
+    def _module_is_here(module: str, level: int, rel: str, files,
+                        homes=None) -> bool:
         """Whether the module `rel` imported is a module of this tree.
 
         A file that is the module, a package `__init__.py`, or a directory
         with indexed files under it, because a package this walk read is
         first-party whether or not it carries an `__init__.py`. `os`,
         `requests` and `datetime` are none of those.
+
+        The directory is the weak half: it matches on the last part of the
+        path at any depth, so `tests/fixtures/logging/` makes `import
+        logging` look first-party. Where `homes` is given, the callee's
+        candidate homes, a directory only counts when one of those homes is
+        under it. A vendored `requests/__init__.py` declaring `get` matches
+        as a file and never reaches this, and a `logging/` directory that
+        declares no `info` no longer speaks for `logging.info(...)`.
         """
         target = _module_target(module, level, rel)
         if target is None:
@@ -1999,8 +2008,14 @@ def build(repo: str, out_dir: str | None = None,
         if _module_homes(module, level, rel, files):
             return True
         inside = f"{target}/"
-        return any(f.replace(os.sep, "/").startswith(inside)
-                   or f"/{inside}" in f.replace(os.sep, "/") for f in files)
+
+        def _under(path: str) -> bool:
+            here = path.replace(os.sep, "/")
+            return here.startswith(inside) or f"/{inside}" in here
+
+        if not any(_under(f) for f in files):
+            return False
+        return homes is None or any(_under(h) for h in homes)
 
     raw_calls_by_rel: dict[str, dict] = {}
     for rel in code_files:
@@ -2391,7 +2406,8 @@ def build(repo: str, out_dir: str | None = None,
                     said = [[from_mod[0], from_mod[1], from_mod[0]]] if from_mod else []
                 else:
                     said = mods.get(name) or []
-                if said and not any(_module_is_here(pkg, lvl, rel, py_files)
+                if said and not any(_module_is_here(pkg, lvl, rel, py_files,
+                                                    where)
                                     for _mod, lvl, pkg in said):
                     # `ast.walk(...)`, `os.walk(...)`, `requests.get(...)`,
                     # `from os import path` and then `path.join(...)`: the
