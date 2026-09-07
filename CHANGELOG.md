@@ -20,8 +20,19 @@ the map and nothing read them end to end; this release starts doing that.
   convention: `spans` holds two declarations on one line for a behave step,
   the function and the phrase its decorator binds, and the join of those two
   is what a step function is. A scenario is reached when one of its own step
-  lines holds a reached phrase, matched by the rule `feature_links` is built
-  with, so a scenario named here is one the map already binds to that module.
+  lines holds a reached phrase, normalised and cut to 40 characters, which is
+  the same substring rule `feature_links` is built with: a scenario named
+  here is one the map already binds to that module, and a step phrase written
+  as a regular expression that shares no literal head with its line binds in
+  neither place.
+- A changed feature file selects its own scenarios. A feature file is a test
+  rather than something a test calls, so every scenario in it is affected, at
+  no hops, and the row says "the feature file itself changed". Before this a
+  commit that edited or added a scenario, which is the commonest change a
+  behave suite gets, selected nothing and read as an all clear.
+- A route is named when the file it is served from is reached.
+  `routes_served` records the basename of that file and no handler name, so
+  the granularity of that block is the file, and its head says so.
 - A first line that says what a zero means. On the `suite` golden fixture a
   change to `pages/checkout.py` reaches 40 step functions and 0 of 5
   scenarios, because 3 of those 5 hold no step any module in that fixture
@@ -31,9 +42,15 @@ the map and nothing read them end to end; this release starts doing that.
   reads as an option to git is refused rather than handed to it, a failed
   `git diff` is one line and exit 2, and a commit that changed nothing is
   "nothing changed since HEAD" and exit 0.
-- `--affected-format behave` prints the tags where the map holds a tag on the
-  affected feature files alone, and `-i` include patterns where it does not,
-  saying which of the two it printed and why; `--affected-format pytest`
+- `--affected-format behave` prints one `--name` per affected scenario,
+  anchored on its name, and one `-i` for a feature file every scenario of
+  which is affected, which selects the same set in one argument. It never
+  prints a tag: behave applies `--tags` per scenario, and the map records a
+  feature file's tags as every `@word` anywhere in it, so a scenario level
+  tag or the `@` of an email address in a step line would select the wrong
+  scenarios or none at all. A scenario outline is selected too: behave
+  substitutes the example values into the name it runs and appends its own
+  ` -- @1.1` suffix, so the pattern allows both. `--affected-format pytest`
   prints node ids from `pytest_tests`. `--affected-depth N` is 1 to 12, and
   the flag refuses what the tool refuses.
 - Every block is cut by the rules every other answer here is cut by: whole
@@ -41,6 +58,10 @@ the map and nothing read them end to end; this release starts doing that.
   printing order, and a `more:aff:` handle under a block that could not print
   all of itself. `more` resolves it like any other handle, with the block, the
   files and the depth in the handle and nothing stored between the two calls.
+  A block there is no room to print at all is not dropped silently, as it is
+  in `context`: it gets one line, `… 2 rows in pages; raise the budget`, with
+  the handle that fetches them, because a list of rows a reader can neither
+  see nor ask for is what makes a selection wrong rather than short.
 - `context`'s three budget functions are now shared with this one, with the
   handle passed in: the cut, the floor and the two allocation passes were the
   same for both. `context` is byte for byte what it was, over 224 names at 6

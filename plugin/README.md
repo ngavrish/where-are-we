@@ -21,7 +21,10 @@ grepped.
   what it cut. `affected` takes the files a change touched and answers which
   tests reach them: the scenarios, their feature files, the routes and page
   objects, and the files the graph holds no row for, so you know what the
-  answer does not cover.
+  answer does not cover. A scenario is reached through a step phrase matched
+  as a 40 character substring, a route through the file it is served from,
+  and a changed feature file selects its own scenarios; `format="behave"`
+  prints a `--name` per scenario rather than any tag.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are
