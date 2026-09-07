@@ -28,14 +28,17 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import (AT_BUDGET, CONTEXT_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
-                       at, context, file_list, log_answer, callees_line,
-                       callers, impact, map_heads, rank_lines)
+    from . import graph
+    from .ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET,
+                       IMPACT_MAX_DEPTH, RANK_LIMIT, affected_answer, at,
+                       context, file_list, log_answer, callees_line, callers,
+                       impact, map_heads, rank_lines)
 except ImportError:  # run as a plain file, with no package around it
-    from ask import (AT_BUDGET, CONTEXT_BUDGET,  # type: ignore[no-redef]
-                     IMPACT_MAX_DEPTH, RANK_LIMIT, at, context, file_list,
-                     log_answer, callees_line, callers, impact, map_heads,
-                     rank_lines)
+    import graph  # type: ignore[no-redef]
+    from ask import (AFFECTED_BUDGET, AT_BUDGET,  # type: ignore[no-redef]
+                     CONTEXT_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
+                     affected_answer, at, context, file_list, log_answer,
+                     callees_line, callers, impact, map_heads, rank_lines)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -250,6 +253,38 @@ TOOLS = [
                                           "(default 12000)")},
             },
             "required": ["name"],
+        },
+    },
+    {
+        "name": "affected",
+        "description": (
+            "Which tests a change reaches: hand it the files a change "
+            "touched and get back the scenarios whose steps call into them, "
+            "the feature files those scenarios are in, the routes and page "
+            "objects reached, and the files the graph holds no row for, so "
+            "you know what the answer does not cover. Walks the map's own "
+            "`xrefs` call rows upward, callee to caller, to `depth` hops (1 "
+            "to 12, 6 by default). Ask it before running a suite: it is the "
+            "selection, not a search. `format` returns a runner's own list "
+            "instead of the blocks, `behave` include patterns or `pytest` "
+            "node ids. `files` takes a list, relative to the repository "
+            "root, and a directory prefix counts."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "files": {"type": ["string", "array"],
+                          "items": {"type": "string"},
+                          "description": ("the files a change touched, or a "
+                                          "directory prefix, relative to the "
+                                          "repository root")},
+                "depth": {"type": "integer", "minimum": 1, "maximum": 12,
+                          "description": ("how many call hops to follow "
+                                          "upward (default 6)")},
+                "format": {"type": "string", "enum": ["behave", "pytest"],
+                           "description": ("a runner's own selection instead "
+                                           "of the blocks")},
+            },
+            "required": ["files"],
         },
     },
     {
@@ -483,6 +518,34 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             log_answer(out_dir, "context", w, answer, room)
             pairs.append((w, answer))
         _reply(_text(_joined(pairs) if pairs else "give me a name"), ident)
+    elif name == "affected":
+        files_field = args.get("files")
+        if files_field is not None and not _is_str_or_str_list(files_field):
+            raise _BadParams("files must be a string or a list of strings")
+        depth_field = args.get("depth")
+        if depth_field is not None and (not isinstance(depth_field, int)
+                                        or isinstance(depth_field, bool)
+                                        or depth_field < 1
+                                        or depth_field > graph.MAX_DEPTH):
+            raise _BadParams("depth must be an integer from 1 to "
+                             f"{graph.MAX_DEPTH}")
+        fmt_field = args.get("format")
+        if fmt_field is not None and (not isinstance(fmt_field, str)
+                                      or fmt_field not in graph.FORMATS):
+            raise _BadParams("format must be one of "
+                             + ", ".join(graph.FORMATS))
+        # `-` is the command line's "read the list on stdin", and stdin here
+        # is the JSON-RPC pipe, as it is for `ask`.
+        chosen = [f for f in file_list(files_field) if f != "-"]
+        depth = graph.DEFAULT_DEPTH if depth_field is None else int(depth_field)
+        # One question, so the whole budget: the files are one change rather
+        # than a list of separate questions, and the flag prints at the same
+        # ceiling, which is what makes the two byte for byte identical.
+        answer = affected_answer(map_path, chosen, depth, fmt_field or "",
+                                 AFFECTED_BUDGET)
+        log_answer(out_dir, "affected", ",".join(chosen), answer,
+                   AFFECTED_BUDGET)
+        _reply(_text(answer), ident)
     elif name == "rank":
         files_field = args.get("files")
         if files_field is not None and not _is_str_or_str_list(files_field):

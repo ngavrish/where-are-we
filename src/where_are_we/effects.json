@@ -1,12 +1,16 @@
 {
   "schema": "where-are-we-effects/1",
   "flags": {
+    "--affected": "read",
+    "--affected-depth": "read",
+    "--affected-format": "read",
     "--agent-file": "writes-repo",
     "--also": "read",
     "--ask": "read",
     "--at": "read",
     "--callees": "read",
     "--callers": "read",
+    "--changed": "read",
     "--context": "read",
     "--corpus": "read",
     "--cost": "read",
@@ -60,7 +64,7 @@
     "network"
   ],
   "notes": {
-    "read": "answers from what is already there. The flags that answer from a map (--ask, --more, --callers, --callees, --impact, --defines, --at, --context, --rank, --sections, --cost) append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; nothing else is written, and nothing outside <out> is.",
+    "read": "answers from what is already there. The flags that answer from a map (--ask, --more, --callers, --callees, --impact, --defines, --at, --context, --affected, --changed, --rank, --sections, --cost) append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
     "writes-repo": "writes into the repository being mapped: a manifest, an agent file, the READMEs a directory has none of, and the file --export was told to write, which is at whatever path the caller named.",
     "writes-config": "writes where a tool other than this one reads: .git/hooks, ~/.claude/settings.json, ~/.codex/config.toml, a Cursor rule, a Gemini setting.",

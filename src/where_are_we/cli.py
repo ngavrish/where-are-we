@@ -27,10 +27,11 @@ import sys
 # package around this file, plain when `mapper.py` is being run by path and
 # `src/where_are_we` is itself the import root.
 try:
-    from . import ask as _ask, effects, hooks, lsp, mcp, specs
-    from .ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask, at, callees_line,
-                       callers, context, file_list, impact, log_answer,
-                       map_heads, rank_lines, spans_for)
+    from . import ask as _ask, effects, graph, hooks, lsp, mcp, specs
+    from .ask import (AFFECTED_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
+                       affected_answer, ask, at, callees_line, callers,
+                       context, file_list, impact, log_answer, map_heads,
+                       rank_lines, spans_for)
     from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
                                  changed_since, cost, ctags, digest, export,
@@ -45,12 +46,14 @@ try:
 except ImportError:  # run as a plain file, with no package around it
     import ask as _ask  # type: ignore[no-redef]
     import effects  # type: ignore[no-redef]
+    import graph  # type: ignore[no-redef]
     import hooks  # type: ignore[no-redef]
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask,  # type: ignore[no-redef]
-                     at, callees_line, callers, context, file_list, impact,
+    from ask import (AFFECTED_BUDGET,  # type: ignore[no-redef]
+                     IMPACT_MAX_DEPTH, RANK_LIMIT, affected_answer, ask, at,
+                     callees_line, callers, context, file_list, impact,
                      log_answer, map_heads, rank_lines, spans_for)
     from _mapper.build import (build,  # type: ignore[no-redef]
                                declares_rows, sort_xrefs)
@@ -344,6 +347,24 @@ def _impact_depth(text: str) -> int:
     return value
 
 
+def _affected_depth(text: str) -> int:
+    """`--affected-depth`, refused at the parser the way `--impact-depth` is.
+
+    The MCP tool refuses a depth outside its range with -32602, so the flag
+    refuses it with exit 2 rather than clamping it quietly: two spellings of
+    one tool have to mean the same thing by the same number.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a whole number") from None
+    if not 1 <= value <= graph.MAX_DEPTH:
+        raise argparse.ArgumentTypeError(
+            f"must be from 1 to {graph.MAX_DEPTH}, not {value}")
+    return value
+
+
 def _row_limit(text: str) -> int:
     """`--limit`, refused at the parser the way `--impact-depth` is.
 
@@ -581,6 +602,31 @@ def build_parser() -> argparse.ArgumentParser:
                     metavar="N",
                     help="how many hops back --impact follows, 1 to 6 "
                          "(default 3)")
+    ap.add_argument("--affected", default="", metavar="FILE[,FILE...]",
+                    help="print which tests a change to those files reaches: "
+                         "the scenarios whose steps call into them, their "
+                         "feature files, the routes and page objects reached, "
+                         "and the files the graph holds no row for. Walks the "
+                         "map's `xrefs` calls rows upward from what those "
+                         "files declare. `-` reads a newline separated list "
+                         "on stdin. Reads framework_map.json under --out")
+    ap.add_argument("--changed", nargs="?", const="HEAD", default=None,
+                    metavar="REF",
+                    help="the files `git diff --name-only REF` names in the "
+                         "repository the map was built from (HEAD when REF is "
+                         "left off), answered as --affected would answer "
+                         "them, so a pipeline passes nothing")
+    ap.add_argument("--affected-format", dest="affected_format", default="",
+                    choices=["behave", "pytest"],
+                    help="print a runner's own selection instead of the "
+                         "blocks: `behave` an include list, one pattern per "
+                         "line for -i, or the tags where the map holds a tag "
+                         "on the affected feature files alone; `pytest` the "
+                         "node ids of the reached cases")
+    ap.add_argument("--affected-depth", type=_affected_depth,
+                    default=graph.DEFAULT_DEPTH, metavar="N",
+                    help="how many call hops --affected follows upward, 1 to "
+                         f"{graph.MAX_DEPTH} (default {graph.DEFAULT_DEPTH})")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
@@ -770,7 +816,8 @@ def _dry_run_answer(args) -> int:
         ("--more", args.more_handle), ("--callers", args.callers),
         ("--callees", args.callees), ("--impact", args.impact),
         ("--defines", args.defines), ("--at", args.at_place),
-        ("--context", args.context_name),
+        ("--context", args.context_name), ("--affected", args.affected),
+        ("--changed", args.changed is not None),
         ("--rank", args.rank_files is not None),
         ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
@@ -861,7 +908,9 @@ def main() -> int:
                          or args.ask or args.pointer or args.callers
                          or args.callees or args.impact or args.more_handle
                          or args.defines or args.at_place
-                         or args.context_name or args.export is not None
+                         or args.context_name or args.affected
+                         or args.changed is not None
+                         or args.export is not None
                          or args.rank_files is not None
                          or args.cost is not None):
         return _dry_run_answer(args)
@@ -921,6 +970,7 @@ def main() -> int:
     if (args.sections or args.ask or args.pointer or args.callers
             or args.callees or args.impact or args.more_handle
             or args.defines or args.at_place or args.context_name
+            or args.affected or args.changed is not None
             or args.export is not None or args.rank_files is not None
             or args.cost is not None):
         out_dir = os.path.abspath(args.out)
@@ -954,6 +1004,7 @@ def main() -> int:
                              or args.callees or args.impact
                              or args.more_handle or args.defines
                              or args.at_place or args.context_name
+                             or args.affected or args.changed is not None
                              or args.export is not None
                              or args.rank_files is not None
                              or args.cost is not None):
@@ -1034,6 +1085,32 @@ def main() -> int:
             answer = context(map_path, args.context_name)
             log_answer(out_dir, "context", args.context_name, answer,
                        _ask.CONTEXT_BUDGET)
+            print(answer)
+            return 0
+        if args.affected or args.changed is not None:
+            # The same call the MCP `affected` tool makes, at the same
+            # budget, so a change asked here and asked there comes back byte
+            # for byte the same. `--changed` adds what git says moved to
+            # whatever `--affected` already named, in that order and without
+            # repeating a file both of them name.
+            chosen = file_list(args.affected, sys.stdin.read)
+            if args.changed is not None:
+                repo = graph.load(out_dir).get("repo") or ""
+                moved, problem = graph.changed_files(repo, args.changed)
+                if problem:
+                    print(problem, file=sys.stderr)
+                    return 2
+                chosen = list(dict.fromkeys(chosen + moved))
+                if not chosen:
+                    # Not an error: a pipeline asking what to re-run after a
+                    # commit that changed nothing has its answer, and exit 0
+                    # is what says so.
+                    print(f"nothing changed since {args.changed}")
+                    return 0
+            answer = affected_answer(map_path, chosen, args.affected_depth,
+                                     args.affected_format)
+            log_answer(out_dir, "affected", ",".join(chosen), answer,
+                       AFFECTED_BUDGET)
             print(answer)
             return 0
         if args.rank_files is not None:

@@ -64,6 +64,12 @@ EFFECTS = {
     "--callees": "read",
     "--impact": "read",
     "--impact-depth": "read",
+    "--affected": "read",
+    "--changed": "read",
+    # `--changed` runs `git diff --name-only` in the repository the map was
+    # built from, which reads that checkout and writes nothing in it.
+    "--affected-format": "read",
+    "--affected-depth": "read",
     "--sections": "read",
     "--cost": "read",
     "--pointer": "read",
@@ -113,7 +119,8 @@ EFFECTS = {
 NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
-            "--at, --context, --rank, --sections, --cost) "
+            "--at, --context, --affected, --changed, --rank, --sections, "
+            "--cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
@@ -137,7 +144,7 @@ NO_MAP_BUILD = frozenset({
     "-h", "--help", "--effects", "--dry-run", "--ask", "--more", "--callers",
     "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
-    "--cost", "--export", "--context",
+    "--cost", "--export", "--context", "--affected", "--changed",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the
