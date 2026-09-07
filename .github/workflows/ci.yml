@@ -1951,7 +1951,7 @@ jobs:
           rm -rf /tmp/dip
           mkdir -p /tmp/dip/repo
           printf 'def charge(x):\n    return x\n' > /tmp/dip/repo/billing.py
-          # 22 modules, no cycle. On the old layout `mapper` re-exported the
+          # 24 modules, no cycle. On the old layout `mapper` re-exported the
           # command line, which imported `ask`, `hooks`, `lsp` and `mcp`, each
           # of which imported `mapper` back, and eleven imports had to be
           # written inside functions to keep Python from tripping over it.
@@ -3160,3 +3160,115 @@ jobs:
               print(fixture, stats)
           EOF
 
+      - name: every flag the parser knows is in the effects table, and nothing else is
+        run: |
+          set -o pipefail
+          # A guard classifies this tool by its flags. A flag the parser
+          # grows and the table does not is a write nobody was told about.
+          python - <<'EOF'
+          import sys
+          from where_are_we import effects
+          from where_are_we.cli import build_parser
+          known = set(effects.option_strings(build_parser()))
+          table = set(effects.EFFECTS)
+          missing, extra = sorted(known - table), sorted(table - known)
+          unclassed = sorted(f for f, c in effects.EFFECTS.items()
+                             if c not in effects.ORDER)
+          print(f"{len(known)} flags on the parser, {len(table)} in the table, "
+                f"not in the table: {missing}, not on the parser: {extra}, "
+                f"with a class the order does not know: {unclassed}")
+          sys.exit(1 if (missing or extra or unclassed) else 0)
+          EOF
+          # The file in the wheel is the table, byte for byte. Regenerate
+          # it with the same command when the table moves:
+          #   where-are-we --effects --json > src/where_are_we/effects.json
+          where-are-we --effects --json > /tmp/effects.json
+          diff -u src/where_are_we/effects.json /tmp/effects.json
+          # And it is installed beside the code, not merely in the checkout.
+          python - <<'EOF'
+          import importlib.resources as res, json
+          data = json.loads(res.files("where_are_we").joinpath("effects.json")
+                            .read_text(encoding="utf-8"))
+          assert data["schema"] == "where-are-we-effects/1", data["schema"]
+          assert data["order"] == ["read", "writes-map-dir", "writes-repo",
+                                   "writes-config", "network"], data["order"]
+          print("effects.json ships with the package:", len(data["flags"]), "flags")
+          EOF
+
+      - name: a command line says what it would write before it runs
+        run: |
+          set -o pipefail
+          rm -rf /tmp/eff
+          mkdir -p /tmp/eff
+          where-are-we --effects -- where-are-we --out /tmp/eff/m --ask x > /tmp/eff/a
+          where-are-we --effects -- where-are-we --install-hook git > /tmp/eff/b
+          where-are-we --effects -- where-are-we --mcp > /tmp/eff/c
+          where-are-we --effects -- where-are-we --repo . > /tmp/eff/d
+          cat /tmp/eff/a /tmp/eff/b /tmp/eff/c /tmp/eff/d
+          grep -qx writes-map-dir /tmp/eff/a
+          grep -qx "\-\-out writes-map-dir" /tmp/eff/a
+          grep -qx "\-\-ask read" /tmp/eff/a
+          grep -qx writes-config /tmp/eff/b
+          grep -qx read /tmp/eff/c
+          # Nothing on that last line says "write", and it still writes: with
+          # no flag that answers from an existing map, the run builds one.
+          grep -qx writes-map-dir /tmp/eff/d
+          grep -qx "build writes-map-dir" /tmp/eff/d
+          # Classifying runs nothing, so the directory in the command line
+          # that was classified does not exist afterwards.
+          if test -e /tmp/eff/m; then
+            echo "--effects built something"; exit 1
+          fi
+          where-are-we --effects > /tmp/eff/table
+          head -2 /tmp/eff/table
+          grep -q "^--install-hook  *writes-config$" /tmp/eff/table
+          grep -qx "where-are-we-effects/1" /tmp/eff/table
+          where-are-we --effects --json > /tmp/eff/table.json
+          grep -q '"schema": "where-are-we-effects/1"' /tmp/eff/table.json
+
+      - name: --dry-run names every path it would write and writes none of them
+        run: |
+          set -o pipefail
+          rm -rf /tmp/dry /tmp/dryout
+          mkdir -p /tmp/dry/repo /tmp/dry/home /tmp/dryout
+          export HOME=/tmp/dry/home
+          printf 'def f():\n    pass\n' > /tmp/dry/repo/a.py
+          git -C /tmp/dry/repo init -q
+          find /tmp/dry -type f | sort > /tmp/dryout/files.before
+          xargs sha256sum < /tmp/dryout/files.before | sha256sum > /tmp/dryout/hash.before
+          where-are-we --repo /tmp/dry/repo --init --dry-run > /tmp/dryout/init.txt
+          where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
+            --agent-file /tmp/dry/repo/AGENTS.md --dry-run > /tmp/dryout/agent.txt
+          where-are-we --repo /tmp/dry/repo --install-hook git --dry-run \
+            > /tmp/dryout/git.txt
+          where-are-we --repo /tmp/dry/repo --install-hook claude --dry-run \
+            > /tmp/dryout/claude.txt
+          cat /tmp/dryout/*.txt
+          grep -qx "would write /tmp/dry/repo/.framework-map.json" /tmp/dryout/init.txt
+          grep -qx "would write /tmp/dry/repo/AGENTS.md" /tmp/dryout/agent.txt
+          grep -qx "would write /tmp/dry/repo/.wawe/framework_map.md" /tmp/dryout/agent.txt
+          for hook in post-checkout post-merge post-commit; do
+            grep -qx "would write /tmp/dry/repo/.git/hooks/$hook" /tmp/dryout/git.txt
+          done
+          grep -qx "would write /tmp/dry/home/.claude/settings.json" /tmp/dryout/claude.txt
+          # The tree is the tree it was: same files, same contents.
+          find /tmp/dry -type f | sort > /tmp/dryout/files.after
+          xargs sha256sum < /tmp/dryout/files.after | sha256sum > /tmp/dryout/hash.after
+          diff /tmp/dryout/files.before /tmp/dryout/files.after
+          diff /tmp/dryout/hash.before /tmp/dryout/hash.after
+          # And a preview is not a fiction: the same commands, run for real,
+          # create every path it named.
+          where-are-we --repo /tmp/dry/repo --install-hook git
+          where-are-we --repo /tmp/dry/repo --install-hook claude
+          where-are-we --repo /tmp/dry/repo --init
+          where-are-we --repo /tmp/dry/repo --out /tmp/dry/repo/.wawe \
+            --agent-file /tmp/dry/repo/AGENTS.md --quiet --no-semantic
+          sed 's/^would write //;s/^would replace //' /tmp/dryout/*.txt \
+            | sort -u > /tmp/dryout/promised
+          while read -r path; do
+            if test ! -e "$path"; then
+              echo "the dry run named $path and the real run did not write it"
+              exit 1
+            fi
+          done < /tmp/dryout/promised
+          wc -l < /tmp/dryout/promised
