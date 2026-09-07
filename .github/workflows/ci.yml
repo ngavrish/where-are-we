@@ -1876,6 +1876,56 @@ jobs:
           if grep -q "unchanged since it was built" /tmp/cr/diff.txt; then
             echo "unexpected match: grep -q 'unchanged since it was built' /tmp/cr/diff.txt"; exit 1
           fi
+          # Every line --diff prints is measured against the map in --out,
+          # which --diff does not rewrite, so the same command over the same
+          # tree answers the same way twice. It used to rewrite the parse
+          # cache and lose the file list on the second run while still saying
+          # the root had moved.
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic --diff > /tmp/cr/diff2.txt
+          diff /tmp/cr/diff.txt /tmp/cr/diff2.txt
+          # An added file and a deleted one are named too.
+          printf 'def fresh():\n    pass\n' > /tmp/cr/r/c.py
+          rm /tmp/cr/r/b.py
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic --diff > /tmp/cr/diff3.txt
+          cat /tmp/cr/diff3.txt
+          grep -q "^files added: c.py$" /tmp/cr/diff3.txt
+          grep -q "^files gone: b.py$" /tmp/cr/diff3.txt
+          # --force distrusts the hashes as well as the parses, so a content
+          # root can always be recomputed from the bytes.
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cr/r --out /tmp/cr/m \
+            --product none --force --quiet --no-semantic 2> /tmp/cr/forced.log
+          cat /tmp/cr/forced.log
+          grep -qE "^hashed [1-9][0-9]* files$" /tmp/cr/forced.log
+          # And the watcher asks the same two questions the one-shot path
+          # asks. Before this it triggered on the fingerprint alone, so a
+          # rewrite that put its timestamp back was invisible for as long as
+          # the watcher ran, which is worse than the one-shot case: nothing
+          # else was ever going to look.
+          rm -rf /tmp/cr/w /tmp/cr/wm
+          mkdir -p /tmp/cr/w /tmp/cr/wm
+          printf 'def watched():\n    pass\n' > /tmp/cr/w/a.py
+          where-are-we --repo /tmp/cr/w --out /tmp/cr/wm --product none \
+            --force --quiet --no-semantic
+          PYTHONUNBUFFERED=1 where-are-we --repo /tmp/cr/w --out /tmp/cr/wm \
+            --product none --watch 1 --no-semantic > /tmp/cr/watch.log 2>&1 &
+          WP=$!
+          sleep 2
+          python -c "
+          import os
+          before = os.stat('/tmp/cr/w/a.py')
+          open('/tmp/cr/w/a.py', 'w').write('def swapped():\n    pass\n')
+          os.utime('/tmp/cr/w/a.py', ns=(before.st_atime_ns, before.st_mtime_ns))
+          after = os.stat('/tmp/cr/w/a.py')
+          assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)"
+          sleep 5
+          kill $WP || true
+          cat /tmp/cr/watch.log
+          grep -q '"swapped"' /tmp/cr/wm/framework_map.json
+          if grep -q '"watched"' /tmp/cr/wm/framework_map.json; then
+            echo "unexpected match: grep -q '\"watched\"' /tmp/cr/wm/framework_map.json"; exit 1
+          fi
 
       - name: --force reads nothing from the parse cache and rewrites it
         run: |
