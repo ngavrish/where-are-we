@@ -442,10 +442,12 @@ def _cached(path: str, kind: str, compute):
     """
     if state.NO_CACHE:
         state.PARSE_COUNT += 1
+        state.PARSED_FILES.add(path)
         return compute()
     sha = content_hash(path)
     if sha is None:
         state.PARSE_COUNT += 1
+        state.PARSED_FILES.add(path)
         return compute()
     key = f"{kind}\x1e{path}"
     if state.PARSE_CACHE_READS:
@@ -454,6 +456,7 @@ def _cached(path: str, kind: str, compute):
             return entry["value"]
     value = compute()
     state.PARSE_COUNT += 1
+    state.PARSED_FILES.add(path)
     state._PARSE_CACHE[key] = {"sha": sha, "value": value}
     return value
 

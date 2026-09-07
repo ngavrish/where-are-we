@@ -96,6 +96,18 @@ jobs:
           mapper.build("/tmp/fac")
           assert mapper.PARSE_COUNT == state.PARSE_COUNT > 0, mapper.PARSE_COUNT
           assert mapper.DEFINITIONS is state.DEFINITIONS
+          # The three lists a build produces are one answer, and a caller that
+          # can read one of them through the facade can read all three.
+          for name in ("HASHES_MOVED", "HASHES_ADDED", "HASHES_GONE"):
+              assert hasattr(mapper, name), name
+              assert name in mapper.__all__, name
+              assert getattr(mapper, name) is getattr(state, name), name
+          # And the debug line counts what it says it counts. `PARSE_COUNT` is
+          # the computations, which is several per file; the line says files.
+          assert 0 < len(state.PARSED_FILES) <= state.PARSE_COUNT, \
+              (len(state.PARSED_FILES), state.PARSE_COUNT)
+          print("facade:", len(mapper.__all__), "names;", len(state.PARSED_FILES),
+                "files parsed for", state.PARSE_COUNT, "computations")
           EOF
           # Every code path the split touched, including the two the golden
           # suite does not reach. `--pointer` and `--docs` are how the map is

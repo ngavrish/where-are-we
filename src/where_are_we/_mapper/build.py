@@ -317,6 +317,10 @@ def build(repo: str, out_dir: str | None = None,
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT
+    # The files this build parsed, as opposed to the computations it ran: one
+    # file is asked five or six questions, so the two numbers differ by about
+    # three and a half times and only one of them is a count of files.
+    state.PARSED_FILES = set()
     # From where a caller that hashed on its way here started, not from this
     # line: the command line asks for a content root before it decides whether
     # to build, and those reads are part of what this run cost.
@@ -3537,7 +3541,7 @@ def build(repo: str, out_dir: str | None = None,
     # it is about to hand back, and `redact()` is the next thing to read it.
     state.LINES_REDACTED = redact_lines
     if state.DEBUG_PARSES:
-        print(f"parsed {state.PARSE_COUNT - parses_before} files", file=sys.stderr)
+        print(f"parsed {len(state.PARSED_FILES)} files", file=sys.stderr)
         # The pre-filter's own number. A tree nobody touched parses nothing
         # because it hashes nothing, and a line that reported only the parses
         # could not tell that from a tree that was hashed and found unchanged.

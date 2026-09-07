@@ -117,10 +117,16 @@ __version__ = state.__version__
 # sit in the module dict, ordinary attribute lookup would find it there, and
 # `__getattr__` (which Python consults only when that lookup fails) would never
 # run, so an assignment would go nowhere the package can see.
+# The three file lists are results of a build and belong here together: a
+# caller that reads the moved files through this facade and cannot reach the
+# added and the gone ones has a third of the answer. `HASHES_AT_LOAD`,
+# `HASH_MARK`, `_HASHED_THIS_BUILD`, `PARSE_CACHE_READS`, `PARSE_CACHE_WRITES`,
+# `REDACT_LINES` and `LINES_REDACTED` are build internals and stay off it.
 _STATE_NAMES = frozenset((
     "DEFINITIONS", "SPANS", "INDEXED", "LINES", "TRUNCATED", "CACHE_SCHEMA",
-    "HASH_COUNT", "HASHES_MOVED", "PARSE_COUNT", "POINTER_MAX", "_FILE_CACHE",
-    "_HASH_CACHE", "_IGNORE_CACHE", "_PARSE_CACHE", "_WALK_CACHE",
+    "HASH_COUNT", "HASHES_ADDED", "HASHES_GONE", "HASHES_MOVED", "PARSE_COUNT",
+    "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE", "_IGNORE_CACHE",
+    "_PARSE_CACHE", "_WALK_CACHE",
 ))
 
 
@@ -169,7 +175,8 @@ def _cli():
 __all__ = [
     "DECLARATIONS", "DEFINITIONS", "INDEXED", "LINES", "MAX_FILES",
     "SKIP_DIRS", "SPANS", "STEP_DECORATORS", "TRUNCATED", "TS_LANG_BY_EXT",
-    "CACHE_SCHEMA", "HASHES_MOVED", "HASH_COUNT", "PARSE_COUNT",
+    "CACHE_SCHEMA", "HASHES_ADDED", "HASHES_GONE", "HASHES_MOVED",
+    "HASH_COUNT", "PARSE_COUNT",
     "POINTER_MAX", "_FILE_CACHE", "_HASH_CACHE", "_IGNORE_CACHE",
     "_PARSE_CACHE", "_WALK_CACHE", "ask", "at", "brief", "build",
     "changed_since", "content_hash", "content_pairs", "content_root",

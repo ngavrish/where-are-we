@@ -213,9 +213,18 @@ LINES_REDACTED = False
 
 # Incremented on every parse actually done: an ast.parse, a tree-sitter parse,
 # or an index_declarations regex pass over a file's body. A rebuild of a tree
-# nobody touched should add nothing to it, and WAWE_DEBUG_PARSES=1 prints the
-# count so that claim can be checked instead of taken on faith.
+# nobody touched should add nothing to it.
+#
+# It counts computations, not files: one file is asked for its declarations,
+# its symbols, its call graph, its step phrases and its redaction diff, so a
+# cold build of 272 files does about 970 of these. `PARSED_FILES` is the other
+# number, and the one `WAWE_DEBUG_PARSES=1` prints, because "parsed N files"
+# has to be a count of files.
 PARSE_COUNT = 0
+
+# Every file some computation actually ran for, this build. `build()` gives it
+# a fresh set at the top, the way it takes `PARSE_COUNT`'s mark there.
+PARSED_FILES: set = set()
 
 
 _FILE_CACHE: dict[str, str] = {}

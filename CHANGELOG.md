@@ -115,7 +115,12 @@
   size and inode change time are what they were when its hash was last taken
   is not read at all. A rebuild of a tree nobody touched hashes nothing and
   parses nothing, and `WAWE_DEBUG_PARSES=1` now prints `hashed N files` beside
-  `parsed N files` so both halves of that claim can be checked. The inode
+  `parsed N files` so both halves of that claim can be checked. `parsed N
+  files` counts files: one file is asked for its declarations, its symbols,
+  its call graph, its step phrases and its redaction diff, so the count of
+  computations is about three and a half times larger and it was that count
+  the line used to print. The computation count is still `PARSE_COUNT`, which
+  the `mapper` facade exposes. The inode
   change time is in the pre-filter because the mtime and the size alone are
   exactly the case content addressing exists to catch, and nothing in
   userland can put a ctime back.
@@ -135,6 +140,9 @@
   read for its hashes, since a sha means the same thing in every release, and
   its entries are dropped, so the first build after upgrading re-parses the
   tree once and every build after that is warm.
+- `HASHES_ADDED` and `HASHES_GONE` are on the `mapper` facade beside
+  `HASHES_MOVED`, so a library caller reading what a build found through the
+  facade gets all three lists rather than a third of the answer.
 - New map key `content_root`: one sha256 over the sorted `(path relative to
   the repository, hash)` pairs of every indexed file. `fingerprint` keeps its
   documented `<commit>:<newest mtime in nanoseconds>` format and its meaning;
