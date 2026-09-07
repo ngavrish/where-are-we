@@ -62,6 +62,12 @@ line), and `find`'s hits past its limit (`more:find:`).
   zero.
   `format="behave"` or `"pytest"` gives the runner's own selection. Ask it
   before running a suite, instead of running all of it or guessing a subset.
+- **Before an edit, ask for the lines.** `range(name="charge")` gives every
+  home of the name as `file:start-end kind`, the text of the shortest, and
+  the first line, the last, and the one after the last, each with the text of
+  that line. Anchor an `Edit` on those rather than reading the file at a
+  guessed offset; an insertion after the last line lands outside the
+  definition.
 - **When you need the chain, not the neighbours.** `path(a="handler",
   b="charge")` prints the shortest call chain between two names, one hop per
   line with the rule that placed each edge and the line the call is on, in

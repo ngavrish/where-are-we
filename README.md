@@ -220,6 +220,7 @@ See it on a repository you know: [FastAPI 0.115.0 mapped](https://ngavrish.githu
 | pre-commit hook | Rebuild on commit so a map is never stale | Not measured | — |
 | `--install-hook git|claude|cursor|codex|gemini` | `git`: post-checkout/merge/commit hooks that rebuild; `claude` (`agent` is the same thing): a SessionStart hook for an agent harness (distinct from `--agent-file`, which writes the brief into a file); `cursor`: a Cursor rule at `.cursor/rules/where-are-we.mdc` plus `.cursor/mcp.json`; `codex`: an `AGENTS.md` block plus `~/.codex/config.toml`; `gemini`: a `GEMINI.md` block plus `.gemini/settings.json`. `cursor`, `codex` and `gemini` build the map into `.wawe` first if it is not already there; `git` and `claude` do not, since they already build into whatever `--out` was passed on their own first trigger, and a pre-build for them would be a second map in a different place. Each kind installs all of its files or none: every target is checked before the first write, and a refusal names the cause | Not measured | — |
 | Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the fourteen tools over MCP (`ask`, `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`, `impact`, `affected`, `reaches`, `unreached`, `more`); skills `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,context,rank,sections,callers,callees,impact,affected,reaches,unreached,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
+| Claude Code plugin (`/plugin marketplace add ngavrish/where-are-we`) | SessionStart builds `.wawe/` and hands the session the pointer; the fourteen tools over MCP (`ask`, `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`, `callees`, `impact`, `affected`, `path`, `range`, `more`); skills `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`; `WAWE_STRICT=1` refuses repository searches. Installed from the marketplace the tools are named `mcp__plugin_where-are-we_where-are-we__{ask,find,defines,at,context,rank,sections,callers,callees,impact,affected,path,range,more}`; under `--plugin-dir` the prefix differs, so prompts name the server `where-are-we`, not the prefix | Verified 2026-09-03 in a fresh repository: hook built the map, tools answered, pointer reached the context. Turns saved not measured | Sessions with vs without the plugin: `Grep`/`Glob`/`Bash grep` counts |
 | Packages: PyPI wheel + sdist, deb (apt repo with key), rpm, Homebrew tap, GitHub release with SBOM (SPDX) and sigstore signatures | Install anywhere | — | — |
 
 ### Honesty features (not savings, guarantees)
@@ -784,6 +785,7 @@ sixty-four thousand, every turn.
 | `--unreached` | the product definitions no test reaches, grouped by file and ranked, under a first line saying how much of the call graph resolved |
 | `--path A,B` | the shortest call chain from A to B over the map's `xrefs` calls rows, one hop per line with the rule that placed each edge and the line the call is on; each end is a name or `FILE:NAME` |
 | `--path-depth N` | how many call hops `--path` follows forward (1 to 12, 6 by default) |
+| `--range NAME` | every home of NAME as `file:start-end kind`, the text of the shortest one, and the three lines an editor anchors on: the first, the last, and the one after the last |
 | `--rank [FILE,...]` | the definitions this repository is built around, best first; given files, what to read while editing them |
 | `--limit N` | how many rows `--rank` prints and how many definitions `--unreached` ranks (default 200 for both; below 1 is refused) |
 | `--ask "words" --files a.py,b.py` | the same answer with the rows about those files first in every section; `--files -` reads the list on stdin |
@@ -876,7 +878,7 @@ of its flags carries.
 
 | class | what it touches | flags |
 |---|---|---|
-| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--defines`, `--at`, `--context`, `--affected`, `--changed`, `--affected-format`, `--affected-depth`, `--reaches`, `--unreached`, `--path`, `--path-depth`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
+| `read` | answers from what is already there. It may append one line to `<out>/.wawe-ask.log`, the map directory's own record of what was asked | `--ask`, `--more`, `--defines`, `--at`, `--context`, `--affected`, `--changed`, `--affected-format`, `--affected-depth`, `--reaches`, `--unreached`, `--path`, `--path-depth`, `--range`, `--callers`, `--callees`, `--impact`, `--impact-depth`, `--sections`, `--cost`, `--pointer`, `--mcp`, `--lsp`, `--repo`, `--product`, `--also`, `--rules`, `--for`, `--only`, `--skip`, `--max-lines`, `--corpus`, `--no-semantic`, `--quiet`, `--effects`, `--json`, `--dry-run`, `--help` |
 | `writes-map-dir` | the map files and the parse cache under `--out` | `--out`, `--html`, `--ctags`, `--force`, `--watch`, `--diff` |
 | `writes-repo` | the repository being mapped: a manifest, an agent file, the READMEs a directory has none of, and the files `--export` and `--affected-out` were told to write, which are at whatever path the caller named | `--init`, `--agent-file`, `--docs`, `--export`, `--affected-out` |
 | `writes-config` | where a tool other than this one reads: `.git/hooks`, `~/.claude/settings.json`, `~/.codex/config.toml`, a Cursor rule, a Gemini setting | `--install-hook` |
@@ -906,6 +908,7 @@ and the class of an abbreviated line is the class of the line that runs.
 A command line naming none of `--ask`, `--more`, `--defines`, `--at`,
 `--context`, `--affected`, `--changed`, `--reaches`, `--unreached`,
 `--path`, `--rank`, `--callers`, `--callees`,
+`--context`, `--affected`, `--changed`, `--path`, `--range`, `--rank`, `--callers`, `--callees`,
 `--impact`, `--sections`, `--cost`, `--export`, `--pointer`, `--mcp`,
 `--lsp`, `--init`, `--install-hook`, `--specs`, `--dry-run`, `--effects`
 or `--help` builds the map into `--out`,
@@ -1131,6 +1134,8 @@ none does. `--ask "invoice"` then also searches `proforma` and `receipt`.
 --path A,B                   the shortest call chain from A to B, one hop
                              per line with how each edge was resolved
 --path-depth N               how many hops --path follows (default 6)
+--range NAME                 every home of NAME, the shortest one's text,
+                             and the lines an editor anchors on
 --rank [FILE,...]            the definitions the repository is built around,
                              personalised on the files you name
 --files FILE[,FILE]          on --ask: those files' rows first in every

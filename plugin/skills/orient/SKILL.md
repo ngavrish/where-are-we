@@ -44,6 +44,8 @@ message after you open it.
      a first line saying how much of the call graph resolved.
    - `path(a=..., b=...)` - the shortest call chain from one name to
      another, one hop per line with how each edge was resolved.
+   - `range(name=...)` - every home of a name with its range, the shortest
+     one's text, and the lines an editor anchors on.
    - `sections()` - the section headings.
    - `rank(files=[...])` - what the repository is built around, and what is
      worth reading given the files you are editing. Ask this first in a tree

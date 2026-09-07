@@ -12,7 +12,7 @@ grepped.
   and `more`, which takes the handle an answer printed
 - **MCP server** `where-are-we` exposes the map as thirteen tools: `ask`,
   `find`, `defines`, `at`, `context`, `rank`, `sections`, `callers`,
-  `callees`, `impact`, `affected`, `path`, and `more`, which takes the handle an answer printed
+  `callees`, `impact`, `affected`, `path`, `range`, and `more`, which takes the handle an answer printed
   where it was cut and returns the part that was left out. `defines` names
   every file that declares a name, with the line each declaration ends on,
   `at` takes the `file:line` a stack trace gives you and returns the whole
@@ -54,7 +54,11 @@ grepped.
   placed each edge and the line the call is on; an ambiguous hop names every
   file that declares the callee, a cycle terminates, and where there is no
   chain the answer says how far the walk got. Only cross-file calls are in
-  that graph, which every one of these answers says out loud.
+  that graph, which every one of these answers says out loud. `range` hands
+  an editor what it needs before an `Edit`: every home of a name as
+  `file:start-end kind`, the text of the shortest, and the first line, the
+  last, and the one after the last, each with the text of that line, so an
+  insertion lands outside the definition rather than inside it.
 - **Skills**: `orient`, `ask`, `rank`, `where-defined`, `spec-map`, `readmes`.
 - **Opt-in strict mode** (`WAWE_STRICT=1` in the environment): `Grep`, `Glob`
   and `grep`/`rg`/`ag`/`find`/`fd`/`ack` in Bash over a mapped repository are

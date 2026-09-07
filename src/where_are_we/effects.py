@@ -81,6 +81,7 @@ EFFECTS = {
     # is answering, so it is a modifier and not in `NO_MAP_BUILD`, exactly
     # as `--impact-depth` and `--affected-depth` are.
     "--path-depth": "read",
+    "--range": "read",
     "--sections": "read",
     "--cost": "read",
     "--pointer": "read",
@@ -132,6 +133,8 @@ NOTES = {
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
             "--at, --context, --affected, --changed, --reaches, "
             "--unreached, --path, --rank, --sections, --cost) "
+            "--at, --context, --affected, --changed, --path, --range, "
+            "--rank, --sections, --cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
@@ -157,6 +160,8 @@ NO_MAP_BUILD = frozenset({
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
     "--cost", "--export", "--context", "--affected", "--changed",
     "--reaches", "--unreached", "--path",
+    "--cost", "--export", "--context", "--affected", "--changed", "--path",
+    "--range",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the

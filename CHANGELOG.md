@@ -188,17 +188,26 @@ the map and nothing read them end to end; this release starts doing that.
   stopped at, so "no path" says how far it got, and the first line says the
   two reasons a chain can be missing: the depth, and that only cross-file
   calls are in this graph.
-- It is cut by the rules every other answer here is cut by, through
+- The lines an edit needs: `range` (MCP), `--range NAME`. Every home of a
+  name as `file:start-end kind`, the text of the shortest of them, and the
+  three numbers an editor anchors on, the first line of the definition, the
+  last, and the one after the last, each printed with the text of that line
+  so an `Edit` can match on the text rather than trust a number. An
+  insertion after the last line lands outside the definition rather than
+  inside it, which is the move this exists for. A site whose end nothing
+  measured cannot be the shortest and is listed with `?` and the reason,
+  which says whether a read cut short is ruled out. No write path.
+- Both are cut by the rules every other answer here is cut by, through
   the same code: whole rows, a floor share of the budget per block with what
   nobody claims handed on in printing order, a `more:` handle under a block
   that was cut, and one "raise the budget" line with a handle for a block
   there was no room for at all. `affected`'s renderer became that shared one
-  and is byte for byte what it was. The new handle kind is `more:pth:`,
-  carrying its own question
+  and is byte for byte what it was. The new handle kinds are `more:pth:` and
+  `more:rng:`, each carrying its own question
   and nothing stored between the call that printed it and the call that uses
   it.
-- `tools/list` moves from 12 to 13 and every pin in the workflow moves with
-  it; the session banner the plugin prints names all thirteen, and a CI step
+- `tools/list` moves from 12 to 14 and every pin in the workflow moves with
+  it; the session banner the plugin prints names all fourteen, and a CI step
   fails when a tool the server declares is missing from that line.
 
 ## 1.5.0

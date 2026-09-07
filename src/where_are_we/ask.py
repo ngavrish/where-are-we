@@ -23,25 +23,28 @@ try:
     from .graph import (BLOCKS as AFFECTED_BLOCKS, DEFAULT_DEPTH,
                         FORMATS as AFFECTED_FORMATS, HEADS as AFFECTED_HEADS,
                         NAMES as AFFECTED_NAMES, PATH_BLOCKS, PATH_NAMES,
-                        REACHES_BLOCKS, REACHES_HEADS, REACHES_NAMES,
-                        UNREACHED_BLOCKS, UNREACHED_HEADS, UNREACHED_LIMIT,
-                        UNREACHED_NAMES, affected, block_lines, format_head,
-                        load as load_map, path, path_head, path_lines,
-                        path_summary, reaches, reaches_lines, reaches_summary,
-                        selectors, summary, unreached, unreached_lines,
-                        unreached_summary)
+                        RANGE_BLOCKS, RANGE_NAMES, REACHES_BLOCKS,
+                        REACHES_HEADS, REACHES_NAMES, UNREACHED_BLOCKS,
+                        UNREACHED_HEADS, UNREACHED_LIMIT, UNREACHED_NAMES,
+                        affected, block_lines, format_head, load as load_map,
+                        path, path_head, path_lines, path_summary, range_head,
+                        range_lines, range_summary, reaches, reaches_lines,
+                        reaches_summary, selectors, summary, symbol_range,
+                        unreached, unreached_lines, unreached_summary)
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import rank as _rank_graph  # type: ignore[no-redef]
     from graph import (BLOCKS as AFFECTED_BLOCKS,  # type: ignore[no-redef]
                        DEFAULT_DEPTH, FORMATS as AFFECTED_FORMATS,
                        HEADS as AFFECTED_HEADS, NAMES as AFFECTED_NAMES,
-                       PATH_BLOCKS, PATH_NAMES, REACHES_BLOCKS, REACHES_HEADS,
-                       REACHES_NAMES, UNREACHED_BLOCKS, UNREACHED_HEADS,
-                       UNREACHED_LIMIT, UNREACHED_NAMES, affected, block_lines,
-                       format_head, load as load_map, path, path_head,
-                       path_lines, path_summary, reaches, reaches_lines,
-                       reaches_summary, selectors, summary, unreached,
-                       unreached_lines, unreached_summary)
+                       PATH_BLOCKS, PATH_NAMES, RANGE_BLOCKS, RANGE_NAMES,
+                       REACHES_BLOCKS, REACHES_HEADS, REACHES_NAMES,
+                       UNREACHED_BLOCKS, UNREACHED_HEADS, UNREACHED_LIMIT,
+                       UNREACHED_NAMES, affected, block_lines, format_head,
+                       load as load_map, path, path_head, path_lines,
+                       path_summary, range_head, range_lines, range_summary,
+                       reaches, reaches_lines, reaches_summary, selectors,
+                       summary, symbol_range, unreached, unreached_lines,
+                       unreached_summary)
 
 # The default `--rank` and the MCP `rank` tool print, and the length of the
 # map's own `rank` key. The same number in both, so `--rank` with no files is
@@ -2725,8 +2728,8 @@ def _blocked_answer(head: str, blocks: tuple, lines: dict, handle_for,
                     limit: int, first: str = "") -> str:
     """A first line and a set of blocks, cut to `limit` and never past it.
 
-    The shape every graph answer in this project has: `affected` and `path`
-    both print a line of counts and then blocks of
+    The shape every graph answer in this project has: `affected`, `path`
+    and `range` all print a line of counts and then blocks of
     whole rows, each block guaranteed a floor share and handed what the
     others did not want, each block that was cut ending in a tail with the
     handle that fetches the rest, and each block there was no room for at all
@@ -2888,6 +2891,7 @@ def unreached_answer(map_path: str, rows: int = UNREACHED_LIMIT,
 
 
 # What one `path` answer may take, in characters.
+# What one `path` or `range` answer may take, in characters.
 # The same ceiling `ask()`, `context` and `affected` print at: an answer read
 # off the command line and the same answer read off the MCP tool land in the
 # same conversation and are paid for again on every turn after.
@@ -2942,6 +2946,29 @@ def path_answer(map_path: str, a: str, b: str, depth: int = DEFAULT_DEPTH,
                          lines, handle_for, limit)
 
 
+def range_answer(map_path: str, name: str,
+                 limit: int = GRAPH_BUDGET) -> str:
+    """Every home of one name, the shortest one's text, and the lines an
+    editor anchors on.
+
+    `graph.symbol_range` looks it up and this cuts it. The text block is the
+    one that grows without bound, and it is the one a `more:rng:` handle
+    continues: a definition of four hundred lines comes back as the head, as
+    much of the body as the budget holds, and a handle for the rest, which is
+    the same contract `at` has.
+    """
+    result = symbol_range(load_map(os.path.dirname(map_path) or "."), name)
+    head = range_summary(result, limit)
+    field = _encode(name)
+
+    def handle_for(block: str):
+        return lambda got: f"more:rng:{block}:{field}:{got}"
+
+    lines = {block: range_lines(result, block) for block in RANGE_NAMES}
+    return _graph_answer(head, _with_heads(result, RANGE_BLOCKS, range_head),
+                         lines, handle_for, limit)
+
+
 
 
 # How to ask one graph answer again, from a handle's own fields: the walk or
@@ -2966,6 +2993,15 @@ def _pth_again(m: dict, fields: list):
     result = path(m, asked[0], asked[1], depth)
     return (result, f"{fields[1]}:{fields[2]}:{result['depth']}",
             f"{asked[0]} to {asked[1]}")
+
+
+def _rng_again(m: dict, fields: list):
+    """One `range` question again: a name."""
+    try:
+        name = _decode(fields[1])
+    except ValueError as exc:
+        return _stale(f"{fields[1]!r} is not a name this wrote: {exc}")
+    return symbol_range(m, name), fields[1], name
 
 
 
@@ -3002,6 +3038,7 @@ _GRAPH_MORE = {
             reaches_lines, _rch_again),
     "unr": (3, UNREACHED_NAMES, lambda _r, block: UNREACHED_HEADS[block],
             unreached_lines, _unr_again),
+    "rng": (3, RANGE_NAMES, range_head, range_lines, _rng_again),
 }
 
 # What a block of one of those is called when a handle names one that is not

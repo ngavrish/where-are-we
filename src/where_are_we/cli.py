@@ -31,8 +31,8 @@ try:
     from .ask import (AFFECTED_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
                        RANK_LIMIT, UNREACHED_LIMIT, affected_answer, ask, at,
                        callees_line, callers, context, file_list, impact,
-                       log_answer, map_heads, path_answer, rank_lines,
-                       reaches_answer, selection_lines, spans_for,
+                       log_answer, map_heads, path_answer, range_answer,
+                       rank_lines, reaches_answer, selection_lines, spans_for,
                        unreached_answer)
     from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
@@ -57,8 +57,8 @@ except ImportError:  # run as a plain file, with no package around it
                      IMPACT_MAX_DEPTH, RANK_LIMIT, UNREACHED_LIMIT,
                      affected_answer, ask, at, callees_line, callers, context,
                      file_list, impact, log_answer, map_heads, path_answer,
-                     rank_lines, reaches_answer, selection_lines, spans_for,
-                     unreached_answer)
+                     range_answer, rank_lines, reaches_answer, selection_lines,
+                     spans_for, unreached_answer)
     from _mapper.build import (build,  # type: ignore[no-redef]
                                declares_rows, sort_xrefs)
     from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
@@ -674,6 +674,13 @@ def build_parser() -> argparse.ArgumentParser:
                     default=graph.DEFAULT_DEPTH, metavar="N",
                     help="how many call hops --path follows forward, 1 to "
                          f"{graph.MAX_DEPTH} (default {graph.DEFAULT_DEPTH})")
+    ap.add_argument("--range", dest="range_name", default="", metavar="NAME",
+                    help="print every home of NAME as file:start-end kind, "
+                         "the text of the shortest one, and the lines an "
+                         "editor anchors on: the first, the last, and the one "
+                         "after the last. An end of ? is a declaration this "
+                         "map could not measure, and the row says why. Reads "
+                         "framework_map.json under --out")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
@@ -877,6 +884,7 @@ def _dry_run_answer(args) -> int:
         ("--changed", args.changed is not None),
         ("--reaches", args.reaches), ("--unreached", args.unreached),
         ("--path", args.call_path),
+        ("--path", args.call_path), ("--range", args.range_name),
         ("--rank", args.rank_files is not None),
         ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
@@ -983,6 +991,8 @@ def main() -> int:
                          or args.context_name or args.affected
                          or args.changed is not None or args.reaches
                          or args.unreached or args.call_path
+                         or args.changed is not None
+                         or args.call_path or args.range_name
                          or args.export is not None
                          or args.rank_files is not None
                          or args.cost is not None):
@@ -1045,6 +1055,7 @@ def main() -> int:
             or args.defines or args.at_place or args.context_name
             or args.affected or args.changed is not None
             or args.reaches or args.unreached or args.call_path
+            or args.call_path or args.range_name
             or args.export is not None or args.rank_files is not None
             or args.cost is not None):
         out_dir = os.path.abspath(args.out)
@@ -1081,6 +1092,7 @@ def main() -> int:
                              or args.affected or args.changed is not None
                              or args.reaches or args.unreached
                              or args.call_path
+                             or args.call_path or args.range_name
                              or args.export is not None
                              or args.rank_files is not None
                              or args.cost is not None):
@@ -1244,6 +1256,11 @@ def main() -> int:
                 return 2
             answer = path_answer(map_path, ends[0], ends[1], args.path_depth)
             log_answer(out_dir, "path", ",".join(ends), answer, GRAPH_BUDGET)
+            print(answer)
+            return 0
+        if args.range_name:
+            answer = range_answer(map_path, args.range_name)
+            log_answer(out_dir, "range", args.range_name, answer, GRAPH_BUDGET)
             print(answer)
             return 0
         if args.rank_files is not None:

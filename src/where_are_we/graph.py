@@ -2232,3 +2232,163 @@ def unreached_lines(result: dict, block: str) -> list:
                    "repository root and from no other root, so no edge "
                    "crosses into a product checked out beside the suite")
     return out
+# -------------------------------------------------------------------- range
+
+
+def _end_reason(m: dict, site: dict) -> str:
+    """Why one declaration's end is `?`.
+
+    `spans` records an end where a parser knew one and null where nothing
+    did, which is either the language being read by the pattern table or the
+    file having been read to a limit, so the last declaration in it ends at
+    the cut. The two are told apart here by whether this is the last
+    declaration the map holds for that file: below the last one, a cut cannot
+    be the reason.
+    """
+    file = site.get("file")
+    starts = [s.get("start") or 0 for sites in (m.get("spans") or {}).values()
+              for s in sites or () if s.get("file") == file]
+    base = ("this map records an end only where a parser knew one, and "
+            "nothing here measured where the declaration stops")
+    if starts and (site.get("start") or 0) >= max(starts):
+        return (base + "; it is the last declaration in the file, so a read "
+                "cut short would end it here too")
+    return (base + "; it is not the last declaration in the file, so the "
+            "read limit is not the reason")
+
+
+def symbol_range(m: dict, name: str) -> dict:
+    """Every home of one name with its range, and the shortest one's text.
+
+    The move an agent makes before an `Edit`: it needs the file, the first
+    line, the last line, and the line after the last so an insertion lands
+    outside the definition rather than inside it. All three are in `spans`
+    and the text is in `lines`, so this is a lookup rather than a read of the
+    file at a guessed offset.
+
+    The shortest site is the one whose text is printed, because a name
+    declared in two places is usually a small real one and a large one that
+    shadows it, and the small one fits an answer. Ties by file then start.
+    Sites whose end nothing measured cannot be the shortest, because their
+    length is unknown; they are still listed, with `?` and the reason.
+
+    Returns `sites` (every home, in path order), `shortest`, `text` (its
+    lines), `anchor` (start, end and the line after end, each with its own
+    text) and the complaint when the map holds no such name.
+    """
+    root = m.get("repo") or ""
+    spans = m.get("spans") or {}
+    wanted = (name or "").strip()
+    sites = spans.get(wanted) or []
+    if not sites and "." in wanted:
+        bare = wanted.rpartition(".")[2]
+        if spans.get(bare):
+            wanted, sites = bare, spans[bare]
+    out = {"name": wanted, "asked": name, "root": root, "sites": [],
+           "shortest": None, "text": [], "anchor": [], "unknown": 0,
+           "problem": ""}
+    if not wanted:
+        out["problem"] = "give me a name"
+        return out
+    if not sites:
+        out["problem"] = f"no declaration of {name!r} in this map"
+        return out
+    ordered = sorted(sites, key=lambda s: (str(s.get("file")),
+                                           s.get("start") or 0,
+                                           str(s.get("kind"))))
+    # Each site with the reason its end is `?`, empty where an end is known,
+    # so the row that prints the `?` prints why beside it rather than sending
+    # the reader to a sentence somewhere else in the answer.
+    out["sites"] = [(site, "" if site.get("end") is not None
+                     else _end_reason(m, site)) for site in ordered]
+    out["unknown"] = sum(1 for site in ordered if site.get("end") is None)
+    measured = [s for s in ordered if s.get("end") is not None]
+    if not measured:
+        return out
+    shortest = min(measured, key=lambda s: (s["end"] - s["start"],
+                                            str(s.get("file")), s["start"]))
+    out["shortest"] = shortest
+    body = (m.get("lines") or {}).get(shortest["file"]) or []
+    start, end = shortest["start"], shortest["end"]
+    out["text"] = list(body[start - 1:end])
+    # The three numbers an editor anchors on, each with the line it names, so
+    # an `Edit` can match on text rather than trusting a number alone. The
+    # line after the end is the one an insertion goes above; where the
+    # definition ends the file there is no such line and the row says so.
+    after = body[end] if end < len(body) else None
+    out["anchor"] = [("start", start, body[start - 1] if start <= len(body)
+                      else None),
+                     ("end", end, body[end - 1] if end <= len(body) else None),
+                     ("after", end + 1, after)]
+    return out
+
+
+RANGE_BLOCKS = (("sites", 25), ("text", 55), ("anchor", 20))
+RANGE_NAMES = tuple(name for name, _pct in RANGE_BLOCKS)
+
+
+def range_head(result: dict, block: str) -> str:
+    """The head of one `range` block."""
+    if block == "sites":
+        return "## Every home of this name, as file:start-end kind"
+    if block == "text":
+        site = result["shortest"] or {}
+        where = _rank_graph.relative(str(site.get("file")), result["root"])
+        return (f"## The shortest of them whole: `{where}:"
+                f"{site.get('start')}-{site.get('end')}`")
+    return ("## The lines an editor anchors on: first, last, and the one "
+            "after the last")
+
+
+def range_summary(result: dict, limit: int) -> str:
+    """The first line of a `range` answer: how many homes, and how many of
+    them this map could not measure the end of."""
+    if result["problem"]:
+        return f"{result['problem']}. {limit} characters."
+    head = (f"`{result['name']}` is declared in "
+            f"{_plural(len(result['sites']), 'place')}. {limit} characters.")
+    if result["unknown"]:
+        head += (f" {result['unknown']} of them "
+                 f"{'ends' if result['unknown'] == 1 else 'end'} at `?`, and "
+                 "the row says why: this map records an end only where a "
+                 "parser knew one.")
+    if not result["shortest"]:
+        head += (" No site has a measured end, so there is no text to print "
+                 "and no line to anchor on.")
+    return head
+
+
+def range_lines(result: dict, block: str) -> list:
+    """One `range` block's rows, whole, before anything is cut to a budget.
+
+    The `text` block's rows are source lines and carry no bullet: they are
+    the file's own text, and a marker in front of them would have to be
+    stripped by whoever pastes them back.
+    """
+    if block == "sites":
+        rows = []
+        for site, reason in result["sites"]:
+            where = _rank_graph.relative(str(site.get("file")),
+                                         result["root"])
+            end = site.get("end")
+            row = (f"- `{where}:{site.get('start')}-"
+                   f"{end if end is not None else '?'}` "
+                   f"{site.get('kind') or 'name'}")
+            if reason:
+                row += f" (end unknown: {reason})"
+            rows.append(row)
+        return rows
+    if block == "text":
+        return list(result["text"])
+    if block == "anchor":
+        rows = []
+        for label, number, text in result["anchor"]:
+            if text is None:
+                rows.append(f"- {label} {number}: the file ends at "
+                            f"{number - 1}, so there is no line here")
+            elif not text.strip():
+                rows.append(f"- {label} {number}: a blank line")
+            else:
+                rows.append(f"- {label} {number}: `{text}`")
+        return rows
+    return []

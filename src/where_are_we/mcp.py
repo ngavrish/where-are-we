@@ -34,8 +34,8 @@ try:
                        RANK_LIMIT, REACHES_BUDGET, UNREACHED_BUDGET,
                        UNREACHED_LIMIT, affected_tool_answer, at, context,
                        file_list, log_answer, callees_line, callers, impact,
-                       map_heads, path_answer, rank_lines, reaches_answer,
-                       unreached_answer)
+                       map_heads, path_answer, range_answer, rank_lines,
+                       reaches_answer, unreached_answer)
 except ImportError:  # run as a plain file, with no package around it
     import graph  # type: ignore[no-redef]
     from ask import (AFFECTED_BUDGET, AT_BUDGET,  # type: ignore[no-redef]
@@ -43,7 +43,7 @@ except ImportError:  # run as a plain file, with no package around it
                      MCP_SELECTORS, RANK_LIMIT, REACHES_BUDGET,
                      UNREACHED_BUDGET, UNREACHED_LIMIT, affected_tool_answer,
                      at, context, file_list, log_answer, callees_line, callers,
-                     impact, map_heads, path_answer, rank_lines,
+                     impact, map_heads, path_answer, range_answer, rank_lines,
                      reaches_answer, unreached_answer)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
@@ -378,6 +378,25 @@ TOOLS = [
         },
     },
     {
+        "name": "range",
+        "description": (
+            "The lines an edit needs: every home of one name as "
+            "`file:start-end kind`, the text of the shortest one, and the "
+            "three numbers an editor anchors on, the first line, the last, "
+            "and the one after the last, each with the text of that line. "
+            "Call this before an `Edit` instead of reading the file at a "
+            "guessed offset: an insertion after the last line lands outside "
+            "the definition rather than inside it. An end of `?` is a "
+            "declaration this map could not measure, and the row says why. "
+            "Reads only; it writes nothing."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string",
+                                    "description": "a declared name"}},
+            "required": ["name"],
+        },
+    },
+    {
         "name": "rank",
         "description": (
             "What this repository is built around, best first: the "
@@ -674,6 +693,13 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
         # prints at, which is what makes the two byte for byte identical.
         answer = path_answer(map_path, ends[0], ends[1], depth, GRAPH_BUDGET)
         log_answer(out_dir, "path", ",".join(ends), answer, GRAPH_BUDGET)
+        _reply(_text(answer), ident)
+    elif name == "range":
+        name_field = args.get("name")
+        if not isinstance(name_field, str) or not name_field.strip():
+            raise _BadParams("name must be a declared name")
+        answer = range_answer(map_path, name_field.strip(), GRAPH_BUDGET)
+        log_answer(out_dir, "range", name_field.strip(), answer, GRAPH_BUDGET)
         _reply(_text(answer), ident)
     elif name == "rank":
         files_field = args.get("files")

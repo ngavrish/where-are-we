@@ -775,6 +775,8 @@ jobs:
                            "context", "defines", "find", "impact", "more",
                            "path", "rank", "reaches", "sections",
                            "unreached"], names
+                           "context", "defines", "find", "impact",
+                           "more", "path", "range", "rank", "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/ctx/click_7.context").read_text()
@@ -1024,6 +1026,8 @@ jobs:
                            "context", "defines", "find", "impact", "more",
                            "path", "rank", "reaches", "sections",
                            "unreached"], names
+                           "context", "defines", "find", "impact",
+                           "more", "path", "range", "rank", "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/rankout/personal.txt").read_text()
           assert mcp == cli.rstrip("\n"), (mcp, cli)
@@ -1631,6 +1635,8 @@ jobs:
                            "context", "defines", "find", "impact", "more",
                            "path", "rank", "reaches", "sections",
                            "unreached"], names
+                           "context", "defines", "find", "impact",
+                           "more", "path", "range", "rank", "sections"], names
           print("tools/list:", len(names), names)
           for i, path in ((1, "/tmp/imp/cli-callees.txt"), (2, "/tmp/imp/d3.txt")):
               mcp = rows[i]["result"]["content"][0]["text"]
@@ -1944,6 +1950,8 @@ jobs:
                            "context", "defines", "find", "impact", "more",
                            "path", "rank", "reaches", "sections",
                            "unreached"], names
+                           "context", "defines", "find", "impact",
+                           "more", "path", "range", "rank", "sections"], names
           print("tools/list:", len(names), names)
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/aff/checkout.txt").read_text()
@@ -3187,6 +3195,145 @@ jobs:
                   assert not missing, (a, b, limit, missing[:2])
               print(f"{a} to {b}: {len(whole)} rows, every one reachable from the "
                     "answer's own handles at 12000, 1500, 400 and 300 characters")
+          EOF
+      - name: range hands an editor the lines it needs
+        run: |
+          set -o pipefail
+          rm -rf /tmp/rng /tmp/rngmap
+          mkdir -p /tmp/rng/billing /tmp/rng/api
+          # One name with two homes: a short one and a long one. The short one is the
+          # text the answer prints, and both are listed.
+          cat > /tmp/rng/billing/charge.py <<'EOF'
+          """Billing."""
+
+
+          def charge(amount):
+              """Take the money."""
+              total = amount * 2
+              return total
+
+
+          def refund(amount):
+              return -amount
+          EOF
+          cat > /tmp/rng/api/charge.py <<'EOF'
+          def charge(request):
+              a = 1
+              b = 2
+              c = 3
+              d = 4
+              e = 5
+              return a + b + c + d + e
+
+
+          LAST = 1
+          EOF
+          # A language the pattern table reads: it sees where a declaration starts and
+          # not where it stops, so the end is `?` and the row says why.
+          printf 'package m\n\nfunc Serve() {\n\treturn\n}\n' > /tmp/rng/s.go
+          where-are-we --repo /tmp/rng --out /tmp/rngmap --product /tmp/rng --quiet
+          # 1. Two homes, both printed, in path order, each as file:start-end kind.
+          where-are-we --out /tmp/rngmap --range charge > /tmp/rng/charge.txt
+          cat /tmp/rng/charge.txt
+          grep -q '`charge` is declared in 2 places' /tmp/rng/charge.txt
+          grep -qxF -e '- `api/charge.py:1-7` function' /tmp/rng/charge.txt
+          grep -qxF -e '- `billing/charge.py:4-7` function' /tmp/rng/charge.txt
+          # 2. The shortest of them is the one whose text is printed, whole.
+          grep -q '## The shortest of them whole: `billing/charge.py:4-7`' /tmp/rng/charge.txt
+          grep -qx 'def charge(amount):' /tmp/rng/charge.txt
+          grep -qx '    return total' /tmp/rng/charge.txt
+          # 3. The three lines an editor anchors on, each with the text of that line.
+          grep -qxF -e '- start 4: `def charge(amount):`' /tmp/rng/charge.txt
+          grep -qxF -e '- end 7: `    return total`' /tmp/rng/charge.txt
+          grep -qxF -e '- after 8: a blank line' /tmp/rng/charge.txt
+          # 4. The printed end really is the last line of the definition: `sed -n` on
+          #    the end and the line after it shows the next line is dedented or blank,
+          #    at every site of every measured name in this map.
+          python - <<'EOF'
+          import json, subprocess, sys
+          m = json.load(open("/tmp/rngmap/framework_map.json"))
+          checked, bad = 0, []
+          for name, sites in sorted(m["spans"].items()):
+              for site in sites:
+                  end, path = site.get("end"), site["file"]
+                  if end is None or site.get("kind") not in ("function", "class"):
+                      continue
+                  body = m["lines"].get(path) or []
+                  if end >= len(body):
+                      continue
+                  # The proof a reader can run by hand, and the reason this is `sed`
+                  # and not a slice of the map: it reads the file on disk, so a wrong
+                  # end in the map cannot hide behind the map's own copy of the lines.
+                  two = subprocess.run(["sed", "-n", f"{end}p;{end + 1}p", path],
+                                       capture_output=True, text=True).stdout.splitlines()
+                  if len(two) < 2:
+                      continue
+                  last, after = two
+                  indent = len(last) - len(last.lstrip())
+                  checked += 1
+                  if after.strip() and (len(after) - len(after.lstrip())) > indent:
+                      bad.append((name, path, end, after))
+          print(f"sed -n on {checked} measured declarations: the line after the end is "
+                f"blank or dedented in every one, wrong in {len(bad)}")
+          sys.exit(1 if bad else 0)
+          EOF
+          # 5. An end nothing measured is `?`, and the row says why rather than
+          #    printing a line number this map cannot stand behind.
+          where-are-we --out /tmp/rngmap --range Serve > /tmp/rng/serve.txt
+          cat /tmp/rng/serve.txt
+          grep -qF -e '-?` function (end unknown:' /tmp/rng/serve.txt
+          grep -q 'this map records an end only where a parser knew one' /tmp/rng/serve.txt
+          grep -q 'No site has a measured end' /tmp/rng/serve.txt
+          # 6. A name this map does not hold.
+          where-are-we --out /tmp/rngmap --range nosuchname \
+            | grep -q "no declaration of 'nosuchname' in this map"
+          # 7. The tool and the flag are the same answer, and the server declares it.
+          printf '%s\n%s\n%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"range","arguments":{"name":"charge"}}}' \
+            '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"range","arguments":{"name":""}}}' \
+            | where-are-we --out /tmp/rngmap --mcp > /tmp/rng/mcp.jsonl
+          python - <<'EOF'
+          import json, pathlib
+          rows = [json.loads(l) for l in open("/tmp/rng/mcp.jsonl")]
+          names = sorted(t["name"] for t in rows[0]["result"]["tools"])
+          print("tools/list:", len(names), names)
+          mcp = rows[1]["result"]["content"][0]["text"]
+          cli = pathlib.Path("/tmp/rng/charge.txt").read_text()
+          assert mcp == cli.rstrip("\n"), "MCP range and --range disagree"
+          assert rows[2]["error"]["code"] == -32602, rows[2]
+          print("MCP range and --range agree, byte for byte")
+          EOF
+          grep -q '"tool": "range"' /tmp/rngmap/.wawe-ask.log
+          # 8. Twice over the same map is the same answer.
+          where-are-we --out /tmp/rngmap --range charge > /tmp/rng/again.txt
+          diff -u /tmp/rng/charge.txt /tmp/rng/again.txt
+          # 9. Every row of every block is reachable from the answer's own handles at
+          #    a budget that cuts them, including the text of a long definition and the
+          #    "raise the budget" line a block with no room at all gets.
+          python - <<'EOF'
+          import re, sys
+          from where_are_we import ask
+          M = "/tmp/rngmap/framework_map.md"
+          HANDLE = re.compile(r"(more:rng:[^)\s]+?)(?=[)\s]|$)")
+          for name in ("charge", "refund", "Serve"):
+              result = ask.symbol_range(ask.load_map("/tmp/rngmap"), name)
+              rows = {block: ask.range_lines(result, block) for block in ask.RANGE_NAMES}
+              whole = [row for block in ask.RANGE_NAMES for row in rows[block]]
+              for limit in (12000, 1500, 600, 400):
+                  answer = ask.range_answer(M, name, limit)
+                  assert len(answer) <= limit, (name, limit, len(answer))
+                  seen, queue, guard = [], [answer], 0
+                  while queue and guard < 200:
+                      text = queue.pop(0)
+                      guard += 1
+                      seen += [l for l in text.splitlines() if l in whole]
+                      queue += [ask.more(M, h, limit) for h in HANDLE.findall(text)]
+                  missing = [row for row in whole if row not in seen]
+                  assert not missing, (name, limit, missing[:2])
+              print(f"{name}: {len(whole)} rows over {len(ask.RANGE_NAMES)} blocks, "
+                    "every one reachable from the answer's own handles at 12000, 1500, "
+                    "600 and 400 characters")
           EOF
       - name: manifest and hooks
         run: |
@@ -5660,6 +5807,8 @@ jobs:
                            "context", "defines", "find", "impact", "more",
                            "path", "rank", "reaches", "sections",
                            "unreached"], names
+                           "context", "defines", "find", "impact",
+                           "more", "path", "range", "rank", "sections"], names
           mcp = rows[1]["result"]["content"][0]["text"]
           cli = pathlib.Path("/tmp/more/rest.txt").read_text()
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
