@@ -4023,6 +4023,178 @@ jobs:
           print("a constructor call from inside a function:", got,
                 "- the class name is not a callee anywhere")
           EOF
+      - name: the README pipeline runs the affected scenarios, and falls back
+        run: |
+          set -o pipefail
+          # The block under `## What to re-run after a change`, run verbatim on
+          # a git fixture, in all three of its branches. It is the one place
+          # this project tells a reader to put a command into their CI, so the
+          # command has to be the one that works.
+          rm -rf /tmp/rerun
+          mkdir -p /tmp/rerun/repo/features/steps /tmp/rerun/repo/pages /tmp/rerun/repo/app
+          cat > /tmp/rerun/repo/app/billing.py <<'EOF'
+          def charge(amount):
+              return amount
+          EOF
+          cat > /tmp/rerun/repo/pages/checkout.py <<'EOF'
+          from app.billing import charge
+
+
+          class CheckoutPage:
+              def pay(self):
+                  return charge(1)
+
+              def select_saved_card(self):
+                  pass
+          EOF
+          cat > /tmp/rerun/repo/pages/catalogue.py <<'EOF'
+          class CataloguePage:
+              def open_catalogue(self):
+                  pass
+          EOF
+          cat > /tmp/rerun/repo/features/steps/shop_steps.py <<'EOF'
+          from behave import given, then, when
+
+          from pages.catalogue import CataloguePage
+          from pages.checkout import CheckoutPage
+
+
+          @given("a customer with a saved card")
+          def step_saved_card(context):
+              CheckoutPage().select_saved_card()
+
+
+          @given("a customer with a new card")
+          def step_new_card(context):
+              CheckoutPage().select_saved_card()
+
+
+          @when("they pay for the invoice")
+          def step_pay(context):
+              CheckoutPage().pay()
+
+
+          @given("a catalogue")
+          def step_catalogue(context):
+              CataloguePage().open_catalogue()
+
+
+          @then("the payment is charged")
+          def step_charged(context):
+              pass
+          EOF
+          cat > /tmp/rerun/repo/features/shop.feature <<'EOF'
+          Feature: Shop
+            Scenario: Pay with a saved card
+              Given a customer with a saved card
+              When they pay for the invoice
+              Then the payment is charged
+
+            Scenario: Pay with a new card
+              Given a customer with a new card
+              When they pay for the invoice
+              Then the payment is charged
+
+            Scenario: Browse
+              Given a catalogue
+          EOF
+          # behave imports the step module, so the tree grows `__pycache__`
+          # between the branches below and `--changed` would name the `.pyc`
+          # files as changed too.
+          printf '__pycache__/\n*.pyc\n' > /tmp/rerun/repo/.gitignore
+          git -C /tmp/rerun/repo init -q .
+          git -C /tmp/rerun/repo add -A
+          git -C /tmp/rerun/repo -c user.email=ci@example.com -c user.name=ci \
+            commit -qm one
+          where-are-we --repo /tmp/rerun/repo --out /tmp/rerun/m --product none \
+            --force --quiet --no-semantic
+          # The pipeline itself, as a function, so the three branches run the
+          # same text the README prints.
+          run_it () {
+            cd /tmp/rerun/repo
+            where-are-we --out /tmp/rerun/m --changed "$1" \
+              --affected-format behave --affected-out /tmp/rerun/sel.txt \
+              > /tmp/rerun/affected.txt
+            if grep -q 'No xrefs row names' /tmp/rerun/affected.txt; then
+              echo "FULL RUN"
+            elif [ -s /tmp/rerun/sel.txt ]; then
+              echo "SELECTION"
+            else
+              echo "nothing to run"
+            fi
+          }
+          # 1. A change to one page object selects the two scenarios that reach
+          #    it and neither the third nor the whole suite.
+          printf '\n# touched\n' >> /tmp/rerun/repo/pages/checkout.py
+          test "$(run_it HEAD)" = "SELECTION"
+          cat /tmp/rerun/sel.txt
+          test "$(wc -l < /tmp/rerun/sel.txt)" -eq 2
+          grep -qxF -- "--name '^Pay\\ with\\ a\\ saved\\ card( -- @|\$)'" /tmp/rerun/sel.txt
+          grep -qxF -- "--name '^Pay\\ with\\ a\\ new\\ card( -- @|\$)'" /tmp/rerun/sel.txt
+          if grep -q 'Browse' /tmp/rerun/sel.txt; then
+            echo "the selection named a scenario the change does not reach"; exit 1
+          fi
+          if grep -q -e '^-i' -e '\-\-tags' /tmp/rerun/sel.txt; then
+            echo "the selection is not --name only"; exit 1
+          fi
+          # behave itself agrees the selection is those two and no more.
+          pip install -q behave
+          (cd /tmp/rerun/repo && xargs behave --dry-run < /tmp/rerun/sel.txt \
+            2>&1 | tail -4 > /tmp/rerun/sum.txt || true)
+          cat /tmp/rerun/sum.txt
+          grep -q '0 scenarios passed, 0 failed, 1 skipped, 2 untested' /tmp/rerun/sum.txt
+          # 2. Nothing changed: an empty file, exit 0, and the guard runs
+          #    nothing. `xargs` on an empty file would run the whole suite.
+          git -C /tmp/rerun/repo checkout -- pages/checkout.py
+          test "$(run_it HEAD)" = "nothing to run"
+          test ! -s /tmp/rerun/sel.txt
+          test -f /tmp/rerun/sel.txt
+          grep -q 'nothing changed since HEAD; wrote an empty selection' /tmp/rerun/affected.txt
+          # GNU `xargs` with no input runs the command with no arguments,
+          # which for behave is the whole suite; BSD `xargs`, which macOS
+          # ships, does not run it at all. The guard is what makes the
+          # pipeline right on both, and this records which one is here.
+          if [ -n "$(printf '' | xargs echo RAN)" ]; then
+            (cd /tmp/rerun/repo && xargs behave --dry-run < /tmp/rerun/sel.txt \
+              2>&1 | tail -4 > /tmp/rerun/all.txt || true)
+            cat /tmp/rerun/all.txt
+            grep -q '0 scenarios passed, 0 failed, 0 skipped, 3 untested' /tmp/rerun/all.txt
+            echo "GNU xargs: an empty selection piped straight in runs all 3, which is why [ -s ] is there"
+          else
+            echo "BSD xargs: an empty selection runs nothing even without the guard"
+          fi
+          # 3. A file the graph has no row for: the head says so, the selection
+          #    file is empty and correct, and the pipeline runs everything.
+          printf 'X = 1\n' > /tmp/rerun/repo/newthing.py
+          git -C /tmp/rerun/repo add -A
+          test "$(run_it HEAD)" = "FULL RUN"
+          head -1 /tmp/rerun/affected.txt
+          grep -q 'No xrefs row names 1 of the files given' /tmp/rerun/affected.txt
+          test ! -s /tmp/rerun/sel.txt
+          # 4. The section the pipeline is copied from is still in the README,
+          #    and still holds every line of it.
+          python - <<'EOF'
+          import pathlib, sys
+          readme = pathlib.Path("README.md").read_text()
+          start = readme.index("## What to re-run after a change")
+          section = readme[start:readme.index("\n## ", start + 10)]
+          for line in ('where-are-we --out .wawe --changed "$BASE" \\',
+                       "  --affected-format behave --affected-out sel.txt > affected.txt",
+                       "if grep -q 'No xrefs row names' affected.txt; then",
+                       "elif [ -s sel.txt ]; then",
+                       "  xargs behave < sel.txt",
+                       '  echo "nothing to run"'):
+              assert line in section, line
+          for said in ("`xargs` with empty input runs the command with no arguments",
+                       "`--name` and only `--name`",
+                       "behave runs both",
+                       "Unreachable from the graph",
+                       "call the resolver could not place is not a row",
+                       "suite on a schedule, and on every release"):
+              assert said in section, said
+          print(f"the README section is {len(section)} characters and holds "
+                "the pipeline this step ran")
+          EOF
       - name: a page object owns a selector, and the word alone is not one
         run: |
           set -o pipefail

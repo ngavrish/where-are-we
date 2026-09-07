@@ -871,6 +871,70 @@ notebooks.
   hooks: [{id: where-are-we}]
 ```
 
+## What to re-run after a change
+
+The map already knows which scenarios reach the code a commit touched. This
+is the pipeline that runs those and nothing else, and falls back to the whole
+suite whenever the answer is partial.
+
+```bash
+where-are-we --out .wawe --changed "$BASE" \
+  --affected-format behave --affected-out sel.txt > affected.txt
+cat affected.txt                      # the head says what was selected and why
+if grep -q 'No xrefs row names' affected.txt; then
+  behave                              # the change touched a file the graph has no row for
+elif [ -s sel.txt ]; then
+  xargs behave < sel.txt
+else
+  echo "nothing to run"
+fi
+```
+
+`--changed "$BASE"` reads `git diff --name-only "$BASE"`, so the pipeline
+passes no file names of its own; with no argument it is `HEAD`, which is the
+working tree against the last commit.
+
+Five things that shape make true, each of which a shorter version gets wrong:
+
+- **The file is the selection and nothing else.** One argument pair per line,
+  no head, no prose, no tail, whatever the size: `xargs behave < sel.txt` is
+  all the parsing a pipeline does. The head and the blocks go to stdout, which
+  is where a person reads them.
+- **An empty file means run nothing, and `[ -s ]` is what says so.** A commit
+  that reaches no scenario writes zero bytes, and a `--changed` run over a
+  tree nothing has touched writes zero bytes too and says so on stdout. Both
+  are exit 0. GNU `xargs` with empty input runs the command with no arguments,
+  and `behave` with no arguments is the whole suite, so a pipeline that pipes
+  straight into `xargs` runs everything at the moment it should run nothing.
+  BSD `xargs`, which macOS ships, runs nothing there, so the fault appears on
+  the CI runner and not on the laptop the pipeline was written on.
+- **The selection is `--name` and only `--name`.** One `--name` per affected
+  scenario, anchored on the whole name (`--name '^Pay\ with\ a\ new\ card( --
+  @|$)'`), because `--name` is `action="append"` in behave and several of them
+  are a union. Past a couple of hundred scenarios one `--name` per feature
+  file alternates that file's affected scenarios instead, which is the same
+  selection in fewer arguments. Nothing emits `-i` or `--tags`.
+- **Two scenarios of one name are one selector, and behave runs both.** The
+  block head says so on every answer that can be affected by it. That
+  over-selects, which is the safe direction, and it is the one place the
+  selection is not exactly the list printed above it.
+- **A file the graph has no row for is not "not affected".** It lands in
+  `## Unreachable from the graph`, the first line says `No xrefs row names N
+  of the files given`, and the selection file says nothing about it, correctly,
+  because there is nothing to say. That is the `grep` in the pipeline above:
+  a partial answer is a full run.
+
+`--affected-format pytest` is the same shape with node ids from
+`pytest_tests`, one per line for `xargs pytest < sel.txt`.
+
+**What this cannot see.** `affected` walks `xrefs` rows and nothing else. A
+call the resolver could not place is not a row, so the scenario that reaches
+the change through it is not in the selection: on a test suite, where a page
+object is called from step modules, that is few, and on a library it is most
+of the graph. The first line of every answer carries the map's own resolution
+rate, and `wawe-eval --map OUT --graph` prints it per language. Run the whole
+suite on a schedule, and on every release, whatever the selection says.
+
 ## What writes and what only reads
 
 A pre-execution guard sees an argv and has to decide. This tool ships the
