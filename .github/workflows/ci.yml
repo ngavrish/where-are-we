@@ -1782,6 +1782,101 @@ jobs:
           print('uncapped, sources found:', len(found))
           assert len(found) == 1, found"
 
+      - name: a same-size rewrite with a restored mtime is still seen
+        run: |
+          set -o pipefail
+          rm -rf /tmp/cr
+          mkdir -p /tmp/cr/r /tmp/cr/m
+          printf 'def charge():\n    pass\n' > /tmp/cr/r/a.py
+          printf 'def other():\n    pass\n' > /tmp/cr/r/b.py
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --force --quiet --no-semantic
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --defines charge | grep -q "a.py:1"
+          python -c "
+          import json
+          m = json.load(open('/tmp/cr/m/framework_map.json'))
+          root = m['content_root']
+          assert len(root) == 64 and int(root, 16) >= 0, root
+          assert m['fingerprint'].count(':') == 1, m['fingerprint']
+          open('/tmp/cr/root-before', 'w').write(root)
+          print('content_root', root)"
+          # The same byte count, with the timestamp put back to the
+          # nanosecond: what rsync --times, cp -p, tar -p and a restore from a
+          # build cache leave behind, and what mtime and size cannot tell from
+          # no change at all. os.utime rather than touch -d, because -d and
+          # stat -c are GNU spellings and this has to run on macOS too.
+          python -c "
+          import os
+          before = os.stat('/tmp/cr/r/a.py')
+          open('/tmp/cr/r/a.py', 'w').write('def refund():\n    pass\n')
+          os.utime('/tmp/cr/r/a.py', ns=(before.st_atime_ns, before.st_mtime_ns))
+          after = os.stat('/tmp/cr/r/a.py')
+          assert after.st_mtime_ns == before.st_mtime_ns, (before, after)
+          assert after.st_size == before.st_size, (before, after)
+          print('same size, same mtime:', after.st_size, after.st_mtime_ns)"
+          # No --force anywhere below this line.
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cr/r --out /tmp/cr/m \
+            --product none --quiet --no-semantic 2> /tmp/cr/rewrite.log
+          cat /tmp/cr/rewrite.log
+          grep -qE "^parsed [1-9][0-9]* files$" /tmp/cr/rewrite.log
+          grep -qE "^hashed [1-9][0-9]* files$" /tmp/cr/rewrite.log
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --defines refund | grep -q "a.py:1"
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --defines charge \
+            | grep -q "no declaration of 'charge' in the map"
+          if grep -q '"charge"' /tmp/cr/m/framework_map.json; then
+            echo "unexpected match: grep -q '\"charge\"' /tmp/cr/m/framework_map.json"; exit 1
+          fi
+          # The root moved with the file, and it names which file moved it.
+          python -c "
+          import json
+          root = json.load(open('/tmp/cr/m/framework_map.json'))['content_root']
+          before = open('/tmp/cr/root-before').read()
+          assert root != before, root
+          print('content_root moved to', root)"
+          # And a tree nobody touched costs neither a parse nor a hash. The
+          # map is removed rather than passing --force, for the reason the
+          # incremental rebuild step gives: --force would parse everything
+          # again on purpose, and leaving the map in place would skip the
+          # build and leave no counts to look at.
+          rm /tmp/cr/m/framework_map.json
+          WAWE_DEBUG_PARSES=1 where-are-we --repo /tmp/cr/r --out /tmp/cr/m \
+            --product none --quiet --no-semantic 2> /tmp/cr/warm.log
+          cat /tmp/cr/warm.log
+          grep -q "^parsed 0 files$" /tmp/cr/warm.log
+          grep -q "^hashed 0 files$" /tmp/cr/warm.log
+          # The build after that one is skipped outright, root and all.
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic | grep -q "unchanged since it was built"
+          # Two builds of the same tree agree on the root, and a map built
+          # somewhere else from the same bytes agrees with both.
+          rm -rf /tmp/cr/m2
+          mkdir -p /tmp/cr/m2
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m2 --product none \
+            --force --quiet --no-semantic
+          python -c "
+          import json
+          a = json.load(open('/tmp/cr/m/framework_map.json'))['content_root']
+          b = json.load(open('/tmp/cr/m2/framework_map.json'))['content_root']
+          assert a == b, (a, b)
+          print('same tree, same root:', a)"
+          # One more same-size rewrite with the timestamp put back, and
+          # --diff names the file rather than saying the tree moved. It is
+          # not skipped either: the fingerprint agrees and the root does not.
+          python -c "
+          import os
+          before = os.stat('/tmp/cr/r/b.py')
+          open('/tmp/cr/r/b.py', 'w').write('def older():\n    pass\n')
+          os.utime('/tmp/cr/r/b.py', ns=(before.st_atime_ns, before.st_mtime_ns))
+          after = os.stat('/tmp/cr/r/b.py')
+          assert (after.st_size, after.st_mtime_ns) == (before.st_size, before.st_mtime_ns)"
+          where-are-we --repo /tmp/cr/r --out /tmp/cr/m --product none \
+            --no-semantic --diff > /tmp/cr/diff.txt
+          cat /tmp/cr/diff.txt
+          grep -q "^files whose content moved: b.py$" /tmp/cr/diff.txt
+          if grep -q "unchanged since it was built" /tmp/cr/diff.txt; then
+            echo "unexpected match: grep -q 'unchanged since it was built' /tmp/cr/diff.txt"; exit 1
+          fi
+
       - name: --force reads nothing from the parse cache and rewrites it
         run: |
           rm -rf /tmp/fc
