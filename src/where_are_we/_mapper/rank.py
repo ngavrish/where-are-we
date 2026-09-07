@@ -50,6 +50,14 @@ IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 # change, `PARSER` and `parser` do not.
 _CASE_CHANGE = re.compile(r"[a-z][A-Z]")
 
+# What may follow a name for it to read as a use of it rather than as a word.
+# A tuple, not a string: `after in ".(["` is true for the empty string, so a
+# name at the end of a line passed the test and every sentence ending in a
+# declared name counted as a reference to it. Measured on this repository,
+# that was 253 of 2,924 counted references, and they were the English words
+# this rule exists to keep out: `of` 47, `rows` 17, `at` 12, `table` 10.
+_USE_AFTER = (".", "(", "[", "=")
+
 DAMPING = 0.85
 ITERATIONS = 100
 # Values are rounded to this many digits before they are sorted. Two builds of
@@ -162,14 +170,22 @@ def _references(lines: dict, wanted: set, declared: dict) -> dict:
     rather than a table of every word in the repository.
 
     A use is the name written the way code writes one: called, subscripted,
-    assigned, or reached through a dot. Aider takes its references from
-    tree-sitter captures and never sees a comment; the only text here is the
-    lines the walk kept, and counting every occurrence in them ranks the
-    English words at the top. Measured on this repository: `of` is declared
-    once, appears 1,196 times in prose, and beat `find_text` (18 uses, a
-    function three modules call) for first place. `at(` is a call and `at the`
-    is a sentence, and those five characters of punctuation are all that
-    separates them without a parser.
+    assigned, or reached through a dot, and nothing else. A name at the end of
+    a line is not a use: the line ends after it, so nothing there says it was
+    code. Aider takes its references from tree-sitter captures and never sees
+    a comment; the only text here is the lines the walk kept, and counting
+    every occurrence in them ranks the English words at the top. Measured on
+    this repository: `of` is declared once, appears 1,196 times in prose, and
+    beat `find_text` (18 uses, a function three modules call) for first place.
+    `at(` is a call and `at the` is a sentence, and those four characters of
+    punctuation are all that separates them without a parser.
+
+    The price is recall, and it is paid knowingly: `from core import charge`,
+    `list(map(charge, xs))`, `HANDLERS = [charge, refund]`, `class Sub(Base)`
+    and a bare name in a type annotation are all real references this does not
+    count. Each of them is one token away from a shape it does count, so a
+    file that only ever mentions a name that way is rare, and the precision
+    bought is what keeps an English word off the top of the list.
 
     A line that declares the name is not a use of it. `spans` says which
     lines those are, per file and per name, and skipping them is what stops
@@ -185,7 +201,7 @@ def _references(lines: dict, wanted: set, declared: dict) -> dict:
                     continue
                 before = line[hit.start() - 1] if hit.start() else ""
                 after = line[hit.end()] if hit.end() < len(line) else ""
-                if before != "." and after not in ".([=":
+                if before != "." and after not in _USE_AFTER:
                     continue
                 if lineno in (declared.get((path, token)) or ()):
                     continue
