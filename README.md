@@ -830,9 +830,10 @@ A flag is resolved the way argparse resolves it, so `--eff` is `--effects`
 and the class of an abbreviated line is the class of the line that runs.
 
 A command line naming none of `--ask`, `--more`, `--defines`, `--at`,
-`--context`, `--callers`, `--callees`, `--impact`, `--sections`, `--cost`,
-`--export`, `--pointer`, `--mcp`, `--lsp`, `--init`, `--install-hook`,
-`--specs`, `--dry-run`, `--effects` or `--help` builds the map into `--out`,
+`--context`, `--rank`, `--callers`, `--callees`, `--impact`, `--sections`,
+`--cost`, `--export`, `--pointer`, `--mcp`, `--lsp`, `--init`,
+`--install-hook`, `--specs`, `--dry-run`, `--effects`
+or `--help` builds the map into `--out`,
 so `where-are-we --repo .` is `writes-map-dir` on the strength of the build
 alone and says so as a `build writes-map-dir` line.
 

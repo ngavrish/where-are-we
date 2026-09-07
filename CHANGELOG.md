@@ -184,9 +184,9 @@
   of a map on disk and returns before any build, and has since it shipped;
   only the classification was wrong. `effects.json` does not move, since the
   set is not part of the manifest. The README's copy of that list gains
-  `--defines` and `--at` as well, which have been in the set since they
-  shipped, and a CI step now compares the sentence with the set so it cannot
-  drift a third time.
+  `--defines`, `--at` and `--rank` as well, which have been in the set since
+  they shipped, and a CI step now compares the sentence with the set so it
+  cannot drift a third time.
 - The parse cache schema is 3. A 1.4 cache is not read: `ts:<lang>` stored a
   list of names and now stores a list of `[name, start, end, kind]` rows, and
   an old entry read under the new code would index a character out of a
