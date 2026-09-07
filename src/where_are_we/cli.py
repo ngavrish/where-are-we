@@ -35,10 +35,12 @@ try:
     from ._mapper.render import (_as_dict, _cap_sections, brief, changed_since,
                                  digest, for_audience, meaning_tail, pointer)
     from ._mapper.declare import spans_index
+    from ._mapper import state
     from ._mapper.state import DEFINITIONS, INDEXED
     from ._mapper.walk import (SKIP_DIRS, _PARSE_CACHE_FILE, _config,
-                               _product_roots, _write_atomic,
-                               _write_atomic_group, fingerprint, redact)
+                               _load_parse_cache, _product_roots,
+                               _write_atomic, _write_atomic_group,
+                               content_root, fingerprint, redact)
 except ImportError:  # run as a plain file, with no package around it
     import ask as _ask  # type: ignore[no-redef]
     import effects  # type: ignore[no-redef]
@@ -54,10 +56,12 @@ except ImportError:  # run as a plain file, with no package around it
                                 changed_since, digest, for_audience,
                                 meaning_tail, pointer)
     from _mapper.declare import spans_index  # type: ignore[no-redef]
+    from _mapper import state  # type: ignore[no-redef]
     from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
     from _mapper.walk import (SKIP_DIRS,  # type: ignore[no-redef]
-                              _PARSE_CACHE_FILE, _config, _product_roots,
-                              _write_atomic, _write_atomic_group, fingerprint,
+                              _PARSE_CACHE_FILE, _config, _load_parse_cache,
+                              _product_roots, _write_atomic,
+                              _write_atomic_group, content_root, fingerprint,
                               redact)
 
 
@@ -471,7 +475,8 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--max-lines", type=int, default=0,
                     help="cap the brief at this many lines; the map itself is untouched")
     ap.add_argument("--diff", action="store_true",
-                    help="print what changed since the map already in --out, and exit")
+                    help="print what changed since the map already in --out: "
+                         "the files whose content moved, then the keys, and exit")
     ap.add_argument("--also", default="",
                     help="other repositories to fold into the same map, comma separated")
     ap.add_argument("--docs", nargs="?", const="plan", choices=["plan", "write"],
@@ -1094,7 +1099,21 @@ def main() -> int:
                 prev = json.load(fh)
         except (OSError, ValueError):
             prev = {}
+        # Both, in that order. The fingerprint is the cheap question -- has
+        # anything been written here since -- and it answers no for the one
+        # case that matters: a rewrite of the same byte count with the
+        # timestamp put back. So when it says nothing moved, the content root
+        # is asked, and it reads the stored hashes first and hashes only the
+        # files whose stat block moved, which on a tree nobody touched is no
+        # files at all. A map written before this key existed has no root to
+        # compare against and is trusted on the fingerprint alone.
         if prev.get("fingerprint") == stamp_now:
+            _load_parse_cache(out_dir)
+            prev_root = prev.get("content_root")
+            unchanged = prev_root is None or prev_root == content_root(repo)
+        else:
+            unchanged = False
+        if unchanged:
             if not args.quiet:
                 c = (prev.get("counts") or {})
                 print(f"framework map: unchanged since it was built "
@@ -1111,6 +1130,14 @@ def main() -> int:
             return 1
         now = build(repo, out_dir=out_dir)
         changed = []
+        # Which files moved, before which keys did. The map's `content_root`
+        # says the tree is not the tree it was; these are the files that made
+        # that true, and they are what a reader actually wants named.
+        if state.HASHES_MOVED:
+            shown = state.HASHES_MOVED[:20]
+            more_files = len(state.HASHES_MOVED) - len(shown)
+            changed.append("files whose content moved: " + ", ".join(shown)
+                           + (f", and {more_files} more" if more_files > 0 else ""))
         for key in sorted((set(prev) | set(now)) - {"fingerprint", "repo"}):
             a, b = prev.get(key), now.get(key)
             if a == b:

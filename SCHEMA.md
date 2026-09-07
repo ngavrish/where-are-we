@@ -3,12 +3,14 @@
 Stable contract. Sections may be added within a major version; a section that
 exists keeps its shape. `schema` names the version; `fingerprint` is what the map
 was built from (the commit, and the newest mtime in the tree in nanoseconds
-since the epoch) and is how staleness is decided.
+since the epoch) and is how staleness is decided, with `content_root` beside it
+saying what the tree holds rather than when it was last written to.
 
 | key | shape | what it is |
 |---|---|---|
 | `schema` | string | `where-are-we/<major>` |
 | `repo` | string | absolute path indexed |
+| `content_root` | string | sha256 over the sorted `(path relative to the repository, sha256 of its bytes)` pairs of every file the map indexes. `fingerprint` says when the tree was last written to; this says what it says, and the two differ exactly where a timestamp can be put back: a rewrite of the same byte count with its mtime restored moves this and not that. New in 1.5.0 and written by `build()`, unlike `fingerprint` |
 | `stated` | object | what `.framework-map.json` declared, verbatim |
 | `layers` | {layer: string} | one sentence per layer (features, steps, page objects, driver, environment) naming where it lives, with anything the manifest stated replacing the guess. Absent when the manifest states a `layers` that is not an object |
 | `public_api` | {file: [signatures]} | what a step may call: the methods page objects and helpers expose |

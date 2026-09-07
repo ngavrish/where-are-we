@@ -24,9 +24,9 @@ from .declare import (_kind_of, _step_texts, index_declarations,
                       record_span, spans_index)
 from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
 from .walk import (AST_LIMIT, SKIP_DIRS, _cached, _lines_matching,
-                   _load_parse_cache, _manifest, _product_roots,
+                   _load_parse_cache, _manifest, _product_roots, _root_of,
                    _save_parse_cache, _slurp, _slurp_source, _tree, _walk,
-                   redact, sweep_out_dir)
+                   content_pairs, redact, sweep_out_dir)
 
 
 # How much of each call graph the map keeps. `ask.impact` tells its reader
@@ -271,6 +271,12 @@ def build(repo: str, out_dir: str | None = None,
     if not no_cache:
         _load_parse_cache(out_dir)
     parses_before = state.PARSE_COUNT
+    hashes_before = state.HASH_COUNT
+    # What the last build hashed each file to, taken before this build hashes
+    # anything, so `content_root` can say which files moved and not only that
+    # the tree did. Empty on a cold build, where "everything moved" is true
+    # and says nothing, so nothing is reported as moved there.
+    hashes_before_map = {k: v.get("sha") for k, v in state._HASH_CACHE.items()}
 
     steps: dict[str, list[str]] = {}
     for p in _walk(repo, ".py"):
@@ -3082,9 +3088,24 @@ def build(repo: str, out_dir: str | None = None,
                         "lines": {path: redact(rows, contiguous=True)
                                   for path, rows in LINES.items()}})
 
+    # One sha256 over every indexed file's path and content hash. The
+    # fingerprint says when the tree was last written to; this says what it
+    # holds, and the two disagree exactly where an mtime can be put back.
+    # Computed here, at the end, so that the files this build read are already
+    # hashed and the walk is the only cost left.
+    pairs = content_pairs(repo)
+    if hashes_before_map:
+        state.HASHES_MOVED[:] = sorted(
+            rel for rel, sha in pairs
+            if hashes_before_map.get(os.path.join(repo, rel.replace("/", os.sep)))
+            not in (sha, None))
+
     result = {
         "schema": "where-are-we/1",
         "repo": repo,
+        # The tree by what it says rather than by when it was last written
+        # to: see `walk.content_root`, which is this same digest.
+        "content_root": _root_of(pairs),
         "stated": stated,
         "layers": {
             "features": _layer_line(sorted(features), "Gherkin features"),
@@ -3283,4 +3304,8 @@ def build(repo: str, out_dir: str | None = None,
         _save_parse_cache(out_dir)
     if state.DEBUG_PARSES:
         print(f"parsed {state.PARSE_COUNT - parses_before} files", file=sys.stderr)
+        # The pre-filter's own number. A tree nobody touched parses nothing
+        # because it hashes nothing, and a line that reported only the parses
+        # could not tell that from a tree that was hashed and found unchanged.
+        print(f"hashed {state.HASH_COUNT - hashes_before} files", file=sys.stderr)
     return result

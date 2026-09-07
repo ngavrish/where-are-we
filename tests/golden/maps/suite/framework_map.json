@@ -1,6 +1,7 @@
 {
   "schema": "where-are-we/1",
   "repo": "<repo>",
+  "content_root": "e47502e09c6aa9ed14bbe18d2bcdeee212af1132fd10dc7612934b187958ca1b",
   "stated": {},
   "layers": {
     "features": "Gherkin features \u2014 2 files under features, features/checkout",

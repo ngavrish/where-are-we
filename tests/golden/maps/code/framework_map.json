@@ -1,6 +1,7 @@
 {
   "schema": "where-are-we/1",
   "repo": "<repo>",
+  "content_root": "c8ecdba107bb218b520dd7c3d50eb3cd42a2dbe84649d084c0609e19a802d0d9",
   "stated": {},
   "layers": {
     "features": "Gherkin features: none found",
