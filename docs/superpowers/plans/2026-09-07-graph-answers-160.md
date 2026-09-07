@@ -40,6 +40,18 @@ Proofs (CI step "range hands an editor the lines it needs"): a name with two hom
 
 Proofs (CI step "dead and hot read the graph and the history"): a function called from nowhere is dead; one referenced only from a route is not; `hot` puts a file with ten commits above an equal-rank file with one; the page-object section is byte-identical to before (golden expected unchanged).
 
-### Task 6: pipeline hook and release 1.6.0
+### Task 6: release 1.6.0
 
-In `agentic-v-model` (separate dispatch, the user's parallel session works there: `git pull --rebase` before commits): the tester phase asks `affected --changed <base>` before choosing what to run, and the card for the tester names it; `mapfresh` unchanged. Prove with a flow simulation that the phase's command list contains the selection and that a change to one page object yields a subset run. In where-are-we: README rows and a section "What to re-run after a change", plugin skills, CHANGELOG `## 1.6.0`, version bump, `wawe-eval` re-measured, `tools/list` 18 with every pin, all gates.
+README rows and a section "What to re-run after a change", plugin skills, CHANGELOG `## 1.6.0`, version bump, `wawe-eval` re-measured, `tools/list` 18 with every pin, all gates, tag v1.6.0.
+
+### Task 7: integration into agentic-v-model (after the v1.6.0 tag; the user's parallel session works there: `git pull --rebase origin main` before every commit, never revert a commit that is not yours, push with the full pre-push hook in the background)
+
+Same shape as the 1.3.0 integration (`.superpowers/sdd/2026-09-05-everything/integration-130-report.md`):
+
+- `services/agent-runner/requirements.txt` pins `where-are-we[semantic]==1.6.0`.
+- `services/agent-runner/command_shape.py`: the map-read rule `map.ask-refused` names the new read flags (`--affected`, `--changed`, `--reaches`, `--unreached`, `--path`, `--range`, `--dead`, `--hot`) so an agent that types them in the shell is pointed at the MCP tool; `selfcheck` rows for each; the effects manifest of 1.6.0 (`where-are-we --effects --json`) is the source the table is checked against in `selfcheck` (every `read` flag that answers from a map is in the rule, every write flag is not).
+- `services/agent-runner/mcp_servers.py` and the `_MAP_FOR_THE_JOB` prefix text: the new tools are exposed; the prefix for editing roles leads with `affected`/`range`, for the tester with `affected --changed <base>` and `reaches`, for the reviewer with `path` and `hot`; `_MAP_ASKED`/refusal text names them.
+- `engine/agents/*.md` cards: `map_tools` allowlists gain the tools each role needs (tester: `affected`, `reaches`, `unreached`; coder: `range`, `path`, `affected`; reviewer: `path`, `hot`, `dead`; planner: `hot`, `unreached`); the tester card says the run after a change is the `affected --changed <base> --affected-format behave` selection first and the full suite only when the selection is empty or the change touched a file with no graph row.
+- `engine/flows/test.json` or the tester phase node: the shell node that runs the suite takes the selection file the tester wrote, falling back to the full run; the flow simulation proves a change to one page object yields a subset run and a change to a file with no graph row yields the full run.
+- `_store_map_answers`: the new tools' answers stored per phase like the others; ammit `RECORD.md` needs no change unless a new event field appears (check with `tools/record_check.py`).
+- Proofs: `python3 command_shape.py selfcheck` green with the new rows; the runner suite in the container with `RUNS_ROOT` on a temp dir; `flowsim` for the tester phase with the two cases above; `git push` under the full hook; GitHub CI green; a report at `.superpowers/sdd/2026-09-05-everything/integration-160-report.md` with the before/after count of tool calls the flow simulation records for the tester phase.
