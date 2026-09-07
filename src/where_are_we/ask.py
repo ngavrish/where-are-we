@@ -1049,7 +1049,7 @@ MAP_CALL_GRAPH_KEYS = 60
 MAP_STEP_GRAPH_KEYS = 120
 
 
-def _impact_caveat(target: str, depth: int) -> str:
+def _impact_caveat(target: str, depth: int, how: bool = False) -> str:
     """The first line of every `impact` reply: how to read the rest of it.
 
     Unconditional, and not only when the key data happens to show an
@@ -1058,11 +1058,16 @@ def _impact_caveat(target: str, depth: int) -> str:
     nothing to notice it by; a rule stated every time is the only honest way
     to say that.
 
-    The last clause reads the `?` the map writes on an edge whose callee two
+    The `?` clause reads the mark the map writes on an edge whose callee two
     or more files declare, and which therefore names all of them. `impact`
     prints keys rather than edges, so nothing below carries the mark; the
     reader meets it in `callees` and in the map itself, and this is where it
     is explained.
+
+    `how` adds the last clause, and only a map that holds `xrefs` gets it: a
+    map built before 1.5.0 has no rule to name for any edge, and a line
+    promising a `how:` under each hop that never comes is worse than the
+    silence 1.4.x kept.
     """
     return (f"Impact of `{target}` to depth {depth}. How to read it: hops are "
             "followed by name, so where several files define one name their "
@@ -1072,7 +1077,41 @@ def _impact_caveat(target: str, depth: int) -> str:
             f"graph keys and {MAP_STEP_GRAPH_KEYS} step ones, so on a large "
             "repository this radius is a floor; and an edge ending in ? "
             "names every file that declares the callee, because more than one "
-            "does.")
+            "does."
+            + (" Under each hop, a how: line names, in the same order, the "
+               "rule that placed each of its edges." if how else ""))
+
+
+def _resolutions(m: dict) -> dict:
+    """`{(graph key, callee name): {resolution}}` from the map's `xrefs`.
+
+    The graph keys `impact` walks are `<basename>:<func>` and an `xrefs`
+    subject is the same function under the path the walk read it at, so the
+    subject is read down to its basename here. Two files of one basename
+    share a key in the graph and share it here.
+
+    `None` where the map holds no `xrefs` at all, which is every map built
+    before 1.5.0: no rows is not the same fact as no rule.
+    """
+    rows = m.get("xrefs")
+    if not rows:
+        return {}
+    out: dict = {}
+    for row in rows:
+        if row.get("edge") != "calls":
+            continue
+        rel, _, func = str(row.get("subject") or "").rpartition(":")
+        key = f"{os.path.basename(rel)}:{func}"
+        out.setdefault((key, row.get("object")), set()).add(
+            row.get("resolution"))
+    return out
+
+
+# What a hop through the behave step graph says about itself. That graph
+# records a bare callee name and no file, so there is no candidate list, no
+# rule that chose between candidates, and no `xrefs` row: the column says
+# which graph the edge came from rather than leaving a blank under it.
+STEP_GRAPH_HOW = "step_graph"
 
 
 def impact(map_json_path: str, name: str, depth: int = 3) -> str:
@@ -1106,10 +1145,15 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
     if not isinstance(depth, int) or isinstance(depth, bool) \
             or depth < 1 or depth > IMPACT_MAX_DEPTH:
         return f"depth must be a whole number from 1 to {IMPACT_MAX_DEPTH}, not {depth!r}"
-    caveat = _impact_caveat(target, depth)
     if not target:
         return "impact needs a name to walk back from"
     m = _call_graphs(map_json_path)
+    # The rule behind each edge, and the hops it explains. A map with no
+    # `xrefs` key says nothing about any edge, and this answer then reads
+    # exactly as 1.4.x wrote it.
+    how_by_edge = _resolutions(m) if m.get("xrefs") else {}
+    how_by_hop: list = []
+    caveat = _impact_caveat(target, depth, bool(m.get("xrefs")))
 
     hops, notes, gave = [], [], {}
     seen_keys = set(_keys_named(m, target))
@@ -1134,6 +1178,15 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
             gave.setdefault(n, set()).update(keys & set(fresh))
         seen_keys.update(fresh)
         hops.append(fresh)
+        # How each of these keys got here: the resolution of the edge from it
+        # to the name it was found under, and both of them where one key
+        # reaches two names of this hop.
+        this_hop: dict = {}
+        for n, keys in by_name.items():
+            for key in keys & set(fresh):
+                this_hop.setdefault(key, set()).update(
+                    how_by_edge.get((key, n)) or {STEP_GRAPH_HOW})
+        how_by_hop.append(this_hop)
         frontier = []
         for key in fresh:
             n = key.rsplit(":", 1)[-1]
@@ -1151,6 +1204,11 @@ def impact(map_json_path: str, name: str, depth: int = 3) -> str:
         printed.update(shown)
         if shown:
             lines.append(f"depth {i}: " + ", ".join(shown))
+            if m.get("xrefs"):
+                how = how_by_hop[i - 1]
+                lines.append("how: " + ", ".join(
+                    f"{key} {'/'.join(sorted(how.get(key) or {STEP_GRAPH_HOW}))}"
+                    for key in shown))
         if len(shown) < len(hop):
             left.append(f"{len(hop) - len(shown)} more at depth {i}")
     unshown_notes = 0
