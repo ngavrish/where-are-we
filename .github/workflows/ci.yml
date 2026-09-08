@@ -4381,7 +4381,7 @@ jobs:
           # They went out of step at 1.4.1, when the plugin kept the old
           # number for a release, and nothing failed.
           python - <<'EOF'
-          import json, pathlib, re, sys
+          import json, pathlib, re, subprocess, sys
           import where_are_we
 
           toml = pathlib.Path("pyproject.toml").read_text()
@@ -4391,11 +4391,19 @@ jobs:
               "plugin/.claude-plugin/plugin.json": json.loads(
                   pathlib.Path("plugin/.claude-plugin/plugin.json").read_text())["version"],
           }
-          lock = pathlib.Path("uv.lock").read_text()
-          block = re.search(r'\[\[package\]\]\nname = "where-are-we"\nversion = "([^"]+)"',
-                            lock)
-          said["uv.lock"] = block.group(1) if block else "<no where-are-we package>"
-          print("version:", said)
+          # `uv.lock` only where it is tracked. It is in `.gitignore` and has
+          # never been committed, so a fresh clone does not have one and a
+          # step that read it unconditionally failed on every runner while
+          # passing for anyone whose worktree held an untracked copy. Guarded
+          # rather than dropped, so the check arms itself the day the lock is
+          # tracked.
+          tracked = subprocess.run(["git", "ls-files", "--error-unmatch", "uv.lock"],
+                                   capture_output=True).returncode == 0
+          if tracked:
+              block = re.search(r'\[\[package\]\]\nname = "where-are-we"\nversion = "([^"]+)"',
+                                pathlib.Path("uv.lock").read_text())
+              said["uv.lock"] = block.group(1) if block else "<no where-are-we package>"
+          print("version:", said, "| uv.lock tracked:", tracked)
           assert len(set(said.values())) == 1, said
           # The installed copy, not only the tree: an editable install and a
           # wheel disagree here when the bump is half done.
