@@ -48,6 +48,17 @@ _warned_corrupt_index = False
 
 
 def available() -> bool:
+    # An empty model name is off, the same way an empty WAWE_EMBED_CACHE is no
+    # cache. A caller that does not want the models pays for them nowhere: not
+    # in a session's startup, not in `find`, and not in a map build.
+    #
+    # It reached fastembed as a model name until now, and every one of the
+    # three guards below let it through: `map` wrote the framework map, then
+    # died on `ValueError: Model  is not supported in TextEmbedding` with
+    # exit 1, which the caller reads as the map having failed. Five runs of
+    # APF-1934 stopped there on 8 September, before anything was planned.
+    if not _BI_MODEL:
+        return False
     try:
         import fastembed  # noqa: F401
         import numpy  # noqa: F401
@@ -178,6 +189,8 @@ def build_index(out_dir: str, corpora: list[tuple[str, str]]) -> str:
 
     Returns a one-line summary for the build log.
     """
+    if not _BI_MODEL:
+        return "semantic index skipped: WAWE_EMBED_MODEL is empty"
     if not available():
         return "semantic index skipped: fastembed is not installed"
     chunks = []
