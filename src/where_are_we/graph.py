@@ -2046,8 +2046,9 @@ def reaches(m: dict, name: str) -> dict:
     A class is asked about by name and answered by its members, found by the
     dotted spelling `spans` writes beside a method and by containment in the
     class's range. Without that join `reaches CheckoutPage` answers nothing
-    at all for a page object every step drives, because the constructor call
-    sits at module level and no `calls` row is written for it.
+    at all for a page object every step drives, because constructing a class
+    writes no `calls` row: the resolver places a callee by the function
+    declarations it indexed and keeps class names in a table of its own.
     """
     root = m.get("repo") or ""
     defs = _definitions(m)
@@ -2216,8 +2217,9 @@ def unreached(m: dict, limit: int = UNREACHED_LIMIT) -> dict:
     own and one whose product sits beside its suite are both answered from
     the keys the map already writes. A class counts as reached when anything
     declared inside its span is, because a page object is driven through its
-    methods and its constructor is called at module level, where no `calls`
-    row is written. A definition named in `ENTRY_POINTS`, and any file on a
+    methods and constructing it writes no `calls` row: the resolver places a
+    callee by the function declarations it indexed and keeps class names in a
+    table of its own. A definition named in `ENTRY_POINTS`, and any file on a
     test path, are out: the runtime calls one and the other is scaffolding,
     and neither is what a reader means by untested product.
     """

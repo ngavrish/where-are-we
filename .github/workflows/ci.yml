@@ -2879,9 +2879,11 @@ jobs:
           grep -qxF -- '## pytest cases that reach it' /tmp/rch/audit.txt
           grep -qxF -- '- `tests/test_billing.py::test_audit_is_covered`, 1 hop' /tmp/rch/audit.txt
           # 4. A class is answered by what is declared inside its span. No calls row in
-          #    this map names `CheckoutPage` at all, because the constructor is called
-          #    at module level and the graph records calls per function, so without that
-          #    join the answer for a page object every step drives would be nothing.
+          #    this map names `CheckoutPage` at all, because constructing a class writes
+          #    none: the resolver places a callee by the function declarations it
+          #    indexed and keeps class names in a table of its own. Not the module
+          #    level, which was measured and is not the reason. Without that join the
+          #    answer for a page object every step drives would be nothing.
           python - <<'EOF'
           import json
           m = json.load(open("/tmp/rch/m/framework_map.json"))
@@ -4147,7 +4149,7 @@ jobs:
           # And what `dead` says about the same fixture, so the flagship
           # suite is not the one map no step ever runs this against. One row,
           # and that row is a known false positive: `build_fixtures.py` has
-          # the steps module do `page = CheckoutPage()` at module level.
+          # the steps module do `page = CheckoutPage()`.
           #
           # The module level is not what makes it invisible. The resolver
           # looks a callee name up in the table of function declarations and

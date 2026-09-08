@@ -120,8 +120,9 @@ the map and nothing read them end to end; this release starts doing that.
   so the dotted name it writes beside a method and that method's line inside
   the class's range are the only joins the map holds, and without them
   `reaches CheckoutPage` answers nothing for a page object every step drives,
-  because the constructor call sits at module level and no `calls` row is
-  written for it.
+  because constructing a class writes no `calls` row: the resolver places a
+  callee by the function declarations it indexed and keeps class names in a
+  table of its own.
 - What no test reaches: `unreached` (MCP), `--unreached`, with `--limit N`
   for how many definitions are ranked (200 by default). One walk down from
   every entry point the map names, to exhaustion, and every product function
@@ -226,11 +227,16 @@ the map and nothing read them end to end; this release starts doing that.
   release that names the moved lines. A CI step measures the disagreement and
   runs `dead` against that fixture, where it returns one row, `CheckoutPage`,
   and that row is a known false positive: `build_fixtures.py` has the steps
-  module do `page = CheckoutPage()` at module level, and a `calls` row's
-  subject is `<file>:<func>`, so a call outside any function has no shape to
-  be recorded in. Recording it needs a synthetic subject and a change to what
-  an `xrefs` row means, which is a mapper change and not this release's; the
-  step fails if such a row ever appears, so the caveat cannot outlive it.
+  module do `page = CheckoutPage()`, and constructing a class writes no
+  `calls` row from anywhere. The module level is not the reason, which was
+  measured rather than assumed: recording module-level calls under a
+  synthetic `<file>:<module>` subject adds 0 rows on that fixture and 8 on
+  this repository, and `CheckoutPage` is in neither. The resolver places a
+  callee by the function declarations it indexed and keeps class names in a
+  table of its own, so `Widget()` from inside a function writes no row
+  either. Making a construction an edge is a change to what a `calls` row
+  means, which is a mapper change and not this release's; the step fails if
+  such a row ever appears, so the caveat cannot outlive it.
 - Where to look first: `hot` (MCP), `--hot [--limit N]`. The map's own `rank`
   score times the commits its most-changed-files section counted, top N with
   both numbers printed, so a reader can see which of the two put a row where
