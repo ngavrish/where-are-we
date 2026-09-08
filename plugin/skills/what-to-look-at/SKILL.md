@@ -37,7 +37,7 @@ before it says anything else.
 - **Most rows on a library are calls the map could not place**, not
   definitions nothing calls: only cross-file calls are in the graph, so a call
   inside the file that declares the callee leaves no row, and neither does a
-  call through an imported module. On this repository at 1.6.0, 385 of 554.
+  call through an imported module. On this repository at 1.6.0, 387 of 556.
   On a test suite, where a page object is called from step modules, it is
   sharp.
 - **A class only ever constructed is in the list.** The resolver places a

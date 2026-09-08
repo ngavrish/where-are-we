@@ -402,7 +402,7 @@ says which rule placed it.
   heredoc, which used to outrank the real `build` in `rank`; and `of`, from
   the phrase "the class of that command line" in a docstring. The count is a
   property of this tree rather than of the rule, and it moves with the
-  workflow: the same A/B on the 1.6.0 tree gives 67. The heredoc rule
+  workflow: the same A/B on the 1.6.0 tree gives 75. The heredoc rule
   is applied to `.sh`, `.bash`, `.zsh`, `.ksh`, `.yml` and `.yaml` and nowhere
   else, because `a << b` at the end of a line is a shift in the languages that
   have no heredocs. It is a shift in shell too, so an opener is refused where
