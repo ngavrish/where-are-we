@@ -184,7 +184,7 @@ def _write_artifacts(out_dir: str, m: dict, args) -> None:
         # Atomically like every other artefact: an editor reads `tags` while
         # a build is running exactly as often as the MCP server reads the
         # JSON, and a half-written tags file is a binary search over garbage.
-        _write_atomic(os.path.join(out_dir, CTAGS_NAME), ctags(m))
+        _write_atomic(os.path.join(out_dir, CTAGS_NAME), ctags(m, out_dir))
     if args.agent_file:
         # Between markers, because these files are shared: whatever a human or
         # another tool put there is not this tool's to delete.

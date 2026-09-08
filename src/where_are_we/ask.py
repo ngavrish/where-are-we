@@ -2414,7 +2414,12 @@ def _context_lines(map_path: str, block: str, name: str, limit: int) -> list:
                              "framework_map.json")
     if block == "spans":
         rows = spans_for(map_path, [name.lower()], cap=0)
-        return [f"- {r}" for r in rows] or \
+        # A map built before 1.5.0 has no `spans` key, and `spans_for` answers
+        # it out of `definitions`, whose rows are bullets already. Prefixing
+        # those a second time opened every row of the block with two bullets
+        # and a space, which is the first thing a reader sees in the window
+        # between installing this release and the first `--force` rebuild.
+        return [r if r.startswith("- ") else f"- {r}" for r in rows] or \
             [f"no declaration of {name!r} in the map"]
     if block == "ask":
         # Without its blank lines, and with the directory grouping undone. A

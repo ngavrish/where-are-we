@@ -399,8 +399,14 @@ says which rule placed it.
   workflow: the same A/B on the 1.6.0 tree gives 67. The heredoc rule
   is applied to `.sh`, `.bash`, `.zsh`, `.ksh`, `.yml` and `.yaml` and nowhere
   else, because `a << b` at the end of a line is a shift in the languages that
-  have no heredocs. An unterminated heredoc masks the rest of its own file and
-  nothing beyond it.
+  have no heredocs. It is a shift in shell too, so an opener is refused where
+  the line puts it inside `$(( ))` or `(( ))`, after `let`, or in an integer
+  declaration, and a bare delimiter is believed only when a later line closes
+  it: `let MASK=1 << bits` declares `MASK` and everything after it, as it did
+  before. A redirection after the delimiter is still a heredoc, which is what
+  `python - <<'EOF' > out.bin` is. An opener that is believed and never closed
+  runs to the end of its own file and nothing beyond it, and that file is named
+  under `## This map is incomplete` with the delimiter that was left open.
 - `--defines NAME` and the MCP `defines` tool list every home:
   `charge: a.py:10-24 (function), b.py:88-91 (function)`. The flag is new; the
   tool answered with one home per name before, chosen by directory order.
@@ -518,7 +524,8 @@ says which rule placed it.
   Measured on this repository, 260 indexed files, the last two of those
   changes take `.wawe-cache.json` from 590,653 to 501,718 bytes, 15 percent:
   the entries from 516,359 to 449,253 across the two sections and the hashes
-  from 74,236 to 52,396. A file written by an earlier schema is read for its
+  from 74,236 to 52,396. Against 1.4.1 the file is larger, not smaller, since
+  1.4.1 kept no hashes and fewer kinds at all. A file written by an earlier schema is read for its
   hashes, since a sha means the same thing in every release, and dropped for
   its entries, so the build after an upgrade re-parses the tree once and every
   build after that is warm.
@@ -671,9 +678,12 @@ says which rule placed it.
   joined a relative site onto the first root it existed under, which under
   `--also` could name a file that is not there, and the `tags` file took a
   root off an absolute one. One spelling in the key, one rule per consumer:
-  `xrefs` copies the path through, and `tags` relativises every row against
-  the map's root, so a file an `--also` root owns is the `../` path that
-  reaches it from this one.
+  `xrefs` copies the path through, and `tags` relativises every row against the
+  directory the tags file is written into, which is where every ctags reader
+  resolves it from. With the usual `--out .` at the repository root that is
+  the path it always was; with the plugin's `--out .wawe` it is `../src/a.py`,
+  which is the file the row means and which used to be a path that opened
+  nothing.
 - Upgrading does not add `spans` to a map that is already on disk. A build
   skips a tree that has not moved, so run `where-are-we --repo . --out ...
   --force` once after upgrading, or wait for the next commit. Until then

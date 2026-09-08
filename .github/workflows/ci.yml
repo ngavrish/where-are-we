@@ -98,7 +98,8 @@ jobs:
           assert mapper.DEFINITIONS is state.DEFINITIONS
           # The three lists a build produces are one answer, and a caller that
           # can read one of them through the facade can read all three.
-          for name in ("HASHES_MOVED", "HASHES_ADDED", "HASHES_GONE"):
+          for name in ("HASHES_MOVED", "HASHES_ADDED", "HASHES_GONE",
+                       "PARSED_FILES", "PARSE_COUNT"):
               assert hasattr(mapper, name), name
               assert name in mapper.__all__, name
               assert getattr(mapper, name) is getattr(state, name), name
@@ -447,6 +448,30 @@ jobs:
                     EOF
                     echo done
           YML
+          # A heredoc whose opener is followed by a redirection is still a
+          # heredoc: this repository's own workflow writes
+          # `python - <<'EOF' > /tmp/x`, and anchoring the delimiter to the end
+          # of the line left three names of its body in the map.
+          cat >> /tmp/quo/r/.github/workflows/ci.yml <<'YML'
+                - name: redirected
+                  run: |
+                    python - <<'PYEOF' > /tmp/redirected.bin
+                    def redirected_body(x):
+                        return x
+                    PYEOF
+                    cat <<SHELL | tee /tmp/piped.txt
+                    def piped_body(x):
+                        return x
+                    SHELL
+          YML
+          # A left shift is not a heredoc, in the languages that have both.
+          # Shell has no bare arithmetic statement, so a shift is inside
+          # `$(( ))` or after `let`, and reading one as an opener used to cost
+          # every declaration from that line to the end of the file.
+          printf '#!/bin/bash\nlet MASK=1 << bits\nAFTER=2\nLAST=3\n' \
+            > /tmp/quo/r/shift.sh
+          printf 'a:\n  run: |\n    let X=1 << bits\n    Y=2\nZKEY: 3\n' \
+            > /tmp/quo/r/shift.yml
           # A shift is not a heredoc: the same two characters at the end of a
           # line in a language that has no heredocs must not take the rest of
           # the file out of the map.
@@ -459,19 +484,26 @@ jobs:
           m = json.load(open("/tmp/quo/m/framework_map.json"))
           names = m["definitions"]
           spans = m["spans"]
-          quoted = ["of", "refund", "Ledger", "build", "Runner"]
+          quoted = ["of", "refund", "Ledger", "build", "Runner",
+                    "redirected_body", "piped_body"]
           leaked = [n for n in quoted if n in names or n in spans]
           if leaked:
               print("a quoted body was read as a declaration:", leaked)
               sys.exit(1)
-          # The same files still declare what they really declare.
-          for n in ("SOURCE", "write_tree", "Shift", "After"):
+          # The same files still declare what they really declare, and a left
+          # shift declares everything after it: this is the answer 1.4.1 gave.
+          kept = ["SOURCE", "write_tree", "Shift", "After",
+                  "MASK", "AFTER", "LAST", "ZKEY"]
+          for n in kept:
               assert n in names, (n, sorted(names))
               assert n in spans, (n, sorted(spans))
           assert names["write_tree"].endswith("fixtures.py:17"), names["write_tree"]
-          print("quoted bodies dropped:", quoted,
-                "; declarations kept:", ["SOURCE", "write_tree", "Shift", "After"])
+          print("quoted bodies dropped:", quoted, "; declarations kept:", kept)
           EOF
+          # Nothing said a file was cut, because nothing was.
+          if grep -q "heredoc" /tmp/quo/m/framework_map.md; then
+            echo "a closed heredoc was reported as unterminated"; exit 1
+          fi
           # An unterminated heredoc masks the rest of its own file and nothing
           # else: being wrong about one file is the safe way to be wrong.
           printf 'run: |\n  python - <<%sEOF%s\n  def never_closed(x):\n      return x\n' "'" "'" \
@@ -487,6 +519,31 @@ jobs:
           assert "write_tree" in m["definitions"]
           print("an unterminated heredoc masks its own file only")
           EOF
+          # And it says so. A file the map stopped reading half way through is
+          # named under `## This map is incomplete` with the delimiter that was
+          # never closed, because dropping declarations quietly is the one
+          # thing this rule must not do.
+          sed -n '/^## This map is incomplete/,/^## /p' \
+            /tmp/quo/m2/framework_map.md | tee /tmp/quo/note.txt
+          grep -qF "open.yml is never closed" /tmp/quo/note.txt
+          grep -qF "a heredoc opened with EOF" /tmp/quo/note.txt
+          # A bare delimiter is believed only when a later line closes it, so
+          # the ambiguous shape cannot eat a file on its own.
+          printf 'x=1\ncat <<NOPE\nAFTER_BARE=2\n' > /tmp/quo/r2.sh
+          mkdir -p /tmp/quo/r3 && cp /tmp/quo/r2.sh /tmp/quo/r3/s.sh
+          where-are-we --repo /tmp/quo/r3 --out /tmp/quo/m3 --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          import json
+          m = json.load(open("/tmp/quo/m3/framework_map.json"))
+          assert "AFTER_BARE" in m["definitions"], sorted(m["definitions"])
+          print("a bare delimiter nothing closes is not an opener:",
+                sorted(m["definitions"]))
+          EOF
+          if grep -q "heredoc" /tmp/quo/m3/framework_map.md; then
+            echo "a bare word that opened nothing was reported as a heredoc"
+            exit 1
+          fi
       - name: context returns in one call what five calls return
         run: |
           set -o pipefail
@@ -761,6 +818,26 @@ jobs:
                 long_[12000]["first_answer_recall"], "at the long one; "
                 "recall with handles 1.0 at both, at both budgets")
           EOF
+          # A map built before this release has no `spans` key, and `context`
+          # answers its declarations out of `definitions` instead. Those rows
+          # are bullets already, and prefixing them a second time printed
+          # `- - ` at the top of the first answer anyone sees in the window
+          # between installing 1.5.0 and the first `--force`.
+          rm -rf /tmp/ctx/old && cp -r $M /tmp/ctx/old
+          python - <<'EOF'
+          import json
+          path = "/tmp/ctx/old/framework_map.json"
+          m = json.load(open(path))
+          del m["spans"]
+          json.dump(m, open(path, "w"))
+          EOF
+          where-are-we --out /tmp/ctx/old --context click_7 > /tmp/ctx/old.txt
+          head -4 /tmp/ctx/old.txt
+          if grep -q "^- - " /tmp/ctx/old.txt; then
+            echo "context on a pre-1.5.0 map printed a doubled bullet"; exit 1
+          fi
+          grep -q "^## Declared in$" /tmp/ctx/old.txt
+          echo "context on a map with no spans key: one bullet per row"
           # Every tool the server declares, and the flag and the tool as one
           # answer.
           printf '%s\n%s\n' \
@@ -1090,8 +1167,12 @@ jobs:
           m = json.load(open(os.path.join(out, "framework_map.json")))
           rows = [l.rstrip("\n") for l in open(os.path.join(out, "tags"))
                   if not l.startswith("!_TAG_")]
+          # A ctags row names its file relative to the directory the tags file
+          # is in, which is what vim's `tagrelative`, emacs and helix resolve
+          # from, so that is what the expected set is built against and what
+          # every row below is opened through.
           def rel(p):
-              return os.path.relpath(p, repo) if os.path.isabs(p) else p
+              return os.path.relpath(p, out) if os.path.isabs(p) else p
           want = set()
           for name, sites in m["spans"].items():
               if not name or name[0] <= "!" or set(name) & {"\t", "\n", "\r"}:
@@ -1117,7 +1198,7 @@ jobs:
               checked += 1
               line = int(f[2].rstrip(';"'))
               try:
-                  with open(os.path.join(repo, f[1]), encoding="utf-8",
+                  with open(os.path.join(out, f[1]), encoding="utf-8",
                             errors="replace") as fh:
                       src = fh.read().splitlines()
               except OSError as exc:
@@ -1152,9 +1233,39 @@ jobs:
           echo "$ROW"
           FILE=$(printf '%s\n' "$ROW" | cut -f2)
           LINE=$(printf '%s\n' "$ROW" | cut -f3 | tr -d ';"')
-          test "$FILE" = "app/billing.py"
-          sed -n "${LINE}p" "$R/$FILE" | grep -q "charge"
+          # Opened from the directory the tags file is in, which is the only
+          # place a ctags reader looks.
+          sed -n "${LINE}p" "/tmp/ct/one/$FILE" | grep -q "charge"
           printf '%s\n' "$ROW" | grep -q "kind:function"
+          # The two layouts the documentation names, each with the exact row it
+          # writes: `--out .` from the repository root, which is what the
+          # README's own example does, and `--out .wawe`, which is what the
+          # plugin writes. Both resolve from where the file lives; before this
+          # the second wrote `src/b.py` into `.wawe/`, where nothing opens.
+          rm -rf /tmp/ct/lay && mkdir -p /tmp/ct/lay/src
+          printf 'def charge(x):\n    return x\n' > /tmp/ct/lay/src/b.py
+          (cd /tmp/ct/lay && where-are-we --repo . --out . --product none \
+             --force --quiet --no-semantic --ctags)
+          grep -qxF "$(printf 'charge\tsrc/b.py\t1;"\tkind:function\tline:1\tend:2')" \
+            /tmp/ct/lay/tags
+          test -f /tmp/ct/lay/src/b.py
+          where-are-we --repo /tmp/ct/lay --out /tmp/ct/lay/.wawe --product none \
+            --force --quiet --no-semantic --ctags
+          grep -qxF "$(printf 'charge\t../src/b.py\t1;"\tkind:function\tline:1\tend:2')" \
+            /tmp/ct/lay/.wawe/tags
+          test -f /tmp/ct/lay/.wawe/../src/b.py
+          # And in general: every row of both files opens from beside it.
+          python - <<'EOF'
+          import os, sys
+          for out in ("/tmp/ct/lay", "/tmp/ct/lay/.wawe"):
+              rows = [l.rstrip("\n").split("\t")
+                      for l in open(os.path.join(out, "tags"))
+                      if not l.startswith("!_TAG_")]
+              bad = [r for r in rows
+                     if not os.path.exists(os.path.join(out, r[1]))]
+              assert not bad, (out, bad[:3])
+              print(out, len(rows), "rows, every one opens from beside the file")
+          EOF
           # The suite fixture too, where most names are scenario titles and
           # step phrases with spaces in them rather than identifiers: the
           # same order holds and the same cross-check passes over 200 rows.
@@ -1164,7 +1275,10 @@ jobs:
           LC_ALL=C sort -c /tmp/ct/suite-tags/tags
           OUT=/tmp/ct/suite-tags REPO=$S python /tmp/ct/check.py
           test "$(grep -c . /tmp/ct/suite-tags/tags)" -gt 200
-          grep -qF "$(printf 'Log in\tfeatures/login.feature\t1;\"\tkind:feature')" \
+          # `--out` here is outside the fixture, so the row reaches the file
+          # from where the tags file lives, which is the rule and not an
+          # exception to it.
+          grep -qF "$(printf 'Log in\t../suite/repo/features/login.feature\t1;\"\tkind:feature')" \
             /tmp/ct/suite-tags/tags
           # Two builds of one tree, byte for byte.
           where-are-we --repo $R --out /tmp/ct/two --product none --ctags \
@@ -1191,9 +1305,9 @@ jobs:
           # requirement rather than a stand-in for a reader.
           if command -v readtags > /dev/null 2>&1 \
              || { sudo apt-get update -qq && sudo apt-get install -y universal-ctags; }; then
-            readtags -t /tmp/ct/one/tags charge | tee /tmp/ct/readtags.txt
+            readtags -t /tmp/ct/lay/tags charge | tee /tmp/ct/readtags.txt
             test "$(cut -f1 /tmp/ct/readtags.txt | head -1)" = "charge"
-            test "$(cut -f2 /tmp/ct/readtags.txt | head -1)" = "app/billing.py"
+            test "$(cut -f2 /tmp/ct/readtags.txt | head -1)" = "src/b.py"
           else
             echo "universal-ctags is not installable on this runner: readtags was not run"
           fi
@@ -7738,10 +7852,11 @@ jobs:
               pages
           assert "click_pay" in alsop["spans"], sorted(alsop["spans"])
           # And the other artefact derived from `spans` says the same thing
-          # about those files. A `tags` row is repo-relative, an `xrefs` row
-          # is absolute, and joining the first onto the map's root gives the
-          # second: one spelling in the key, one rule per consumer, and no
-          # file named two ways by two artefacts of one build.
+          # about those files. A `tags` row names its file from the directory
+          # the tags file is in, an `xrefs` row is absolute, and joining the
+          # first onto that directory gives the second: one spelling in the
+          # key, one rule per consumer, and no file named two ways by two
+          # artefacts of one build.
           sites = {(r["subject"], r["object"], r["line"])
                    for r in alsop["xrefs"] if r["edge"] == "declares"}
           tags = set()
@@ -7749,7 +7864,8 @@ jobs:
               if row.startswith("!_TAG_"):
                   continue
               f = row.rstrip("\n").split("\t")
-              tags.add((os.path.normpath(os.path.join(alsop["repo"], f[1])),
+              tags.add((os.path.normpath(
+                            os.path.join("/tmp/xref/alsop-out", f[1])),
                         f[0], int(f[2].rstrip(';"'))))
           untagged = sorted(s for s in sites if s not in tags)
           assert not untagged, untagged[:5]

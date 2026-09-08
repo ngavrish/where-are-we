@@ -717,6 +717,11 @@ def redact(value, contiguous: bool = False):
     if isinstance(value, list):
         return _redact_lines(value) if contiguous else [redact(v) for v in value]
     if isinstance(value, dict):
+        # The key name, at whatever depth it is found, which is the same rule
+        # `contiguous` has always been chosen by. The map has one `lines` key
+        # and it is at the top, so nothing else takes either branch today; a
+        # nested section ever named `lines` would take both, and would have to
+        # be renamed or given its own test here.
         return {k: (v if k == _CONTIGUOUS_KEY and state.LINES_REDACTED
                     else redact(v, contiguous or k == _CONTIGUOUS_KEY))
                 for k, v in value.items()}

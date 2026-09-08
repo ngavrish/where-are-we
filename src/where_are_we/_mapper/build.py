@@ -331,6 +331,11 @@ def build(repo: str, out_dir: str | None = None,
     # anything computed here over `lines` and anything a reader asks the map
     # for are the same text. `tests/golden/build_fixtures.py` is the one
     # caller that says no, and says why where it says it.
+    #
+    # A caller that says no and then holds the map has to redact it before
+    # writing it, and has to do that before the next `build()` in the same
+    # process: `state.LINES_REDACTED`, which is what tells `redact()` whether
+    # to sweep `lines`, describes the last build rather than the map in hand.
     state.REDACT_LINES = redact_lines
     if out_dir is not None:
         # Before anything is written: a build killed mid-write leaves a

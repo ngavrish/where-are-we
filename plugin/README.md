@@ -115,7 +115,10 @@ would touch without touching it.
 Three more the plugin does not turn on for you. `--ctags` writes `.wawe/tags`
 beside the map, in the format vim, emacs, helix, kakoune and `readtags` have
 always read, so an editor open on the same checkout jumps to a definition with
-no language server running. `--cost` says what each section of the map costs to
+no language server running. Every row names its file relative to the directory
+the tags file is in, which is where a ctags reader resolves it from, so a file
+in `.wawe/tags` reads `../src/a.py` and one written with `--out .` at the
+repository root reads `src/a.py`. Both open. `--cost` says what each section of the map costs to
 carry, heaviest first, for deciding what `--only`, `--skip` and `--max-lines`
 should say. `--export FILE` packs the notice, the counts, the priced section
 list and the brief into one file, for a PR comment or a paste, where there is
