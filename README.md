@@ -99,7 +99,12 @@ $ where-are-we --ask "refund settled invoice"
 ```
 
 An answer is whole rows, never a row cut in the middle, and it fits the limit it
-was given (12,000 characters for the CLI and the MCP) rather than filling it.
+was given (12,000 characters for the CLI and the MCP) rather than filling it. The
+one exception is a continuation: where a `more:` handle lands on a single row
+longer than the whole budget, that row comes back cut and marked
+`… (row cut to fit; N of M characters)` with the handle on the row after it,
+because the alternative is a chain that dead-ends and strands every row behind
+it.
 Rows under one directory are printed under it once. Each section ends by saying
 what it left out — how many matching rows did not fit, and how many rows did not
 mention the words at all — so the reader knows whether to ask again with more
@@ -160,7 +165,7 @@ as estimates.
 |---|---|---|---|
 | The pointer (`--pointer`, `--agent-file`) | ~600–850 bytes in the prompt naming the map, its sections and how to ask; the map stays on disk | Map inlined: ≈ 64k tokens re-sent every turn, 27.4M tokens over one run, a quarter of that run; pointer: ≈ 212 tokens (300× less); a 5-hour allowance gone in 74 min vs the budget going to work (README, measured on one production run) | — |
 | Orientation replaced by one `--ask` | The first turns of a session stop being `ls`/`find`/`grep` | ~40 orientation turns → 1 on the measured suite (README) | — |
-| `--ask` / MCP `ask`: whole rows, ranked sections, honest tail | Only rows that mention the words, never a cut row, `limit` a strict ceiling, "… N more matching rows (more:rows:...); M rows do not mention these words" - the tail names what was left out and carries the handle `more` fetches it with | Before 0.12: an answer could exceed its limit 68× (3 KB head at limit 50) and cut a row mid-word; after: ≤ limit on every golden case (150), 5/5 fixture checks. `.wawe/.wawe-ask.log` records every answer; `wawe-measure --ask-log .wawe` prints median/p95/max tokens | — |
+| `--ask` / MCP `ask`: whole rows, ranked sections, honest tail | Only rows that mention the words, never a cut row in the answer itself (a `more:` continuation may cut and mark one row longer than the whole budget, so the chain advances instead of stranding it), `limit` a strict ceiling, "… N more matching rows (more:rows:...); M rows do not mention these words" - the tail names what was left out and carries the handle `more` fetches it with | Before 0.12: an answer could exceed its limit 68× (3 KB head at limit 50) and cut a row mid-word; after: ≤ limit on every golden case (150), 5/5 fixture checks. `.wawe/.wawe-ask.log` records every answer; `wawe-measure --ask-log .wawe` prints median/p95/max tokens | — |
 | `more` (MCP), `--more HANDLE` | What an answer left out, by the handle it printed: a section's unshown rows, the rows in it that never matched, definitions past the block's cap, the sections that did not fit, `find`'s hits past its limit. Stateless: the handle names a section, the words and a position, and `more` recomputes the ranking from the map on disk, so a rebuilt map answers "no such handle in this map" rather than a slice of some other list | Measured 2026-09-07 on the `suite` golden fixture built at `/tmp/wawe-cost`, question "invoice checkout": chasing the handles from `ask(..., 1500)` to exhaustion returns all 198 rows the unbudgeted answer holds, in 17 calls; from `ask(..., 12000)`, 198 in 1 call. At 350 characters, 197 of 198 - the missing row is 446 characters long and cannot fit in a 350-character answer, and `more` says so | — |
 | `--ask` synonyms and stemming | "login" also searches "signin", "auth"; "invoices" also searches "invoice"; a synonym or a stem scores at half the weight of the literal word, so it never outranks an exact hit; the first line says `(also matched: signin, auth)` when an expansion found something the literal words did not; `.wawe.toml`'s `[synonyms]` table adds a project's own words to the built-in groups | Not measured | — |
 | Rows under one directory printed once | `- \`features/checkout/\`` then the files | Not measured | Bytes of an answer before/after on a 40-row directory |
@@ -682,7 +687,9 @@ chunkhound, continue's `@codebase`, greptile. Some hand it a live language
 server that has to be installed, started and kept warm per language: serena,
 mcp-language-server, opencode. This one treats the budget as a contract and
 publishes what the contract costs. An answer is whole rows or no row, never a
-row cut in the middle. It is at or under its stated ceiling. Every section ends
+row cut in the middle, and only a continuation asked for a row longer than its
+whole budget returns one cut, marked with how much was taken off. It is at or
+under its stated ceiling. Every section ends
 by counting what it left out and carrying a handle that fetches it. And
 `wawe-eval` measures, on every CI run, what the cut loses: first-answer recall,
 pooled recall, top-5 recall, rows longer than the budget, and recall after

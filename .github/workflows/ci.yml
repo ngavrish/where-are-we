@@ -7100,6 +7100,31 @@ jobs:
           assert mcp == cli.rstrip("\n"), "MCP more and --more disagree"
           print("MCP more and --more agree, byte for byte")
           EOF
+          # A continuation may cut one row, and the README says so. The
+          # promise "whole rows, never a cut row" is true of every first
+          # answer and of every continuation that has room for a whole row;
+          # it stopped being true of a handle landing on a row longer than
+          # the whole budget, which now comes back cut and marked so the
+          # chain advances. Three places state the promise and all three
+          # carry the exception.
+          python - <<'EOF'
+          import pathlib, re
+          from where_are_we.ask import ROW_CUT
+
+          readme = pathlib.Path("README.md").read_text()
+          marker = ROW_CUT.split("{")[0].strip()
+          assert marker in readme, marker
+          promises = [n for n, line in enumerate(readme.splitlines(), 1)
+                      if "never a" in line and "cut" in line]
+          assert len(promises) >= 2, promises
+          for word in ("a `more:` continuation may cut and mark one row longer "
+                       "than the whole budget",
+                       "only a continuation asked for a row longer than its",
+                       "The\none exception is a continuation"):
+              assert word in readme, word
+          print(f"{len(promises)} 'never a cut row' promises, each qualified; "
+                f"the marker {marker!r} is in the README")
+          EOF
           # 7. A `find` chain never dead-ends on a hit longer than the budget.
           #    `find_text` used to refuse there ("hit 1 of N and the line
           #    saying what is left do not fit"), and the refusal was itself
