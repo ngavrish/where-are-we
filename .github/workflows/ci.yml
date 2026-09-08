@@ -6808,7 +6808,12 @@ jobs:
             if grep -q "handles: not available in this build" /tmp/wawe-eval-out.txt; then
               echo "unexpected match: grep -q 'handles: not available in this build' /tmp/wawe-eval-out.txt"; exit 1
             fi
-            python -c "
+            # A quoted heredoc, not `python -c "..."`: bash expands a
+            # backtick inside a double-quoted word, so the comment below,
+            # which names `more`, ran /usr/bin/more. On a runner stdin is
+            # /dev/null and it returns at once; anywhere else it waits for
+            # input that never comes and this gate hangs.
+            python - <<'EOF'
           import json
           rows = json.load(open('/tmp/wawe-eval.json'))['budgets']
           for r in rows:
@@ -6824,7 +6829,7 @@ jobs:
               else:
                   assert r['recall_with_handles'] >= 0.95, r
           print('wawe-eval: recall with handles 1.0 over every row that fits, at 1500 and up')
-          "
+          EOF
           fi
       - name: the more tool returns what an answer left out
         run: |
