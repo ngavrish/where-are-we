@@ -387,11 +387,36 @@ def _blocks_from(m: dict, root: str, wanted: list, depth: int, seen: dict,
         f for f in wanted
         if not any(_rank_graph.matches(s, root, [f]) for s in subjects))
 
+    # A named file the map declares and no `calls` row lands on. It is not
+    # `unreachable`, which is a file with no `xrefs` row at all, and the
+    # difference matters: this one is in the map, so the answer looks
+    # complete. It is one of two things and this walk cannot tell them apart.
+    # Either nothing calls it, and a zero here is the truth; or a caller
+    # reaches it by a route no rule places, which is what
+    # `importlib.import_module` plus `getattr` looks like, and then the zero
+    # is a fact about the resolver. Measured on a fixture built for exactly
+    # that: a step function reaching `app/fees.py` that way gave `0 of 3
+    # scenarios`, no `## Unreachable from the graph` block, and an empty
+    # selection file, so the README pipeline printed "nothing to run" for a
+    # change a scenario genuinely exercises.
+    called = set()
+    for row in m.get("xrefs") or ():
+        if row.get("edge") != "calls":
+            continue
+        for path in [row.get("file")] + list(row.get("candidates") or ()):
+            if path:
+                called.add(str(path))
+    uncalled = sorted(
+        f for f in wanted
+        if f not in unreachable
+        and not any(_rank_graph.matches(c, root, [f]) for c in called))
+
     total = sum(len(f.get("scenarios") or ())
                 for f in (m.get("features") or {}).values())
     return {"files": list(wanted), "depth": depth, "scenarios": scenarios,
             "features": features, "routes": routes, "pages": pages,
             "steps": steps, "pytest": cases, "unreachable": unreachable,
+            "uncalled": uncalled, "rate": _rate(m),
             "total_scenarios": total, "unbound": unbound,
             "no_edges": edge_count(m) == 0}
 
@@ -549,6 +574,18 @@ def summary(result: dict, limit: int) -> str:
         # way this tool can be actively wrong.
         head += (f" No xrefs row names {left} of the files given, so this "
                  f"answer says nothing about {'it' if left == 1 else 'them'}.")
+    kept = len(result["uncalled"])
+    if kept:
+        # Beside the `unreachable` sentence and for the same reason: this is
+        # the other way an answer can be partial, and it is the quieter one,
+        # because the file is in the map and the answer looks complete. The
+        # rate is here rather than on every answer: it is what says whether a
+        # zero is about the tests or about the resolver, and this is the one
+        # branch where a reader cannot tell.
+        head += (f" No calls row lands on {kept} of the files given, so this "
+                 "map does not know what calls "
+                 f"{'it' if kept == 1 else 'them'}: either nothing does, or a "
+                 "caller the resolver could not place. " + result["rate"])
     if result["no_edges"]:
         head += NO_EDGES
     return head

@@ -4282,7 +4282,7 @@ jobs:
             where-are-we --out /tmp/rerun/m --changed "$1" \
               --affected-format behave --affected-out /tmp/rerun/sel.txt \
               > /tmp/rerun/affected.txt
-            if grep -q 'No xrefs row names' /tmp/rerun/affected.txt; then
+            if grep -qE 'No xrefs row names|No calls row lands on' /tmp/rerun/affected.txt; then
               echo "FULL RUN"
             elif [ -s /tmp/rerun/sel.txt ]; then
               echo "SELECTION"
@@ -4338,7 +4338,58 @@ jobs:
           head -1 /tmp/rerun/affected.txt
           grep -q 'No xrefs row names 1 of the files given' /tmp/rerun/affected.txt
           test ! -s /tmp/rerun/sel.txt
-          # 4. The section the pipeline is copied from is still in the README,
+          # 4. A file the map declares that no call row lands on. It is not
+          #    "unreachable from the graph" - it has a `declares` row - so the
+          #    answer looked complete and the pipeline ran nothing for a change
+          #    a scenario genuinely exercises. The step reaches `app/fees.py`
+          #    through `importlib.import_module` and `getattr`, so no rule can
+          #    place the caller and the callee name is never written down.
+          cat > /tmp/rerun/repo/app/fees.py <<'EOF'
+          def levy(amount):
+              return amount * 2
+          EOF
+          cat >> /tmp/rerun/repo/features/steps/shop_steps.py <<'EOF'
+
+
+          NAME = "levy"
+
+
+          @given("a customer with a dynamic fee")
+          def step_dynamic(context):
+              import importlib
+              mod = importlib.import_module("app.fees")
+              context.fn = getattr(mod, NAME)
+
+
+          @when("the dynamic fee is applied")
+          def step_apply(context):
+              fn = context.fn
+              context.total = fn(10)
+          EOF
+          git -C /tmp/rerun/repo add -A
+          git -C /tmp/rerun/repo -c user.email=ci@example.com -c user.name=ci \
+            commit -qm two
+          where-are-we --repo /tmp/rerun/repo --out /tmp/rerun/m --product none \
+            --force --quiet --no-semantic
+          printf '\n# touched\n' >> /tmp/rerun/repo/app/fees.py
+          test "$(run_it HEAD)" = "FULL RUN"
+          head -1 /tmp/rerun/affected.txt
+          grep -qF 'No calls row lands on 1 of the files given, so this map does not know what calls it: either nothing does, or a caller the resolver could not place.' /tmp/rerun/affected.txt
+          grep -qE 'The graph resolved [0-9]+ of [0-9]+ callee names' /tmp/rerun/affected.txt
+          # It is not the unreachable case: the file is in the map.
+          if grep -q 'No xrefs row names' /tmp/rerun/affected.txt; then
+            echo "a declared file was reported as having no xrefs row"; exit 1
+          fi
+          test ! -s /tmp/rerun/sel.txt
+          # And a file the graph does reach carries neither sentence.
+          git -C /tmp/rerun/repo checkout -- app/fees.py
+          printf '\n# touched\n' >> /tmp/rerun/repo/pages/checkout.py
+          test "$(run_it HEAD)" = "SELECTION"
+          if grep -qE 'No xrefs row names|No calls row lands on' /tmp/rerun/affected.txt; then
+            echo "a file the graph reaches was reported as partial"; exit 1
+          fi
+          git -C /tmp/rerun/repo checkout -- pages/checkout.py
+          # 5. The section the pipeline is copied from is still in the README,
           #    and still holds every line of it.
           python - <<'EOF'
           import pathlib, sys
@@ -4347,7 +4398,7 @@ jobs:
           section = readme[start:readme.index("\n## ", start + 10)]
           for line in ('where-are-we --out .wawe --changed "$BASE" \\',
                        "  --affected-format behave --affected-out sel.txt > affected.txt",
-                       "if grep -q 'No xrefs row names' affected.txt; then",
+                       "if grep -qE 'No xrefs row names|No calls row lands on' affected.txt; then",
                        "elif [ -s sel.txt ]; then",
                        "  xargs behave < sel.txt",
                        '  echo "nothing to run"'):
@@ -4356,6 +4407,7 @@ jobs:
                        "`--name` and only `--name`",
                        "behave runs both",
                        "Unreachable from the graph",
+                       "No calls row lands on N of the files given",
                        "call the resolver could not place is not a row",
                        "suite on a schedule, and on every release"):
               assert said in section, said

@@ -888,8 +888,8 @@ suite whenever the answer is partial.
 where-are-we --out .wawe --changed "$BASE" \
   --affected-format behave --affected-out sel.txt > affected.txt
 cat affected.txt                      # the head says what was selected and why
-if grep -q 'No xrefs row names' affected.txt; then
-  behave                              # the change touched a file the graph has no row for
+if grep -qE 'No xrefs row names|No calls row lands on' affected.txt; then
+  behave                              # the answer says it is partial
 elif [ -s sel.txt ]; then
   xargs behave < sel.txt
 else
@@ -928,8 +928,16 @@ Five things that shape make true, each of which a shorter version gets wrong:
 - **A file the graph has no row for is not "not affected".** It lands in
   `## Unreachable from the graph`, the first line says `No xrefs row names N
   of the files given`, and the selection file says nothing about it, correctly,
-  because there is nothing to say. That is the `grep` in the pipeline above:
-  a partial answer is a full run.
+  because there is nothing to say.
+- **Nor is a file the map declares and no call row lands on.** That one is in
+  the map, so the answer looks complete, and it is either a thing nothing
+  calls or a thing reached by a route no rule places
+  (`importlib.import_module` plus `getattr` is the shape). The first line says
+  `No calls row lands on N of the files given, so this map does not know what
+  calls them: either nothing does, or a caller the resolver could not place`,
+  and follows it with the graph's own resolution rate, which is the number
+  that says which of the two is likelier. Both sentences are what the `grep`
+  in the pipeline above reads: a partial answer is a full run.
 
 `--affected-format pytest` is the same shape with node ids from
 `pytest_tests`, one per line for `xargs pytest < sel.txt`.
@@ -938,9 +946,12 @@ Five things that shape make true, each of which a shorter version gets wrong:
 call the resolver could not place is not a row, so the scenario that reaches
 the change through it is not in the selection: on a test suite, where a page
 object is called from step modules, that is few, and on a library it is most
-of the graph. The first line of every answer carries the map's own resolution
-rate, and `wawe-eval --map OUT --graph` prints it per language. Run the whole
-suite on a schedule, and on every release, whatever the selection says.
+of the graph. `unreached` carries the map's own resolution rate in every
+first line, `affected` carries it in the one branch where a reader cannot
+otherwise tell a real zero from an unplaced caller, and
+`wawe-eval --map OUT --graph` prints it per language whenever you want it. Run
+the whole suite on a schedule, and on every release, whatever the selection
+says.
 
 ## What writes and what only reads
 
