@@ -1589,7 +1589,22 @@ def hot(m: dict, limit: int = HOT_LIMIT) -> dict:
     floor. Not the first line: that carries the counts and the one bound
     that decides what the ranking is, which is the forty-file one.
 
-    `rank` is the map's top 200, so this ranks within those.
+    `rank` is the map's top 200, so this ranks within those, and only the file
+    kinds the call graph reaches, which is the rule `dead` already applies
+    through `_call_suffixes`. Without it the two answers disagreed about the
+    same declaration: `dead` refused to judge a `def` quoted inside a Markdown
+    fence, because a file no `calls` row can reach can never have an incoming
+    one, while `hot` ranked it. And `hot` was where it mattered, because the
+    two most-committed files in a repository are usually its README and its
+    changelog: on this repository before this, `CHANGELOG.md:169 at` was the
+    second row and `README.md:509 charge`, a `def` inside a ```console fence
+    in the README's own example output, the third, so a reader asking where to
+    look first was told to read documentation third. 4 of 40 rows were `.md`.
+
+    A map whose graph holds no `calls` row reaches no suffix at all, and then
+    the filter is not applied: there is no evidence about kinds to apply, and
+    an empty answer would be worse than a `rank`-ordered one. The
+    `## How this was counted` block says which of the two happened.
     """
     root = m.get("repo") or ""
     limit = max(1, int(limit))
@@ -1598,16 +1613,21 @@ def hot(m: dict, limit: int = HOT_LIMIT) -> dict:
     capped = bool(history) and not counts
     churn = ({rel: int(n or 0) for rel, n in counts.items()} if counts
              else {rel: len(entries or ()) for rel, entries in history.items()})
-    rows = []
+    reachable = _call_suffixes(m)
+    rows, skipped = [], 0
     for entry in m.get("rank") or ():
         rel = _rank_graph.relative(str(entry.get("file") or ""), root)
+        if reachable and os.path.splitext(rel)[1].lower() not in reachable:
+            skipped += 1
+            continue
         commits = churn.get(rel) or 1
         score = float(entry.get("score") or 0.0)
         rows.append((score * commits, rel, entry.get("line") or 0,
                      str(entry.get("name") or ""), score, commits))
     rows.sort(key=lambda r: (-r[0], r[1], r[2], r[3]))
     return {"rows": rows[:limit], "held": len(rows), "limit": limit,
-            "churned": len(churn), "capped": capped,
+            "churned": len(churn), "capped": capped, "skipped": skipped,
+            "suffixes": ", ".join(sorted(reachable)) or "none",
             "section": len(history) or len(churn)}
 
 
@@ -1651,8 +1671,8 @@ def hot_lines(result: dict, block: str) -> list:
 
     if block == "counted":
         rows = ["- the score is the map's own `rank`, which holds the top "
-                f"{result['held']} definitions of this repository, so this "
-                "ranks within those"]
+                f"{result['held'] + result['skipped']} definitions of this "
+                "repository, so this ranks within those"]
         if result["capped"]:
             # Say where the number came from and what is wrong with it in
             # one breath. Naming `git_commits` as the source and then, five
@@ -1668,7 +1688,12 @@ def hot_lines(result: dict, block: str) -> list:
             rows.append("- the commits are `git_commits`, what the "
                         "most-changed-files section counted over the last "
                         "ninety days")
-        rows += [f"- that section is the "
+        rows += [f"- counted over the definitions `rank` holds in the file "
+                 f"kinds this map's call graph reaches ({result['suffixes']}); "
+                 f"{_plural(result['skipped'], 'definition')} left out that "
+                 "way, because a `def` quoted inside a Markdown fence is "
+                 "documentation and `dead` will not judge it either",
+                 f"- that section is the "
                  f"{_plural(result['churned'], 'busiest file')} and no more, "
                  "so a file outside it counts 1 however often it changed and "
                  "this ranking is `rank`'s own order for those",

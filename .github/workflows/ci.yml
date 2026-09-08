@@ -3939,6 +3939,59 @@ jobs:
           grep -q '"tool": "dead"' /tmp/dhmap/.wawe-ask.log
           where-are-we --out /tmp/hotmap --hot > /tmp/hot/again.txt
           diff -u /tmp/hot/hot.txt /tmp/hot/again.txt
+          # 12. `hot` judges the file kinds `dead` judges, and no others. A
+          #     `def` inside a Markdown fence is documentation: `dead` has
+          #     always refused to call it dead, and `hot` used to rank it,
+          #     which mattered because the two most-committed files in a
+          #     repository are usually its README and its changelog. On this
+          #     repository before the filter, `CHANGELOG.md:169 at` was the
+          #     second row and `README.md:509 charge`, a `def` inside a
+          #     ```console fence in the README's own example output, the
+          #     third; 4 of 40 rows were `.md`.
+          rm -rf /tmp/hotkinds
+          mkdir -p /tmp/hotkinds/repo/app
+          printf 'def charge(amount):\n    return amount\n' > /tmp/hotkinds/repo/app/billing.py
+          printf 'from app.billing import charge\n\n\ndef pay():\n    return charge(1)\n' \
+            > /tmp/hotkinds/repo/app/pay.py
+          # The same two names again, quoted in prose.
+          printf 'Example output:\n\n```console\ndef charge(amount):\n    return amount\n```\n\nAnd `pay`:\n\n```console\ndef pay():\n    return charge(1)\n```\n' \
+            > /tmp/hotkinds/repo/DOCS.md
+          where-are-we --repo /tmp/hotkinds/repo --out /tmp/hotkinds/m --product none \
+            --force --quiet --no-semantic
+          python - <<'EOF'
+          from where_are_we.graph import _call_suffixes, dead, hot, load
+          import os
+
+          m = load("/tmp/hotkinds/m")
+          suffixes = _call_suffixes(m)
+          assert suffixes == {".py"}, suffixes
+          kinds = {os.path.splitext(rel)[1].lower()
+                   for _p, rel, _l, _n, _s, _c in hot(m, 40)["rows"]}
+          assert kinds <= suffixes, kinds
+          judged = {os.path.splitext(rel)[1].lower()
+                    for rel, _pairs in dead(m, 40)["files"]}
+          assert judged <= suffixes, judged
+          rows = hot(m, 40)
+          print(f"hot judges {sorted(kinds)}, dead judges {sorted(judged)}, "
+                f"the graph reaches {sorted(suffixes)}; "
+                f"{rows['skipped']} of {rows['held'] + rows['skipped']} ranked "
+                "definitions left out by kind")
+          assert rows["skipped"] >= 1, rows
+          said = [r for r in __import__("where_are_we.graph", fromlist=["x"])
+                  .hot_lines(rows, "counted") if "call graph reaches" in r]
+          assert said, "the how-counted block does not name the kinds"
+          print(said[0])
+          EOF
+          # And on this repository's own map, where the problem was found.
+          rm -rf /tmp/hotself
+          where-are-we --repo . --out /tmp/hotself --product none --force \
+            --quiet --no-semantic
+          where-are-we --out /tmp/hotself --hot > /tmp/hotkinds/self.txt
+          head -1 /tmp/hotkinds/self.txt
+          if grep -qE '^- `[^`]*\.md:' /tmp/hotkinds/self.txt; then
+            echo "hot ranked a declaration in a file its call graph cannot reach"; exit 1
+          fi
+          grep -q 'file kinds this map.s call graph reaches' /tmp/hotkinds/self.txt
           # 11. Every row of both answers is reachable from their own handles.
           python - <<'EOF'
           import re
