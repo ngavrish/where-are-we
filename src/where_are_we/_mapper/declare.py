@@ -16,9 +16,9 @@ from .state import DEFINITIONS, INDEXED, LINES, SPANS, TRUNCATED
 from .walk import SLURP_LIMIT, _cached, _redact_lines, _slurp
 
 try:
-    from ..ask import _encode
+    from ..ask import _cut_row, _encode
 except ImportError:  # run as a plain file, with no package around it
-    from ask import _encode  # type: ignore[no-redef]
+    from ask import _cut_row, _encode  # type: ignore[no-redef]
 
 
 STEP_DECORATORS = {"step", "given", "when", "then"}
@@ -148,7 +148,11 @@ def find_text(out_dir: str, phrase: str, limit: int = 40,
     in hits, and the block comes back no longer than it. `more()` passes it:
     what a handle fetches lands in the conversation exactly like the answer
     that printed it, and forty hits of a hundred and sixty characters is 1,892
-    characters against a caller that asked for 1,500.
+    characters against a caller that asked for 1,500. Where not even the first
+    hit fits whole, that hit comes back cut and marked with the handle on the
+    one after it, which is `_cut_row`'s rule and every other `more:` chain's:
+    a chain that advances past a row too long for the budget, rather than a
+    refusal that strands every hit behind it.
     """
     phrase = (phrase or "").strip()
     if len(phrase) < 2:
@@ -267,9 +271,25 @@ def find_text(out_dir: str, phrase: str, limit: int = 40,
             out = block(n, form)
             if len(out) <= room:
                 return out
+    # Not even the first hit fits whole. `_cut_row` is what every other
+    # `more:` chain in this project does in the same corner: print that one
+    # hit cut, mark how much of it was taken off, and put the handle on the
+    # hit after it, so the chain advances instead of refusing. Before this,
+    # `more:find:invoice:0` at 150 characters against this repository's own
+    # map returned `no such handle ...` and stranded all 166 hits behind a
+    # row of 152 characters; the refusal was itself 111 characters, so the
+    # answer broke the budget on its way to saying it could not fit.
+    cut = _cut_row("", capped[offset], room,
+                   lambda got: f"more:find:{_encode(phrase)}:{got}",
+                   offset, len(capped))
+    if cut:
+        return cut
+    # Under about the length of the cut marker alone there is nothing to
+    # print, and this says so rather than overrun. `more()` cannot reach it:
+    # `--more` always passes 12000 and the MCP `more` has a floor of 1500.
     return (f"no such handle in this map: hit {offset + 1} of {len(capped)} "
-            f"and the line saying what is left do not fit in {room} "
-            f"characters together")
+            f"and the marker saying how much of it was cut do not fit in "
+            f"{room} characters together")
 
 
 # Extensions where a tree-sitter grammar can stand in for the regex table,

@@ -27,10 +27,13 @@ import sys
 # package around this file, plain when `mapper.py` is being run by path and
 # `src/where_are_we` is itself the import root.
 try:
-    from . import ask as _ask, effects, hooks, lsp, mcp, specs
-    from .ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask, at, callees_line,
-                       callers, context, file_list, impact, log_answer,
-                       map_heads, rank_lines, spans_for)
+    from . import ask as _ask, effects, graph, hooks, lsp, mcp, specs
+    from .ask import (AFFECTED_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
+                       RANK_LIMIT, UNREACHED_LIMIT, affected_answer, ask, at,
+                       callees_line, callers, context, dead_answer, file_list,
+                       hot_answer, impact, log_answer, map_heads, path_answer,
+                       range_answer, rank_lines, reaches_answer,
+                       selection_lines, spans_for, unreached_answer)
     from ._mapper.build import build, declares_rows, sort_xrefs
     from ._mapper.render import (CTAGS_NAME, _as_dict, _cap_sections, brief,
                                  changed_since, cost, ctags, digest, export,
@@ -45,13 +48,17 @@ try:
 except ImportError:  # run as a plain file, with no package around it
     import ask as _ask  # type: ignore[no-redef]
     import effects  # type: ignore[no-redef]
+    import graph  # type: ignore[no-redef]
     import hooks  # type: ignore[no-redef]
     import lsp  # type: ignore[no-redef]
     import mcp  # type: ignore[no-redef]
     import specs  # type: ignore[no-redef]
-    from ask import (IMPACT_MAX_DEPTH, RANK_LIMIT, ask,  # type: ignore[no-redef]
-                     at, callees_line, callers, context, file_list, impact,
-                     log_answer, map_heads, rank_lines, spans_for)
+    from ask import (AFFECTED_BUDGET, GRAPH_BUDGET, IMPACT_MAX_DEPTH,
+                     RANK_LIMIT, UNREACHED_LIMIT, affected_answer, ask, at,
+                     callees_line, callers, context, dead_answer, file_list,
+                     hot_answer, impact, log_answer, map_heads, path_answer,
+                     range_answer, rank_lines, reaches_answer, selection_lines,
+                     spans_for, unreached_answer)
     from _mapper.build import (build,  # type: ignore[no-redef]
                                declares_rows, sort_xrefs)
     from _mapper.render import (CTAGS_NAME,  # type: ignore[no-redef]
@@ -344,6 +351,24 @@ def _impact_depth(text: str) -> int:
     return value
 
 
+def _affected_depth(text: str) -> int:
+    """`--affected-depth`, refused at the parser the way `--impact-depth` is.
+
+    The MCP tool refuses a depth outside its range with -32602, so the flag
+    refuses it with exit 2 rather than clamping it quietly: two spellings of
+    one tool have to mean the same thing by the same number.
+    """
+    try:
+        value = int(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{text!r} is not a whole number") from None
+    if not 1 <= value <= graph.MAX_DEPTH:
+        raise argparse.ArgumentTypeError(
+            f"must be from 1 to {graph.MAX_DEPTH}, not {value}")
+    return value
+
+
 def _row_limit(text: str) -> int:
     """`--limit`, refused at the parser the way `--impact-depth` is.
 
@@ -561,7 +586,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "newline separated list on stdin, which is what "
                          "`git diff --name-only` hands over")
     ap.add_argument("--limit", type=_row_limit, default=0, metavar="N",
-                    help="how many rows --rank prints (default 200)")
+                    help="how many rows --rank, --dead and --hot print, and "
+                         "how many definitions --unreached ranks "
+                         f"(default {RANK_LIMIT} for --rank and --unreached, "
+                         f"{graph.DEAD_LIMIT} files for --dead, "
+                         f"{graph.HOT_LIMIT} for --hot)")
     ap.add_argument("--callers", default="", metavar="NAME",
                     help="print who calls NAME, exactly: one `file:func` per "
                          "line, from the call graphs already in the map. "
@@ -581,6 +610,94 @@ def build_parser() -> argparse.ArgumentParser:
                     metavar="N",
                     help="how many hops back --impact follows, 1 to 6 "
                          "(default 3)")
+    ap.add_argument("--affected", default="", metavar="FILE[,FILE...]",
+                    help="print which tests a change to those files reaches: "
+                         "the scenarios whose steps call into them, their "
+                         "feature files, the routes and page objects reached, "
+                         "and the files the graph holds no row for. Walks the "
+                         "map's `xrefs` calls rows upward from what those "
+                         "files declare. `-` reads a newline separated list "
+                         "on stdin. Reads framework_map.json under --out")
+    ap.add_argument("--changed", nargs="?", const="HEAD", default=None,
+                    metavar="REF",
+                    help="the files `git diff --name-only REF` names in the "
+                         "repository the map was built from (HEAD when REF is "
+                         "left off), answered as --affected would answer "
+                         "them, so a pipeline passes nothing")
+    ap.add_argument("--affected-format", dest="affected_format", default="",
+                    choices=["behave", "pytest"],
+                    help="print a runner's own selection instead of the "
+                         "blocks: `behave` an include list, one pattern per "
+                         "line for -i, or the tags where the map holds a tag "
+                         "on the affected feature files alone; `pytest` the "
+                         "node ids of the reached cases")
+    ap.add_argument("--affected-out", dest="affected_out", default="",
+                    metavar="FILE",
+                    help="write the --affected-format selection, and nothing "
+                         "else, to FILE, and print the answer a person reads "
+                         "to stdout. One argument pair or node id per line, "
+                         "no first line and no head, so `xargs behave < FILE` "
+                         "is all the parsing a pipeline does. FILE is empty, "
+                         "zero bytes, when the change reaches nothing and "
+                         "when nothing changed at all, so an empty file means "
+                         "run nothing and never the previous run's selection. "
+                         "Needs --affected-format")
+    ap.add_argument("--affected-depth", type=_affected_depth,
+                    default=graph.DEFAULT_DEPTH, metavar="N",
+                    help="how many call hops --affected follows upward, 1 to "
+                         f"{graph.MAX_DEPTH} (default {graph.DEFAULT_DEPTH})")
+    ap.add_argument("--reaches", default="", metavar="NAME",
+                    help="print which scenarios, pytest cases and routes "
+                         "reach NAME: the other direction of --affected, "
+                         "walked from that one name up the map's `xrefs` "
+                         "calls rows to any depth, grouped by feature file "
+                         "with the hop chain for the first scenario of each. "
+                         "A class is answered by what is declared inside its "
+                         "span. Reads framework_map.json under --out")
+    ap.add_argument("--unreached", action="store_true",
+                    help="print the product definitions no test reaches: "
+                         "every function and class in a file the map does "
+                         "not name as suite that the walk down from the step "
+                         "functions, the pytest cases and the other runners' "
+                         "test files never arrives at, grouped by file and "
+                         "ranked by the map's own rank. The first line says "
+                         "how much of the call graph resolved, because that "
+                         "is how much of this is untested rather than "
+                         "unknown. --limit sets how many are ranked. Reads "
+                         "framework_map.json under --out")
+    ap.add_argument("--path", dest="call_path", default="", metavar="A,B",
+                    help="print the shortest call chain from A to B over the "
+                         "map's `xrefs` calls rows, one hop per line with the "
+                         "rule that placed each edge and the line the call is "
+                         "on. Each endpoint is a name, or FILE:NAME where "
+                         "several files declare it. Only cross-file calls are "
+                         "in the graph. Reads framework_map.json under --out")
+    ap.add_argument("--path-depth", type=_affected_depth,
+                    default=graph.DEFAULT_DEPTH, metavar="N",
+                    help="how many call hops --path follows forward, 1 to "
+                         f"{graph.MAX_DEPTH} (default {graph.DEFAULT_DEPTH})")
+    ap.add_argument("--range", dest="range_name", default="", metavar="NAME",
+                    help="print every home of NAME as file:start-end kind, "
+                         "the text of the shortest one, and the lines an "
+                         "editor anchors on: the first, the last, and the one "
+                         "after the last. A line this map redacted is "
+                         "printed with a warning beside it: it is not the "
+                         "line on disk, so an edit anchored there will not "
+                         "match. An end of ? is a declaration this map could "
+                         "not measure, and the row says why. Reads "
+                         "framework_map.json under --out")
+    ap.add_argument("--dead", action="store_true",
+                    help="print the definitions no `xrefs` calls row lands "
+                         "on, grouped by file: a route handler, a step "
+                         "function, an entry point and a test case are left "
+                         "out, and the first line names the whole exclusion "
+                         "list. Reads framework_map.json under --out")
+    ap.add_argument("--hot", action="store_true",
+                    help="print the definitions with the most behind them "
+                         "that also change the most: the map's own `rank` "
+                         "score times the commits its most-changed-files "
+                         "section records, both numbers shown. Reads "
+                         "framework_map.json under --out")
     ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
@@ -747,6 +864,15 @@ def _dry_run_answer(args) -> int:
         for name in ("spec_map.json", "spec_map.md"):
             print(_would(os.path.join(out_dir, name)))
         return 0
+    if args.affected_out:
+        # The other read that writes, and the same rule as `--export`: the
+        # path is the caller's, so it is named rather than described, and so
+        # are the directories that would have to exist first.
+        target = os.path.abspath(args.affected_out)
+        for missing in _missing_parents(target):
+            print(f"would create {missing}")
+        print(_would(target))
+        return 0
     if args.export is not None:
         # The one read that writes. The path is the caller's, so it is named
         # rather than described, and so are the directories that would have
@@ -770,7 +896,13 @@ def _dry_run_answer(args) -> int:
         ("--more", args.more_handle), ("--callers", args.callers),
         ("--callees", args.callees), ("--impact", args.impact),
         ("--defines", args.defines), ("--at", args.at_place),
-        ("--context", args.context_name),
+        ("--context", args.context_name), ("--affected", args.affected),
+        ("--affected-out", args.affected_out),
+        ("--changed", args.changed is not None),
+        ("--reaches", args.reaches), ("--unreached", args.unreached),
+        ("--path", args.call_path),
+        ("--path", args.call_path), ("--range", args.range_name),
+        ("--dead", args.dead), ("--hot", args.hot),
         ("--rank", args.rank_files is not None),
         ("--cost", args.cost is not None)) if given]
     print(f"nothing to write: {', '.join(named)} only read")
@@ -854,6 +986,19 @@ def main() -> int:
     args = ap.parse_args()
     args.repo = _resolve_repo(args.repo, args.out)
 
+    # Said before anything is previewed or answered, because both branches
+    # would otherwise take a line that cannot mean what it says: a file to
+    # write a selection into, and no selection asked for and no format to
+    # write it in.
+    if args.affected_out and not (args.affected or args.changed is not None):
+        print("--affected-out needs --affected or --changed: it writes the "
+              "selection they produce", file=sys.stderr)
+        return 2
+    if args.affected_out and not args.affected_format:
+        print("--affected-out needs --affected-format behave or pytest: a "
+              "selection is a runner's own list", file=sys.stderr)
+        return 2
+
     # The preview comes before the branches that serve, fetch or answer, so
     # asking what a command line writes never runs it. What each of them
     # would write is `_dry_run_answer`'s to say.
@@ -861,7 +1006,13 @@ def main() -> int:
                          or args.ask or args.pointer or args.callers
                          or args.callees or args.impact or args.more_handle
                          or args.defines or args.at_place
-                         or args.context_name or args.export is not None
+                         or args.context_name or args.affected
+                         or args.changed is not None or args.reaches
+                         or args.unreached or args.call_path
+                         or args.changed is not None
+                         or args.call_path or args.range_name
+                         or args.dead or args.hot
+                         or args.export is not None
                          or args.rank_files is not None
                          or args.cost is not None):
         return _dry_run_answer(args)
@@ -921,6 +1072,10 @@ def main() -> int:
     if (args.sections or args.ask or args.pointer or args.callers
             or args.callees or args.impact or args.more_handle
             or args.defines or args.at_place or args.context_name
+            or args.affected or args.changed is not None
+            or args.reaches or args.unreached or args.call_path
+            or args.call_path or args.range_name
+            or args.call_path or args.range_name or args.dead or args.hot
             or args.export is not None or args.rank_files is not None
             or args.cost is not None):
         out_dir = os.path.abspath(args.out)
@@ -954,6 +1109,11 @@ def main() -> int:
                              or args.callees or args.impact
                              or args.more_handle or args.defines
                              or args.at_place or args.context_name
+                             or args.affected or args.changed is not None
+                             or args.reaches or args.unreached
+                             or args.call_path
+                             or args.call_path or args.range_name
+                             or args.dead or args.hot
                              or args.export is not None
                              or args.rank_files is not None
                              or args.cost is not None):
@@ -1034,6 +1194,111 @@ def main() -> int:
             answer = context(map_path, args.context_name)
             log_answer(out_dir, "context", args.context_name, answer,
                        _ask.CONTEXT_BUDGET)
+            print(answer)
+            return 0
+        if args.affected or args.changed is not None:
+            # The same call the MCP `affected` tool makes, at the same
+            # budget, so a change asked here and asked there comes back byte
+            # for byte the same. `--changed` adds what git says moved to
+            # whatever `--affected` already named, in that order and without
+            # repeating a file both of them name.
+            chosen = file_list(args.affected, sys.stdin.read)
+            if args.changed is not None:
+                repo = graph.load(out_dir).get("repo") or ""
+                moved, problem = graph.changed_files(repo, args.changed)
+                if problem:
+                    print(problem, file=sys.stderr)
+                    return 2
+                chosen = list(dict.fromkeys(chosen + moved))
+                if not chosen:
+                    # Not an error: a pipeline asking what to re-run after a
+                    # commit that changed nothing has its answer, and exit 0
+                    # is what says so. The file says it too, by being empty:
+                    # left as it was, it would hold the previous run's
+                    # selection and the next `xargs behave` would run the
+                    # last commit's scenarios and report them as this one's.
+                    if args.affected_out:
+                        target = os.path.abspath(args.affected_out)
+                        try:
+                            os.makedirs(os.path.dirname(target) or ".",
+                                        exist_ok=True)
+                            _write_atomic(target, "")
+                        except OSError as exc:
+                            return _write_error(exc, target)
+                        print(f"nothing changed since {args.changed}; wrote "
+                              f"an empty selection to {target}")
+                        return 0
+                    print(f"nothing changed since {args.changed}")
+                    return 0
+            if args.affected_out:
+                # The selection to the file, the answer a person reads to
+                # stdout. A pipeline then parses a file it asked for rather
+                # than an answer it has to cut a head off, and the two cannot
+                # disagree: both come from one walk of the same map.
+                target = os.path.abspath(args.affected_out)
+                try:
+                    os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
+                    _write_atomic(target, selection_lines(
+                        map_path, chosen, args.affected_depth,
+                        args.affected_format))
+                except OSError as exc:
+                    return _write_error(exc, target)
+            answer = affected_answer(map_path, chosen, args.affected_depth,
+                                     args.affected_format
+                                     if not args.affected_out else "")
+            log_answer(out_dir, "affected", ",".join(chosen), answer,
+                       AFFECTED_BUDGET)
+            print(answer)
+            return 0
+        if args.reaches:
+            # The same call the MCP `reaches` tool makes, at the same budget,
+            # so a name asked here and asked there comes back byte for byte
+            # the same.
+            answer = reaches_answer(map_path, args.reaches)
+            log_answer(out_dir, "reaches", args.reaches, answer,
+                       _ask.REACHES_BUDGET)
+            print(answer)
+            return 0
+        if args.unreached:
+            # `--limit` is how many definitions are ranked, not a character
+            # budget: the two ceilings answer different questions, and the
+            # MCP tool takes the same one under the same name.
+            answer = unreached_answer(map_path, args.limit or UNREACHED_LIMIT)
+            log_answer(out_dir, "unreached", str(args.limit or
+                                                 UNREACHED_LIMIT), answer,
+                       _ask.UNREACHED_BUDGET)
+            print(answer)
+            return 0
+        if args.call_path:
+            # The same call the MCP `path` tool makes, at the same budget, so
+            # a chain asked here and asked there comes back byte for byte the
+            # same. Two names, comma separated, because a path has two ends
+            # and a flag that took one of them would need a second flag to
+            # say where to.
+            ends = [e.strip() for e in args.call_path.split(",") if e.strip()]
+            if len(ends) != 2:
+                print("--path takes two names, A,B: the chain runs from the "
+                      "first to the second", file=sys.stderr)
+                return 2
+            answer = path_answer(map_path, ends[0], ends[1], args.path_depth)
+            log_answer(out_dir, "path", ",".join(ends), answer, GRAPH_BUDGET)
+            print(answer)
+            return 0
+        if args.range_name:
+            answer = range_answer(map_path, args.range_name)
+            log_answer(out_dir, "range", args.range_name, answer, GRAPH_BUDGET)
+            print(answer)
+            return 0
+        if args.dead:
+            answer = dead_answer(map_path, args.limit or graph.DEAD_LIMIT)
+            log_answer(out_dir, "dead", str(args.limit or graph.DEAD_LIMIT),
+                       answer, GRAPH_BUDGET)
+            print(answer)
+            return 0
+        if args.hot:
+            answer = hot_answer(map_path, args.limit or graph.HOT_LIMIT)
+            log_answer(out_dir, "hot", str(args.limit or graph.HOT_LIMIT),
+                       answer, GRAPH_BUDGET)
             print(answer)
             return 0
         if args.rank_files is not None:

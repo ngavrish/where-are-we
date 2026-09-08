@@ -270,6 +270,7 @@
   "unused_api": {},
   "debts": {},
   "git_history": {},
+  "git_commits": {},
   "ticket_links": {},
   "dependencies": {},
   "ci": {},

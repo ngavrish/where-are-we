@@ -28,14 +28,23 @@ except ImportError:  # run as a plain file, with no package around it
     from __init__ import __version__  # type: ignore[no-redef]
 
 try:
-    from .ask import (AT_BUDGET, CONTEXT_BUDGET, IMPACT_MAX_DEPTH, RANK_LIMIT,
-                       at, context, file_list, log_answer, callees_line,
-                       callers, impact, map_heads, rank_lines)
+    from . import graph
+    from .ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET, GRAPH_BUDGET,
+                       IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
+                       REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
+                       affected_tool_answer, at, callees_line, callers,
+                       context, dead_answer, file_list, hot_answer, impact,
+                       log_answer, map_heads, path_answer, range_answer,
+                       rank_lines, reaches_answer, unreached_answer)
 except ImportError:  # run as a plain file, with no package around it
-    from ask import (AT_BUDGET, CONTEXT_BUDGET,  # type: ignore[no-redef]
-                     IMPACT_MAX_DEPTH, RANK_LIMIT, at, context, file_list,
-                     log_answer, callees_line, callers, impact, map_heads,
-                     rank_lines)
+    import graph  # type: ignore[no-redef]
+    from ask import (AFFECTED_BUDGET, AT_BUDGET, CONTEXT_BUDGET, GRAPH_BUDGET,
+                     IMPACT_MAX_DEPTH, MCP_SELECTORS, RANK_LIMIT,
+                     REACHES_BUDGET, UNREACHED_BUDGET, UNREACHED_LIMIT,
+                     affected_tool_answer, at, callees_line, callers,
+                     context, dead_answer, file_list, hot_answer, impact,
+                     log_answer, map_heads, path_answer, range_answer,
+                     rank_lines, reaches_answer, unreached_answer)
 
 # Top level, both ways round: `mapper` is the layer below this one and does
 # not import back. This and the `map_heads` above used to be imports inside
@@ -250,6 +259,195 @@ TOOLS = [
                                           "(default 12000)")},
             },
             "required": ["name"],
+        },
+    },
+    {
+        "name": "affected",
+        "description": (
+            "Which tests a change reaches: hand it the files a change "
+            "touched and get back the scenarios whose steps call into them, "
+            "the feature files those scenarios are in, the routes and page "
+            "objects reached, and the files the graph holds no row for, so "
+            "you know what the answer does not cover. Walks the map's own "
+            "`xrefs` call rows upward, callee to caller, to `depth` hops (1 "
+            "to 12, 6 by default). Ask it before running a suite: it is the "
+            "selection, not a search. `format` returns a runner's own list "
+            "instead of the blocks, `behave` arguments (one --name per "
+            "affected scenario) or `pytest` node ids. A selection that fits "
+            "this reply comes back whole; one that does not comes back as "
+            f"its count, its first {MCP_SELECTORS} selectors and the "
+            "`--affected-out FILE` command that writes all of it, because a "
+            "selection cut in half is a test run that misses tests. `files` "
+            "takes a list, relative to the repository root, and a directory "
+            "prefix counts."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "files": {"type": ["string", "array"],
+                          "items": {"type": "string"},
+                          "description": ("the files a change touched, or a "
+                                          "directory prefix, relative to the "
+                                          "repository root")},
+                "depth": {"type": "integer", "minimum": 1, "maximum": 12,
+                          "description": ("how many call hops to follow "
+                                          "upward (default 6)")},
+                "format": {"type": "string", "enum": ["behave", "pytest"],
+                           "description": ("a runner's own selection instead "
+                                           "of the blocks")},
+            },
+            "required": ["files"],
+        },
+    },
+    {
+        "name": "reaches",
+        "description": (
+            "Which tests reach one name: hand it a product function or "
+            "class and get back the scenarios whose steps call into it, "
+            "grouped by feature file with the chain of calls for the first "
+            "scenario of each, the pytest cases that reach it, and the "
+            "routes reached. The other direction of `affected`, over the "
+            "same `xrefs` call rows and with no depth cap, because the "
+            "question is whether anything reaches this at all. A class is "
+            "answered by what is declared inside its span, so a page object "
+            "is reached through its methods; where the parser did not find "
+            "where the class stops the first line says the counts are a "
+            "floor. Ask it before changing a function, and before deleting "
+            "one."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "description": ("a declared function or class name")},
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "unreached",
+        "description": (
+            "What no test reaches: every product function and class with no "
+            "call path up to a behave step function, a pytest case, or a "
+            "declaration in the files another runner holds its cases in, "
+            "grouped by file and ranked by the map's own `rank`, best "
+            "first. Product is every file that declares something and that "
+            "the map does not name as suite; the files set aside that way "
+            "are listed in the answer, because a file the map miscalls a "
+            "page object drops out of this count entirely. The first line "
+            "states how much of the call graph resolved, which is how much "
+            "of the list is untested rather than unknown, so read it before "
+            "treating the list as coverage; where the product is checked "
+            "out under a root of its own it also says that no call edge "
+            "crosses into it. `limit` is how many definitions are ranked "
+            "and printed (default 200)."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1,
+                          "description": ("how many definitions to rank and "
+                                          "print (default 200)")},
+            },
+        },
+    },
+    {
+        "name": "path",
+        "description": (
+            "How one function reaches another: the shortest call chain from "
+            "`a` to `b` over the map's own `xrefs` call rows, one hop per "
+            "line with the rule that placed each edge and the line the call "
+            "is on. Ask it instead of running `callers` or `callees` outward "
+            "hop after hop and joining the answers by hand. Each end is a "
+            "name, or `FILE:NAME` where several files declare it. A cycle is "
+            "walked once, and a hop through an ambiguous edge names every "
+            "file that declares the callee. Only cross-file calls are in the "
+            "graph, so a hop inside one file is not one this can walk; where "
+            "there is no chain within `depth` hops (1 to 12, 6 by default) "
+            "the answer says how far the walk got."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "a": {"type": "string",
+                      "description": "the name the chain starts at, or "
+                                     "FILE:NAME"},
+                "b": {"type": "string",
+                      "description": "the name it has to reach, or FILE:NAME"},
+                "depth": {"type": "integer", "minimum": 1, "maximum": 12,
+                          "description": ("how many call hops to follow "
+                                          "forward (default 6)")},
+            },
+            "required": ["a", "b"],
+        },
+    },
+    {
+        "name": "range",
+        "description": (
+            "The lines an edit needs: every home of one name as "
+            "`file:start-end kind`, the text of the shortest one, and the "
+            "three numbers an editor anchors on, the first line, the last, "
+            "and the one after the last, each with the text of that line. "
+            "Call this before an `Edit` instead of reading the file at a "
+            "guessed offset: an insertion after the last line lands outside "
+            "the definition rather than inside it. One caveat, and the first "
+            "line repeats it whenever it applies: a line holding `[redacted]` "
+            "had a value that looked like a secret written over on the way "
+            "into the map, so it is not the line on disk and an edit anchored "
+            "on it will not match. An end of `?` is a declaration this map "
+            "could not measure, and the row says why. How the sites were "
+            "chosen is a `## How this was counted` block under the answer. "
+            "Reads only; it writes nothing."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string",
+                                    "description": "a declared name"}},
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "dead",
+        "description": (
+            "The definitions no `xrefs` call row lands on, grouped by file. "
+            "Read it as questions, not as dead code: only cross-file calls "
+            "are in the graph, so a function called from the file that "
+            "declares it is on the list, and so is one whose callers the "
+            "resolver could not place, which is what a call through an "
+            "imported module looks like. On a library most rows are "
+            "unplaceable calls rather than dead definitions; on a test suite, "
+            "where a page object is called from step modules, it is sharp. A "
+            "route handler, a step function, an entry point, a dunder and a "
+            "test case are left out. The first line carries the counts and "
+            "that one caveat; the whole exclusion list, the file kinds "
+            "counted and the rest of the rules are rows of a "
+            "`## How this was counted` block under the answer. Never delete "
+            "from this list without checking the callers yourself. `limit` is "
+            "how many files come back (40 by default)."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1,
+                                     "description": ("how many files "
+                                                     "(default 40)")}},
+        },
+    },
+    {
+        "name": "hot",
+        "description": (
+            "Where to look first in a review: the definitions with the most "
+            "of the codebase behind them that also change the most, ranked "
+            "by the map's own `rank` score times the commits its "
+            "most-changed-files section counted, with both numbers shown so "
+            "you can see which of the two put a row where it is. Two bounds: "
+            "that section is the forty busiest files of the last ninety days, "
+            "so a file outside it counts 1 however often it changed, and a "
+            "map built before the `git_commits` key can only count the five "
+            "commit lines kept per file, where every count reads `5+` and "
+            "means five or more. `limit` is how many "
+            "definitions come back (40 by default). The first line carries "
+            "the counts and the forty-file bound; the rest, including the "
+            "older-map cap, is a `## How this was counted` block under the "
+            "answer."),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"limit": {"type": "integer", "minimum": 1,
+                                     "description": ("how many definitions "
+                                                     "(default 40)")}},
         },
     },
     {
@@ -483,6 +681,93 @@ def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> Non
             log_answer(out_dir, "context", w, answer, room)
             pairs.append((w, answer))
         _reply(_text(_joined(pairs) if pairs else "give me a name"), ident)
+    elif name == "affected":
+        files_field = args.get("files")
+        if files_field is not None and not _is_str_or_str_list(files_field):
+            raise _BadParams("files must be a string or a list of strings")
+        depth_field = args.get("depth")
+        if depth_field is not None and (not isinstance(depth_field, int)
+                                        or isinstance(depth_field, bool)
+                                        or depth_field < 1
+                                        or depth_field > graph.MAX_DEPTH):
+            raise _BadParams("depth must be an integer from 1 to "
+                             f"{graph.MAX_DEPTH}")
+        fmt_field = args.get("format")
+        if fmt_field is not None and (not isinstance(fmt_field, str)
+                                      or fmt_field not in graph.FORMATS):
+            raise _BadParams("format must be one of "
+                             + ", ".join(graph.FORMATS))
+        # `-` is the command line's "read the list on stdin", and stdin here
+        # is the JSON-RPC pipe, as it is for `ask`.
+        chosen = [f for f in file_list(files_field) if f != "-"]
+        depth = graph.DEFAULT_DEPTH if depth_field is None else int(depth_field)
+        # One question, so the whole budget: the files are one change rather
+        # than a list of separate questions, and the flag prints at the same
+        # ceiling, which is what makes the two byte for byte identical.
+        answer = affected_tool_answer(map_path, chosen, depth,
+                                      fmt_field or "", AFFECTED_BUDGET)
+        log_answer(out_dir, "affected", ",".join(chosen), answer,
+                   AFFECTED_BUDGET)
+        _reply(_text(answer), ident)
+    elif name == "reaches":
+        name_field = args.get("name")
+        if name_field is not None and not isinstance(name_field, str):
+            raise _BadParams("name must be a string")
+        # One question, so the whole budget, and the flag prints at the same
+        # ceiling, which is what makes the two byte for byte identical.
+        answer = reaches_answer(map_path, name_field or "", REACHES_BUDGET)
+        log_answer(out_dir, "reaches", name_field or "", answer,
+                   REACHES_BUDGET)
+        _reply(_text(answer), ident)
+    elif name == "unreached":
+        limit_field = args.get("limit")
+        if limit_field is not None and (not isinstance(limit_field, int)
+                                        or isinstance(limit_field, bool)
+                                        or limit_field < 1):
+            raise _BadParams("limit must be a positive integer")
+        rows = int(limit_field or UNREACHED_LIMIT)
+        answer = unreached_answer(map_path, rows, UNREACHED_BUDGET)
+        log_answer(out_dir, "unreached", str(rows), answer, UNREACHED_BUDGET)
+        _reply(_text(answer), ident)
+    elif name == "path":
+        ends = []
+        for field in ("a", "b"):
+            value = args.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise _BadParams(f"{field} must be a name, or FILE:NAME")
+            ends.append(value.strip())
+        depth_field = args.get("depth")
+        if depth_field is not None and (not isinstance(depth_field, int)
+                                        or isinstance(depth_field, bool)
+                                        or depth_field < 1
+                                        or depth_field > graph.MAX_DEPTH):
+            raise _BadParams("depth must be an integer from 1 to "
+                             f"{graph.MAX_DEPTH}")
+        depth = graph.DEFAULT_DEPTH if depth_field is None else int(depth_field)
+        # One question, so the whole budget, and the same ceiling the flag
+        # prints at, which is what makes the two byte for byte identical.
+        answer = path_answer(map_path, ends[0], ends[1], depth, GRAPH_BUDGET)
+        log_answer(out_dir, "path", ",".join(ends), answer, GRAPH_BUDGET)
+        _reply(_text(answer), ident)
+    elif name == "range":
+        name_field = args.get("name")
+        if not isinstance(name_field, str) or not name_field.strip():
+            raise _BadParams("name must be a declared name")
+        answer = range_answer(map_path, name_field.strip(), GRAPH_BUDGET)
+        log_answer(out_dir, "range", name_field.strip(), answer, GRAPH_BUDGET)
+        _reply(_text(answer), ident)
+    elif name in ("dead", "hot"):
+        limit_field = args.get("limit")
+        if limit_field is not None and (not isinstance(limit_field, int)
+                                        or isinstance(limit_field, bool)
+                                        or limit_field < 1):
+            raise _BadParams("limit must be a positive integer")
+        default = graph.DEAD_LIMIT if name == "dead" else graph.HOT_LIMIT
+        rows = int(limit_field or default)
+        answer = (dead_answer if name == "dead" else hot_answer)(
+            map_path, rows, GRAPH_BUDGET)
+        log_answer(out_dir, name, str(rows), answer, GRAPH_BUDGET)
+        _reply(_text(answer), ident)
     elif name == "rank":
         files_field = args.get("files")
         if files_field is not None and not _is_str_or_str_list(files_field):

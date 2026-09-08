@@ -1,5 +1,377 @@
 # Changelog
 
+## 1.6.0
+
+Answers the graph already holds. 1.5.0 wrote `xrefs`, `spans` and `rank` into
+the map and nothing read them end to end; this release starts doing that.
+
+- Which tests a change reaches: `affected` (MCP), `--affected FILE[,FILE]`,
+  `--changed [REF]`. The walk starts at every name the changed files declare
+  and follows the map's `calls` rows upward, callee to caller, with a visited
+  set and a sorted frontier, to a depth of 6 by default and 12 at most. The
+  answer names the scenarios whose steps reach the change, with the step that
+  reaches it and how many hops away it is, the feature files those scenarios
+  are in, the routes and page objects reached, and the files no `xrefs` row
+  names at all, which is the answer saying what it does not cover. That last
+  count is in the first line as well as in its own block, because it is the
+  block a small budget gives up first and a selection that drops it quietly
+  is the one way this tool can be wrong rather than short.
+- A step function is identified from the map rather than from a naming
+  convention: `spans` holds two declarations on one line for a behave step,
+  the function and the phrase its decorator binds, and the join of those two
+  is what a step function is. A scenario is reached when one of its own step
+  lines holds a reached phrase, normalised and cut to 40 characters, which is
+  the same substring rule `feature_links` is built with: a scenario named
+  here is one the map already binds to that module, and a step phrase written
+  as a regular expression that shares no literal head with its line binds in
+  neither place.
+- A changed feature file selects its own scenarios. A feature file is a test
+  rather than something a test calls, so every scenario in it is affected, at
+  no hops, and the row says "the feature file itself changed". Before this a
+  commit that edited or added a scenario, which is the commonest change a
+  behave suite gets, selected nothing and read as an all clear.
+- A route is named when the file it is served from is reached.
+  `routes_served` records the basename of that file and no handler name, so
+  the granularity of that block is the file, and its head says so.
+- A first line that says what a zero means. On the `suite` golden fixture a
+  change to `pages/checkout.py` reaches 40 step functions and 0 of 5
+  scenarios, because 3 of those 5 hold no step any module in that fixture
+  binds; the answer says so rather than reading as an all clear.
+- `--changed [REF]` reads `git diff --name-only REF` in the repository the map
+  was built from, HEAD by default, so a pipeline passes nothing. A ref that
+  reads as an option to git is refused rather than handed to it, a failed
+  `git diff` is one line and exit 2, and a commit that changed nothing is
+  "nothing changed since HEAD" and exit 0.
+- `--affected-format behave` prints one `--name` per affected scenario,
+  anchored on its name, and nothing else. `--name` is the only option behave
+  unions: it is `action="append"` and it matches a scenario wherever it
+  lives. `-i` is a plain store, so the last one on the line overwrites the
+  rest, and it filters which feature files are collected at all, so it
+  intersects with `--name` instead of adding to it; a selection using it ran
+  3 of the 24 scenarios it named across 8 feature files, and none of the 3 it
+  named across a wholly and a partly affected file. And no tag is ever
+  printed: behave applies `--tags` per scenario, and the map records a
+  feature file's tags as every `@word` anywhere in it, so a scenario level
+  tag or the `@` of an email address in a step line would select the wrong
+  scenarios or none at all. A scenario outline is selected too: behave
+  substitutes the example values into the name it runs and appends its own
+  ` -- @1.1` suffix, so the pattern allows both. Past 200 scenarios each
+  feature file's names alternate inside one `--name`, because a command line
+  has a length. Two scenarios of one name in one file are one argument and
+  behave runs both, which over-selects rather than under-selects.
+  `--affected-format pytest` prints node ids from `pytest_tests`.
+  `--affected-depth N` is 1 to 12, and the flag refuses what the tool
+  refuses.
+- A selection is exempt from the answer budget. The budget is there because
+  prose lands in a conversation and is re-read on every turn after it; a
+  runner's selection is a machine artefact that goes to `xargs` or to a file,
+  and half of one is a test run that quietly misses tests. So
+  `--affected-format` prints its list whole, with no tail and no handle,
+  however large: measured on 80 feature files of 30 scenarios, 2400 of 2400
+  selected as 80 patterns and 56 KB, with behave running every one. The prose
+  blocks keep the budget rules they had.
+- `--affected-out FILE` writes that selection, and nothing else, to FILE, and
+  prints the blocks a person reads to stdout, so a pipeline parses a file it
+  asked for rather than an answer it has to cut a head off. The write is
+  atomic, the flag is classed `writes-repo` because the path is the caller's,
+  and `--dry-run` names the file and the directories it would create without
+  writing either.
+- That file is empty, zero bytes, when the change reaches nothing, and when
+  `--changed` finds that nothing changed at all: an empty file means run
+  nothing, and never the previous run's selection left where it lay. The
+  sentence saying so in words stays on stdout, where a person reads it;
+  written into the file it would be an argument behave fails on. A pipeline
+  has to test for it, because `xargs` given empty input runs behave with no
+  arguments, which is the whole suite:
+  `[ -s sel.txt ] && xargs behave < sel.txt || echo "nothing to run"`.
+- The MCP `affected` tool stays bounded, unlike the flag. A tool reply lands
+  in the conversation and is re-read on every turn after it, which is why
+  every tool this server declares has a ceiling and the command line does
+  not: the flag has `--affected-out` to write a large selection to, and a
+  tool has nowhere like that to send one. A selection that fits the 12000
+  character reply comes back whole and is the same bytes the flag prints; one
+  that does not comes back as its count, its first 20 selectors and the
+  `--affected-out` command that writes all of it. Never a prefix that reads
+  as the whole list.
+- Every block is cut by the rules every other answer here is cut by: whole
+  rows, a floor share of the budget with what nobody claims handed on in
+  printing order, and a `more:aff:` handle under a block that could not print
+  all of itself. `more` resolves it like any other handle, with the block, the
+  files and the depth in the handle and nothing stored between the two calls.
+  A block there is no room to print at all is not dropped silently, as it is
+  in `context`: it gets one line, `… 2 rows in pages; raise the budget`, with
+  the handle that fetches them, because a list of rows a reader can neither
+  see nor ask for is what makes a selection wrong rather than short. Where
+  even those lines do not all fit, the one for the unreachable files is the
+  last to go, because it is the one that says the answer is partial.
+- `context`'s three budget functions are now shared with this one, with the
+  handle passed in: the cut, the floor and the two allocation passes were the
+  same for both. `context` is byte for byte what it was, over 224 names at 6
+  budgets.
+- Which tests reach one name: `reaches` (MCP), `--reaches NAME`. The other
+  direction of `affected`, over the same walk and with no depth cap, because
+  the question is whether anything reaches this at all and a cap would answer
+  "nothing" for a function seven hops under a step. The answer names where
+  the name is declared with the members walked for a class, the scenarios
+  that reach it grouped by feature file with the chain of calls under the
+  first scenario of each, the pytest cases that reach it, and the routes
+  reached. A class is answered by what is declared inside it: `spans` records
+  the range of a class and the line of each method and links them to nothing,
+  so the dotted name it writes beside a method and that method's line inside
+  the class's range are the only joins the map holds, and without them
+  `reaches CheckoutPage` answers nothing for a page object every step drives,
+  because constructing a class writes no `calls` row: the resolver places a
+  callee by the function declarations it indexed and keeps class names in a
+  table of its own.
+- What no test reaches: `unreached` (MCP), `--unreached`, with `--limit N`
+  for how many definitions are ranked (200 by default). One walk down from
+  every entry point the map names, to exhaustion, and every product function
+  and class it never arrives at, grouped by file and ranked by the map's own
+  `rank`. An entry point is a behave step function, a pytest case
+  `pytest_tests` names, or any declaration in the files another runner holds
+  its cases in (`js_tests`, `api_tests`, `perf_suites`, `other_suites`,
+  `more_suites`), whose cases the map records by title rather than by
+  function. Product is every file that declares something and that the map
+  does not name as suite, read off the keys the map already writes
+  (`features`, `steps`, `page_objects`, `drivers`,
+  `behave_environment_files`, `pytest_tests`, `js_tests`, `fixtures`,
+  `perf_suites`, `helpers`, `api_tests`, `other_suites`, `more_suites`), so a
+  product under a root of its own and a product beside its suite are answered
+  the same way. A class counts as reached when anything declared inside it
+  is.
+- The answer says what it set aside and how it counted. The precision of the
+  product split is the precision of the map's own suite heuristics, so the
+  files it treated as suite are printed under a head of their own: a module
+  the mapper miscalls a page object is not product, is not in the count and
+  is not in the list, and now that is visible instead of silent. A `## How
+  this was counted` block carries the entry point tally, the product rule,
+  the kinds counted, the class rule, the exclusions and the ranking, so the
+  first line stays short enough to read.
+- `main`, `__main__` and `__init__`, and any file on a test path, are left
+  out of `unreached`. The list is `graph.ENTRY_POINTS`, in one place, because
+  `dead` asks the same question of the same graph and two answers disagreeing
+  about the same definition is worse than either rule.
+- Two limits of the map are stated in the answer rather than left to be
+  discovered. Where a class's `end` is unknown and `spans` records no dotted
+  name for a method, `reaches` says the counts are a floor instead of
+  answering nothing. Where the product is checked out under a root of its
+  own, no `calls` row crosses into it, because the call graph is extracted
+  from the files under `--repo` and from no other root; both answers say so.
+- Only `function` and `class` kinds are counted, and the block that says how
+  the count was made says why a `const` bound to an arrow function is not one
+  of them: the map records it as a constant with nothing beside it saying the
+  value is callable. `reaches` has no such limit and answers for a constant
+  like any other name.
+- The first line of `unreached` states the graph's own resolution rate, from
+  `call_graph_stats`: how many of the callee names the walk looked at some
+  indexed file declares. A graph that placed half its names calls half the
+  product unreached whatever the suite covers, and a list of names under a
+  head that does not say so reads as a coverage report. A map with no step
+  function at all says there are no steps to reach from and prints no list,
+  rather than naming every definition it holds.
+- How one function reaches another: `path` (MCP), `--path A,B`,
+  `--path-depth N`. Breadth first over the same `calls` rows, forward this
+  time, caller to callee. One hop per line with the rule that placed the edge
+  and the line the call site is on, the rows out of a node sorted by callee,
+  line and resolution and every frontier sorted, so the chain printed is the
+  same chain on every run. A visited set carries across hops, so a graph with
+  a cycle in it terminates and the first chain found is the shortest. An
+  ambiguous edge is followed into every candidate rather than guessed at, and
+  the hop names every file that declares the callee and says which of them
+  the chain took. Each end is a name, or `FILE:NAME` where several files
+  declare it. Where there is no chain the answer names the frontier the walk
+  stopped at, so "no path" says how far it got, and the first line says the
+  two reasons a chain can be missing: the depth, and that only cross-file
+  calls are in this graph.
+- The lines an edit needs: `range` (MCP), `--range NAME`. Every home of a
+  name as `file:start-end kind`, the text of the shortest of them, and the
+  three numbers an editor anchors on, the first line of the definition, the
+  last, and the one after the last, each printed with the text of that line
+  so an `Edit` can match on the text rather than trust a number. An
+  insertion after the last line lands outside the definition rather than
+  inside it, which is the move this exists for. A site whose end nothing
+  measured cannot be the shortest and is listed with `?` and the reason,
+  which says whether a read cut short is ruled out. No write path.
+- What nothing calls, with the emphasis on the question mark: `dead` (MCP),
+  `--dead [--limit N]`. It is a list of questions and not a list of dead
+  code, and the answer's first line says so before it says anything else,
+  because the flag's name does not. Only cross-file calls are in the graph,
+  so a call inside the file that declares the callee leaves no row, and
+  neither does a call through an imported module, which is how a package
+  usually calls itself: on this repository 359 of 516 definitions are listed
+  and a spot check of five found one that is genuinely dead. It is sharp on a
+  test suite, where a page object is called from step modules across files,
+  and blunt on a library. What it is: the definitions no `calls` row lands
+  on, grouped by file, one file per row. One `def` is one
+  row whatever it is spelled as: `spans` holds a class as `LoginPage` and as
+  `class LoginPage` and a method as `LoginPage.sign_in` and `sign_in`, and a
+  call on any spelling keeps the site off the list. Counted only in the file
+  kinds this map's call graph actually reaches, read off the table rather
+  than hard coded, because a `def` quoted inside a Markdown fence is
+  documentation and not dead code; a row of `## How this was counted` names
+  the suffixes it counted, and a declaration in any other language is not
+  judged either way.
+  A map whose graph holds no `calls` row at all answers `No call graph in
+  this map` rather than printing a clean nothing, which is what a small
+  repository used to get. `routes_served` records a basename and no path, so
+  where two files share one the map cannot say which serves the route and
+  both are left out, and a row of that same block counts the basenames it
+  guessed on instead of dropping their rows in silence.
+
+  The map's own "Page-object methods nothing calls" section is **not** yet a
+  rendering of `dead`, which is what 1.6.0 planned. The two disagree: that
+  section is `unused_api`, a count of occurrences of `.name` in the suite's
+  own source, and on the `suite` golden fixture it calls 20 methods dead that
+  the graph holds an incoming `calls` row for. Rebuilding `unused_api` from
+  `xrefs` empties the section and moves four golden files, so it is left to a
+  release that names the moved lines. A CI step measures the disagreement and
+  runs `dead` against that fixture, where it returns one row, `CheckoutPage`,
+  and that row is a known false positive: `build_fixtures.py` has the steps
+  module do `page = CheckoutPage()`, and constructing a class writes no
+  `calls` row from anywhere. The module level is not the reason, which was
+  measured rather than assumed: recording module-level calls under a
+  synthetic `<file>:<module>` subject adds 0 rows on that fixture and 8 on
+  this repository, and `CheckoutPage` is in neither. The resolver places a
+  callee by the function declarations it indexed and keeps class names in a
+  table of its own, so `Widget()` from inside a function writes no row
+  either. Making a construction an edge is a change to what a `calls` row
+  means, which is a mapper change and not this release's; the step fails if
+  such a row ever appears, so the caveat cannot outlive it.
+- Where to look first: `hot` (MCP), `--hot [--limit N]`. The map's own `rank`
+  score times the commits its most-changed-files section counted, top N with
+  both numbers printed, so a reader can see which of the two put a row where
+  it is. `rank` is the map's top 200, so this ranks within those, and the
+  first line says so.
+- A new map key, `git_commits`: how many commits named each of the forty
+  busiest files in the last ninety days. `git_history` was not that number
+  and reading it as one was a false statement in an answer. That key keeps at
+  most five commit lines a file, so it is a sample for a reader rather than a
+  count, and multiplying a rank score by the length of it made every file in
+  the section weigh exactly five: `--hot`'s top twenty came back as `--rank`'s
+  order verbatim, with `ask.py` printed as five commits where the history
+  holds thirty-seven. `git_commits` is counted before the lists are cut, over
+  the same forty keys, and the most-changed section in the brief now prints
+  it too. This is the one key 1.6.0 adds, and the golden maps move by exactly
+  that one line; every expected answer is byte for byte what it was.
+- `hot` states both of its bounds in the first line, the way the `impact`
+  answer states its own. The most-changed section is the forty busiest files,
+  so a file outside it counts 1 however often it changed and the ranking is
+  `rank`'s own order for those; a merge commit names no file in the log that
+  section is built from and is not counted. A map built before `git_commits`
+  existed can only count commit lines, and there the first line says so and
+  every count at the cap prints `5+ commits`, a floor rather than a
+  measurement.
+- A `more:` handle chain never dead-ends on a row longer than the budget.
+  Every chain in this project continues a list by offset; `fit_indices` skips
+  a row that does not fit and `_first_gap` puts the handle's offset back on
+  it, so the handle an answer printed landed on exactly the row nothing could
+  print, the next call answered `no such handle in this map: line N ... does
+  not fit`, and every row after it in that list was unreachable at that
+  budget for good. Now such a row is returned cut, marked `… (row cut to fit;
+  756 of 1574 characters)`, and the offset moves past it: a cut row counts as
+  delivered, because the reader has its front, is told exactly how much was
+  taken off, and the chain advances. Below the length of one handle the count
+  of what is left is printed without it, which is the line the same corner of
+  `_block_chunk` already printed. Fixed once, in `more()`, for every kind it
+  serves: `rows`, `unmatched`, `defs`, `ctx`, `aff` and the four new ones. A
+  `sections` handle, whose unit is a section rather than a row, steps past a
+  section that will not fit and names it instead of refusing. That line is
+  itself built to fit: a section name is arbitrary text and can run past a
+  small budget on its own, so the forms shorten until one fits and the name
+  is the first thing given up, and the note under it is offered the room the
+  line left rather than the whole budget. It carries a handle only where
+  there is a section after this one, the guard the ordinary path has; without
+  it the last section handed out a handle one past the end of the list and
+  following it was refused. Swept over 542 budgets from 60 to 3000 on this
+  repository's own map: 7040 calls, 0 over budget, 0 refusals reached from a
+  printed handle, 1885 replies that stepped past a section.
+
+  The refusal is as old as handles and shared by every kind; what is new is
+  the row shape that reaches it. `dead` prints one file per row with every
+  name on it, and on this repository one row runs to 1574 characters, which
+  at 900 stranded 25 of 39 rows. Measured after the fix, on this repository's
+  own map rather than on a fixture of short rows: 39 of 39 reachable at
+  12000, 1500, 900 and 800, and the 1574-character row comes back cut. The CI
+  step asserts that, and asserts on the `affected` chain that across every
+  budget from 202 down to 60 the call comes back, stays inside the budget,
+  never refuses, and either advances the offset or says there is no room for
+  a handle.
+- Every one of the four prints its rules in a block rather than in its first
+  line. A first line is read again on every turn of a conversation and the
+  rules behind it are not, and `dead`'s had grown to about a thousand
+  characters carrying both caveats, the file-kind rule, six exclusions and a
+  route caveat, which also put the whole answer out of reach below its own
+  length. Each first line is now the counts and the one sentence that decides
+  what they mean, under two hundred characters: for `dead` that most of the
+  list is calls the map could not place rather than dead code, for `hot` that
+  churn covers the forty busiest files only, for `path` that only cross-file
+  calls are in the graph, and for `range` that a redacted line is not the
+  line on disk. Everything else is a row of `## How this was counted`, the
+  same head and the same shape `unreached` prints, and the budget may cut it
+  without taking a count or a caveat with it. Measured: 168, 178, 102 to 164
+  and 50 to 153 characters against 988, 506, 194 to 236 and 50 to 253 before.
+- All seven are cut by the rules every other answer here is cut by, through
+  one function rather than seven: whole rows, a floor share of the budget per
+  block with what nobody claims handed on in printing order, a `more:` handle
+  under a block that was cut, and one "raise the budget" line with a handle
+  for a block there was no room for at all. `affected`'s renderer became that
+  shared one and is byte for byte what it was. The handle kinds are
+  `more:aff:`, `more:rch:`, `more:unr:`, `more:pth:`, `more:rng:`,
+  `more:dead:` and `more:hot:`, each carrying its own question and nothing
+  stored between the call that printed it and the call that uses it: what to
+  walk is in the handle, the walk runs again over the map on disk, and a
+  rebuilt map answers "no such handle in this map" rather than a slice of
+  some other list.
+- A `find` chain advances past a hit longer than the budget. `find_text`
+  refused when not even the first hit fitted whole, and the refusal was
+  itself over the budget: on this repository's own map `more:find:invoice:0`
+  at 150 characters returned 111 characters of "no such handle" and stranded
+  all 166 hits behind one row of 152. It now prints that hit cut and marked,
+  with the handle on the hit after it, through the same `_cut_row` the other
+  chains were repaired with. The two CI assertions that read a refusal as an
+  answer that fitted are the reason it stood for a round; both now assert the
+  budget and the absence of a refusal separately.
+- A map with no call graph edge says so, in `affected`, `reaches` and
+  `unreached` alike. The resolution rate does not catch this on its own: a
+  name the caller's own file declares is resolved without becoming an edge,
+  so a JavaScript suite whose call sits in the arrow passed to `it(...)`
+  reads 100 percent resolved with an empty graph, and `unreached` then lists
+  the whole product under a head whose only caveat reassures the reader.
+- A page object owns a selector, and the word alone is not one. The shape
+  half of the rule counted the bare words XPATH, SELECTOR, LOCATOR, CSS,
+  data-testid and By. anywhere in a file, which put this project's own
+  `_mapper/build.py` in `page_objects`, because the words are in that file
+  for the reason it finds them elsewhere. It now wants the punctuation that
+  makes each word a selector: a locator constant being assigned, a
+  `data-testid=` followed by the quote that opens its value, an attribute
+  read off Selenium's `By`. A class with three locator constants under
+  neither a `pages/` directory nor a `*_page.py` name is still found.
+- `dead` says why a class only ever constructed is in its list. The resolver
+  places a callee by the function declarations it indexed and keeps class
+  names in a table of its own, so a construction writes no `calls` row from
+  anywhere, module level or not, and `CheckoutPage` is the one row `dead`
+  returns on this project's flagship fixture. That is a row of
+  `## How this was counted` now rather than a fact a reader has to discover.
+- `ENTRY_POINTS` and `_entry_name` are two exclusion rules on purpose, and
+  the README says why. `unreached` counts a definition to say what share of
+  the product the tests cover, so every name a rule drops leaves the
+  denominator with it; `dead` asks what nothing calls, where a name the
+  runtime or the runner calls is not an answer. Each answer's
+  `## How this was counted` block prints its own list.
+- A README section, "What to re-run after a change": the `--changed <base>
+  --affected-format behave --affected-out sel.txt` pipeline with the guard
+  that makes it right, the five things the guard is there for, and the clause
+  that says what the selection cannot see. A CI step runs that pipeline
+  verbatim on a git fixture in all three of its branches, and behave itself
+  agrees the selection is the scenarios named and not the rest.
+- `tools/list` moves from 12 to 18 and every pin in the workflow moves with
+  it; the session banner the plugin prints names all eighteen, and two CI
+  steps fail on a stale number: one when a tool the server declares is
+  missing from the banner, and one that reads every prose count of the tool
+  list in every document and checks it against `mcp.TOOLS`. That second step
+  is what found ten stale counts across four documents while these five
+  changes were being merged.
+
 ## 1.5.0
 
 What the neighbours in this space do better, taken: every home of a name with
@@ -21,11 +393,16 @@ says which rule placed it.
 - What a file quotes is not what it declares. The lines inside a Python string
   literal, docstrings included, and the body of a `<<EOF` heredoc in a shell
   script or a workflow are text this file hands to something else, so they are
-  no longer read for declarations. On this repository that is three names
-  gone: `refund`, a `def` inside the string `tests/golden/build_fixtures.py`
-  writes out; `build`, a `def` inside a `python - <<'EOF'` block in the CI
-  workflow, which used to outrank the real `build` in `rank`; and `of`, from
-  the phrase "the class of that command line" in a docstring. The heredoc rule
+  no longer read for declarations. On this repository that is 40 names gone,
+  measured on the 1.5.0 tree by building it twice, once with the rule off:
+  29 declared inside `python - <<'EOF'` blocks in the CI workflow, 11 inside
+  the string fixtures `tests/golden/build_fixtures.py` writes out and one in
+  a docstring, which sums to 41 because `refund` is written in both files.
+  The three worth naming: `refund`, a `def` inside a fixture string; `build`, a `def` inside a CI
+  heredoc, which used to outrank the real `build` in `rank`; and `of`, from
+  the phrase "the class of that command line" in a docstring. The count is a
+  property of this tree rather than of the rule, and it moves with the
+  workflow: the same A/B on the 1.6.0 tree gives 75. The heredoc rule
   is applied to `.sh`, `.bash`, `.zsh`, `.ksh`, `.yml` and `.yaml` and nowhere
   else, because `a << b` at the end of a line is a shift in the languages that
   have no heredocs. It is a shift in shell too, so an opener is refused where

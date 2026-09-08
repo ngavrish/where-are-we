@@ -280,6 +280,30 @@ def sort_xrefs(rows: list) -> list:
                                        r["edge"], r["resolution"]))
 
 
+# What owning a selector looks like, for the shape half of the page-object
+# rule below. Three things count: a constant whose name says it holds a
+# locator and that is being assigned one, a `data-testid=` followed by the
+# quote or brace that opens its value, and an attribute read off Selenium's
+# `By`.
+#
+# The bare words counted until now, and that put this repository's own
+# `_mapper/build.py` in `page_objects`: the words are in that file because
+# they are in this pattern and in the extractors below it, so the mapper
+# called its own largest module a page object of a test suite, and
+# `--affected`'s page objects block, `unused_api`, the brief and `unreached`'s
+# suite list were all wrong about it the same way. `ask.py` and `mcp.py` came
+# in on the name `MCP_SELECTORS` alone, written three times each.
+#
+# Requiring the punctuation that makes each word a selector rather than a
+# word leaves the real signal and drops all three. Measured on this
+# repository: `build.py` 1 (this constant's own assignment), `ask.py` 1,
+# `mcp.py` 0, against 5, 3 and 3 before, and the threshold is 3.
+SELECTOR_SHAPE = re.compile(
+    r"""[A-Z_0-9]*(?:XPATH|SELECTOR|LOCATOR|CSS)[A-Z_0-9]*\s*=(?!=)"""
+    r"""|data-testid=["'{]"""
+    r"""|By\.[A-Z]""")
+
+
 def build(repo: str, out_dir: str | None = None,
           keep_indexes: bool = False, force: bool = False,
           redact_lines: bool = True) -> dict:
@@ -381,7 +405,7 @@ def build(repo: str, out_dir: str | None = None,
             os.path.basename(p2).lower().endswith(("page.py", "_page.py"))
             or "/pages/" in "/" + rel.lower() or "/page_objects/" in "/" + rel.lower()
             or "/portal_ui/" in "/" + rel.lower()
-            or len(re.findall(r"(?:XPATH|SELECTOR|LOCATOR|CSS|data-testid|By\.)", src)) >= 3)
+            or len(SELECTOR_SHAPE.findall(src)) >= 3)
         if looks_like_page and "class " in src:
             page_objects.append(rel)
     page_objects = sorted(page_objects)
@@ -1013,8 +1037,17 @@ def build(repo: str, out_dir: str | None = None,
                 f"{cur['when']} {cur['who']}: {cur['subject'][:60]}")
             if cur.get("ticket"):
                 ticket_links[cur["ticket"]]["files"].append(line.strip())
+    # How often each file was touched, before the lists are cut. `git_history`
+    # keeps five commit lines a file because it is there to show a reader the
+    # latest few; the count is a different question and the cut destroyed the
+    # answer to it. `--hot` multiplies a rank score by this, and multiplying
+    # by a five that means "five or more" ranked every busy file the same.
+    git_commits = {k: len(v) for k, v in git_history.items()}
     git_history = {k: v[:5] for k, v in
                    sorted(git_history.items(), key=lambda kv: -len(kv[1]))[:40]}
+    # The same forty files the lists are cut to, so the two keys describe one
+    # set and a reader never finds a count for a file the section omits.
+    git_commits = {k: git_commits[k] for k in git_history}
     ticket_links = {k: {"subject": v["subject"], "files": sorted(set(v["files"]))[:8]}
                     for k, v in list(ticket_links.items())[:40]}
 
@@ -3391,6 +3424,7 @@ def build(repo: str, out_dir: str | None = None,
         "unused_api": unused_api,
         "debts": debts,
         "git_history": git_history,
+        "git_commits": git_commits,
         "ticket_links": ticket_links,
         "dependencies": deps,
         "ci": ci,

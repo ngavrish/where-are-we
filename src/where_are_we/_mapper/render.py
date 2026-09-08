@@ -621,8 +621,14 @@ def brief(m: dict) -> str:
     gh = _as_dict(m.get("git_history"))
     if gh:
         lines += ["", "## Most-changed files, last 90 days", ""]
+        counts = _as_dict(m.get("git_commits"))
         for rel, entries in list(gh.items())[:12]:
-            lines.append(f"- `{rel}` — {len(entries)} commits, latest: {entries[0][:80]}")
+            # `git_commits` where the map has it: `git_history` keeps at most
+            # five commit lines a file, so counting the lines under-reports
+            # every file busier than that. An older map has no such key and
+            # the length is the best this can say.
+            lines.append(f"- `{rel}`: {counts.get(rel) or len(entries)} "
+                         f"commits, latest: {entries[0][:80]}")
     tl = _as_dict(m.get("ticket_links"))
     if tl:
         lines += ["", "## Recent tickets and the files they touched", ""]

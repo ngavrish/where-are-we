@@ -41,6 +41,57 @@ line), and `find`'s hits past its limit (`more:find:`).
   does this step / string live". Use the narrower tool when you have a name,
   and `context(name=[...])` when the name is new to you and you want all five
   answers about it in one call.
+- **After an edit, ask what it reaches.** `affected(files=[...])` answers which
+  scenarios, feature files, routes and page objects a change to those files
+  reaches, by walking the map's call rows upward from what they declare, and
+  names the files it holds no row for so you know what the answer leaves out.
+  `format="behave"` or `"pytest"` gives the runner's own selection: one
+  `--name` per affected scenario, or node ids. Ask it before running a suite,
+  instead of running all of it or guessing a subset. A selection too large for
+  one reply comes back as its count and its first selectors, with the
+  `where-are-we --affected ... --affected-out FILE` command that writes the
+  whole of it to a file; run that rather than asking again.
+- **Before changing or deleting a function, ask what reaches it.**
+  `reaches(name="charge")` names the scenarios, pytest cases and routes that
+  reach one function or class, grouped by feature file, with the chain of
+  calls under the first scenario of each and no depth cap. `unreached()` is
+  the other half: the product definitions no test reaches at all, ranked,
+  with the graph's own resolution rate in the first line, because that is how
+  much of the list is untested rather than unknown. Read both first lines:
+  they say when the map, rather than the suite, is the reason a count is
+  zero.
+  `format="behave"` or `"pytest"` gives the runner's own selection. Ask it
+  before running a suite, instead of running all of it or guessing a subset.
+- **Before an edit, ask for the lines.** `range(name="charge")` gives every
+  home of the name as `file:start-end kind`, the text of the shortest, and
+  the first line, the last, and the one after the last, each with the text of
+  that line. Anchor an `Edit` on those rather than reading the file at a
+  guessed offset; an insertion after the last line lands outside the
+  definition. One line you must not anchor on: one holding `[redacted]`,
+  where this map wrote over a value that looked like a secret. It is not the
+  line on disk, the row says so, and the first line repeats it.
+- **When you need the chain, not the neighbours.** `path(a="handler",
+  b="charge")` prints the shortest call chain between two names, one hop per
+  line with the rule that placed each edge and the line the call is on, in
+  one call rather than walking `callers` or `callees` outward and joining the
+  answers by hand. Only cross-file calls are in that graph, so a chain that
+  runs through a call inside one file is not one it can walk, and the first
+  line says so.
+- **Reviewing, not editing.** `hot()` is the map's `rank` score times how
+  often each file changes, both numbers shown, which is where to read first.
+  Its first line carries the bound that decides what the ranking is: the
+  churn comes from the forty busiest files, so anything outside that set
+  counts 1. `## How this was counted` under the rows carries the rest,
+  including that an older map can only count five commit lines a file and
+  every count then reads `5+`.
+- **`dead()` is not a list of dead code.** It is the definitions no call row
+  lands on, and on a library most of those are calls the map could not place:
+  a call through an imported module leaves no row, and neither does a call
+  inside the file that declares the callee. It is sharp on a test suite,
+  where a page object is called from step modules, and blunt on a library.
+  Read it as questions and check the callers before deleting anything; the
+  answer's first line says the same thing before it says anything else, and
+  `## How this was counted` under the rows says how the list was made.
 - **Read the tail, then take its handle.** "12 more matching rows
   (more:rows:...)" means call `more` with that string, not `ask` again at a
   bigger budget: `more` returns the twelve you have not seen, `ask` returns

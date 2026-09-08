@@ -3736,6 +3736,7 @@
   },
   "debts": {},
   "git_history": {},
+  "git_commits": {},
   "ticket_links": {},
   "dependencies": [
     "pages"

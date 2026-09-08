@@ -64,6 +64,26 @@ EFFECTS = {
     "--callees": "read",
     "--impact": "read",
     "--impact-depth": "read",
+    "--affected": "read",
+    "--changed": "read",
+    # `--changed` runs `git diff --name-only` in the repository the map was
+    # built from, which reads that checkout and writes nothing in it.
+    "--affected-format": "read",
+    "--affected-depth": "read",
+    # `--affected-out` writes the selection at whatever path the caller
+    # named, which is the same arbitrary-path property `--export` has and
+    # gets the same class.
+    "--affected-out": "writes-repo",
+    "--reaches": "read",
+    "--unreached": "read",
+    "--path": "read",
+    # `--path-depth` says how far the chain may run and never that this line
+    # is answering, so it is a modifier and not in `NO_MAP_BUILD`, exactly
+    # as `--impact-depth` and `--affected-depth` are.
+    "--path-depth": "read",
+    "--range": "read",
+    "--dead": "read",
+    "--hot": "read",
     "--sections": "read",
     "--cost": "read",
     "--pointer": "read",
@@ -113,14 +133,16 @@ EFFECTS = {
 NOTES = {
     "read": "answers from what is already there. The flags that answer from a "
             "map (--ask, --more, --callers, --callees, --impact, --defines, "
-            "--at, --context, --rank, --sections, --cost) "
+            "--at, --context, --affected, --changed, --reaches, "
+            "--unreached, --path, --range, --dead, --hot, --rank, "
+            "--sections, --cost) "
             "append one line to <out>/.wawe-ask.log unless WAWE_ASK_LOG=0; "
             "nothing else is written, and nothing outside <out> is.",
     "writes-map-dir": "writes the map files and the parse cache under --out.",
     "writes-repo": "writes into the repository being mapped: a manifest, an "
                    "agent file, the READMEs a directory has none of, and the "
-                   "file --export was told to write, which is at whatever "
-                   "path the caller named.",
+                   "files --export and --affected-out were told to write, "
+                   "which are at whatever path the caller named.",
     "writes-config": "writes where a tool other than this one reads: "
                      ".git/hooks, ~/.claude/settings.json, "
                      "~/.codex/config.toml, a Cursor rule, a Gemini setting.",
@@ -137,7 +159,8 @@ NO_MAP_BUILD = frozenset({
     "-h", "--help", "--effects", "--dry-run", "--ask", "--more", "--callers",
     "--callees", "--impact", "--defines", "--at", "--rank", "--sections",
     "--pointer", "--mcp", "--lsp", "--init", "--install-hook", "--specs",
-    "--cost", "--export", "--context",
+    "--cost", "--export", "--context", "--affected", "--changed",
+    "--reaches", "--unreached", "--path", "--range", "--dead", "--hot",
 })
 
 # The pseudo flag `classify` reports when the floor above is what decided the
