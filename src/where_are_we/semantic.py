@@ -32,8 +32,20 @@ except ImportError:  # run as a plain file, with no package around it
 
 INDEX_MATRIX = "semantic_index.npy"
 INDEX_CHUNKS = "semantic_index.json"
-_BI_MODEL = os.getenv("WAWE_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
-_CROSS_MODEL = os.getenv("WAWE_RERANK_MODEL", "Xenova/ms-marco-MiniLM-L-6-v2")
+# Empty is not a value. `os.getenv(name, default)` hands back the default only
+# when the variable is absent, so a name set to "" travelled on as the name of a
+# model and reached fastembed, which said `Model  is not supported` and took the
+# process with it. An empty setting here means the same as an unset one.
+_BI_MODEL = os.getenv("WAWE_EMBED_MODEL") or "BAAI/bge-small-en-v1.5"
+_CROSS_MODEL = os.getenv("WAWE_RERANK_MODEL") or "Xenova/ms-marco-MiniLM-L-6-v2"
+# And turning the semantic side off is a switch of its own, because that is what
+# it is: a state, not the absence of a model name. A deployment that does not
+# want to pay for embeddings - measured at 2.3-5.3s a `find` against 1.0s, and
+# eleven map servers starting at once that never finished starting - says so
+# here, and every reader below asks available() rather than guessing from a
+# name. Off, 0, no and false all mean off; anything else means on.
+_SEMANTIC_OFF = os.getenv("WAWE_SEMANTIC", "").strip().lower() in {
+    "0", "off", "no", "false"}
 # One sqlite file to keep embeddings in between runs, or "" for no cache. Read
 # beside the two model names it belongs with rather than in the middle of the
 # function that embeds.
@@ -48,16 +60,7 @@ _warned_corrupt_index = False
 
 
 def available() -> bool:
-    # An empty model name is off, the same way an empty WAWE_EMBED_CACHE is no
-    # cache. A caller that does not want the models pays for them nowhere: not
-    # in a session's startup, not in `find`, and not in a map build.
-    #
-    # It reached fastembed as a model name until now, and every one of the
-    # three guards below let it through: `map` wrote the framework map, then
-    # died on `ValueError: Model  is not supported in TextEmbedding` with
-    # exit 1, which the caller reads as the map having failed. Five runs of
-    # APF-1934 stopped there on 8 September, before anything was planned.
-    if not _BI_MODEL:
+    if _SEMANTIC_OFF:
         return False
     try:
         import fastembed  # noqa: F401
@@ -189,8 +192,8 @@ def build_index(out_dir: str, corpora: list[tuple[str, str]]) -> str:
 
     Returns a one-line summary for the build log.
     """
-    if not _BI_MODEL:
-        return "semantic index skipped: WAWE_EMBED_MODEL is empty"
+    if _SEMANTIC_OFF:
+        return "semantic index skipped: WAWE_SEMANTIC is off"
     if not available():
         return "semantic index skipped: fastembed is not installed"
     chunks = []

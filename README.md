@@ -207,7 +207,7 @@ as estimates.
 | `pip install "where-are-we[semantic]"` — embedding index, "Related by meaning" tail | Keyword hits plus nearest paragraphs by meaning | Not measured for answer quality | An A/B of questions with and without the tail |
 | `--corpus NAME=PATH` | External corpora (rules, runbooks) in the same index | Not measured | — |
 | `WAWE_EMBED_CACHE` | Embeddings cached across builds in one sqlite file | Full five-corpus build: 6 min → about 30 s, five and a half minutes were recomputing unchanged vectors (CHANGELOG 0.11.0) | — |
-| `WAWE_EMBED_MODEL`, `WAWE_RERANK_MODEL`, `--no-semantic` | Model choice; skip the index | Not measured | — |
+| `WAWE_SEMANTIC`, `WAWE_EMBED_MODEL`, `WAWE_RERANK_MODEL`, `--no-semantic` | Off switch; model choice; skip the index | Not measured | — |
 
 ### Docs the repository is missing
 
@@ -1064,6 +1064,7 @@ defaults from.
 | `WAWE_POINTER_MAX` | `_mapper/state.py` | the byte cap on the pointer, the block a SessionStart hook puts into context | `4000` |
 | `WAWE_VOCAB` | `_mapper/render.py` | cap on how many vocabulary entries the brief prints, split across the groups | `0`, meaning no cap |
 | `WAWE_ASK_LOG` | `ask.py` | set to `0` to stop appending a row per answer to `<out>/.wawe-ask.log` | unset: the log is written |
+| `WAWE_SEMANTIC` | `semantic.py` | set to `0`, `off`, `no` or `false` and the semantic side is off: no index is built, `search` returns nothing and the triage prefilter degrades to one group per text. Emptying a model name is not a way to say this - an empty setting reads as an unset one | unset: on, when `fastembed` is installed |
 | `WAWE_EMBED_MODEL` | `semantic.py` | the embedding model the optional semantic index uses | `BAAI/bge-small-en-v1.5` |
 | `WAWE_RERANK_MODEL` | `semantic.py` | the cross encoder that reranks semantic hits | `Xenova/ms-marco-MiniLM-L-6-v2` |
 | `WAWE_EMBED_CACHE` | `semantic.py` | a directory to keep embeddings in between runs | unset: no cache |
