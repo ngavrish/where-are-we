@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.1
+
+Off is a switch.
+
+- `WAWE_SEMANTIC=0|off|no|false` turns the semantic side off: no index is
+  built, `search` returns nothing and the triage prefilter degrades to one
+  group per text. `available()` answers for all three, so there is one place
+  that decides and no reader guesses.
+- An empty `WAWE_EMBED_MODEL` or `WAWE_RERANK_MODEL` now reads as an unset one.
+  It was the only way to say "off" and it was not one: `os.getenv(name,
+  default)` returns the default only when the variable is absent, so the empty
+  string travelled on as the name of a model and reached fastembed, which
+  raised `Model  is not supported in TextEmbedding` and ended the process --
+  after the map it had just written. Downstream, five runs of one ticket
+  stopped there before anything was planned.
+
 ## 1.6.0
 
 Answers the graph already holds. 1.5.0 wrote `xrefs`, `spans` and `rank` into
