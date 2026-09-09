@@ -1,0 +1,7 @@
+[where-are-we]
+name=where-are-we
+baseurl=https://ngavrish.github.io/where-are-we/rpm
+enabled=1
+gpgcheck=0
+repo_gpgcheck=1
+gpgkey=https://ngavrish.github.io/where-are-we/apt-key.asc
