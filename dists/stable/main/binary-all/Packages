@@ -1,0 +1,17 @@
+Package: where-are-we
+Version: 1.6.2
+Architecture: all
+Maintainer: BoberIT <apt@where-are-we.dev>
+Depends: python3 (>= 3.12)
+Filename: pool/main/where-are-we_1.6.2_all.deb
+Size: 235126
+MD5sum: b4ee2823506bdf2075220d3664ee6165
+SHA1: 181264fe3167dac11f58fe338ef35dd97233002e
+SHA256: bde75f079f356efda0aadf73e4292c8cd5c0dc8f9537a81b2faec19913bec58e
+Section: devel
+Priority: optional
+Description: Index a codebase into a map an agent can read
+ Answers "where are we?" for a repository: layers, entry points, routes,
+ data model, contracts, tests and the state of the code itself — derived
+ from the tree in seconds, with no model involved.
+
