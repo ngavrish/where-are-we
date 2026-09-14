@@ -1064,6 +1064,7 @@ defaults from.
 | `WAWE_POINTER_MAX` | `_mapper/state.py` | the byte cap on the pointer, the block a SessionStart hook puts into context | `4000` |
 | `WAWE_VOCAB` | `_mapper/render.py` | cap on how many vocabulary entries the brief prints, split across the groups | `0`, meaning no cap |
 | `WAWE_ASK_LOG` | `ask.py` | set to `0` to stop appending a row per answer to `<out>/.wawe-ask.log` | unset: the log is written |
+| `WAWE_HIDE` | `mcp.py` | paths this session must not be shown, colon-separated prefixes relative to the repository root. Every answer that loses lines says how many and why. For a pipeline that fans one ticket out into a directory per branch: the tree is shared, the step registries are not, and a branch shown its neighbour's files reads them as a clash with its own | unset: nothing is hidden |
 | `WAWE_SEMANTIC` | `semantic.py` | set to `0`, `off`, `no` or `false` and the semantic side is off: no index is built, `search` returns nothing and the triage prefilter degrades to one group per text. Emptying a model name is not a way to say this - an empty setting reads as an unset one | unset: on, when `fastembed` is installed |
 | `WAWE_EMBED_MODEL` | `semantic.py` | the embedding model the optional semantic index uses | `BAAI/bge-small-en-v1.5` |
 | `WAWE_RERANK_MODEL` | `semantic.py` | the cross encoder that reranks semantic hits | `Xenova/ms-marco-MiniLM-L-6-v2` |

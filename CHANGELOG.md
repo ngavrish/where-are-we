@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.2
+
+`WAWE_HIDE`: paths this session must not be shown.
+
+- Colon-separated prefixes, relative to the repository root. Any answer line
+  naming one is dropped, and the answer says how many rows went and why --
+  an answer that quietly omits what the map holds is the one way this tool can
+  be wrong rather than short.
+- Written for a checkout shared by work that is not one session's own. A
+  pipeline that fans a ticket out into a directory per branch is the case:
+  every branch shares the tree, none shares another's step registry, and a
+  branch shown its neighbour's files reads them as a clash with its own. On
+  2026-09-14 one did -- it found its own step phrase in a sibling's directory,
+  renamed its work to avoid a collision that could not happen in its own run,
+  and spent twenty-nine of its forty-five minutes on it.
+
 ## 1.6.1
 
 Off is a switch.

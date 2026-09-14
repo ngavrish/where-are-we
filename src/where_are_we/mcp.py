@@ -554,8 +554,46 @@ def _joined(pairs) -> str:
     return "\n\n".join(f"### {q}\n{a}" for q, a in pairs)
 
 
+# Paths this session must not be shown, as prefixes relative to the repository
+# root, colon-separated. Read once: a server serves one session.
+#
+# The map indexes a whole checkout, and a checkout can hold work that belongs to
+# somebody else. A pipeline that fans a ticket out into a directory per branch
+# is the case this was written for: every branch shares the tree, none of them
+# shares the other's registry, and a branch shown its neighbour's files reads
+# them as a clash with its own. One did, on 2026-09-14: it found its own step
+# phrase in a sibling's directory, renamed its work to avoid a collision that
+# could not happen in its own run, and spent twenty-nine of its forty-five
+# minutes on it.
+#
+# Hidden, not filtered silently: every answer that loses lines says how many and
+# why, because an answer that quietly omits what the map holds is the one way
+# this tool can be wrong rather than short.
+_HIDE = tuple(p.strip().strip("/") for p in
+              (os.getenv("WAWE_HIDE") or "").split(":") if p.strip())
+
+
+def _hide(body: str) -> str:
+    """BODY without the lines that name a hidden path, and a word about it."""
+    if not _HIDE or not body:
+        return body
+    kept, dropped = [], 0
+    for line in body.splitlines():
+        if any(h in line for h in _HIDE):
+            dropped += 1
+            continue
+        kept.append(line)
+    if not dropped:
+        return body
+    what = ", ".join(_HIDE)
+    kept.append(f"\n({dropped} row(s) under {what} are another branch's work "
+                f"and are not shown: they share this checkout and nothing else, "
+                f"and a phrase you find there is not a collision with yours.)")
+    return "\n".join(kept)
+
+
 def _text(body: str) -> dict:
-    return {"content": [{"type": "text", "text": body}]}
+    return {"content": [{"type": "text", "text": _hide(body)}]}
 
 
 def _dispatch(mapper, out_dir: str, map_path: str, method, ident, params) -> None:
