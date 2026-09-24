@@ -5838,7 +5838,7 @@ jobs:
           where-are-we --repo /tmp/u16/b --out /tmp/u16/bm --product none \
             --force --quiet --no-semantic
           grep -q '"cafe_login"' /tmp/u16/bm/framework_map.json
-          python -c "import json,sys; d=json.load(open('/tmp/u16/bm/framework_map.json')); sys.exit(0 if 'blob.py' not in ' '.join(d['lines']) else 1)"
+          python -c "import json,sys; d=json.load(open('/tmp/u16/bm/framework_map.json')); sys.exit(0 if 'blob.py' not in ' '.join(d['files']) else 1)"
           python -c "import json,sys; d=json.load(open('/tmp/u16/bm/framework_map.json')); sys.exit(0 if sum(d['indexed'].values()) == 1 else 1)"
           # The gate is 97 per cent printable and random bytes score about 85,
           # so it has to leave room for a real file in several scripts.

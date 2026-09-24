@@ -76,11 +76,18 @@ def body(doc: dict, path: str) -> list:
     hit = _cache.get(real)
     if hit and hit[0] == key:
         return hit[1]
-    try:
-        with open(real, encoding="utf-8", errors="replace") as fh:
-            rows = fh.read().splitlines()
-    except OSError:
+    # The reader the index used, not a plain utf-8 open. It sniffs the byte
+    # order mark, so a UTF-16 source file decodes instead of coming back as
+    # mojibake; it keeps the same 2 MB cap the line index had; and it rejects
+    # what is not text at all. Two readers here would be two answers to "is
+    # this file text", and the map's own answer is the one every other section
+    # was built from. Imported inside the call because declare reads back
+    # through this module.
+    from ._mapper.declare import _read_for_declarations
+    text = _read_for_declarations(real)
+    if text is None:
         return []
+    rows = text.splitlines()
     # Redacted here, because this is where the text leaves the tool.
     #
     # It used to be redacted once, at index time, and the map carried the
