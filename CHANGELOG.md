@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.6.5
+
+The redaction moved with the text. 1.6.3 and 1.6.4 answer with live secrets.
+
+- "A map written to disk is redacted" held because every answer was a slice of
+  the copy inside the map, and that copy was swept as it was recorded. Taking
+  the copy out (1.6.3) took the sweep out with it: the text now came off disk,
+  raw, into `--at`, the phrase search and the scenario bodies -- the prompts
+  the redaction exists for.
+- `where_are_we.source.body` sweeps now, with the same `walk.redact` and the
+  same `contiguous`, at the one door the text leaves through. A file holding
+  `API_KEY = "sk-live-..."` answers `API_KEY = "[redacted]"`.
+- The property is stronger than it was: the map on disk carries no code at
+  all, so there is nothing in it to leak, and what comes out of the door is
+  swept. CI checks both halves.
+- 1.6.3 and 1.6.4 should not be used against a repository holding
+  credentials.
+
 ## 1.6.4
 
 `--at` was broken in 1.6.3. Fixed.

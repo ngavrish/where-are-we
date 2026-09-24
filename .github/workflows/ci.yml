@@ -2147,6 +2147,7 @@ jobs:
           import build_fixtures
           build_fixtures.build_all("/tmp/aff/golden")
           from where_are_we.graph import affected, load
+          from where_are_we import source
 
           def expected(m, changed, depth=6):
               root = m["repo"]
@@ -2192,7 +2193,7 @@ jobs:
                              for p in reaching if p.strip()})
               wanted = set()
               for rel, entry in m["features"].items():
-                  body = m["lines"].get(root + "/" + rel) or []
+                  body = source.body(m, root + "/" + rel)
                   marks = sorted((s["line"], s["name"]) for s in entry["scenarios"])
                   for i, (line, name) in enumerate(marks):
                       end = marks[i + 1][0] - 1 if i + 1 < len(marks) else len(body)
@@ -3557,6 +3558,7 @@ jobs:
           #    at every site of every measured name in this map.
           python - <<'EOF'
           import json, subprocess, sys
+          from where_are_we import source
           m = json.load(open("/tmp/rngmap/framework_map.json"))
           checked, bad = 0, []
           for name, sites in sorted(m["spans"].items()):
@@ -3564,7 +3566,7 @@ jobs:
                   end, path = site.get("end"), site["file"]
                   if end is None or site.get("kind") not in ("function", "class"):
                       continue
-                  body = m["lines"].get(path) or []
+                  body = source.body(m, path)
                   if end >= len(body):
                       continue
                   # The proof a reader can run by hand, and the reason this is `sed`
@@ -5164,6 +5166,7 @@ jobs:
           python - <<'EOF'
           import json, os, sys
           from where_are_we import mapper
+          from where_are_we import source
           os.environ["PRODUCT_SRC"] = "none"
           def build(*repos):
               m = None
@@ -5173,7 +5176,7 @@ jobs:
                   os.makedirs(out, exist_ok=True)
                   m = mapper.build(r, out_dir=out)
               return {"definitions": m["definitions"], "indexed": m["indexed"],
-                      "lines": sorted(m["lines"])}
+                      "files": source.paths(m)}
           a, b = "/tmp/reset/a", "/tmp/reset/b"
           alone_a, alone_b = build(a), build(b)
           bad = []
@@ -6057,8 +6060,11 @@ jobs:
           # last segment of the identifier.
           python - <<'EOF'
           import json, sys
+          from where_are_we import source
           lines = set()
-          for rows in json.load(open("/tmp/sec/m/framework_map.json"))["lines"].values():
+          _m = json.load(open("/tmp/sec/m/framework_map.json"))
+          for _p in source.paths(_m):
+              rows = source.body(_m, _p)
               lines.update(r.strip() for r in rows)
           keep = ['token_count = 3', 'max_token_count = 10', 'has_token = True',
                   'auth_backend = "ldap"', 'secret_name = "prod-db"',
@@ -6093,31 +6099,31 @@ jobs:
           # PEM state is per file: b_page's contribution to any aggregated
           # list survives a_page's header. It used to be blanked with it.
           grep -q "distinctive-b-content" /tmp/sec/m/framework_map.json
-          # `redact()` skips `lines` when the build that made the map redacted
-          # them as it recorded them, so the same tree has to come out of both
-          # passes as the same map. And the skip is conditional on that: a map
-          # whose lines were not redacted at index time is swept in full here,
-          # which is what keeps "a map written to disk is redacted" true
-          # whatever produced it.
+          # "A map written to disk is redacted" used to mean the copy of the
+          # code inside it was swept. The map holds no code now, so the
+          # property splits in two and both halves are checked here: nothing
+          # on disk to leak, and nothing leaking through the door the text
+          # comes out of instead.
           python - <<'EOF'
           import json
-          from where_are_we import mapper
-          from where_are_we._mapper import state, walk
+          from where_are_we import mapper, source
+          from where_are_we._mapper import walk
           m = mapper.build("/tmp/sec/r", out_dir="/tmp/sec/m2")
-          assert state.LINES_REDACTED is True
-          skipped = walk.redact(m)
-          state.LINES_REDACTED = False
-          swept = walk.redact(m)
-          assert skipped == swept, [k for k in swept if swept[k] != skipped.get(k)]
-          assert skipped["lines"] == m["lines"], "the pass over lines was not inert"
-          raw = mapper.build("/tmp/sec/r", out_dir="/tmp/sec/m3",
-                             redact_lines=False)
-          assert state.LINES_REDACTED is False
-          assert any("[redacted]" in ln
-                     for rows in walk.redact(raw)["lines"].values()
-                     for ln in rows), "an unredacted map came through the pass raw"
-          print("the writers' pass and the index-time pass agree, and the "
-                "unredacted build is still swept")
+          assert "lines" not in m, "the map is carrying the code again"
+          body = json.dumps(m)
+          for secret in ("sk-live", "BEGIN RSA PRIVATE KEY", "hunter2"):
+              assert secret not in body, secret
+          # Every answer that hands back text goes through source.body, and it
+          # sweeps. Reading from disk without this would have put a live
+          # credential into the next --at and the next phrase search - which
+          # is the prompt the redaction exists for.
+          swept = [ln for path in source.paths(m) for ln in source.body(m, path)]
+          assert swept, "no text came back at all"
+          assert not [ln for ln in swept if "sk-live" in ln], "a credential left the tool"
+          assert any("[redacted]" in ln for ln in swept), "nothing was swept"
+          # And the writers' pass over what remains is still idempotent.
+          assert walk.redact(m) == walk.redact(walk.redact(m))
+          print("nothing on disk to leak, and", len(swept), "lines came out swept")
           EOF
 
       - name: every environment variable the code reads is in the README table
@@ -6292,8 +6298,9 @@ jobs:
             --quiet --no-semantic
           python - <<'EOF'
           import json, subprocess, sys
+          from where_are_we import source
           d = json.load(open("/tmp/fpx/selfm/framework_map.json"))
-          indexed = set(d["lines"])
+          indexed = set(source.paths(d))
           tracked = subprocess.run(["git", "ls-files", "-z"], capture_output=True,
                                    check=True).stdout.split(b"\0")
           want = [p.decode() for p in tracked if p.endswith(b"/.wawe/framework_map.md")]

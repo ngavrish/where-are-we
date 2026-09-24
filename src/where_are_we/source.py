@@ -25,6 +25,11 @@ from __future__ import annotations
 
 import os
 
+try:
+    from ._mapper import walk as _walk
+except ImportError:  # run as a plain file, with no package around it
+    from _mapper import walk as _walk  # type: ignore[no-redef]
+
 _cache: dict = {}
 
 
@@ -76,6 +81,16 @@ def body(doc: dict, path: str) -> list:
             rows = fh.read().splitlines()
     except OSError:
         return []
+    # Redacted here, because this is where the text leaves the tool.
+    #
+    # It used to be redacted once, at index time, and the map carried the
+    # redacted copy: "a map written to disk is redacted" was the whole
+    # property, and it held because every answer was a slice of that copy.
+    # Reading from disk instead would have handed a live credential to the
+    # next `--at`, the next phrase search and the next scenario body - into
+    # exactly the prompts the redaction exists for. Same sweep, same
+    # `contiguous`, one file's consecutive lines.
+    rows = _walk.redact(rows, contiguous=True)
     _cache[real] = (key, rows)
     return rows
 
