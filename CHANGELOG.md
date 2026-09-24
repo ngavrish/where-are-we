@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.6.4
+
+`--at` was broken in 1.6.3. Fixed.
+
+- Taking the text out of the map left two references to the dictionary that
+  used to hold it inside `ask.at`: the count in "no file in this map is called
+  X", and the slice that reads a definition's body. Both raised NameError, so
+  `--at` -- the call that answers "what is at this file and line" -- failed on
+  every input in 1.6.3. It is the one path the golden suite does not reach and
+  the one I did not run.
+- Use 1.6.4. 1.6.3 builds correct maps; it just cannot answer `--at` off them.
+
 ## 1.6.3
 
 The map stops carrying a copy of the code, and leaves a small index beside it.

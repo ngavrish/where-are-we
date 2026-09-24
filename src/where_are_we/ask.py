@@ -2218,11 +2218,12 @@ def at(map_path: str, target: str, limit: int = AT_BUDGET,
                 "Rebuild with --force: a build skips a tree that has not "
                 "moved, so an upgrade alone does not add the key")
     spans = doc.get("spans") or {}
-    files = _at_files(set(source.paths(doc)) | {s["file"] for rows in spans.values()
-                                                for s in rows}, wanted)
+    indexed = source.paths(doc)
+    files = _at_files(set(indexed) | {s["file"] for rows in spans.values()
+                                      for s in rows}, wanted)
     if not files:
         return (f"no file in this map is called {wanted!r}; "
-                f"{len(lines)} files were indexed")
+                f"{len(indexed)} files were indexed")
     here = []
     for name, rows in spans.items():
         for site in rows:
@@ -2258,10 +2259,10 @@ def at(map_path: str, target: str, limit: int = AT_BUDGET,
     # says out loud everywhere else.
     also = sorted({s[0] for s in holding})
     file, start, end, kind, name = next(s for s in holding if s[0] == also[0])
-    body = (lines.get(file) or [])[start - 1:end]
+    body = source.body(doc, file)[start - 1:end]
     if not body:
-        return (f"{file}:{start}-{end} {name} ({kind}), and this map holds no "
-                "lines for that file")
+        return (f"{file}:{start}-{end} {name} ({kind}), and there is no text "
+                "to read for that file")
     head = f"{file}:{start}-{end} {name} ({kind})"
     if len(also) > 1:
         head += (f" ({wanted} also matches "
