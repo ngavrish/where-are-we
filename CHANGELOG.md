@@ -2,6 +2,28 @@
 
 ## 1.6.3
 
+The map stops carrying a copy of the code, and leaves a small index beside it.
+
+- `lines` is gone. A map held every indexed file's text so a phrase search
+  would be a lookup in one parsed file rather than a walk; it was most of the
+  map's size, and it was never worth it, because a map without its repository
+  answers nothing. It is attached to a checkout: `--ask` names files and line
+  numbers in it, the handles point into it, and whoever reads an answer has
+  it open. Storing the checkout inside the description of the checkout was
+  twenty megabytes spent on a case that does not arise.
+- `files` replaces it: which paths were indexed, nothing more. The text comes
+  off disk through `where_are_we.source`, which every reader now goes through
+  -- `--ask`'s file list, the phrase search, the page rank, the scenario
+  bodies and the text of a symbol's range. Reading fifteen hundred small
+  files costs less than parsing twenty megabytes of JSON, and the pass that
+  wanted them was walking all of them anyway.
+- Measured on one checkout indexed beside its product repo: 87.5 MB to 40.3
+  MB, of which `also` -- a nested map carrying its own copy -- was most of the
+  saving. On this repository, 12.6 MB to 1.9 MB.
+- A map built by 1.6.2 or earlier keeps working unchanged: where `lines` is
+  present it is still what gets read, which matters most for an old map whose
+  checkout has since moved.
+
 `framework_map_index.json`: a small door beside the big one.
 
 - The same build now leaves an index beside the map holding `schema`, `repo`,

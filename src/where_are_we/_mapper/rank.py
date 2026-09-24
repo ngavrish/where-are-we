@@ -40,6 +40,11 @@ import math
 import os
 import re
 
+try:
+    from .. import source
+except ImportError:  # run as a plain file, with no package around it
+    import source  # type: ignore[no-redef]
+
 # What counts as an identifier, on both sides of the graph: the name a
 # language declares, and the token a file mentions. A step phrase or a
 # scenario title is in `spans` too and is not identifier-shaped, so it
@@ -308,7 +313,7 @@ def rows(map_obj: dict, files=(), words=(), limit: int = TOP) -> list:
     lists that ought to agree.
     """
     spans = map_obj.get("spans") or {}
-    lines = map_obj.get("lines") or {}
+    lines = source.bodies(map_obj)
     root = map_obj.get("repo") or ""
     asked = {w.lower() for w in (words or ()) if w}
     homes, line_at, declared = _definers(spans)

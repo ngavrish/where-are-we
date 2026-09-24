@@ -28,8 +28,10 @@ import subprocess
 
 try:
     from ._mapper import rank as _rank_graph
+    from . import source
 except ImportError:  # run as a plain file, with no package around it
     from _mapper import rank as _rank_graph  # type: ignore[no-redef]
+    import source  # type: ignore[no-redef]
 
 MAP_NAME = "framework_map.json"
 
@@ -451,7 +453,7 @@ def _scenarios(m: dict, root: str, wanted: list, by_phrase: dict) -> tuple:
                 known.append(key)
     rows, unbound = [], 0
     for rel, entry in sorted((m.get("features") or {}).items()):
-        body = (m.get("lines") or {}).get(os.path.join(root, rel)) or []
+        body = source.body(m, os.path.join(root, rel))
         itself = _rank_graph.matches(os.path.join(root, rel), root, wanted)
         marks = sorted((s.get("line") or 0, s.get("name") or "")
                        for s in (entry.get("scenarios") or ()))
@@ -1137,7 +1139,7 @@ def symbol_range(m: dict, name: str) -> dict:
     shortest = min(measured, key=lambda s: (s["end"] - s["start"],
                                             str(s.get("file")), s["start"]))
     out["shortest"] = shortest
-    body = (m.get("lines") or {}).get(shortest["file"]) or []
+    body = source.body(m, shortest["file"])
     start, end = shortest["start"], shortest["end"]
     out["text"] = list(body[start - 1:end])
     # The three numbers an editor anchors on, each with the line it names, so

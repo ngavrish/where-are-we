@@ -3394,10 +3394,12 @@ def build(repo: str, out_dir: str | None = None,
         "rank": ranked,
         # What was looked at, so "not found" can say where it looked.
         "indexed": dict(sorted(INDEXED.items())),
-        # And the lines themselves, so a phrase search is a lookup. Kept out of
-        # the Markdown digest on purpose: this is for the tool to read, not for
-        # anything to carry in a prompt.
-        "lines": LINES,
+        # Which files were walked. The text itself is NOT stored: a map
+        # without its repository answers nothing, so the checkout is always
+        # there to be read, and the copy was most of this file's size - 20 MB
+        # of one 87 MB map, with a nested `also` carrying its own 35. See
+        # where_are_we/source.py, which every reader of the text goes through.
+        "files": sorted(LINES),
         "feature_links": feature_links,
         "data_files": data_files,
         "testids": testids,

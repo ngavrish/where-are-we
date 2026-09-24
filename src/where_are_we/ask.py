@@ -12,6 +12,11 @@ import json
 import os
 import re
 from itertools import accumulate
+
+try:
+    from . import source
+except ImportError:  # run as a plain file, with no package around it
+    import source  # type: ignore[no-redef]
 from datetime import datetime, timezone
 
 # Named imports rather than `from . import graph`: that spelling names the
@@ -448,7 +453,7 @@ def _scope(map_path: str, files) -> dict | None:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh) or {}
         root = data.get("repo") or ""
-        for full in (data.get("lines") or ()):
+        for full in source.paths(data):
             rel = _rank_graph.relative(full, root)
             homes.setdefault(rel.rsplit("/", 1)[-1], []).append(rel)
     except (OSError, ValueError):
@@ -2213,9 +2218,8 @@ def at(map_path: str, target: str, limit: int = AT_BUDGET,
                 "Rebuild with --force: a build skips a tree that has not "
                 "moved, so an upgrade alone does not add the key")
     spans = doc.get("spans") or {}
-    lines = doc.get("lines") or {}
-    files = _at_files(set(lines) | {s["file"] for rows in spans.values()
-                                    for s in rows}, wanted)
+    files = _at_files(set(source.paths(doc)) | {s["file"] for rows in spans.values()
+                                                for s in rows}, wanted)
     if not files:
         return (f"no file in this map is called {wanted!r}; "
                 f"{len(lines)} files were indexed")

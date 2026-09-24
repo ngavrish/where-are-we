@@ -12,6 +12,11 @@ import os
 import re
 
 from . import state
+
+try:
+    from .. import source
+except ImportError:  # run as a plain file, with no package around it
+    import source  # type: ignore[no-redef]
 from .state import DEFINITIONS, INDEXED, LINES, SPANS, TRUNCATED
 from .walk import SLURP_LIMIT, _cached, _redact_lines, _slurp
 
@@ -162,7 +167,7 @@ def find_text(out_dir: str, phrase: str, limit: int = 40,
             doc = json.load(fh) or {}
     except (OSError, ValueError) as exc:
         return f"no map in {out_dir}: {exc}"
-    lines = doc.get("lines") or {}
+    lines = source.bodies(doc)
     if not lines:
         return ("this map has no line index — it was built by a version that did "
                 "not keep one, or the walk found nothing")
