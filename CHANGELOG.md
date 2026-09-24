@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.6.3
+
+`framework_map_index.json`: a small door beside the big one.
+
+- The same build now leaves an index beside the map holding `schema`, `repo`,
+  `content_root`, `fingerprint`, `features`, `steps`, `feature_links`,
+  `testids` and `helpers` -- and none of the stores. On this repository that
+  is 3.2 KB against the map's 12.6 MB.
+- `lines`, `xrefs`, `spans` and a nested `also` are what make a phrase search
+  a lookup, and they are most of the map's bytes: one checkout indexed beside
+  its product repo came to 87 MB, of which `also` was 35, `lines` 20 and
+  `xrefs` 10. A harness that only wants to know which feature files mention a
+  word was paying for all of it -- one such reader json.loaded the whole file
+  twice per fan-out branch, fifty-two passes over 87 MB in a single run to
+  read four tenths of a percent of it.
+- The map itself is unchanged. Splitting the stores out of it would change
+  what every `--ask`, the MCP server and the language server open first.
+
 ## 1.6.2
 
 `WAWE_HIDE`: paths this session must not be shown.
