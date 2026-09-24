@@ -105,13 +105,38 @@ def _write_error(exc: OSError, fallback: str = "") -> int:
 # has the new JSON behind it, so a name `ask` has just shown can always be
 # located by `defines`. The other order gives the opposite, and worse, window:
 # `ask` naming something that `defines` then says is not in the map.
+# The sections a harness reads to route work, without the stores it does not.
+# `lines`, `xrefs`, `spans` and a nested `also` are the map's own database -
+# what makes a phrase search a lookup - and they are most of its bytes: on one
+# checkout indexed beside its product repo, framework_map.json came to 87 MB,
+# of which `also` was 35, `lines` 20 and `xrefs` 10.
+#
+# A reader that wants to know which feature files mention a word wants none of
+# that. The agentic-v-model runner wanted `features` and `steps` - 0.36 MB of
+# the 87 - and paid for the whole file twice per fan-out branch, fifty-two
+# json.load calls over 87 MB in one run to read four tenths of a percent.
+#
+# So the same build leaves a small door beside the big one. The map is
+# unchanged: splitting `lines` out of it would change what every `--ask`,
+# the MCP server and the language server open first, and the stores are there
+# on purpose.
+INDEX_SECTIONS = ("schema", "repo", "content_root", "fingerprint",
+                  "features", "steps", "feature_links", "testids", "helpers")
+INDEX_NAME = "framework_map_index.json"
+
+
+def map_index(m: dict) -> dict:
+    """The small sections of a map, for a reader that wants no store."""
+    return {k: m[k] for k in INDEX_SECTIONS if k in m}
+
+
 def _write_map_files(out_dir: str, json_text: str, md_text: str,
-                     brief_text: str) -> None:
+                     brief_text: str, index_text: str = "") -> None:
     _write_atomic_group([
         (os.path.join(out_dir, "framework_map.json"), json_text),
         (os.path.join(out_dir, "framework_map_brief.md"), brief_text),
         (os.path.join(out_dir, "framework_map.md"), md_text),
-    ])
+    ] + ([(os.path.join(out_dir, INDEX_NAME), index_text)] if index_text else []))
 
 
 def _write_artifacts(out_dir: str, m: dict, args) -> None:
@@ -149,7 +174,8 @@ def _write_artifacts(out_dir: str, m: dict, args) -> None:
         text = _cap_sections(text, args.max_lines)
     # All three at once, and only now: the brief is trimmed by --only/--skip
     # and --max-lines above, so the set is not complete until here.
-    _write_map_files(out_dir, map_json, map_md, text)
+    _write_map_files(out_dir, map_json, map_md, text,
+                     json.dumps(map_index(m), indent=2))
     if args.html:
         # Deliberately one file with no assets: it gets opened from a terminal,
         # not served.
