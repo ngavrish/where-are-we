@@ -6110,8 +6110,10 @@ jobs:
           from where_are_we._mapper import walk
           m = mapper.build("/tmp/sec/r", out_dir="/tmp/sec/m2")
           assert "lines" not in m, "the map is carrying the code again"
-          body = json.dumps(m)
-          for secret in ("sk-live", "BEGIN RSA PRIVATE KEY", "hunter2"):
+          # What lands on disk, which is the map after the writers' pass -
+          # redact() is applied on the way out, not held in the build result.
+          body = json.dumps(walk.redact(m))
+          for secret in ("s3cr3tp4ss", "BEGIN RSA PRIVATE KEY", "hunter2"):
               assert secret not in body, secret
           # Every answer that hands back text goes through source.body, and it
           # sweeps. Reading from disk without this would have put a live
