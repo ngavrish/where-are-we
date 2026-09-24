@@ -116,42 +116,12 @@
   "indexed": {
     "suite": 4
   },
-  "lines": {
-    "<root>/poly/repo/a.ts": [
-      "export function charge(amount: number): string {",
-      "  return `charged ${amount}`;",
-      "}"
-    ],
-    "<root>/poly/repo/b.ts": [
-      "import { charge } from \"./a\";",
-      "",
-      "export function payInvoice(amount: number): string {",
-      "  return charge(amount);",
-      "}"
-    ],
-    "<root>/poly/repo/main.go": [
-      "package main",
-      "",
-      "func Serve() {",
-      "\t// starts the HTTP server",
-      "}",
-      "",
-      "func TestServe() {",
-      "\t// exercises Serve directly, with no test file",
-      "\tServe()",
-      "}",
-      "",
-      "func main() {",
-      "\tServe()",
-      "}"
-    ],
-    "<root>/poly/repo/migrations/V1__init.sql": [
-      "CREATE TABLE customers (",
-      "    id INTEGER PRIMARY KEY,",
-      "    name TEXT NOT NULL",
-      ");"
-    ]
-  },
+  "files": [
+    "<root>/poly/repo/a.ts",
+    "<root>/poly/repo/b.ts",
+    "<root>/poly/repo/main.go",
+    "<root>/poly/repo/migrations/V1__init.sql"
+  ],
   "feature_links": {},
   "data_files": [],
   "testids": {
