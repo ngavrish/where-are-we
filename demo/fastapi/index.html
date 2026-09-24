@@ -1,0 +1,443 @@
+<!doctype html><meta charset=utf-8><title>where are we</title><style>body{max-width:60rem;margin:3rem auto;padding:0 1rem;font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#111}h1{font-size:1.7rem}h2{font-size:1.05rem;margin-top:2.2rem;border-bottom:1px solid #ddd;padding-bottom:.3rem}li{margin:.15rem 0}code{background:#f4f4f4;padding:0 .2em;border-radius:3px}@media(prefers-color-scheme:dark){body{background:#111;color:#eee}h2{border-color:#333}code{background:#222}}</style><h1>Framework map (brief)</h1>
+<p>0 step modules / 0 step phrases, 0 feature files / 0 scenarios. Full map with every step phrase: `framework_map.md` in this run's directory — grep that file instead of grepping the repository.</p>
+<h2>What this codebase is made of</h2>
+<p>Python (1306), Markdown (809), Shell (4), JavaScript (3)</p>
+<h2>HTTP routes this codebase serves (80)</h2>
+<li>DELETE /items/{item_id}  (applications.py)</li>
+<li>DELETE /items/{item_id}  (routing.py)</li>
+<li>DELETE /items/{item_id}  (test_extra_routes.py)</li>
+<li>DELETE /{id}  (test_reponse_set_reponse_code_empty.py)</li>
+<li>GET /  (items.py)</li>
+<li>GET /  (main.py)</li>
+<li>GET /  (test_additional_response_extra.py)</li>
+<li>GET /  (test_ambiguous_params.py)</li>
+<li>GET /  (test_callable_endpoint.py)</li>
+<li>GET /  (test_computed_fields.py)</li>
+<li>GET /  (test_default_response_class.py)</li>
+<li>GET /  (test_default_response_class_router.py)</li>
+<li>GET /  (test_duplicate_models_openapi.py)</li>
+<li>GET /  (test_infer_param_optionality.py)</li>
+<li>GET /  (test_openapi_query_parameter_extension.py)</li>
+<li>GET /  (test_openapi_route_extensions.py)</li>
+<li>GET /  (test_repeated_dependency_schema.py)</li>
+<li>GET /  (test_response_change_status_code.py)</li>
+<li>GET /  (test_response_model_as_return_annotation.py)</li>
+<li>GET /  (test_response_model_invalid.py)</li>
+<li>GET /  (test_router_events.py)</li>
+<li>GET /  (test_skip_defaults.py)</li>
+<li>GET /  (tutorial001.py)</li>
+<li>GET /  (tutorial002.py)</li>
+<li>GET /  (tutorial002_an.py)</li>
+<li>GET /  (tutorial002_an_py310.py)</li>
+<li>GET /  (tutorial002_an_py39.py)</li>
+<li>GET /  (tutorial002_py310.py)</li>
+<li>GET /  (tutorial002_py39.py)</li>
+<li>GET /  (tutorial003.py)</li>
+<h2>Data model</h2>
+<li>`Comment (main.py)`: </li>
+<li>`UpdateDiscussionComment (main.py)`: </li>
+<li>`UpdateCommentData (main.py)`: </li>
+<li>`UpdateCommentResponse (main.py)`: </li>
+<li>`AddDiscussionComment (main.py)`: </li>
+<li>`AddCommentData (main.py)`: </li>
+<li>`AddCommentResponse (main.py)`: </li>
+<li>`CommentsEdge (main.py)`: </li>
+<li>`Comments (main.py)`: </li>
+<li>`CommentsDiscussion (main.py)`: </li>
+<li>`CommentsRepository (main.py)`: </li>
+<li>`CommentsData (main.py)`: </li>
+<li>`CommentsResponse (main.py)`: </li>
+<li>`AllDiscussionsLabelNode (main.py)`: </li>
+<li>`AllDiscussionsLabelsEdge (main.py)`: </li>
+<h2>Public surface of the code</h2>
+<li>`.github/actions/notify-translations/app/main.py`: Comment, UpdateDiscussionComment, UpdateCommentData, UpdateCommentResponse, AddDiscussionComment, AddCommentData, AddCommentResponse, CommentsEdge, Comments, CommentsDiscussion</li>
+<li>`.github/actions/people/app/main.py`: Author, CommentsNode, Replies, DiscussionsCommentsNode, Comments, DiscussionsComments, DiscussionsNode, DiscussionsEdge, Discussions, DiscussionsRepository</li>
+<li>`fastapi/dependencies/utils.py`: ensure_multipart_is_installed, get_param_sub_dependant, get_parameterless_sub_dependant, get_sub_dependant, get_flat_dependant, get_flat_params, get_typed_signature, get_typed_annotation, get_typed_return_annotation, get_dependant</li>
+<li>`fastapi/openapi/models.py`: BaseModelWithConfig, Contact, License, Info, ServerVariable, Server, Reference, Discriminator, XML, ExternalDocumentation</li>
+<li>`scripts/docs.py`: is_mkdocs_insiders, get_en_config, get_lang_paths, lang_callback, complete_existing_lang, callback, new_lang, build_lang, generate_readme_content, generate_readme</li>
+<li>`docs_src/security/tutorial005.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial005_an.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial005_an_py310.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial005_an_py39.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial005_py310.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial005_py39.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial004.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial004_an.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial004_an_py310.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial004_an_py39.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`docs_src/security/tutorial004_py310.py`: Token, TokenData, User, UserInDB, verify_password, get_password_hash, get_user, authenticate_user, create_access_token, get_current_user</li>
+<li>`fastapi/params.py`: ParamTypes, Param, Path, Query, Header, Cookie, Body, Form, File, Depends</li>
+<li>`scripts/mkdocs_hooks.py`: get_missing_translation_content, get_mkdocs_material_langs, EnFile, on_config, resolve_file, resolve_files, on_files, generate_renamed_section_items, on_nav, on_pre_page</li>
+<li>`fastapi/_compat.py`: field_annotation_is_sequence, value_is_sequence, field_annotation_is_complex, field_annotation_is_scalar, field_annotation_is_scalar_sequence, is_bytes_or_nonable_bytes_annotation, is_uploadfile_or_nonable_uploadfile_annotation, is_bytes_sequence_annotation, is_uploadfile_sequence_annotation, get_cached_model_fields</li>
+<li>`docs_src/security/tutorial003.py`: fake_hash_password, User, UserInDB, get_user, fake_decode_token, get_current_user, get_current_active_user, login, read_users_me</li>
+<h2>How the top-level packages depend on each other</h2>
+<li>`docs_src` → fastapi</li>
+<li>`tests` → docs_src, fastapi</li>
+<h2>Scheduled work</h2>
+<li>`index.md`: 2  7 8 9 10</li>
+<li>`body-updates.md`: 30 31 32 33 34</li>
+<li>`extra-models.md`: 1 14 15 18 19, 9  11  16  22  24, 9  15 16  19 20</li>
+<li>`path-params.md`: 1 6 7 8 9</li>
+<li>`body-nested-models.md`: 9 14 20 23 27</li>
+<li>`handling-errors.md`: 15 16 17 18  24, 2 3 4 5 15, 3 4  9 10 11, 5 6 7  13 14</li>
+<li>`schema-extra-example.md`: 15 16 17 18 19, 21 22 23 24 25, 4 10 11 12 13</li>
+<li>`oauth2-jwt.md`: 7  48  55-56  59-60  69-75</li>
+<li>`dependencies-with-yield.md`: 1 2 3 4 5, 6 7 8 9 13</li>
+<li>`classes-as-dependencies.md`: 11 12 13 14 15</li>
+<li>`dataclasses.md`: 1  5  8-11  14-17  23-25</li>
+<li>`generate-clients.md`: 9-11  14-15  18  19  23</li>
+<h2>Infrastructure as code</h2>
+<li>`docs/en/mkdocs.yml`: cloudformation.palette, cloudformation.toggle, cloudformation.toggle, cloudformation.toggle, cloudformation.features, cloudformation.icon, cloudformation.search, cloudformation.macros, cloudformation.include_yaml, cloudformation.redirects</li>
+<h2>Error types</h2>
+<li>`CustomError` (test_ws_router.py), `Error` (test_response_code_no_body.py), `JsonApiError` (test_response_code_no_body.py), `AsyncDependencyError` (test_dependency_contextmanager.py), `SyncDependencyError` (test_dependency_contextmanager.py), `OtherDependencyError` (test_dependency_contextmanager.py), `OwnerError` (release-notes.md), `UnicornException` (applications.py), `HTTPException` (exceptions.py), `WebSocketException` (exceptions.py), `FastAPIError` (exceptions.py), `ValidationException` (exceptions.py), `RequestValidationError` (exceptions.py), `WebSocketRequestValidationError` (exceptions.py), `ResponseValidationError` (exceptions.py), `ErrorWrapper` (_compat.py), `PydanticSchemaGenerationError` (_compat.py), `InternalError` (tutorial008c_an_py39.py), `ValidationErrorLoggingRoute` (tutorial002.py)</li>
+<h2>Largest files</h2>
+<li>tests/test_include_router_defaults_overrides.py (358 KB), fastapi/applications.py (172 KB), fastapi/routing.py (172 KB), tests/test_generate_unique_id_function.py (66 KB), fastapi/param_functions.py (62 KB), tests/test_application.py (52 KB), tests/test_response_model_as_return_annotation.py (47 KB), tests/test_schema_extra_examples.py (37 KB), tests/test_path.py (34 KB), fastapi/dependencies/utils.py (34 KB), fastapi/params.py (27 KB), tests/test_tutorial/test_bigger_applications/test_main_an_py39.py (24 KB)</li>
+<h2>Who calls whom, across files</h2>
+<li>`utils.py:analyze_param` → Body (param_functions.py), File (param_functions.py), Path (param_functions.py), Query (param_functions.py), copy_field_info (_compat.py), create_model_field (utils.py)</li>
+<li>`test_schema_extra_examples.py:create_app` → Body (param_functions.py), Cookie (param_functions.py), Header (param_functions.py), Path (param_functions.py), Query (param_functions.py), get (test_ambiguous_params.py)</li>
+<li>`routing.py:get_request_handler` → Default (datastructures.py), _normalize_errors (_compat.py), body (tutorial001.py), get (test_ambiguous_params.py), is_body_allowed_for_status_code (utils.py), solve_dependencies (utils.py)</li>
+<li>`test_main_b.py:test_app` → test_create_existing_item (test_main.py), test_create_item (test_openapi_separate_input_output_schemas.py), test_create_item_bad_token (test_main.py), test_read_item (test_main.py), test_read_item_bad_token (test_main.py), test_read_nonexistent_item (test_main.py)</li>
+<li>`test_main_b_an.py:test_app` → test_create_existing_item (test_main.py), test_create_item (test_openapi_separate_input_output_schemas.py), test_create_item_bad_token (test_main.py), test_read_item (test_main.py), test_read_item_bad_token (test_main.py), test_read_nonexistent_item (test_main.py)</li>
+<li>`test_main_b_an_py310.py:test_app` → test_create_existing_item (test_main.py), test_create_item (test_openapi_separate_input_output_schemas.py), test_create_item_bad_token (test_main.py), test_read_item (test_main.py), test_read_item_bad_token (test_main.py), test_read_nonexistent_item (test_main.py)</li>
+<li>`test_main_b_an_py39.py:test_app` → test_create_existing_item (test_main.py), test_create_item (test_openapi_separate_input_output_schemas.py), test_create_item_bad_token (test_main.py), test_read_item (test_main.py), test_read_item_bad_token (test_main.py), test_read_nonexistent_item (test_main.py)</li>
+<li>`test_main_b_py310.py:test_app` → test_create_existing_item (test_main.py), test_create_item (test_openapi_separate_input_output_schemas.py), test_create_item_bad_token (test_main.py), test_read_item (test_main.py), test_read_item_bad_token (test_main.py), test_read_nonexistent_item (test_main.py)</li>
+<li>`utils.py:get_openapi_path` → deep_dict_update (utils.py), get (test_ambiguous_params.py), get_flat_dependant (utils.py), get_flat_params (utils.py), get_schema_from_model_field (_compat.py), is_body_allowed_for_status_code (utils.py)</li>
+<li>`tutorial003_py39.py:websocket_endpoint` → broadcast (tutorial003.py), connect (tutorial003.py), disconnect (tutorial003.py), send_personal_message (tutorial003.py), websocket (applications.py)</li>
+<li>`utils.py:_extract_form_body` → is_bytes_field (_compat.py), is_bytes_sequence_field (_compat.py), read (datastructures.py), serialize_sequence_value (_compat.py), value_is_sequence (_compat.py)</li>
+<li>`alt_main.py:create_user` → Depends (param_functions.py), create_user (test_response_model_data_filter_no_inheritance.py), get_user_by_email (crud.py), post (test_additional_properties_bool.py)</li>
+<li>`applications.py:setup` → get (test_ambiguous_params.py), get_redoc_html (docs.py), get_swagger_ui_html (docs.py), get_swagger_ui_oauth2_redirect_html (docs.py)</li>
+<li>`main.py:create_user` → Depends (param_functions.py), create_user (test_response_model_data_filter_no_inheritance.py), get_user_by_email (crud.py), post (test_additional_properties_bool.py)</li>
+<li>`routing.py:include_router` → Default (datastructures.py), add_api_route (applications.py), add_api_websocket_route (applications.py), get_value_or_default (utils.py)</li>
+<li>`routing.py:serialize_response` → _normalize_errors (_compat.py), jsonable_encoder (encoders.py), serialize (_compat.py), validate (_compat.py)</li>
+<li>`test_datastructures.py:test_upload_file` → close (datastructures.py), read (datastructures.py), seek (datastructures.py), write (datastructures.py)</li>
+<li>`tutorial003_an.py:login` → Depends (param_functions.py), fake_hash_password (tutorial003.py), get (test_ambiguous_params.py), post (test_additional_properties_bool.py)</li>
+<li>`tutorial003_an_py310.py:login` → Depends (param_functions.py), fake_hash_password (tutorial003.py), get (test_ambiguous_params.py), post (test_additional_properties_bool.py)</li>
+<li>`tutorial003_an_py39.py:login` → Depends (param_functions.py), fake_hash_password (tutorial003.py), get (test_ambiguous_params.py), post (test_additional_properties_bool.py)</li>
+<h2>Which code touches which table</h2>
+<li>`README.md`: /home/user/code/awesomeapp, /items/{item_id} ↔ FastAPI, Python, Swagger, Your, and</li>
+<li>`test_datastructures.py`: /uploadfile/ ↔ Starlette, fastapi, fastapi.datastructures, fastapi.testclient, pathlib</li>
+<li>`test_starlette_exception.py`: /http-no-body-statuscode-exception, /http-no-body-statuscode-with-detail-exception, /items/bar, /items/foo ↔ fastapi, fastapi.testclient, starlette.exceptions</li>
+<li>`test_multi_body_errors.py`: /items/, /openapi.json ↔ decimal, dirty_equals, fastapi, fastapi.testclient, pydantic</li>
+<li>`test_security_http_digest_description.py`: /openapi.json, /users/me ↔ fastapi, fastapi.security, fastapi.testclient</li>
+<li>`test_computed_fields.py`: /openapi.json ↔ fastapi, fastapi.testclient, pydantic</li>
+<li>`test_security_oauth2.py`: /login, /openapi.json, /users/me ↔ dirty_equals, fastapi, fastapi.security, fastapi.testclient, pydantic</li>
+<li>`test_param_in_path_and_dependency.py`: /openapi.json, /users/42, /users/{user_id} ↔ fastapi, fastapi.testclient</li>
+<li>`test_security_http_basic_optional.py`: /openapi.json, /users/me ↔ base64, fastapi, fastapi.security, fastapi.testclient, typing</li>
+<li>`test_multi_query_errors.py`: /items/, /openapi.json ↔ dirty_equals, fastapi, fastapi.testclient, typing</li>
+<li>`test_additional_responses_bad.py`: /openapi.json ↔ fastapi, fastapi.testclient</li>
+<li>`test_dependency_security_overrides.py`: /user ↔ fastapi, fastapi.security, fastapi.testclient, typing</li>
+<li>`test_include_route.py`: /items/ ↔ fastapi, fastapi.responses, fastapi.testclient</li>
+<li>`test_forms_from_non_typing_sequences.py`: /form/python-list, /form/python-set, /form/python-tuple ↔ fastapi, fastapi.testclient</li>
+<li>`test_schema_extra_examples.py`: /cookie_example/, /cookie_example_examples/, /cookie_examples/, /example/ ↔ dirty_equals, fastapi, fastapi._compat, fastapi.testclient, pydantic</li>
+<h2>Deprecations</h2>
+<li>`test_schema_extra_examples.py`: with pytest.warns(DeprecationWarning): | with pytest.warns(DeprecationWarning):</li>
+<li>`test_regex_deprecated_params.py`: with pytest.warns(DeprecationWarning):</li>
+<li>`test_router_events.py`: r"ignore:\s*on_event is deprecated, use lifespan event handlers instead.*:DeprecationWarning"</li>
+<li>`test_include_router_defaults_overrides.py`: deprecated=True, | deprecated=True,</li>
+<li>`test_regex_deprecated_body.py`: with pytest.warns(DeprecationWarning):</li>
+<li>`test_tutorial001.py`: with pytest.warns(DeprecationWarning):</li>
+<li>`test_tutorial006.py`: "deprecated": True,</li>
+<li>`test_tutorial002.py`: with pytest.warns(DeprecationWarning):</li>
+<li>`test_tutorial001.py`: with pytest.warns(DeprecationWarning):</li>
+<li>`test_tutorial003.py`: with pytest.warns(DeprecationWarning):</li>
+<li>`test_tutorial010_an_py310.py`: "deprecated": True,</li>
+<li>`test_tutorial010_an_py39.py`: "deprecated": True,</li>
+<h2>API versions in use</h2>
+<li>v1, v2</li>
+<h2>Documentation pointing at things that are not there</h2>
+<li>docs/de/docs/how-to/custom-docs-ui-assets.md → redoc.standalone.js</li>
+<li>docs/de/docs/how-to/custom-docs-ui-assets.md → swagger-ui-bundle.js</li>
+<li>docs/em/docs/tutorial/debugging.md → importer.py</li>
+<li>docs/em/docs/tutorial/debugging.md → myapp.py</li>
+<li>docs/en/docs/how-to/custom-docs-ui-assets.md → redoc.standalone.js</li>
+<li>docs/en/docs/how-to/custom-docs-ui-assets.md → swagger-ui-bundle.js</li>
+<li>docs/en/docs/tutorial/debugging.md → importer.py</li>
+<li>docs/en/docs/tutorial/debugging.md → myapp.py</li>
+<li>docs/fr/docs/contributing.md → scripts/format-imports.sh</li>
+<li>docs/fr/docs/tutorial/debugging.md → importer.py</li>
+<li>docs/fr/docs/tutorial/debugging.md → myapp.py</li>
+<li>docs/ja/docs/contributing.md → scripts/format-imports.sh</li>
+<li>docs/ja/docs/tutorial/debugging.md → importer.py</li>
+<li>docs/ja/docs/tutorial/debugging.md → myapp.py</li>
+<li>docs/ja/docs/tutorial/testing.md → main_b.py</li>
+<h2>Indexes and constraints</h2>
+<li>`test_tutorial009.py`: Weights</li>
+<li>`test_tutorial009_py39.py`: Weights</li>
+<li>`history-design-future.md`: declarations</li>
+<li>`extra-data-types.md`: using JSON Schema's `uniqueItems`</li>
+<li>`concepts.md`: to</li>
+<h2>Generated code — do not edit by hand</h2>
+<li>`docs/en/docs/advanced/behind-a-proxy.md` — auto-generated server with a `url` value of `/api/v1`, taken from the `root_path`.</li>
+<li>`docs/en/docs/how-to/separate-openapi-schemas.md` — autogenerated clients and SDKs, they will be more precise too, with a better **developer experience** a</li>
+<li>`fastapi/applications.py` — autogenerated OpenAPI using the `root_path`.</li>
+<h2>Types declared</h2>
+<li>`main.py`: AddCommentData, AddCommentResponse, AddDiscussionComment, AllDiscussionsData, AllDiscussionsDiscussionLabels, AllDiscussionsDiscussionNode, AllDiscussionsDiscussions, AllDiscussionsLabelNode, AllDiscussionsLabelsEdge, AllDiscussionsRepository, AllDiscussionsResponse, Comment</li>
+<li>`main.py`: Author, Comments, CommentsNode, ContributorsResults, DiscussionExpertsResults, Discussions, DiscussionsComments, DiscussionsEdge, DiscussionsNode, DiscussionsRepository, DiscussionsResponse, DiscussionsResponseData</li>
+<li>`test_jsonable_encoder.py`: Item, Model, ModelWithAlias, ModelWithConfig, ModelWithCustomEncoder, ModelWithDefault, ModelWithPath, ModelWithRoot, MyEnum, MyModel, RoleEnum</li>
+<li>`models.py`: APIKeyIn, BaseModelWithConfig, Discriminator, ParameterInType, Reference, SecuritySchemeType</li>
+<li>`test_response_model_data_filter_no_inheritance.py`: PetDB, PetOut, User, UserCreate, UserDB</li>
+<li>`test_sub_callbacks.py`: Event, Invoice, InvoiceEvent, InvoiceEventReceived</li>
+<li>`release-notes.md`: CommonHeaders, Cookies, FilterParams, FormData</li>
+<li>`test_duplicate_models_openapi.py`: Model, Model2, Model3</li>
+<li>`test_response_model_data_filter.py`: PetDB, PetOut, UserBase</li>
+<li>`test_skip_defaults.py`: Model, ModelDefaults, SubModel</li>
+<li>`test_response_model_include_exclude.py`: Model1, Model2, Model3</li>
+<li>`app_pv1.py`: RecursiveItem, RecursiveItemViaSubmodel, RecursiveSubitemInSubmodel</li>
+<li>`app_pv2.py`: RecursiveItem, RecursiveItemViaSubmodel, RecursiveSubitemInSubmodel</li>
+<li>`tutorial007_py310.py`: Image, Item, Offer</li>
+<li>`tutorial007.py`: Image, Item, Offer</li>
+<h2>Retries, timeouts, breakers and limits</h2>
+<li>`termynal.js`: * @param {number} time - Timeout, in ms. | return new Promise(resolve => setTimeout(resolve, time));</li>
+<li>`nosql-databases-couchbase.md`: * Set defaults for timeouts. | * Set defaults for timeouts.</li>
+<li>`main.py`: httpx_timeout: int = 30 | timeout=settings.httpx_timeout,</li>
+<li>`main.py`: httpx_timeout: int = 30 | timeout=settings.httpx_timeout,</li>
+<li>`tutorial001.py`: "couchbase://couchbasehost:8091?fetch_mutation_tokens=1&operation_timeout=30&n1ql_timeout=300" | bucket.timeout = 30</li>
+<h2>Transactions and idempotency</h2>
+<li>`.pre-commit-config.yaml`: # See https://pre-commit.com for more information | # See https://pre-commit.com/hooks.html for more hooks</li>
+<li>`help-fastapi.md`: * Nie przejmuj się zbytnio rzeczami takimi jak style wiadomości commitów, przy wcielaniu pull requesta łączę c | A jeśli istnieje jakaś konkretna potrzeba dotycząca stylu lub spójności, sam poproszę o zmiany lub dodam commi</li>
+<li>`sql-databases.md`: * `commit` 🔀 💽 (👈 👫 🖊). | ✋️ 📣 🆎 `Session`, 👨‍🎨 🔜 💪 💭 💪 👩‍🔬 (`.add()`, `.query()`, `.commit()`, ♒️) &amp; 💪 🚚 👍 🐕‍🦺 (💖 🛠️). 🆎 📄 🚫 📉 ☑ 🎚.</li>
+<li>`contributing.md`: Como ele roda um comando após o outro, modificando e revertendo muitos arquivos, ele demora um pouco para conc</li>
+<li>`project-generation.md`: * Construção multi-estágio Docker, então você não precisa salvar ou _commitar_ código compilado.</li>
+<li>`dependencies-with-yield.md`: Por exemplo, se algum código em um certo momento no meio da operação, em outra dependência ou em uma *operação</li>
+<li>`sql-databases.md`: * 使用`commit`来将更改提交到数据库（以便保存它们）。 | 但是通过将类型声明为Session，编辑器现在可以知道可用的方法（.add()、.query()、.commit()等）并且可以提供更好的支持（比如完成）。类型声明不影响实际对象。</li>
+<li>`python-types.md`: Laten we beginnen met een eenvoudig voorbeeld:</li>
+<li>`help-fastapi.md`: * Machen Sie sich nicht zu viele Gedanken über Dinge wie den Stil von Commit-Nachrichten, ich werde den Commit | Und wenn es irgendeinen anderen Stil- oder Konsistenz-Bedarf gibt, bitte ich direkt darum oder füge zusätzlich</li>
+<li>`contributing.md`: Das Kommando hat auch eine Dummy-Datei `docs/ht/index.md` für die Hauptseite erstellt. Sie können mit der Über | * In Zeilen, die mit `===` oder `!!!` beginnen, übersetzen Sie nur den ` "... Text ..."`-Teil. Lassen Sie den </li>
+<h2>What the repository asks contributors for</h2>
+<li>`.github/ISSUE_TEMPLATE`: config.yml, privileged.yml</li>
+<h2>Status codes the code returns</h2>
+<li>`alt_main.py`: 400, 404, 500</li>
+<li>`alt_main.py`: 400, 404, 500</li>
+<li>`alt_main.py`: 400, 404, 500</li>
+<li>`main.py`: 400, 404, 409</li>
+<li>`main.py`: 400, 404, 409</li>
+<li>`main.py`: 400, 404, 409</li>
+<li>`main.py`: 400, 404, 409</li>
+<li>`main.py`: 400, 404, 409</li>
+<li>`test_starlette_exception.py`: 204, 404</li>
+<li>`test_exception_handlers.py`: 400, 500</li>
+<li>`test_reponse_set_reponse_code_empty.py`: 204, 400</li>
+<li>`release-notes.md`: 400, 404</li>
+<h2>Services this code calls</h2>
+<li>`alternatives.md`: http://docs.python-requests.org, http://example.com, http://flask.pocoo.org, https://apispec.readthedocs.io, https://github.com, https://marshmallow.readthedocs.io</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io, https://requests.readthedocs.io</li>
+<li>`sql-databases.md`: https://alembic.sqlalchemy.org, https://arq-docs.helpmanual.io, https://docs.celeryq.dev, https://docs.pydantic.dev, https://extendsclass.com, https://github.com</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io, https://requests.readthedocs.io</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io, https://requests.readthedocs.io</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask-apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io, https://requests.readthedocs.io</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io, https://requests.readthedocs.io</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io, https://requests.readthedocs.io</li>
+<li>`sql-databases.md`: https://alembic.sqlalchemy.org, https://arq-docs.helpmanual.io, https://docs.celeryq.dev, https://docs.pydantic.dev, https://github.com, https://inloop.github.io</li>
+<li>`alternatives.md`: http://example.com, https://apispec.readthedocs.io, https://flask.palletsprojects.com, https://github.com, https://marshmallow.readthedocs.io, https://requests.readthedocs.io</li>
+<li>`help-fastapi.md`: https://alternativeto.net, https://dev.to, https://github.com, https://stackoverflow.com, https://stackshare.io, https://tiangolo.com</li>
+<h2>Assets</h2>
+<li>.png (160), .svg (47), .jpg (3)</li>
+<h2>Assumptions about time and locale</h2>
+<li>`test_datetime_custom_encoder.py`: from datetime import datetime, timezone | return dt_field.replace(microsecond=0, tzinfo=timezone.utc).isoformat()</li>
+<li>`test_jsonable_encoder.py`: from datetime import datetime, timezone | return dt.replace(microsecond=0, tzinfo=timezone.utc).isoformat()</li>
+<li>`schema-extra-example.md`: Mit derselben Technik können Sie das JSON-Schema erweitern und Ihre eigenen benutzerdefinierten Zusatzinformat</li>
+<li>`first-steps.md`: Cette ligne montre l'URL par laquelle l'app est actuellement accessible, sur votre machine locale.</li>
+<li>`release-notes.md`: * 🌐 Add Dutch translation for `docs/nl/docs/python-types.md`. PR [#12158](https://github.com/fastapi/fastapi/p | * 🌐  Add Dutch translation for `docs/nl/docs/features.md`. PR [#12101](https://github.com/fastapi/fastapi/pull</li>
+<li>`main.py`: from datetime import datetime, timedelta, timezone | now = datetime.now(tz=timezone.utc)</li>
+<li>`tutorial005_py39.py`: from datetime import datetime, timedelta, timezone | expire = datetime.now(timezone.utc) + expires_delta</li>
+<li>`tutorial004_an_py39.py`: from datetime import datetime, timedelta, timezone | expire = datetime.now(timezone.utc) + expires_delta</li>
+<li>`tutorial004_an_py310.py`: from datetime import datetime, timedelta, timezone | expire = datetime.now(timezone.utc) + expires_delta</li>
+<li>`tutorial004_an.py`: from datetime import datetime, timedelta, timezone | expire = datetime.now(timezone.utc) + expires_delta</li>
+<h2>The functions that carry the complexity</h2>
+<li>test_application.py:test_openapi_schema (1228 lines, 0 branches)</li>
+<li>applications.py:__init__ (900 lines, 5 branches)</li>
+<li>test_schema_extra_examples.py:test_openapi_schema (706 lines, 0 branches)</li>
+<li>test_response_model_as_return_annotation.py:test_openapi_schema (602 lines, 0 branches)</li>
+<li>routing.py:put (380 lines, 0 branches)</li>
+<li>routing.py:post (380 lines, 0 branches)</li>
+<li>routing.py:head (380 lines, 0 branches)</li>
+<li>routing.py:patch (380 lines, 0 branches)</li>
+<li>routing.py:trace (380 lines, 0 branches)</li>
+<li>applications.py:put (376 lines, 0 branches)</li>
+<li>applications.py:post (376 lines, 0 branches)</li>
+<li>applications.py:patch (376 lines, 0 branches)</li>
+<li>routing.py:get (375 lines, 0 branches)</li>
+<li>routing.py:delete (375 lines, 0 branches)</li>
+<li>routing.py:options (375 lines, 0 branches)</li>
+<h2>Blocks that appear more than once</h2>
+<li>`tests/test_starlette_exception.py:84` ≈ tests/test_application.py:84, tests/test_application.py:144, tests/test_application.py:204</li>
+<li>`tests/test_starlette_exception.py:88` ≈ tests/test_schema_extra_examples.py:532, tests/test_schema_extra_examples.py:576, tests/test_schema_extra_examples.py:784</li>
+<li>`tests/test_starlette_exception.py:100` ≈ tests/test_tutorial/test_handling_errors/test_tutorial001.py:36</li>
+<li>`tests/test_starlette_exception.py:116` ≈ tests/test_security_oauth2.py:164, tests/test_param_in_path_and_dependency.py:32, tests/test_schema_extra_examples.py:216</li>
+<li>`tests/test_starlette_exception.py:120` ≈ tests/test_security_oauth2.py:168, tests/test_param_in_path_and_dependency.py:36, tests/test_schema_extra_examples.py:220</li>
+<li>`tests/test_starlette_exception.py:144` ≈ tests/test_tutorial/test_query_params/test_tutorial006.py:132, tests/test_tutorial/test_query_params/test_tutorial006_py310.py:136, tests/test_tutorial/test_events/test_tutorial001.py:52</li>
+<li>`tests/test_starlette_exception.py:148` ≈ tests/test_security_oauth2.py:244, tests/test_generate_unique_id_function.py:1056, tests/test_sub_callbacks.py:256</li>
+<li>`tests/test_starlette_exception.py:152` ≈ tests/test_security_oauth2.py:248, tests/test_generate_unique_id_function.py:1060, tests/test_sub_callbacks.py:260</li>
+<li>`tests/test_starlette_exception.py:156` ≈ tests/test_security_oauth2.py:252, tests/test_tutorial/test_request_form_models/test_tutorial001_an_py39.py:200, tests/test_tutorial/test_async_sql_databases/test_tutorial001.py:116</li>
+<li>`tests/test_starlette_exception.py:160` ≈ tests/test_security_oauth2.py:256, tests/test_generate_unique_id_function.py:164, tests/test_generate_unique_id_function.py:360</li>
+<li>`tests/test_starlette_exception.py:164` ≈ tests/test_security_oauth2.py:260, tests/test_schema_extra_examples.py:848, tests/test_param_include_in_schema.py:120</li>
+<li>`tests/test_multi_body_errors.py:112` ≈ tests/test_multi_query_errors.py:48</li>
+<h2>Lines of code</h2>
+<li>Markdown: 163,358, Python: 110,576, JavaScript: 481, Shell: 29</li>
+<h2>How much of this is tests</h2>
+<li>621 test files of 2181 (28%)</li>
+<h2>Files nothing imports</h2>
+<li>`docs/en/docs/js/custom.js`, `docs/en/docs/js/termynal.js`, `docs_src/additional_responses/tutorial002.py`, `docs_src/additional_responses/tutorial003.py`, `docs_src/additional_responses/tutorial004.py`, `docs_src/additional_status_codes/tutorial001_an.py`, `docs_src/additional_status_codes/tutorial001_an_py310.py`, `docs_src/additional_status_codes/tutorial001_an_py39.py`, `docs_src/additional_status_codes/tutorial001_py310.py`, `docs_src/advanced_middleware/tutorial002.py`, `docs_src/advanced_middleware/tutorial003.py`, `docs_src/background_tasks/tutorial002.py`, `docs_src/background_tasks/tutorial002_an.py`, `docs_src/background_tasks/tutorial002_an_py310.py`, `docs_src/background_tasks/tutorial002_an_py39.py`, `docs_src/background_tasks/tutorial002_py310.py`, `docs_src/behind_a_proxy/tutorial002.py`, `docs_src/behind_a_proxy/tutorial003.py`, `docs_src/behind_a_proxy/tutorial004.py`, `docs_src/bigger_applications/app/routers/users.py`</li>
+<h2>Third-party services this code talks to</h2>
+<li>**redis** — background-tasks.md, docker.md, external_links.yml, websockets.md</li>
+<li>**gcp** — docs.py, oauth2-scopes.md, simple-oauth2.md, test_local_docs.py</li>
+<li>**github** — Dockerfile, custom.js, main.py</li>
+<li>**segment** — test_router_prefix_with_template.py</li>
+<li>**openai** — additional-responses.md</li>
+<li>**sentry** — release-notes.md</li>
+<li>**twilio** — external_links.yml</li>
+<h2>What polices this repository</h2>
+<li>`.pre-commit-config.yaml`: -   repo: https://github.com/pre-commit/pre-commit, check-added-large-files, check-toml, check-yaml, end-of-file-fixer, trailing-whitespace, ruff, ruff-format</li>
+<li>`pyproject.toml`: [</li>
+<h2>Releases</h2>
+<li>0.115.0 2024-09-17</li>
+<h2>Environment parity</h2>
+<li>set in CI only: CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN, COMMIT_SHA, CONTEXT, COVERAGE_FILE, DEPLOY_URL, FASTAPI_LATEST_CHANGES, FASTAPI_MKDOCS_MATERIAL_INSIDERS, FASTAPI_PEOPLE, GITHUB_CONTEXT, GITHUB_TOKEN, IS_DONE, PROJECTS_TOKEN, RUN_ID, SMOKESHOW_AUTH_KEY</li>
+<h2>Which binary serves what</h2>
+<li>`tests/main.py`: (routes not attributable by directory)</li>
+<li>`tests/test_modules_same_name_body/app/main.py`: DELETE /items/{item_id}  (applications.py), GET /app  (test_deprecated_openapi_prefix.py), GET /app  (tutorial001.py), GET /app  (tutorial002.py), GET /app  (tutorial003.py), GET /app  (tutorial004.py)</li>
+<li>`.github/actions/notify-translations/app/main.py`: DELETE /items/{item_id}  (applications.py), GET /app  (test_deprecated_openapi_prefix.py), GET /app  (tutorial001.py), GET /app  (tutorial002.py), GET /app  (tutorial003.py), GET /app  (tutorial004.py)</li>
+<li>`.github/actions/people/app/main.py`: DELETE /items/{item_id}  (applications.py), GET /app  (test_deprecated_openapi_prefix.py), GET /app  (tutorial001.py), GET /app  (tutorial002.py), GET /app  (tutorial003.py), GET /app  (tutorial004.py)</li>
+<li>`docs_src/settings/app03_an/main.py`: (routes not attributable by directory)</li>
+<li>`docs_src/settings/app02_an/main.py`: (routes not attributable by directory)</li>
+<li>`docs_src/settings/app02/main.py`: (routes not attributable by directory)</li>
+<li>`docs_src/settings/app03/main.py`: (routes not attributable by directory)</li>
+<h2>How this suite is built</h2>
+<li>**features** — Gherkin features: none found</li>
+<li>**steps** — step definitions the features bind to: none found</li>
+<li>**page_objects** — classes that own selectors and page actions: none found</li>
+<li>**driver** — browser/session driver: waits, screenshots: none found</li>
+<li>**environment** — hooks and per-scenario setup: none found</li>
+<li>**Scripts**: `scripts/format.sh`, `scripts/lint.sh`, `scripts/test-cov-html.sh`, `scripts/test.sh`</li>
+<h2>The suite's own documentation</h2>
+<li>`README.md` — Sponsors, Opinions, **Typer**, the FastAPI of CLIs, Requirements, Installation, Example</li>
+<li>`docs/az/docs/index.md` — Sponsorlar, Rəylər, **Typer**, CLI-ların FastAPI-ı, Tələblər, Quraşdırma, Nümunə</li>
+<li>`docs/az/docs/learn/index.md` — Öyrən</li>
+<li>`docs/bn/docs/index.md` — স্পনসর গণ, মতামত সমূহ, **Typer**, CLI এর জন্য FastAPI, প্রয়োজনীয়তা গুলো, ইনস্টলেশন প্রক্রিয়া, উদাহরণ</li>
+<li>`docs/bn/docs/learn/index.md` — শিখুন</li>
+<li>`docs/bn/docs/python-types.md` — পাইথন এর <abbr title="একটি ভেরিয়েবল কি ধরনের ডেটা ধারণ করতে পারে।">টাইপ্স</abbr> পরিচিতি, প্রেরণা, এটি সম্পাদনা করুন, টাইপ যোগ করুন, আরও প্রেরণা, টাইপ ঘোষণা</li>
+<li>`docs/de/docs/about/index.md` — Über</li>
+<li>`docs/de/docs/advanced/additional-responses.md` — Zusätzliche Responses in OpenAPI, Zusätzliche Response mit `model`, Zusätzliche Medientypen für die Haupt-Response, Informationen kombinieren, Vordefinierte und benutzerdefinierte Responses kombinieren, Weitere Informationen zu OpenAPI-Responses</li>
+<li>`docs/de/docs/advanced/additional-status-codes.md` — Zusätzliche Statuscodes, Zusätzliche Statuscodes, OpenAPI- und API-Dokumentation</li>
+<li>`docs/de/docs/advanced/advanced-dependencies.md` — Fortgeschrittene Abhängigkeiten, Parametrisierte Abhängigkeiten, Eine „aufrufbare“ Instanz, Die Instanz parametrisieren, Eine Instanz erstellen, Die Instanz als Abhängigkeit verwenden</li>
+<li>`docs/de/docs/advanced/async-tests.md` — Asynchrone Tests, pytest.mark.anyio, HTTPX, Beispiel, Es ausführen, Details</li>
+<li>`docs/de/docs/advanced/behind-a-proxy.md` — Hinter einem Proxy, Proxy mit einem abgetrennten Pfadpräfix, Bereitstellung des `root_path`, Überprüfen des aktuellen `root_path`, Festlegen des `root_path` in der FastAPI-Anwendung, Über `root_path`</li>
+<h2>Shared helpers outside steps and page objects</h2>
+<li>`fastapi/_compat.py`: ModelField.alias(), ModelField.default(), ModelField.get_default(), ModelField.required(), ModelField.serialize(value), ModelField.type_(), ModelField.validate(value, values)</li>
+<li>`fastapi/applications.py`: FastAPI.add_api_route(path, endpoint), FastAPI.add_api_websocket_route(path, endpoint, name), FastAPI.api_route(path), FastAPI.delete(path), FastAPI.exception_handler(exc_class_or_status_code), FastAPI.get(path), FastAPI.head(path), FastAPI.include_router(router), FastAPI.middleware(middleware_type), FastAPI.on_event(event_type)</li>
+<li>`fastapi/background.py`: BackgroundTasks.add_task(func)</li>
+<li>`fastapi/datastructures.py`: UploadFile.close(), UploadFile.read(size), UploadFile.seek(offset), UploadFile.validate(cls, v), UploadFile.write(data)</li>
+<li>`fastapi/exceptions.py`: ValidationException.errors()</li>
+<li>`fastapi/openapi/models.py`: EmailStr.validate(cls, v)</li>
+<li>`fastapi/responses.py`: ORJSONResponse.render(content), UJSONResponse.render(content)</li>
+<li>`fastapi/routing.py`: APIRoute.get_route_handler(), APIRoute.matches(scope), APIRouter.add_api_route(path, endpoint), APIRouter.add_api_websocket_route(path, endpoint, name), APIRouter.api_route(path), APIRouter.delete(path), APIRouter.get(path), APIRouter.head(path), APIRouter.include_router(router), APIRouter.on_event(event_type)</li>
+<h2>Backend the tests touch</h2>
+<li>endpoints: /api/v1, /api/v1/openapi.json</li>
+<li>tables queried: Starlette, Starlette., a, collections, contextlib, copy, dataclasses, different, e, enum, fastapi, fastapi._compat, fastapi.datastructures, fastapi.dependencies.models, fastapi.dependencies.utils, fastapi.encoders, fastapi.exception_handlers, fastapi.exceptions, fastapi.logger, fastapi.openapi.constants</li>
+<h2>Repository conventions</h2>
+<li>`CONTRIBUTING.md`: </li>
+<li>`README.md`: </li>
+<h2>What past runs measured (slowest first)</h2>
+<li>Blank lookup forecast run does not show error — ~32s, failed 11×</li>
+<li>Include and exclude polarity both reach the forecast wire — exclude-only -- @1.2  — ~27s, failed 2×</li>
+<li>Include and exclude polarity both reach the forecast wire — include-only -- @1.1  — ~26s, failed 2×</li>
+<li>Ad Product and Group By wire together — VIDEO / Date Range / include -- @1.1  — ~49s</li>
+<li>Reset clears configuration on a new lookup — ~17s</li>
+<li>Configuration box counts +3 other settings -- @1.3  — ~23s, failed 4×</li>
+<li>Configuration box counts +2 other settings -- @1.2  — ~23s, failed 4×</li>
+<li>Configuration box counts +1 other settings -- @1.1  — ~22s, failed 4×</li>
+<li>User can search for values by typing a string — ~742s, failed 1×</li>
+<li>Clear All removes all targeting — ~713s, failed 1×</li>
+<li>O1 product 11993 search by ID shows matching product in list -- @1.5  — ~707s, failed 2×</li>
+<li>The value list offers no bulk add until a search term narrows it — ~678s, failed 1×</li>
+<li>User can select multiple demo segments for Audience Boolean — ~669s, failed 1×</li>
+<li>Ad Product and Group By wire together — SLATE / Daily / exclude -- @1.2  — ~18s</li>
+<li>Configuration modal shows start date in correct format after inline edit — ~210s, failed 6×</li>
+<li>New lookup shows empty forecast table before first run — ~20s, failed 2×</li>
+<li>Ad Product and Group By wire together — PAUSE_PLUS / Weekly / neutral -- @1.3  — ~16s</li>
+<li>Existing line item targeting shows names instead of GUIDs — ~569s, failed 1×</li>
+<li>Admin round trip and reload preserves portal shell — ~17s</li>
+<li>O1 product 12323 search by ID shows matching product in list -- @1.7  — ~410s, failed 2×</li>
+<h2>What each directory says it is</h2>
+<li>`.` — <p align="center"></li>
+<h2>CI</h2>
+<li>`.github/FUNDING.yml` — jobs: </li>
+<li>`.github/labeler.yml` — jobs: docs, lang-all, internal</li>
+<li>`.github/dependabot.yml` — jobs: updates, schedule, commit-message, schedule, commit-message</li>
+<li>`.github/workflows/smokeshow.yml` — jobs: on, workflow_run, permissions, jobs, smokeshow, steps</li>
+<li>`.github/workflows/issue-manager.yml` — jobs: on, schedule, issue_comment, types, issues, types, pull_request_target, types</li>
+<li>`.github/workflows/deploy-docs.yml` — jobs: on, workflow_run, workflows, types, permissions, jobs, deploy-docs, steps</li>
+<h2>How a test authenticates</h2>
+<li>`applications.py`: get_swagger_ui_oauth2_redirect_html, | "description": "Operations with users. The **login** logic is also here.",</li>
+<li>`exceptions.py`: This is for client errors, invalid authentication, invalid data, etc. Not for server | This is for client errors, invalid authentication, invalid data, etc. Not for server</li>
+<li>`models.py`: cookie = "cookie" | oauth2 = "oauth2"</li>
+<li>`routing.py`: websocket_session, | self.app = websocket_session(</li>
+<h2>What the tags mean, where it is written down</h2>
+<li>`@http` — //127.0.0.1:8000/items/foo?q=somequery`) for `GET` requests.</li>
+<li>`@fastapi-cli` — to provide the `fastapi` command.</li>
+<li>`@main` — `main.py` faylı (yəni Python "modulu").</li>
+<li>`@app` — `main.py` faylında `app = FastAPI()` sətrində yaratdığımız `FastAPI` obyektidir.</li>
+<li>`@item_id` — nin <abbr title="Yol: Path">yolda</abbr> olub-olmadığını yoxlayacaq.</li>
+<li>`@age` — কে একটি স্ট্রিং হিসেবে রূপান্তর করতে `str(age)` ব্যবহার করতে হবে:</li>
+<li>`@str` — এর একটি `list` হিসেবে সংজ্ঞায়িত করা যাক।</li>
+<li>`@dict` — এর কীগুলির জন্য।</li>
+<li>`@None` — ও হতে পারে।</li>
+<li>`@Union` — এর পক্ষে সুপারিশ করব কারণ "**অপশনাল**" শব্দটি মনে হতে পারে যে মানটি ঐচ্ছিক,অথচ এটি আসলে মানে "এটি হতে পারে `No</li>
+<li>`@Person` — এর একটি **ইন্সট্যান্স**।"</li>
+<li>`@Annotated` — কে `typing_extensions` থেকে ইমপোর্ট করেন।</li>
+<li>`@model` — Schlüssel ist nicht Teil von OpenAPI.</li>
+<li>`@responses` — Parameter verwenden, um verschiedene Medientypen für dieselbe Haupt-Response hinzuzufügen.</li>
+<li>`@__call__` — //// tab | Python 3.9+</li>
+<h2>Infrastructure the suite talks to</h2>
+<li>`.github/actions/notify-translations/Dockerfile` — services: </li>
+<li>`.github/actions/people/Dockerfile` — services: </li>
+<h2>pytest cases (2001)</h2>
+<li>`docs_src/app_testing/app_b/test_main.py`: test_read_item, test_read_item_bad_token, test_read_nonexistent_item, test_create_item, test_create_item_bad_token, test_create_existing_item</li>
+<li>`docs_src/app_testing/app_b_an/test_main.py`: test_read_item, test_read_item_bad_token, test_read_nonexistent_item, test_create_item, test_create_item_bad_token, test_create_existing_item</li>
+<li>`docs_src/app_testing/app_b_an_py310/test_main.py`: test_read_item, test_read_item_bad_token, test_read_nonexistent_item, test_create_item, test_create_item_bad_token, test_create_existing_item</li>
+<li>`docs_src/app_testing/app_b_an_py39/test_main.py`: test_read_item, test_read_item_bad_token, test_read_nonexistent_item, test_create_item, test_create_item_bad_token, test_create_existing_item</li>
+<li>`docs_src/app_testing/app_b_py310/test_main.py`: test_read_item, test_read_item_bad_token, test_read_nonexistent_item, test_create_item, test_create_item_bad_token, test_create_existing_item</li>
+<li>`docs_src/app_testing/test_main.py`: test_read_main</li>
+<li>`docs_src/async_tests/test_main.py`: test_root [anyio]</li>
+<li>`docs_src/settings/app02/test_main.py`: test_app</li>
+<li>`docs_src/settings/app02_an/test_main.py`: test_app</li>
+<li>`docs_src/settings/app02_an_py39/test_main.py`: test_app</li>
+<li>`docs_src/sql_databases/sql_app/tests/test_sql_app.py`: test_create_user</li>
+<li>`docs_src/sql_databases/sql_app_py310/tests/test_sql_app.py`: test_create_user</li>
+<li>`docs_src/sql_databases/sql_app_py39/tests/test_sql_app.py`: test_create_user</li>
+<li>`tests/test_additional_properties.py`: test_additional_properties_post, test_openapi_schema</li>
+<li>`tests/test_additional_properties_bool.py`: test_call_invalid, test_call_valid, test_openapi_schema</li>
+<h2>Fixtures</h2>
+<li>`tests/test_computed_fields.py`: get_client</li>
+<li>`tests/test_dependency_normal_exceptions.py`: reset_state_and_db</li>
+<li>`tests/test_filter_pydantic_sub_model/test_filter_pydantic_sub_model_pv1.py`: get_client</li>
+<li>`tests/test_filter_pydantic_sub_model_pv2.py`: get_client</li>
+<li>`tests/test_router_events.py`: state</li>
+<li>`tests/test_tutorial/test_additional_status_codes/test_tutorial001_an_py310.py`: get_client</li>
+<li>`tests/test_tutorial/test_additional_status_codes/test_tutorial001_an_py39.py`: get_client</li>
+<li>`tests/test_tutorial/test_additional_status_codes/test_tutorial001_py310.py`: get_client</li>
+<li>`tests/test_tutorial/test_async_sql_databases/test_tutorial001.py`: get_app</li>
+<li>`tests/test_tutorial/test_bigger_applications/test_main.py`: get_client</li>
+<li>`tests/test_tutorial/test_bigger_applications/test_main_an.py`: get_client</li>
+<li>`tests/test_tutorial/test_bigger_applications/test_main_an_py39.py`: get_client</li>
+<h2>Markers in use</h2>
+<p>anyio, filterwarnings, get, needs_py310, needs_py39, needs_pydanticv1, needs_pydanticv2</p>
+<h2>Test configuration</h2>
+<li>`pyproject.toml`: [project.scripts] · "scripts/", · addopts = [ · "--strict-markers",</li>
+<h2>Contracts, schemas and mocks</h2>
+<li>**mocks**: `fastapi/exception_handlers.py`, `tests/test_exception_handlers.py`</li>
+<li>**i18n**: `.github/actions/notify-translations/Dockerfile`, `.github/actions/notify-translations/action.yml`, `.github/actions/notify-translations/app/main.py`, `.github/workflows/notify-translations.yml`, `docs/missing-translation.md`</li>
+<li>**images**: `python:3.9`</li>
+<h2>What those contracts actually say</h2>
+<li>11 i18n keys, e.g. Authorization, __main__, after, body, category_id, comment_id, discussion_id, discussion_number, operationName, query, variables</li>
+<h2>What you can already write with (6)</h2>
+<p>The vocabulary this suite already has. Write from these; adding a new one is a last resort, and the overlaps above say which ones already say the same thing.</p>
+<p>**pytest fixtures** (6)</p>
+<li>client</li>
+<li>get_app</li>
+<li>get_client</li>
+<li>get_html</li>
+<li>reset_state_and_db</li>
+<li>state</li>
+<h2>Step modules, largest first</h2>
