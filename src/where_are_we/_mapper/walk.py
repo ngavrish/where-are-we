@@ -26,6 +26,15 @@ from .state import (TRUNCATED, _FILE_CACHE, _IGNORE_CACHE, _LINK_CACHE,
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", ".runs"}
 
 
+def skipped(base: str, d: str) -> bool:
+    """A directory the walk does not descend: a name in SKIP_DIRS, or any
+    Python virtual environment, whatever it is called - one carries a
+    pyvenv.cfg. A suite checkout with .venv312, .venv39-backup and
+    .disney-venv beside .venv (5 GB of site-packages) kept a map build
+    opening files for over half an hour (APF-3239's host run, 2026-10-23)."""
+    return d in SKIP_DIRS or os.path.isfile(os.path.join(base, d, "pyvenv.cfg"))
+
+
 _PARSE_CACHE_FILE = ".wawe-cache.json"
 
 
@@ -973,8 +982,20 @@ def _tree(root: str):
     """
     real_root = os.path.realpath(root)
     seen = 0
+    # Only code. In a git checkout a walk sees what git tracks and nothing
+    # else: run outputs, build trees and virtual environments are untracked,
+    # and no ignore file has to name them. The host suite checkout holds
+    # 108,000 untracked artifacts and outputs beside 939 tracked files; every
+    # walk read them (build()'s code_files took the raw tree), and APF-3239's
+    # map step spent over half an hour on it (2026-10-23).
+    tracked_files, tracked_dirs = _tracked(root)
     for base, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if not skipped(base, d)]
+        if tracked_files:
+            at = os.path.relpath(base, root)
+            rel = (lambda n: n) if at == "." else (lambda n: at + "/" + n)
+            dirs[:] = [d for d in dirs if rel(d) in tracked_dirs]
+            files = [f for f in files if rel(f) in tracked_files]
         kept = [f for f in files if not _unreadable(os.path.join(base, f), real_root)]
         if len(kept) != len(files) and _ESCAPED_NOTE not in TRUNCATED:
             TRUNCATED.append(_ESCAPED_NOTE)
@@ -993,6 +1014,14 @@ def _tree(root: str):
 def _ignored(rel: str, pats: list) -> bool:
     import fnmatch
     for p in pats:
+        # A leading "/" anchors the pattern at the root, as in a .gitignore.
+        # Read literally it matched no relative path at all, so the suite's
+        # "/artifacts/" let 67,000 run outputs into the map and a host build
+        # opened files for over half an hour (APF-3239, 2026-10-23).
+        if p.startswith("/"):
+            if fnmatch.fnmatch(rel, p[1:]) or fnmatch.fnmatch(rel, p[1:] + "/*"):
+                return True
+            continue
         if fnmatch.fnmatch(rel, p) or fnmatch.fnmatch(rel, p + "/*") \
                 or fnmatch.fnmatch(os.path.basename(rel), p):
             return True
