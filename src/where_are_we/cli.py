@@ -41,7 +41,7 @@ try:
     from ._mapper.declare import spans_index
     from ._mapper import state
     from ._mapper.state import DEFINITIONS, INDEXED
-    from ._mapper.walk import (SKIP_DIRS, _PARSE_CACHE_FILE, _config,
+    from ._mapper.walk import (SKIP_DIRS, skipped, _PARSE_CACHE_FILE, _config,
                                _load_parse_cache, _product_roots,
                                _write_atomic, _write_atomic_group,
                                content_root, fingerprint, redact)
@@ -68,7 +68,7 @@ except ImportError:  # run as a plain file, with no package around it
     from _mapper.declare import spans_index  # type: ignore[no-redef]
     from _mapper import state  # type: ignore[no-redef]
     from _mapper.state import DEFINITIONS, INDEXED  # type: ignore[no-redef]
-    from _mapper.walk import (SKIP_DIRS,  # type: ignore[no-redef]
+    from _mapper.walk import (SKIP_DIRS, skipped,  # type: ignore[no-redef]
                               _PARSE_CACHE_FILE, _config, _load_parse_cache,
                               _product_roots, _write_atomic,
                               _write_atomic_group, content_root, fingerprint,
@@ -277,7 +277,7 @@ def propose_docs(repo: str, m: dict, apply: bool = False) -> list:
     planned = []
 
     for base, dirs, _files in os.walk(repo):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if not skipped(base, d)]
         target = os.path.join(base, "README.md")
         if os.path.exists(target):
             continue

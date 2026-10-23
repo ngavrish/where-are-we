@@ -23,7 +23,7 @@ from . import extract, rank, state
 from .declare import (_kind_of, _step_texts, index_declarations,
                       record_span, spans_index)
 from .state import DEFINITIONS, INDEXED, LINES, TRUNCATED
-from .walk import (AST_LIMIT, SKIP_DIRS, _cached, _lines_matching,
+from .walk import (AST_LIMIT, SKIP_DIRS, skipped, _cached, _lines_matching,
                    _load_parse_cache, _manifest, _product_roots, _root_of,
                    _save_parse_cache, _slurp, _slurp_source, _tree, _walk,
                    content_pairs, redact, sweep_out_dir)
@@ -1208,7 +1208,7 @@ def build(repo: str, out_dir: str | None = None,
         if not os.path.isdir(root):
             continue
         for base, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+            dirs[:] = [d for d in dirs if not skipped(base, d)]
             rules_corpus += [os.path.splitext(f)[0] for f in files if f.endswith(".mdc")]
     rules_corpus = sorted(set(rules_corpus))[:200]
 
@@ -1849,7 +1849,7 @@ def build(repo: str, out_dir: str | None = None,
     import_graph: dict[str, set] = {}
     import_sites: dict = {}
     tops = {d for d in os.listdir(repo)
-            if os.path.isdir(os.path.join(repo, d)) and d not in SKIP_DIRS}
+            if os.path.isdir(os.path.join(repo, d)) and not skipped(repo, d)}
     for p2 in _walk(repo, ".py") + _walk(repo, ".ts") + _walk(repo, ".js"):
         rel = os.path.relpath(p2, repo)
         top = rel.split(os.sep)[0]
