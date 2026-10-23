@@ -1,0 +1,44 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: where-are-we
+Label: where-are-we
+Suite: stable
+Codename: stable
+Architectures: all
+Components: main
+Description: where-are-we packages
+Date: Fri, 23 Oct 2026 08:48:22 +0000
+Date: Fri, 23 Oct 2026 08:48:22 +0000
+MD5Sum:
+ 4be4aa6ff0fdb648d44a89643e2db7d6              219 Release
+ 4e9a1be3f13264950c43eea41d81f7c1              639 main/binary-all/Packages
+ 87aa9201d8262864d0f4bb6ce2a5f3c7              475 main/binary-all/Packages.gz
+SHA1:
+ 0740fdef96d82eab9a9882c57be408119086a419              219 Release
+ 7cc57d8dcd900f038528c0cee7ac0e38e8f5fb93              639 main/binary-all/Packages
+ b110d6777e772c04a67a25234e9cd9f17196cf51              475 main/binary-all/Packages.gz
+SHA256:
+ c7604010ef57769d0b8f7ee5edb5784a863074c371a6a620f47fd27e9efdb5f0              219 Release
+ 35faaef6ac5935c4975c530cda5710489f6f2d13e3766ff0399e3436ba491841              639 main/binary-all/Packages
+ aecc7e97514de301e8f939be0740295c1baac6b0d8b38d2ca0e7c700c9c52f77              475 main/binary-all/Packages.gz
+SHA512:
+ a934ca189a16500ebdd3caae21c7cd984bd3022bc180c61cd17c3c7d1cb5bf742e34b18260574e36398e16d1858a3e11e393e01664eeefa7b4617a8df90e2c33              219 Release
+ fa0c809c845609f179c918d24064f83b7ea263440924afff09e36c66ab8caa2e8da51ae51a927a7d138a7fbfe9229cc5184e715f630bfe3f9404dc4ffae6095b              639 main/binary-all/Packages
+ 869e5f7048b4f3f732e3c1310ea9f1d2013ddeda8c56a04a956a2a4d7da195deae9e1af26ea1f58caf2ee1b52555d0ed5bf1f855afea1b78d9549b229c7bfea1              475 main/binary-all/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iQIzBAEBCgAdFiEEg9HyFEDOGYzgBspk2EKWXBWlXiAFAmrbH1YACgkQ2EKWXBWl
+XiCKAA/8ChDGKI0fVDlpCM4iOpskTfQEdS0pDaERbZAwN4Nmbo2EIS73Y/xoVXeZ
+K6+5wacI6PC2SwgWwoiO02yyJ1gqA4yrh/JR/KIQ8PN2wQT41iZACDZMQZ8OlYsU
+E+s9vYhdt8AfBnPp5O+PDpZqQN8rIEDTDkofQtfAMXY3omMOUWZ0yVj/vTTV5rQO
+ZXBXwl+RoSzxkG3JqML29JrwNlCRDorsEmVewhoSvBLgYVA7GhpB/X4Z1daov0ta
+b1hz8eWBkmfKVYPhHLWbFipfRNVaC4CZTtQDHp0Q4h9REKh84+cghkNuPHlJ2zXs
+3JAe3YC8sXhRr1FDLDrMRYJ88em7HUmTne8DzHJOW3sRDmc3bmTkq9ul/9JWpRob
+6XKacFXrvM8mU25DOaNfBXyZBM78yKrlFpMaj17Yyspk1bg2eQF7v0kH+MgbHIAx
+pIZJmxJKzxu+8xAJQZkDE5entxXnjorZPY+oqMnp15xmEyrYf/czolv7jmGCZoVj
+F4SXt9Iwgmb48HMBSQ19KG+XMT/4Wcl5gbjWTnf10mygtREbRGClBZNr5BDdjtX+
+wJEGGcWp+Pi4yFoJi1i1MAFNwpDOywBUp8KYxaINCWRWDSdoz4AdL9hG+9FhVLOV
+ZQbFAe/aJ9XFiNeTAhre89jOvK7qhbViCFfPnGxiaLPwuGtjqKg=
+=BUUr
+-----END PGP SIGNATURE-----
