@@ -1051,8 +1051,8 @@ defaults from.
 | `RUN_DIR` | `cli.py`, `_mapper/build.py` | where the map files are written, when `--out` is not given | `.` |
 | `PRODUCT_SRC` | `_mapper/walk.py`, `cli.py` | the product under test, colon or comma separated, when `--product` is not given. `none` switches the sibling guess off | unset: the siblings of a repository that looks like a test suite |
 | `RULES_REPO` | `_mapper/build.py`, `cli.py` | a directory of agent rule files to fold into the map, when `--rules` is not given | `/rules` |
-| `RUNS_API_READ` | `_mapper/build.py`, `cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is not given | unset: no runs section |
-| `SPEC_ROOTS` | `cli.py` | the ticket keys `--specs` walks from, comma separated | unset |
+| `RUNS_API_READ` | `_mapper/build.py`, `cli.py` | base URL of a runs API whose recent verdicts go into the map, when `--runs-api` is given bare. Without the flag it is not read: the command line says every time the tool leaves the machine | unset: no runs section |
+| `SPEC_ROOTS` | `cli.py` | the ticket keys `--specs` walks from, comma separated, when `--specs` is given bare. Without the flag no tracker is walked | unset |
 | `SPEC_FETCH_CMD` | `cli.py` | the command that fetches one ticket as JSON, when `--spec-cmd` is not given | unset: `--specs` refuses to run without one |
 | `SPEC_SOURCE` | `cli.py` | which built-in tracker command to use (`jira`, `linear`, `github`, `cmd`), when `--spec-source` is not given | `cmd` |
 | `WAWE_SPEC_DEPTH` | `specs.py` | how many link hops out from each root ticket the spec map walks | `2` |
@@ -1084,10 +1084,12 @@ of those after importing the package keeps the value it started with.
 
 The rest are read per call. Five of them are the ones a flag writes back into
 the environment for a later stage to pick up (`AGENT_REPO`, `PRODUCT_SRC`,
-`RUN_DIR`, `RULES_REPO`, `RUNS_API_READ`). Three more are argparse defaults,
-which `main()` evaluates when it builds the parser (`SPEC_ROOTS`,
-`SPEC_FETCH_CMD`, `SPEC_SOURCE`). The last is `WAWE_JUNIT_DIRS`, which a caller
-that builds several maps in one process sets per build.
+`RUN_DIR`, `RULES_REPO`, `RUNS_API_READ`); `main()` clears `RUNS_API_READ`
+when `--runs-api` is not on the line, so an exported variable cannot fetch on
+its own. Three more are argparse values, which `main()` evaluates when it
+builds the parser: `SPEC_FETCH_CMD` and `SPEC_SOURCE` are defaults, and
+`SPEC_ROOTS` is what a bare `--specs` means. The last is `WAWE_JUNIT_DIRS`,
+which a caller that builds several maps in one process sets per build.
 
 ## Keeping it honest
 

@@ -504,8 +504,15 @@ def build_parser() -> argparse.ArgumentParser:
                          "without it, a test suite tries its sibling directories; a plain code repository does not; 'none' switches the guess off")
     ap.add_argument("--rules", default=os.getenv("RULES_REPO", ""),
                     help="a corpus of rules to list by name")
-    ap.add_argument("--runs-api", default=os.getenv("RUNS_API_READ", ""),
-                    help="read endpoint of a runs database, to carry what earlier runs concluded")
+    # The two flags that leave the machine take their value from the
+    # environment only when they are on the line. A variable alone used to
+    # start the fetch, so `where-are-we --repo .` could reach a tracker with
+    # nothing in the command line to say so - and a command line is all a
+    # reviewer such as HOL Guard has to go on.
+    ap.add_argument("--runs-api", nargs="?", const=os.getenv("RUNS_API_READ", ""),
+                    default=None,
+                    help="read endpoint of a runs database, to carry what earlier runs "
+                         "concluded. Bare, it takes $RUNS_API_READ")
     ap.add_argument("--init", action="store_true",
                     help="write a starter .framework-map.json into the repository and exit")
     ap.add_argument("--agent-file", default="",
@@ -724,10 +731,11 @@ def build_parser() -> argparse.ArgumentParser:
                          "score times the commits its most-changed-files "
                          "section records, both numbers shown. Reads "
                          "framework_map.json under --out")
-    ap.add_argument("--specs", default=os.getenv("SPEC_ROOTS", ""),
+    ap.add_argument("--specs", nargs="?", const=os.getenv("SPEC_ROOTS", ""),
+                    default=None,
                     help="ticket keys to map, comma separated: the tracker walked "
                          "once into spec_map.{json,md} so no session has to ask it "
-                         "again")
+                         "again. Bare, it takes $SPEC_ROOTS")
     ap.add_argument("--spec-cmd", default=os.getenv("SPEC_FETCH_CMD", ""),
                     help="how to fetch one ticket as JSON; {key} is substituted. "
                          "This tool knows no tracker — the caller supplies the "
@@ -1011,6 +1019,24 @@ def main() -> int:
         return _effects_command(ap, argv)
     args = ap.parse_args()
     args.repo = _resolve_repo(args.repo, args.out)
+
+    # A bare flag with its variable unset names nothing to fetch, and saying
+    # so beats a build that quietly skipped what was asked for.
+    if args.specs == "":
+        print("--specs needs ticket keys: name them, or set SPEC_ROOTS",
+              file=sys.stderr)
+        return 2
+    if args.runs_api == "":
+        print("--runs-api needs an endpoint: name it, or set RUNS_API_READ",
+              file=sys.stderr)
+        return 2
+    # build() reads the endpoint from the environment, so a variable the
+    # caller exported would fetch without the flag. This process's copy is
+    # what the flag says and nothing else.
+    if args.runs_api:
+        os.environ["RUNS_API_READ"] = args.runs_api
+    else:
+        os.environ.pop("RUNS_API_READ", None)
 
     # Said before anything is previewed or answered, because both branches
     # would otherwise take a line that cannot mean what it says: a file to
@@ -1408,8 +1434,6 @@ def main() -> int:
         os.environ["PRODUCT_SRC"] = args.product
     if args.rules:
         os.environ["RULES_REPO"] = args.rules
-    if args.runs_api:
-        os.environ["RUNS_API_READ"] = args.runs_api
     out_dir = args.out
 
     if not os.path.isdir(repo):

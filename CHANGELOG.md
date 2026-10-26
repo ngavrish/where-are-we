@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.7.0
+
+A variable alone no longer sends the tool off the machine.
+
+- `SPEC_ROOTS` used to be the default of `--specs`, and `RUNS_API_READ` was read
+  by the build whether `--runs-api` was given or not. With either exported,
+  `where-are-we --repo .` walked a tracker -- running `SPEC_FETCH_CMD` once per
+  ticket -- or called a runs API, and nothing on the command line said so. A
+  reviewer that reads command lines, such as HOL Guard, let it through.
+- Now the flag has to be on the line. Bare, `--specs` takes `$SPEC_ROOTS` and
+  `--runs-api` takes `$RUNS_API_READ`; with a value, the value wins as before.
+  A bare flag with its variable unset refuses rather than skipping quietly.
+- `SPEC_FETCH_CMD` and `SPEC_SOURCE` stay defaults: they only matter once
+  `--specs` is there.
+- Breaking for a job that relied on the variables alone: add `--specs` and
+  `--runs-api` to its command line.
+
 ## 1.6.5
 
 The redaction moved with the text. 1.6.3 and 1.6.4 answer with live secrets.

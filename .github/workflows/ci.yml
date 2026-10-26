@@ -4995,9 +4995,43 @@ jobs:
           printf 'def f():\n    pass\n' > /tmp/specpwn/a.py
           SPEC_ROOTS='ABC-1; touch /tmp/SPEC_PWNED #' \
             where-are-we --repo /tmp/specpwn --out /tmp/specpwnmap \
-              --spec-cmd 'true' --quiet
+              --specs --spec-cmd 'true' --quiet
           test ! -e /tmp/SPEC_PWNED
           grep -q "Ignored (does not look like a ticket key)" /tmp/specpwnmap/spec_map.md
+      - name: "fetch flags: a variable alone does not leave the machine"
+        run: |
+          # A reviewer of the command line (HOL Guard) sees the flags and not
+          # the environment, so the variables only fill a flag that is there.
+          rm -rf /tmp/envfetch && mkdir -p /tmp/envfetch/r
+          printf 'def f():\n    pass\n' > /tmp/envfetch/r/a.py
+          printf '#!/bin/sh\necho "$1" >> /tmp/envfetch/fetched.log\necho "{\\"key\\": \\"$1\\"}"\n' \
+            > /tmp/envfetch/fetch.sh
+          chmod +x /tmp/envfetch/fetch.sh
+          python -m http.server 8765 --directory /tmp/envfetch > /tmp/envfetch/http.log 2>&1 &
+          sleep 1
+          SPEC_ROOTS=ABC-1 SPEC_FETCH_CMD='/tmp/envfetch/fetch.sh {key}' \
+            RUNS_API_READ=http://127.0.0.1:8765 \
+            where-are-we --repo /tmp/envfetch/r --out /tmp/envfetch/m --quiet --no-semantic
+          test ! -e /tmp/envfetch/fetched.log
+          test ! -e /tmp/envfetch/m/spec_map.json
+          if grep -q "GET /r/runs" /tmp/envfetch/http.log; then
+            echo "RUNS_API_READ alone reached the runs API" >&2; exit 1
+          fi
+          # Bare, each flag takes its variable. Two runs: a --specs walk
+          # writes the spec map and stops before the build that reads runs.
+          SPEC_ROOTS=ABC-1 SPEC_FETCH_CMD='/tmp/envfetch/fetch.sh {key}' \
+            where-are-we --repo /tmp/envfetch/r --out /tmp/envfetch/m2 --specs --quiet
+          grep -qx ABC-1 /tmp/envfetch/fetched.log
+          RUNS_API_READ=http://127.0.0.1:8765 \
+            where-are-we --repo /tmp/envfetch/r --out /tmp/envfetch/m3 \
+              --runs-api --quiet --no-semantic
+          grep -q "GET /r/runs" /tmp/envfetch/http.log
+          # Bare with the variable unset names nothing, and says so.
+          if env -u SPEC_ROOTS where-are-we --repo /tmp/envfetch/r --specs 2> /tmp/envfetch/err.txt; then
+            echo "expected a bare --specs with no SPEC_ROOTS to refuse" >&2; exit 1
+          fi
+          grep -q "set SPEC_ROOTS" /tmp/envfetch/err.txt
+          kill %1
       - name: "spec fetch: a timed-out fetcher does not orphan its children"
         run: |
           rm -rf /tmp/specslow
