@@ -62,7 +62,15 @@ def _resolve(node, here: str, known: set) -> list:
             base = ".".join(parts + ([base] if base else []))
         elif base:
             base = f"{PKG}.{base}"
-        candidates = [base] + [f"{base}.{a.name}" for a in node.names if base]
+        subs = [f"{base}.{a.name}" for a in node.names if base]
+        # `from . import source` imports the submodule and reads nothing off
+        # the package, the same as `from .source import x`, which has never
+        # been an edge to the package. Only a name the package itself defines
+        # is: that is the "partially initialized module" a cycle breaks.
+        if subs and all(s in known for s in subs):
+            candidates = subs
+        else:
+            candidates = [base] + subs
     for name in candidates:
         if not name:
             continue

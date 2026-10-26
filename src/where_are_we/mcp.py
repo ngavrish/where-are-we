@@ -569,8 +569,8 @@ def _joined(pairs) -> str:
 # Hidden, not filtered silently: every answer that loses lines says how many and
 # why, because an answer that quietly omits what the map holds is the one way
 # this tool can be wrong rather than short.
-_HIDE = tuple(p.strip().strip("/") for p in
-              (os.getenv("WAWE_HIDE") or "").split(":") if p.strip())
+_HIDE_RAW = os.getenv("WAWE_HIDE") or ""
+_HIDE = tuple(p.strip().strip("/") for p in _HIDE_RAW.split(":") if p.strip())
 
 
 def _hide(body: str) -> str:

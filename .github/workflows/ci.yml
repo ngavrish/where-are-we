@@ -6063,19 +6063,27 @@ jobs:
             fi
           done
           # The key names stay: a reader asking where a password is set still
-          # gets the file and the line.
+          # gets the file and the line. Since 1.6.3 the map carries no file
+          # text, so a key that declares nothing (a YAML key) is not in the
+          # map; it is found by the phrase search, which reads the files and
+          # sweeps what it returns.
+          find_phrase() {
+            printf '%s\n' "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"find\",\"arguments\":{\"phrase\":\"$1\"}}}" \
+              | where-are-we --repo /tmp/sec/r --out /tmp/sec/m --mcp
+          }
           grep -q "STRIPE_KEY" /tmp/sec/m/framework_map.json
-          grep -q "db_password" /tmp/sec/m/framework_map.json
           grep -q "STRIPE_KEY" /tmp/sec/find.txt
           grep -q "redacted" /tmp/sec/find.txt
+          find_phrase db_password > /tmp/sec/find-db.txt
+          grep -q "conf.yaml:1: db_password: \[redacted\]" /tmp/sec/find-db.txt
           # The bare base64 rule used to destroy both of these. It is back,
           # gated on a `+` or an `=` in the run, and a sha and a Java package
           # path have neither.
           grep -q "a3f5c9e2b7d1084f6a2c5e8b1d4f7a0c3e6b9d2f" /tmp/sec/m/framework_map.json
-          grep -q "com/example/service/impl/CustomerServiceImpl.java" \
-            /tmp/sec/m/framework_map.json
-          grep -q "keep-this-value" /tmp/sec/m/framework_map.json
-          grep -q "export PATH=/usr/bin" /tmp/sec/m/framework_map.json
+          find_phrase CustomerServiceImpl \
+            | grep -q "com/example/service/impl/CustomerServiceImpl.java"
+          find_phrase keep-this-value | grep -q "harmless: keep-this-value"
+          find_phrase "export PATH" | grep -q "export PATH=/usr/bin"
           # A private key is redacted as a block. Only the header used to go,
           # which left the base64 body in the map and coming back out of find.
           if grep -q "MIIEowIBAAKCAQEAvR8Nx2Lp0qKZ" /tmp/sec/m/framework_map.json; then
@@ -6131,8 +6139,10 @@ jobs:
           print("kept", len(keep), "lines that only mention a credential")
           EOF
           # PEM state is per file: b_page's contribution to any aggregated
-          # list survives a_page's header. It used to be blanked with it.
-          grep -q "distinctive-b-content" /tmp/sec/m/framework_map.json
+          # list survives a_page's header. It used to be blanked with it. The
+          # map keeps the name b_page declares; the value comes back by phrase.
+          grep -q "B_MARKER_LINE" /tmp/sec/m/framework_map.json
+          find_phrase distinctive-b-content | grep -q 'b_page.py:2: B_MARKER_LINE'
           # "A map written to disk is redacted" used to mean the copy of the
           # code inside it was swept. The map holds no code now, so the
           # property splits in two and both halves are checked here: nothing
